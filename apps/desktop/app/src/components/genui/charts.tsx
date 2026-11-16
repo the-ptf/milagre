@@ -3,7 +3,6 @@ import { CHART_HEIGHT, CHART_PAD, CHART_WIDTH, chartGeometry } from "@milagre/sh
 import type { GenuiProps } from "@milagre/shared/genui";
 
 function Labels({ labels, slot }: { labels: readonly string[]; slot: number }) {
-  // Only as many labels as fit at about 40px each; the rest stay in the tooltip of their bar or point.
   const every = Math.max(1, Math.ceil(40 / slot));
   return (
     <>

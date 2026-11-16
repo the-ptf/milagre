@@ -11,6 +11,7 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { PersistenceNotices } from "/src/components/PersistenceNotice";
 import { ChatComposer } from "/src/components/ChatComposer";
+import { createDraftStore } from "/src/lib/draft-store";
 import { MessageScroller } from "/src/components/agents/message-scroller";
 import { Markdown, StreamingMarkdown } from "/src/components/markdown/Markdown";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
@@ -33,7 +34,7 @@ function Fixture() {
   window.failLoad = () => flushSync(() => { setLoading(false); setLoadError("Read interrupted"); });
   window.setLoading = value => flushSync(() => setLoading(value));
   window.switchChat = (id, count) => flushSync(() => { setSessionId(id); setCount(count); });
-  const [draft, setDraft] = useState("");
+  const [draftStore] = useState(createDraftStore);
   const [model, setModel] = useState(MODEL_CATALOG[0]);
   const [fastMode, setFastMode] = useState(false);
   const [ultracode, setUltracode] = useState(false);
@@ -48,7 +49,7 @@ function Fixture() {
   window.setSending = setSending;
   window.resolveClicks ??= 0;
   window.setMessageCount = setCount;
-  window.setDraft = setDraft;
+  window.setDraft = draftStore.setText;
   window.setModel = (id) => setModel(MODEL_CATALOG.find((item) => item.id === id));
   const messages = Array.from({ length: count }, (_, index) => ({
     id: sessionId * 1000 + index + 1, session_id: sessionId, context: null, role: "assistant",
@@ -66,7 +67,7 @@ function Fixture() {
     {/* Exercise the fully expanded history, as when Find is open; paging has its own regression. */}
     <ChatComposer findOpen loadError={loadError} onRetryLoad={() => { setLoadError(undefined); setLoading(false); setCount(100); }} loading={loading} agentChatId={"/fixture#" + sessionId} scrollKey={sessionId} messages={[...messages, ...extra]}
       imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture" draft={draft} onDraftChange={setDraft} onSend={noop} isSending={sending} sendBlocked={false}
+      projectPath="/fixture" store={draftStore} onSend={noop} isSending={sending} sendBlocked={false}
       pullRequestAction={prAction ? { ...prAction, onRun: () => window.resolveClicks++ } : undefined}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={ultracode} onUltracodeChange={setUltracode}

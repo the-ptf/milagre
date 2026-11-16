@@ -2,12 +2,6 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { FitToScreenIcon, MinusSignIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { IconButton } from "./Button";
 
-/**
- * The floating zoom bar of a canvas, a pill: zoom out, the zoom (pressing it goes back to 100%), zoom in, and Fit,
- * each round with a Tooltip. The main Canvas, the artifact canvas and the Designs editor share it; each passes its own
- * actions, and `canZoomIn` / `canZoomOut` false at its limits. Extra props (a data attribute, a class to place it)
- * go on the bar.
- */
 export function ZoomBar({
   zoom,
   onZoomOut,
@@ -23,7 +17,6 @@ export function ZoomBar({
   children: _children,
   ...props
 }: {
-  /** The zoom as a fraction (1 is 100%), or null before the canvas has one. */
   zoom: number | null;
   onZoomOut: () => void;
   onZoomIn: () => void;
@@ -31,11 +24,8 @@ export function ZoomBar({
   onFit: () => void;
   canZoomIn?: boolean;
   canZoomOut?: boolean;
-  /** The Fit button's accessible name and tooltip. */
   fitLabel?: string;
-  /** Extra attributes for the zoom reading, e.g. a data-slot a check reads it by. */
   resetProps?: HTMLAttributes<HTMLButtonElement> & Record<`data-${string}`, string>;
-  /** Controls before the zoom, such as the Designs canvas's View/Comment modes, set apart by a divider. */
   leading?: ReactNode;
 } & HTMLAttributes<HTMLDivElement>) {
   return (

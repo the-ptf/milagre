@@ -5,7 +5,6 @@ import { THEME_EVENT } from "../../lib/theme-sheet";
 import { ArtifactFrame, pageFiles, tellPage, type DesignPin, type PageState, type PinControls } from "./ArtifactCanvas";
 import { CommentPin, commentCursor } from "./CommentPin";
 
-/** What the dock's zoom bar asks of the page. */
 export type PageHandle = {
   zoomBy: (factor: number) => void;
   zoomTo: (scale: number) => void;
@@ -15,17 +14,14 @@ export type PageHandle = {
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 3;
 const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
-// The comment bubble's width (CommentPin's w-64) and a margin: a pin near the right edge opens it leftwards of the pin.
 const BUBBLE = 264;
 
-/** The pin colours of the current theme, as the page draws them: waiting, sent, resolved. */
 function usePinColors() {
   const read = () => {
     const style = getComputedStyle(document.documentElement);
     const value = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
     return {
       accent: value("--accent", "#007df3"),
-      // A pin carries a number: its fill is the -ink shade, so the label reaches 4.5:1.
       accentInk: value("--accent-ink", "#0068cd"),
       ink: value("--ink", "#191919"),
       surface: value("--surface", "#ffffff"),
@@ -58,17 +54,13 @@ function usePinColors() {
 export const ArtifactPage = forwardRef<
   PageHandle,
   {
-    /** The page's Chat, whose computer its files load from. */
     chatId: string;
     page: HtmlArtifact;
-    /** The tab shown, as the dock's title menu chose it; the first when null or gone. */
     tabId: string | null;
     onTab: (id: string) => void;
     commenting: boolean;
     comments: PinControls;
-    /** The number on each sent comment's pin, by its key. */
     numbers: Map<string, number>;
-    /** A sent comment to bring into view, asked again by a new nonce. */
     reveal: { key: string; nonce: number } | null;
     onScale: (scale: number) => void;
     onToggleComment: () => void;
@@ -86,7 +78,6 @@ export const ArtifactPage = forwardRef<
     return () => observer.disconnect();
   }, []);
 
-  // The zoom follows the fit until the user zooms; the fit is the page's own width when that is wider than the dock.
   const [scale, setScale] = useState(1);
   const following = useRef(true);
   const [wide, setWide] = useState<number | null>(null);
@@ -118,7 +109,6 @@ export const ArtifactPage = forwardRef<
     },
   }));
 
-  // The open comment's bubble sits at its pin, in the page's pixels; the page says where as it scrolls.
   const [anchor, setAnchor] = useState<{ key: string; sx: number; sy: number; shown: boolean } | null>(null);
   const ref: ArtifactRef = { id: page.id, title: page.title, version: page.version, format: "html" };
   const commentsRef = useRef(comments);
@@ -160,12 +150,10 @@ export const ArtifactPage = forwardRef<
           return;
       }
     },
-    // `ref` is rebuilt from `page` each render; the page's id and version are what it depends on.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
     [zoom, onToggleComment, page.id, page.version, page.title, page.tabs, tab.id, tab.title],
   );
 
-  // Escape pressed in the page comes out as a message: comment mode first, then the dock.
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.data === ARTIFACT_ESCAPE && frame.current && event.source === frame.current.contentWindow) onEscape();
@@ -177,7 +165,6 @@ export const ArtifactPage = forwardRef<
   const colors = usePinColors();
   const open = comments.open;
   const waiting = comments.pins.filter((pin) => pin.design.id === page.id);
-  // A comment brought into view from the chat turns to its tab.
   useEffect(() => {
     const pin = reveal && [...comments.sent, ...comments.pins].find((item) => item.key === reveal.key);
     if (pin?.tab) onTab(pin.tab.id);
@@ -254,7 +241,6 @@ export const ArtifactPage = forwardRef<
         />
       </div>
       {openPin && at && (
-        // The bubble over the page; around it the page keeps the mouse.
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           <div className="absolute" style={{ left: Math.max(0, Math.min(at.sx * scale, room.width - BUBBLE)), top: at.sy * scale }}>
             <CommentPin pin={{ ...openPin, x: 0, y: 0 }} number={openPin.number} open scale={1} comments={comments} sent={openPin.sent} />

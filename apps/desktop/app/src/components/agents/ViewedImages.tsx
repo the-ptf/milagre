@@ -8,7 +8,6 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import { MediaLightbox } from "../motion/LazyMediaLightbox";
 import type { LightboxItem } from "../motion/MediaLightbox";
 
-/** One bounded strip; the existing Read activity is the only tool row for these snapshots. */
 export function ViewedImages({ steps, attachments }: { steps: ChatStep[]; attachments?: ImageAttachment[] }) {
   const scope = useScope();
   const remote = isRemoteKey(scope);
@@ -17,7 +16,6 @@ export function ViewedImages({ steps, attachments }: { steps: ChatStep[]; attach
     remote ? scope : null,
     files.filter((file): file is string => !!file),
   );
-  // Key load state by the actual URL, so a durable copy arriving replaces a failed transient load.
   const [loads, setLoads] = useState<Record<string, "ready" | "failed">>({});
   const [opened, setOpened] = useState<string | null>(null);
   const thumbs = useRef(new Map<string, HTMLButtonElement>());

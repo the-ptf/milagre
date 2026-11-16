@@ -7,7 +7,6 @@ import { useSession } from "./session";
 const subscribeNone = () => () => {};
 const idle = () => MCP_IDLE;
 
-// "inactive" (a system sheet over the app) changes nothing; only background and active do.
 const appState: McpAppState = {
   subscribe(listener) {
     const watch = AppState.addEventListener("change", (status) => {
@@ -18,8 +17,6 @@ const appState: McpAppState = {
   },
 };
 
-// One store per computer, so every screen shows the same state. The session builds a new client whenever it connects
-// again, so a store follows the current client (setClient) rather than the one it was made with.
 const stores = new Map<string, ReturnType<typeof createMcpStore>>();
 function storeFor(client: McpClient) {
   let store = stores.get(client.url);
@@ -30,7 +27,6 @@ function storeFor(client: McpClient) {
   return store;
 }
 
-/** The connected computer's MCP servers, shared by every MCP screen (one store per computer, one live subscription). */
 export function useMcp() {
   const client = useSession().client;
   const store = client ? storeFor(client) : null;
@@ -48,7 +44,6 @@ export function useMcp() {
     groups: groupMcpRows(checks),
     problems: checks.filter((check) => check.problem),
     checking: state.busy || (state.entries === null && !state.error),
-    /** The value a switch was just flipped to while its write runs, else undefined. */
     pending: (chip: McpChip, name: string): boolean | undefined => state.pending[mcpPendingKey(chip, name)],
     refresh: () => store?.refresh(),
     toggle: (chip: McpChip, name: string, on: boolean) => store?.toggle(chip, name, on),

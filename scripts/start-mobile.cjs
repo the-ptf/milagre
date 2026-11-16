@@ -5,7 +5,6 @@ function startMetro(env = process.env, args = []) {
   const cwd = path.resolve(__dirname, "../apps/mobile");
   const expo = path.dirname(require.resolve("expo/package.json", { paths: [cwd] }));
   // Expo advertises 127.0.0.1 for --localhost. On macOS, Node otherwise binds
-  // localhost to ::1 first, leaving that advertised IPv4 address unreachable.
   return spawn(process.execPath, ["--dns-result-order=ipv4first", path.join(expo, "bin/cli"), "start", "--localhost", "--port", "8790", ...args], {
     cwd,
     stdio: "inherit",

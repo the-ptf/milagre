@@ -3,7 +3,6 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 
-// An account that hit its limit with no reset time stays out of auto-switch choices this long.
 const UNKNOWN_RESET_MS = 60 * 60 * 1000;
 
 function read(file) {
@@ -14,14 +13,7 @@ function read(file) {
   }
 }
 
-/**
- * Accounts that hit their plan's usage limit, and the move to another one: from the limit card in a Chat, or by
- * itself when auto-switch is on (Settings › Accounts, kept in `file`). A switch assigns the account to the
- * Chat's Project (or Link) with `assign`, then continues the Chat on it.
- * `scope(key)` is the Project's account choices (accounts.scope); `chats` is the ChatHost.
- */
 function createLimitSwitch({ file, assign, scope, chats, now = Date.now }) {
-  // `${provider}:${accountId}` -> the time, in ms, the account can be used again.
   const limited = new Map();
   const key = (provider, accountId) => `${provider}:${accountId}`;
 
@@ -33,7 +25,6 @@ function createLimitSwitch({ file, assign, scope, chats, now = Date.now }) {
     return undefined;
   }
 
-  /** The Project's account choices, each limited account marked with the time it resets. */
   function decorate(snapshot) {
     return {
       ...snapshot,
@@ -47,7 +38,6 @@ function createLimitSwitch({ file, assign, scope, chats, now = Date.now }) {
     };
   }
 
-  /** Moves the Chat's Project to `accountId` for `provider`, then continues the Chat on it. */
   async function switchTo(projectPath, sessionId, provider, accountId, token) {
     if (token && !token.valid()) return { continued: false, label: "another account" };
     const snapshot = await assign(
@@ -63,7 +53,6 @@ function createLimitSwitch({ file, assign, scope, chats, now = Date.now }) {
     return { continued, label };
   }
 
-  /** A turn the limit stopped: remember the account, and with auto-switch on, move the Chat to the next ready one. */
   async function observe(chatId, event, token) {
     const limit = event.type === "turn-failed" ? event.limit : null;
     if (!limit?.accountId) return null;
@@ -73,7 +62,6 @@ function createLimitSwitch({ file, assign, scope, chats, now = Date.now }) {
     const projectPath = projectOfKey(chatId);
     const group = (await scope(projectPath)).providers.find((item) => item.provider === limit.provider);
     if (token && !token.valid()) return { continued: false, cancelled: true };
-    // Someone already moved the Project to another account.
     if (!group || group.effectiveId !== limit.accountId) return null;
     const next = group.accounts.find(
       (account) => account.id !== limit.accountId && account.state === "ready" && !account.missing && !limitedUntil(limit.provider, account.id),

@@ -158,7 +158,6 @@ async function check() {
     await evaluate("window.setShow(true)");
     await waitFor("document.querySelectorAll('[data-design-body][data-painted]').length === 4");
     assert.equal(await evaluate("document.querySelectorAll('[data-design-body] iframe').length"), 1, "only HTML keeps an iframe after warm remount at Fit");
-    // Start live while image decode is delayed, then zoom out. The painted iframe stays until its replacement decodes.
     await evaluate("window.setShow(false)");
     await waitFor("!document.querySelector('[data-slot=artifact-canvas]')");
     await evaluate(
@@ -191,7 +190,6 @@ async function check() {
     await waitFor(
       "document.querySelectorAll('[data-design-body] iframe').length === 0 && document.querySelectorAll('[data-design-body][data-painted]').length === 3",
     );
-    // An HTML preview registration failure remains visible rather than waiting forever behind the design fade.
     await evaluate("window.milagre.createArtifactPreview = async () => { throw Error('Preview registration failed'); }; window.setHtml(true)");
     await waitFor(`${frame("page")}?.querySelector('[role=alert]')?.textContent.includes('Preview registration failed')`);
     assert.equal(await evaluate(`getComputedStyle(${frame("page")}.querySelector('[role=alert]')).opacity`), "1");

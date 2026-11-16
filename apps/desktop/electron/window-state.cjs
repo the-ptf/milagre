@@ -19,9 +19,7 @@ function getWindowState() {
       const stored = JSON.parse(fs.readFileSync(statePath, "utf8"));
       state = { ...defaultState, ...stored };
     }
-  } catch {
-    // ignore
-  }
+  } catch {}
 
   return { state, statePath };
 }
@@ -33,9 +31,7 @@ function manageWindowState(window, statePath) {
     try {
       const bounds = window.getBounds();
       fs.writeFileSync(statePath, JSON.stringify(bounds));
-    } catch {
-      // ignore
-    }
+    } catch {}
   }
 
   function scheduleSave() {

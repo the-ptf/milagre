@@ -61,7 +61,6 @@ async function browserChecks() {
   }
   async function shot(name) {
     if (!capture) return;
-    // Let the card's entrance and the tab swap settle.
     await delay(600);
     const fs = require("node:fs/promises");
     await fs.mkdir(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
@@ -76,25 +75,20 @@ async function browserChecks() {
     const primary = '[...document.querySelectorAll("button")].find((node) => /^(Next|Send answers?)$/.test(node.textContent.trim()))';
     assert.equal(await evaluate(activeTab), "Review");
     await shot("1-first-question");
-    // A single-choice pick moves on to the next question without Next.
     await evaluate(`${option("Brief in composer")}.click()`);
     await waitFor(`${JSON.stringify("Parts")} === ${activeTab}.trim()`);
     assert.equal(await evaluate("document.activeElement.getAttribute('role')"), "checkbox");
     await shot("2-moved-on-after-pick");
-    // A multi-select question still waits for Next.
     await evaluate(`${option("Goal")}.click()`);
     await delay(100);
     assert.equal((await evaluate(activeTab)).trim(), "Parts");
     await evaluate(`${primary}.click()`);
     await waitFor(`${JSON.stringify("Placement")} === ${activeTab}.trim()`);
-    // The last question stays put after a pick, so the answers get a look before Send.
     await evaluate(`${option("Top of the picker")}.click()`);
     await delay(100);
     assert.equal((await evaluate(activeTab)).trim(), "Placement");
     assert.equal(await evaluate("window.sent()"), undefined);
     assert.equal(await evaluate(`${primary}.textContent.trim()`), "Send answers");
-    // "Other" is the options' third row: typing chooses its radio, and picking an option again moves the choice but
-    // keeps the text.
     const other = 'document.querySelector("[data-question-other]")';
     const otherRadio = `${other}.querySelector("[role=radio]")`;
     assert.equal(await evaluate(`${otherRadio}.getAttribute("aria-checked")`), "false");
@@ -123,7 +117,6 @@ async function browserChecks() {
     await waitFor(`${otherRadio}.getAttribute("aria-checked") === "false"`);
     assert.equal(await evaluate(`${other}.querySelector("input").value`), "Beside the composer", "picking an option keeps the typed text");
     await shot("3-last-question-waits-for-send");
-    // Going back and changing an earlier pick moves on again.
     await evaluate('document.querySelector("[role=tab]").click()');
     await waitFor(`${JSON.stringify("Review")} === ${activeTab}.trim()`);
     await evaluate(`${option("Review card")}.click()`);
@@ -137,7 +130,6 @@ async function browserChecks() {
       parts: ["Goal"],
       placement: ["Top of the picker"],
     });
-    // The answers show as a card: each question with what was answered.
     await waitFor('!!document.querySelector("[data-slot=answer-card]")');
     const rows = await evaluate(
       '[...document.querySelectorAll("[data-slot=answer-card-row]")].map((row) => [...row.children].map((part) => part.textContent))',
@@ -176,7 +168,6 @@ async function browserChecks() {
     assert.equal(await evaluate('document.querySelector("input").value'), "");
     await evaluate('[...document.querySelectorAll("button")].find(b => b.textContent === "Decline").click()');
     await waitFor("window.sent() === null");
-    // The last minute reads in the attention tone.
     await evaluate("window.secret(45000)");
     await waitFor("document.querySelector('[role=timer]')?.className.includes('text-orange-ink')");
     await shot("6-secret-last-minute");
@@ -194,7 +185,6 @@ async function browserChecks() {
     assert.equal(await evaluate("document.querySelector('button[type=submit]').disabled"), true);
     assert.equal(await evaluate("window.sent()"), undefined);
     await shot("7-secret-expired");
-    // A Milagre bug report: the exact text with what Milagre replaced marked, editable before Post.
     await evaluate("window.bugReport()");
     await waitFor("!!document.querySelector(\"form[aria-label='Milagre bug report']\")");
     assert.deepEqual(await evaluate('[...document.querySelectorAll("mark")].map((m) => m.textContent)'), ["<worktree>", "<org>", "<repo>", "<branch>"]);

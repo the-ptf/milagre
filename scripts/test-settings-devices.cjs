@@ -1,9 +1,5 @@
 // Run with npm test -- --only test-settings-devices. Exercises Settings › Phone & sharing in the real App against a real daemon (its
-// own temporary data directory and socket, port chosen by the OS): see the devices list fail soft on a host without it,
-// turn device access on, see the QR code and the relay status, copy the link, see a phone and a computer pair and the
-// Computers list appear, see a new phone marked New until seen, remove the phone, see a phone that paired while the owner
 // was away announced once and marked New, reset access, turn it off, then on again behind a Cloudflare tunnel. The rest of the window's API is mocked, like the
-// other checks. Set MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -11,7 +7,6 @@ const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
-/** The New mark on a phone's row in Settings › Phone & sharing, as an expression to evaluate in the window. */
 const newMark = (key) => `document.querySelector('[data-device-row="phone"][data-device-key="${key}"] [data-device-new]')?.textContent`;
 
 const fixture = `
@@ -61,14 +56,12 @@ async function browserChecks() {
   app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "milagre-devices-ui-")));
   const dataDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "milagre-devices-host-")));
   await app.whenReady();
-  // The check never dials the public relay: this stand-in reports that it connected. A reset's retired room has no onStatus.
   const relays = [];
   const startRelay = (options) => {
     relays.push(options);
     setTimeout(() => options.onStatus?.("online"), 20);
     return { close: async () => {}, status: () => "online" };
   };
-  // Nor does it run cloudflared: the tunnel only answers with the address a real one would have.
   const tunnels = { startNamedTunnel: async ({ hostname }) => ({ url: `https://${hostname}`, close: async () => {} }) };
   const daemon = await startDaemon({
     dataDir,
@@ -133,18 +126,15 @@ async function browserChecks() {
 
   try {
     await window.loadURL(process.argv[2]);
-    // The whole App boots first, which takes a CI runner well over the 5 s a step gets.
     await waitFor(`!!document.querySelector('[aria-label="Settings"]')`, 1200);
     await evaluate(`document.querySelector('[aria-label="Settings"]').click()`);
     await click("Phone & sharing");
 
-    // A host from before devices:list: the access controls still work, and the lists say they couldn't be read.
     await waitFor(`!!${toggle} && document.body.textContent.includes('Allow devices to connect')`);
     await waitFor(`document.querySelector('[data-devices-error]')?.textContent.startsWith("Couldn't read paired devices")`);
     for (const method of ["devices:list", "devices:acknowledge"]) ipcMain.handle(method, (_event, ...args) => host.call(method, args));
     console.log("PASS: without devices:list the section still shows its access controls");
 
-    // Off: the toggle, its status, and nothing else to pair with.
     assert.equal(await evaluate(`${toggle}.getAttribute('aria-checked')`), "false");
     await waitFor(`document.body.textContent.includes('Off')`);
     assert.equal(await evaluate(`!!document.querySelector('[data-phone-qr]')`), false);
@@ -152,7 +142,6 @@ async function browserChecks() {
     await screenshot("devices-off");
     console.log("PASS: Settings › Phone & sharing starts off, with nothing to pair");
 
-    // On: a QR image that decodes, the relay status, the pairing window and the warning.
     await evaluate(`${toggle}.click()`);
     await waitFor(`!!document.querySelector('[data-phone-qr]')`);
     await waitFor(`!document.querySelector('[data-devices-error]')`);
@@ -168,7 +157,6 @@ async function browserChecks() {
     await screenshot("phone-on");
     console.log("PASS: turning it on shows the QR code, the relay status, the pairing window and the warning");
 
-    // Local network: on by default with phone access, switchable on its own, and it says where a phone on the same network dials.
     const lanToggle = `document.querySelector('[role="checkbox"][aria-label="Allow on local network"]')`;
     await waitFor(`!!${lanToggle} && document.body.textContent.includes('Reachable at 192.168.1.20')`);
     assert.equal(await evaluate(`${lanToggle}.getAttribute('aria-checked')`), "true");
@@ -182,7 +170,6 @@ async function browserChecks() {
     assert.equal((await host.call("phone:status")).lan.enabled, true);
     console.log("PASS: the local network switch shows the Mac's address, turns off and back on");
 
-    // Copy: the pairing link lands on the clipboard.
     window.webContents.focus();
     await click("Copy link");
     await waitFor(`[...document.querySelectorAll('button')].some(el => el.textContent.trim() === 'Copied')`);
@@ -202,11 +189,9 @@ async function browserChecks() {
     await click("Automatic");
     console.log("PASS: Settings offers a private QR and copied link with no public relay fallback");
 
-    // Devices: no phones yet and no Computers list, then a phone and a computer as they pair.
     const phoneKey = "p".repeat(43);
     const computerKey = "c".repeat(43);
     const hostDevices = () => relays.findLast((options) => !options.retired).phones;
-    // The Devices page has no section headings; the Computers list shows as its rows.
     const computersShown = `!!document.querySelector('[data-device-row="computer"]')`;
     await waitFor(`document.querySelector('[data-devices-empty]')?.textContent === 'No phones yet'`);
     assert.equal(await evaluate(computersShown), false);
@@ -217,7 +202,6 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector('[data-device-row="phone"] [data-device-line]').textContent`), "Last seen just now");
     assert.equal(await evaluate(computersShown), false, "Computers stays hidden with no computer");
     assert.deepEqual(paired, [{ pairedPhones: 1, kind: "phone" }]);
-    // A phone that just paired is New; the host hears it was shown, and the mark stays while the section is open.
     await waitFor(`${newMark(phoneKey)} === 'New'`);
     for (let n = 0; n < 200 && (await host.call("devices:list"))[0].isNew; n++) await delay(25);
     assert.equal((await host.call("devices:list"))[0].isNew, false, "acknowledged once shown");
@@ -229,7 +213,6 @@ async function browserChecks() {
     await screenshot("devices-lists");
     console.log("PASS: phones and computers list by name as they pair; Computers shows only once there is one");
 
-    // Remove asks first; Cancel keeps the phone; confirming removes it on the host.
     const phoneLine = `document.querySelector('[data-device-row="phone"] [data-device-line]')?.textContent`;
     await evaluate(`document.querySelector('[data-device-row="phone"] [data-device-remove]').click()`);
     await waitFor(`${phoneLine} === "Remove Victor's iPhone? It can pair again from Pair a device."`);
@@ -246,27 +229,22 @@ async function browserChecks() {
     );
     console.log("PASS: Remove asks first and removes the phone on the host");
 
-    // A phone pairs while the owner isn't looking (here: another section; in life, Milagre closed). The host keeps its
-    // "New phone paired" notice for the first window to take, once, and the next visit marks it New.
     const awayKey = "q".repeat(43);
     await click("About");
     await waitFor(`!document.querySelector('[data-device-row]')`);
     await hostDevices().add(awayKey, { kind: "phone", name: "Pixel 9" });
     const notices = await Promise.all([host.call("devices:take-notices"), host.call("devices:take-notices")]);
-    // The removed phone is gone with its notice; the computer was allowed here and has none.
     assert.deepEqual(
       notices.flatMap((reply) => reply.devices).map((device) => device.name),
       ["Pixel 9"],
       "announced once, whoever asks",
     );
-    // The window that took it shows it, then confirms.
     assert.equal(await host.call("devices:confirm-notices", [notices.find((reply) => reply.claim).claim]), 1);
     assert.deepEqual(await host.call("devices:take-notices"), { claim: null, devices: [] });
     await click("Phone & sharing");
     await waitFor(`${newMark(awayKey)} === 'New'`);
     await evaluate(`document.querySelector('[data-device-row="phone"]').scrollIntoView({ block: 'center' })`);
     await screenshot("device-new");
-    // Seen: leaving and coming back shows it without the mark.
     await click("About");
     await waitFor(`!document.querySelector('[data-device-row]')`);
     await click("Phone & sharing");
@@ -275,7 +253,6 @@ async function browserChecks() {
     await screenshot("device-seen");
     console.log("PASS: a phone that paired while the owner was away is announced once and marked New until seen");
 
-    // Reset asks first, and cancelling changes nothing.
     await click("Reset access");
     await waitFor(`document.body.textContent.includes('must pair again')`);
     await screenshot("phone-reset-confirm");
@@ -284,7 +261,6 @@ async function browserChecks() {
     assert.equal(await token(), first);
     await click("Reset access");
     await click("Reset and disconnect");
-    // The old code stays up until the host has restarted with the new token.
     let second = first;
     for (let n = 0; n < 200 && second === first; n++) {
       await delay(25);
@@ -295,15 +271,12 @@ async function browserChecks() {
     );
     assert.notEqual(second, first);
     await waitFor(`document.querySelector('[data-devices-empty]')?.textContent === 'No phones yet' && !${computersShown}`);
-    // The old room is held only to tell the phone that paired there that this Mac was reset.
     const retired = relays.filter((options) => options.retired);
     assert.equal(retired.length, 1);
     assert.equal(retired[0].token, undefined);
     console.log("PASS: reset asks first, makes a new token, forgets every device and keeps the old room answering");
 
-    // The pushed reset status can reach the renderer before the reset RPC releases its busy guard.
     await waitFor(`[...document.querySelectorAll('button')].some(el => el.textContent.trim() === 'Reset access' && !el.disabled)`);
-    // Off: the code goes away and the host keeps the setting.
     await evaluate(`${toggle}.click()`);
     await waitFor(`!document.querySelector('[data-phone-qr]') && ${toggle}.getAttribute('aria-checked') === 'false'`);
     assert.equal(await evaluate(`[...document.querySelectorAll('button')].some(el => el.textContent.includes('Reset access'))`), false);

@@ -6,7 +6,6 @@ import { useAnnounce, useStyles } from "./ui";
 import { lineHeight, radius, type } from "./design-tokens";
 import { createStylesHook, type Palette } from "./theme";
 
-/** Which Chats are archiving and the last archive notice, kept across screens. */
 export function useArchiveActivity() {
   return useSyncExternalStore(subscribeArchiveActivity, archiveActivity);
 }
@@ -27,7 +26,6 @@ export function ArchiveProgress() {
   );
 }
 
-/** Desktop's archiving pill: a SpinnerRing and "Deleting…" over a Chat's row while it archives; the row itself fades and takes no taps until the archive ends. */
 export function ArchivingOverlay({ title }: { title: string }) {
   const s = useS();
   useAnnounce(`Archiving ${title}`, { onMount: true });

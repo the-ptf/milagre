@@ -8,7 +8,6 @@ const { parsePullRequestUrl } = require("./routines/pull-request-watch.cjs");
  * `createBabysit` (routines/runtime-adapter.cjs). observe never throws and returns a promise only for tests to wait on.
  */
 function createBabysitWatch({ settings, routines }) {
-  // Shell step ids a Chat has started and not completed: step-completed carries no kind (as diff-refresh.cjs does).
   const shellSteps = new Map();
 
   async function opened(chatId, detail) {
@@ -28,7 +27,6 @@ function createBabysitWatch({ settings, routines }) {
         return undefined;
       }
       if (isTurnEnd(event)) {
-        // A step cut off with its turn never completes; don't keep its id.
         shellSteps.delete(chatId);
         return undefined;
       }
@@ -36,12 +34,9 @@ function createBabysitWatch({ settings, routines }) {
       const ids = shellSteps.get(chatId);
       if (!ids?.delete(event.id)) return undefined;
       if (ids.size === 0) shellSteps.delete(chatId);
-      // A shell step's detail is "$ command" then its output, as pullRequestRefs reads it. One cut down to its end has lost
-      // the command, so nothing tells what made the PR.
       const detail = event.detail ?? "";
       if (event.status !== "done" || !detail.startsWith("$ ") || !/\bgh\s+pr\s+create\b/.test(detail)) return undefined;
       return opened(chatId, event.detail).catch((error) => {
-        // Another Run's Heartbeat for the same PR won the race: nothing to say.
         if (!/already being babysat/.test(error.message)) console.warn("[babysit] could not watch the pull request:", error.message);
       });
     },

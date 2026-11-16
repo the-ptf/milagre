@@ -1,14 +1,5 @@
 const { CANCELLED_MESSAGE } = require("./permissions.cjs");
 
-// Questions an agent asks the user mid-turn, in the shape of the `question-request` event, and the
-// replies each agent expects. A request is
-//   { requestId, questions: [{ id, header, question, options: [{ label, description? }],
-//     multiSelect, allowOther, secret }] }
-// The user's answers map each question id to the labels picked and any typed answer,
-//   { [questionId]: string[] }
-// or are null to dismiss the question. A question ends "answered", "dismissed", or "cancelled"
-// when its turn stops first.
-
 const DISMISSED_MESSAGE =
   "The user closed the question without picking an answer. If they sent a message instead, follow it; otherwise carry on without the answer, or ask in your reply if you can't.";
 const UNSHOWN_MESSAGE = "Milagre couldn't show this question. Ask it in your reply instead.";
@@ -26,8 +17,6 @@ function option(raw) {
   return [description ? { label, description } : { label }];
 }
 
-// AskUserQuestion input -> request. Claude reads answers keyed by question text, so the ids are
-// positions. Claude always offers an answer of the user's own.
 function claudeQuestionRequest(input, options = {}) {
   const questions = list(input?.questions).map((raw, index) => ({
     id: String(index),
@@ -43,7 +32,6 @@ function claudeQuestionRequest(input, options = {}) {
 }
 
 // The question's outcome -> the SDK's PermissionResult. Answers go back as Claude's own question
-// dialog sends them: keyed by question text, several picks joined with ", ".
 function claudeQuestionResult(outcome, input, answers = {}) {
   if (outcome === "answered") {
     const given = list(input.questions).flatMap((question, index) =>
@@ -57,7 +45,6 @@ function claudeQuestionResult(outcome, input, answers = {}) {
 }
 
 // item/tool/requestUserInput params -> request. Codex keys answers by its own question ids, has no
-// multi-select, and says per question whether a typed answer is allowed.
 function codexQuestionRequest(id, params = {}) {
   const questions = list(params.questions).flatMap((raw) => {
     const questionId = text(raw?.id);
@@ -80,13 +67,11 @@ function codexQuestionRequest(id, params = {}) {
 }
 
 // The question's outcome -> Codex's ToolRequestUserInputResponse. No answers tells Codex to carry on
-// without them.
 function codexQuestionResponse(outcome, answers = {}) {
   if (outcome !== "answered") return { answers: {} };
   return { answers: Object.fromEntries(Object.entries(answers).map(([questionId, values]) => [questionId, { answers: values }])) };
 }
 
-// The renderer is untrusted input: answers are null, or a few question ids each mapped to a few short strings.
 function validAnswers(answers) {
   if (answers === null) return true;
   if (typeof answers !== "object" || Array.isArray(answers)) return false;
@@ -101,8 +86,6 @@ function validAnswers(answers) {
 
 const MAX_ANSWER_IMAGES = 10;
 
-// Images the user attached to their answers, per question id, before they are stored: a few images, each with its
-// data URL. Anything else is refused, so nothing is written for a malformed request.
 function answerImages(images) {
   if (images === undefined || images === null) return {};
   if (typeof images !== "object" || Array.isArray(images)) throw new Error("Invalid images for an agent question.");
@@ -113,8 +96,6 @@ function answerImages(images) {
   return Object.fromEntries(entries);
 }
 
-// The answers once their images are stored (`stored`: question id -> [{ path, name }]). The agent reads each image's
-// path in that question's answer and opens the file; the answer card shows how many were attached.
 function withAnswerImages(answers, stored) {
   const agent = { ...answers };
   const shown = { ...answers };
@@ -126,13 +107,9 @@ function withAnswerImages(answers, stored) {
   return { agent, shown };
 }
 
-// The questions a session is waiting on. Each is settled exactly once: answered or dismissed by the
-// user, dismissed when a steering message arrives, or cancelled when its turn stops. `forget` drops
-// one the agent withdrew without replying to it.
 class PendingQuestions {
   constructor(emit) {
     this.emit = emit;
-    // requestId -> { settle, ids }
     this.open = new Map();
   }
 
@@ -145,7 +122,6 @@ class PendingQuestions {
     this.emit({ type: "question-request", ...request });
   }
 
-  // Answers to questions the request didn't ask, and blank answers, are dropped; nothing left is a dismissal.
   answer(requestId, answers) {
     const open = this.open.get(requestId);
     if (!open) return false;
@@ -176,12 +152,10 @@ class PendingQuestions {
   }
 
   dismissAll() {
-    // A copy: settling calls the provider and emits events that may add questions.
     for (const requestId of Array.from(this.open.keys())) this.settle(requestId, "dismissed");
   }
 
   cancelAll() {
-    // A copy: cancellation callbacks can add questions for a later pass.
     for (const requestId of Array.from(this.open.keys())) this.settle(requestId, "cancelled");
   }
 }

@@ -10,10 +10,6 @@ import { Dialog } from "./primitives/Dialog";
 import { Icon } from "./primitives/Icon";
 import { TranscriptDivider } from "./primitives/TranscriptDivider";
 
-/**
- * A provider switch inside the chat: a hairline with "Context handoff  Opus 5.5 → GPT-6" centred on it. It spins while
- * the brief is written, and opens the brief the new provider was sent.
- */
 export function HandoffDivider({ context, models }: { context: HandoffContext; models: ModelOption[] }) {
   const [open, setOpen] = useState(false);
   const label = handoffLabel(context, models);
@@ -24,7 +20,6 @@ export function HandoffDivider({ context, models }: { context: HandoffContext; m
       data-status={context.status}
       label={label.restored ? `Context restored to ${label.to}` : `Context handoff from ${label.from} to ${label.to}`}
     >
-      {/* The visible text is the button's name; the ::before brings its hit area to 24px without growing the hairline row. */}
       <button
         type="button"
         disabled={!canOpen}
@@ -50,10 +45,6 @@ export function HandoffDivider({ context, models }: { context: HandoffContext; m
   );
 }
 
-/**
- * The brief the new provider was sent, the linked summary a Link gave a Chat, or a message another Chat sent, in a Dialog
- * with a Close bar. `description` goes under the title, `action` before Close, `children` (attachments) after the text.
- */
 export function HandoffBriefDialog({
   title,
   brief,
@@ -72,7 +63,6 @@ export function HandoffBriefDialog({
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
-  // Escape closes the dialog wherever focus is, and is consumed here so it doesn't also stop the chat's turn.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !event.isComposing) {

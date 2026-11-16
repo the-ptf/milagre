@@ -1,4 +1,3 @@
-// Browser check: the sidebar keeps chats in start order by default, and Settings switches it to latest message first.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -55,7 +54,6 @@ async function browserChecks() {
     }
     throw new Error(`Timed out: ${source}`);
   }
-  // The chats' keywords in the order they read in the sidebar.
   const order = () =>
     evaluate(
       '(() => { const text = document.querySelector("aside").innerText; return ["chat names", "worktrees", "diff viewer", "reordering"].sort((a, b) => text.indexOf(a) - text.indexOf(b)); })()',

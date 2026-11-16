@@ -1,5 +1,3 @@
-// Device Hub otherwise downloads this into its own package on first capture.
-// Prepare it before signing so the installed app stays read-only and works offline.
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");

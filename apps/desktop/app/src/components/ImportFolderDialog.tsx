@@ -17,11 +17,6 @@ import { ScrollArea } from "./primitives/ScrollArea";
 
 const folderName = (folder: string) => folder.split("/").findLast(Boolean) ?? folder;
 
-/**
- * Adding a folder that holds repositories: a checklist of them (repositories checked, other folders not). The checked
- * ones open as Projects and, two or more, get a Named Link named after the folder, which the Tree layout draws with them
- * under it. "Open as one Project" opens the folder itself instead. Mounted only while open.
- */
 function ImportFolderDialog({
   scan,
   onClose,
@@ -38,7 +33,6 @@ function ImportFolderDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const name = folderName(scan.folder);
-  // In the scan's order, whatever order they were checked in.
   const chosen = choices.map((child) => child.path).filter((path) => selected.includes(path));
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -116,12 +110,6 @@ function ImportFolderDialog({
   );
 }
 
-/**
- * Opening a folder on this Mac, as Add Project and onboarding do. A folder that holds repositories (and isn't one)
- * first asks which to add (Settings › Worktrees › Detect repositories in a folder can turn that off); they open as
- * Projects with a Named Link that groups them, and the Tree layout comes on to draw it. Any other folder opens at once.
- * `dialog` is that question while it is asked.
- */
 export function useOpenFolder(onOpened: (project: OpenProject) => void, onCancel?: () => void) {
   const [scan, setScan] = useState<FolderScan | null>(null);
   const { chatList } = useSettings();

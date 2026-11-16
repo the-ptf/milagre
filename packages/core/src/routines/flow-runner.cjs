@@ -11,29 +11,14 @@ const {
   triggerValues,
 } = require("@milagre/shared/routine-flows");
 
-// How often a Linear state or review wait looks again.
 const WAIT_CHECK_MS = 60_000;
 const DONE = new Set(["done", "skipped"]);
 const errorText = (error) => error?.message ?? String(error);
 
-/**
- * Runs Routine flows step by step (see RoutineFlow in model.ts). A flow Run keeps every step's progress on its RoutineRun
- * (store.cjs updateFlowRun), so the daemon can stop at any point and pick up where it was: a done step never runs again, an
- * action with an intent and no receipt is checked (a pull request looked for on its branch) rather than repeated.
- *
- * `chats` is the scheduler's Chat adapter plus `startStepChat({ routine, run, worktreeId, title })` (a Chat of its own in
- * the Run's Worktree) and `stop(chatId)`. `actions` does what steps change outside Milagre: `findPullRequest({ chatId })`,
- * `pullRequestPreview({ chatId, base, title, body, draft })`, `openPullRequest({ chatId, base, title, body, draft })`,
- * `commentOnLinear({ issue, body })`, `issueState(issue)` and `reviewDecision({ chatId, number })`; `notify(routine, run,
- * text)` tells the owner a Run waits for them.
- */
 function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange = () => {} }) {
-  // chatId -> the agent step turn the Chat runs for a flow: { runId, stepId, sent, turnStarted, turnId }.
   const turns = new Map();
-  // Runs being advanced, and those asked to advance again once that ends.
   const advancing = new Set();
   const again = new Set();
-  // Work going on off the caller (an action, a Chat being made), so idle() can wait for it.
   const background = new Set();
   const track = (work) => {
     const task = Promise.resolve(work)
@@ -45,7 +30,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
 
   const update = (runId, change) => store.updateFlowRun(runId, change);
 
-  // What `{{ref}}` reads in a Run: the trigger, each agent step's output, each pull request's link.
   function values(run) {
     const out = { trigger: triggerValues(run.event, run.startedAt) };
     for (const [id, state] of Object.entries(run.flow?.state ?? {})) {
@@ -55,7 +39,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     return out;
   }
 
-  // The next step to act on: the first one not done or skipped, going into the path each If took.
   function nextStep(flow) {
     const walk = (steps) => {
       for (const step of steps) {
@@ -71,7 +54,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     return walk(flow.steps);
   }
 
-  // Every step that hasn't run is marked not-run (the path an If didn't take stays as it was: no state).
   function markRest(flow) {
     const taken = (step) => flow.state[step.id]?.taken;
     const walk = (steps) => {
@@ -94,7 +76,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     return issue ? `${issue.key} ${issue.title}`.trim() : undefined;
   }
 
-  /** Ends a flow Run: `status` "done" (acted), "failed" or "ended", with what the Runs list says. */
   function end(runId, status, error) {
     for (const [chatId, turn] of turns) if (turn.runId === runId) turns.delete(chatId);
     const saved = update(runId, (flow, draft) => {
@@ -121,7 +102,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     });
   }
 
-  /** Starts a flow Run the scheduler claimed: copies the steps it runs on, then goes. */
   async function start(routine, run) {
     if (!routine.flow) return;
     if (!run.flow) {
@@ -135,7 +115,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     await advance(run.id);
   }
 
-  /** Goes as far as the Run can without waiting: through Ifs and done steps, up to a turn, an approval or a wait. */
   async function advance(runId) {
     if (advancing.has(runId)) {
       again.add(runId);
@@ -173,7 +152,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
       const state = flow.state[next.id] ?? { status: "pending" };
       if (state.status === "failed") return;
       if (state.status === "running" || state.status === "waiting") {
-        // An action left mid-way by a restart is checked; anything else waits for its turn end, answer or deadline.
         if (state.intentAt && !state.receipt && !actionBusy.has(runId)) await runAction(routine, run, next, state);
         return;
       }
@@ -237,8 +215,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     }
   }
 
-  // ---- agent steps ----------------------------------------------------------------------------------------------------
-
   function settingsFor(routine, step) {
     return {
       provider: step.provider ?? routine.provider,
@@ -260,8 +236,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     return { body: body + note, prompt: `${safe}${note}\n\n${outputInstructions(step.output)}` };
   }
 
-  // The Chat an agent step runs in: the Run's (made by the first step that needs it, with the Run's Worktree), or one of its
-  // own in that Worktree.
   async function chatFor(routine, run, step) {
     if (step.chat === "own" && run.worktreeId && chats.startStepChat) {
       const made = await chats.startStepChat({ routine, run, worktreeId: run.worktreeId, title: `${routine.name} · ${step.name}` });
@@ -334,7 +308,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     );
   }
 
-  /** A turn of an agent step ended without what the step needs: retried while it has tries left, else the Run stops. */
   async function turnFailed(runId, step, chatId, error, retryable = true) {
     const found = store.getRun(runId);
     if (!found || found.run.status !== "running") return;
@@ -350,7 +323,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     end(runId, "failed", `${step.name}: ${error}`);
   }
 
-  /** Called by the flow_step_output tool from `chatId`: checks the fields against the step and keeps them. */
   function recordOutput(chatId, value) {
     for (const { run } of store.runningFlows()) {
       for (const { step } of flattenSteps(run.flow.steps)) {
@@ -366,12 +338,10 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     return { ok: false, error: "This Chat isn't running a flow step that hands back fields." };
   }
 
-  /** Whether `chatId` runs a flow step (the tool is only offered there). */
   function runsStep(chatId) {
     return store.runningFlows().some(({ run }) => Object.values(run.flow.state).some((state) => state.status === "running" && state.chatId === chatId));
   }
 
-  // A turn of an agent step ended well: done when it handed back its fields (or has none), else asked once, else failed.
   async function turnCompleted(runId, stepId, chatId) {
     const found = store.getRun(runId);
     if (!found || found.run.status !== "running") return;
@@ -380,7 +350,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     const state = run.flow.state[stepId];
     if (!step || state?.status !== "running") return;
     setStep(runId, stepId, { turnEnded: true });
-    // A completed turn may still own subagents, queued messages or work that reports back.
     if (chats.busy?.(chatId)) return;
     if (state.output || step.output.length === 0) {
       setStep(runId, stepId, { status: "done", endedAt: now(), output: state.output ?? {}, error: undefined });
@@ -395,7 +364,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     await turnFailed(runId, step, chatId, "the turn ended without the step's fields");
   }
 
-  /** The scheduler passes every Chat event here first; true when it was a flow step's turn. */
   function observe(chatId, event) {
     const turn = turns.get(chatId);
     if (!turn) {
@@ -432,8 +400,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
       track(turnFailed(turn.runId, step, chatId, event.type === "turn-failed" ? (event.message ?? "turn failed") : "cancelled", event.type === "turn-failed"));
     return true;
   }
-
-  // ---- approvals and waits ------------------------------------------------------------------------------------------
 
   function ask(routine, run, step, message) {
     const at = now();
@@ -476,11 +442,8 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     onChange();
   }
 
-  // ---- actions ------------------------------------------------------------------------------------------------------
-
   const actionBusy = new Set();
 
-  // A remote mutation already in flight may complete after End. Keep its receipt without reviving the Run.
   function actionFinished(runId, stepId, patch) {
     return store.updateFlowRun(
       runId,
@@ -496,11 +459,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     );
   }
 
-  /**
-   * Runs a pull request or Linear comment step once. The intent is saved first; a receipt after. A Run that finds an intent
-   * without a receipt (it stopped in between) looks for the pull request on its branch instead of opening another; a comment
-   * that may have posted stops the Run for the owner to check.
-   */
   async function runAction(routine, run, step, state) {
     if (actionBusy.has(run.id)) return;
     actionBusy.add(run.id);
@@ -560,8 +518,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     }
   }
 
-  // ---- the owner's hand -----------------------------------------------------------------------------------------------
-
   function waitingStep(run) {
     return flattenSteps(run.flow?.steps ?? []).find((entry) => run.flow.state[entry.step.id]?.status === "waiting")?.step ?? null;
   }
@@ -570,10 +526,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     return flattenSteps(run.flow?.steps ?? []).find((entry) => entry.step.kind === "agent" && run.flow.state[entry.step.id]?.status === "running");
   }
 
-  /**
-   * What the owner does to a flow Run: `approve` or `reject` (with `reason`) the step waiting for them, `pause`, `resume`,
-   * `end`, or `retry` the step it stopped at (with `note` for the agent). Returns the Run as it is after.
-   */
   async function act(runId, action, { reason, note } = {}) {
     let found = store.getRun(runId);
     if (!found?.run.flow) throw new Error("No such flow Run");
@@ -590,7 +542,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
       update(runId, (flow) => {
         if (!flow) return false;
         flow.status = "running";
-        // The steps the stop marked as not run go back to waiting their turn.
         for (const [id, state] of Object.entries(flow.state)) if (state.status === "not-run") delete flow.state[id];
         const old = flow.state[failed.id];
         flow.state[failed.id] = {
@@ -645,7 +596,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
       update(runId, (flow) => {
         if (!flow) return false;
         flow.pauseRequested = true;
-        // Nothing is under way: it pauses now. A turn under way finishes first (step() pauses before the next one).
         const waiting = waitingStep({ flow });
         const awaitingApproval = waiting && flow.state[waiting.id]?.approval;
         if (!runningAgent({ flow }) && (flow.status !== "waiting" || awaitingApproval)) flow.status = "paused";
@@ -664,7 +614,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
       return store.getRun(runId)?.run ?? null;
     }
     if (action === "end") {
-      // End before awaiting Stop: its late turn event must not retry or advance the Run.
       end(runId, "ended", "ended by you");
       const agent = runningAgent(run);
       if (agent?.step && run.flow.state[agent.step.id].chatId) {
@@ -679,7 +628,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     throw new Error(`Unknown action ${action}`);
   }
 
-  /** A Test run of the flow's draft, on the last real Run's event. */
   async function test(routineId) {
     const routine = store.get(routineId);
     if (!routine?.flow) throw new Error("This Routine isn't a flow");
@@ -738,15 +686,11 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     return store.getRun(started.run.id).run;
   }
 
-  // ---- the clock and restarts -------------------------------------------------------------------------------------------
-
-  /** Deadlines and waits, once a second from the scheduler's tick. */
   async function tick() {
     const at = now();
     for (const { run } of store.runningFlows()) {
       const flow = run.flow;
       const pausedStep = flow.status === "paused" ? waitingStep(run) : null;
-      // Pausing holds execution, not the approval's absolute deadline.
       if (flow.status === "paused" && !flow.state[pausedStep?.id]?.approval) continue;
       const agent = runningAgent(run);
       if (agent) {
@@ -756,7 +700,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
       }
       const step = waitingStep(run);
       if (!step) {
-        // A Run that went on running with nothing under way (resumed, approved while busy) is moved on.
         if (!advancing.has(run.id) && !runningAgent(run) && !nextIsActive(run)) track(advance(run.id));
         continue;
       }
@@ -822,11 +765,6 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     }
   }
 
-  /**
-   * Once per daemon start: flow Runs pick up where they were. A step's turn that the restart cut off (its Chat no longer
-   * busy) counts as a failed try; one still going (the Chat resumed it) is followed again; an action with an intent and no
-   * receipt is checked.
-   */
   function resume() {
     for (const { run } of store.runningFlows()) {
       const agent = runningAgent(run);

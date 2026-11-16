@@ -1,4 +1,3 @@
-/** A timed-out shared first send must reuse its operation across navigation and retries. */
 export function createLinkOperations() {
   const pending = new Map<string, { signature: string; id: string }>();
   return {

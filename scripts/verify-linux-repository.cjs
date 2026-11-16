@@ -1,4 +1,3 @@
-// Verify the repository bundle using a pinned signing fingerprint before deployment.
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -82,7 +81,6 @@ function verify({ directory, tag, fingerprint, artifacts }) {
       /^\/\/ Generated public metadata only\. No private key or package binaries\.\nexport const metadata = ([\s\S]*?);\nexport const packages = ([\s\S]*?);\n$/,
     );
     if (!moduleParts) throw new Error("Worker embedded metadata has an invalid module format");
-    // Parse JSON only. A downloaded bundle must never execute during verification.
     const embedded = JSON.parse(moduleParts[1]);
     const embeddedPackages = JSON.parse(moduleParts[2]);
     if (!isDeepStrictEqual(embeddedPackages, packages) || !isDeepStrictEqual(packages, manifest.packages))

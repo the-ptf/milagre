@@ -18,7 +18,6 @@ export function createQuotaService({ storage, limits }) {
       const page = storage.get(key(id));
       return page?.closed ? 0 : Math.max(0, limits.bytes - (storage.get("activeBytes") ?? 0) + held(page));
     },
-    // A page whose only files were removed before it was ever published settles at 0 bytes.
     reserve(id, operation, bytes) {
       if (!valid(id) || !Number.isSafeInteger(Number(operation)) || Number(operation) < 1 || !Number.isSafeInteger(bytes) || bytes < 0 || !ready())
         return false;
@@ -58,8 +57,6 @@ export function createQuotaService({ storage, limits }) {
       if (!valid(id)) throw Error("Invalid page id");
       storage.transaction(() => change(id, { bytes: 0, closed: true }));
     },
-    // Old counters cannot reconstruct live allocations: old source JSON was discarded.
-    // Before enabling uploads, inventory legacy objects and charge their remaining HTML.
     importPage(id, bytes) {
       if (!valid(id) || !Number.isSafeInteger(bytes) || bytes < 0) throw Error("Invalid legacy page");
       storage.transaction(() => {

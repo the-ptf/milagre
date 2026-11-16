@@ -6,7 +6,6 @@ import { useSession } from "../session";
 import { ErrorNotice, PillButton, useStyles } from "../ui";
 import { SpinnerRing } from "../icons";
 
-/** Opened by the milagre://pair link in the host's QR code when it is scanned with the Camera app. */
 export default function PairLink() {
   const styles = useStyles();
   const params = useLocalSearchParams<{

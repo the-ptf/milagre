@@ -18,7 +18,6 @@ const subscribe = (listener: () => void) => {
   };
 };
 
-/** This device's preference; opening the Browser explicitly still works when links open externally. */
 export function useInternalBrowser(): [boolean, (next: boolean) => Promise<void>] {
   return [
     useSyncExternalStore(subscribe, () => enabled),

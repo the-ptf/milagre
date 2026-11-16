@@ -8,10 +8,6 @@ import { TOAST } from "../lib/toast";
 const RootContext = createContext<string | null>(null);
 const FilesRootContext = createContext<string | null>(null);
 
-/**
- * Names the folder (the chat's worktree or project) that file links in the replies below it resolve against.
- * `root` is empty on another Mac, where no editor can open; `files` still names that Mac's folder for the file viewer.
- */
 export function EditorLinks({ root, files = root, children }: { root: string; files?: string; children: ReactNode }) {
   return (
     <RootContext.Provider value={root}>
@@ -20,21 +16,15 @@ export function EditorLinks({ root, files = root, children }: { root: string; fi
   );
 }
 
-/** Resolves relative file links below it against another folder, such as the folder of a markdown file on view. */
 export function FilesRoot({ root, children }: { root: string; children: ReactNode }) {
   return <FilesRootContext.Provider value={root}>{children}</FilesRootContext.Provider>;
 }
 
-/** The folder relative file links in a reply resolve against, on the computer the chat runs on. */
 export const useFilesRoot = () => useContext(FilesRootContext);
 
 type StepFile = { file?: string; files?: readonly string[] };
 const ChatFilesContext = createContext<{ readonly current: readonly StepFile[] }>({ current: [] });
 
-/**
- * The Chat's steps, whose files a reply may name relative to a subfolder (see touchedFileMatches). A ref, read on a
- * click: a value that changed with each streamed step would re-render every file link in the transcript.
- */
 export function ChatFiles({ steps, children }: { steps: readonly StepFile[]; children: ReactNode }) {
   const latest = useRef(steps);
   useLayoutEffect(() => {
@@ -43,10 +33,6 @@ export function ChatFiles({ steps, children }: { steps: readonly StepFile[]; chi
   return <ChatFilesContext.Provider value={latest}>{children}</ChatFilesContext.Provider>;
 }
 
-/**
- * Opens a file of the chat's folder in the editor, or null when there is no folder or no editor to open it in. A path
- * missing there falls back to a file the Chat worked on that ends with it.
- */
 export function useFileOpener(): { open: (path: string, line?: number) => void; title: string } | null {
   const root = useContext(RootContext);
   const steps = useContext(ChatFilesContext);
@@ -58,7 +44,6 @@ export function useFileOpener(): { open: (path: string, line?: number) => void; 
   }, [root, editor, steps]);
 }
 
-/** The small notice at the bottom of the window, drawn as the toast (lib/toast): an ink capsule that fades up. */
 export function Notice() {
   const notice = useNotice();
   if (!notice) return null;

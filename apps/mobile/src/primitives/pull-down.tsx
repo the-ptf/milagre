@@ -24,7 +24,6 @@ import { pressStyle } from "./press-style";
 import type { MenuSection, NativeMenuTrigger } from "./menu";
 import { NativeMenuSection } from "./native-menu-section";
 
-/** A hitSlop as its four edges. */
 const edges = (slop: number | Insets = 0) =>
   typeof slop === "number" ? { top: slop, bottom: slop, left: slop, right: slop } : { top: 0, bottom: 0, left: 0, right: 0, ...slop };
 
@@ -56,7 +55,6 @@ export function PullDown({
   style?: StyleProp<ViewStyle>;
   nativeTrigger?: NativeMenuTrigger;
   searchable?: { placeholder: string; emptyLabel: string };
-  /** The trigger fills `style`'s box: a row's whole area under its own tap targets (a Chat row's PR links). */
   fill?: boolean;
   hitSlop?: number | Insets;
 }) {
@@ -94,7 +92,6 @@ export function PullDown({
     const trigger = nativeTrigger.title ? (
       <IOSHStack
         spacing={6}
-        // A 44pt tall frame around the label (footnote, so it follows Dynamic Type), all of it tappable.
         modifiers={[
           padding({ horizontal: 12, vertical: 6 }),
           frame({
@@ -142,7 +139,6 @@ export function PullDown({
     // A SwiftUI menu laid over the trigger, its label an invisible shape. Hosting the React trigger inside the menu
     // (RNHostView) crashed Fabric when SwiftUI re-attached a view React had already recycled (TestFlight build 9,
     // -[RCTViewComponentView unmountChildComponentView:index:]); here no React view ever lives inside SwiftUI.
-    // Like Paseo, the choice runs once the menu has gone, so the re-render it causes never races the menu's teardown.
     const select = (id: string) => {
       tap();
       setTimeout(() => onSelect(id), 250);
@@ -240,9 +236,6 @@ function AndroidMenu({
   trigger: (cap: ViewStyle | null) => React.ReactNode;
 }) {
   const [width, setWidth] = React.useState<number | null>(null);
-  // The trigger takes exactly the width of the box around it: a row stretched by its column or flex puts its value at the
-  // trailing edge and wraps a long title inside it, and a chip sized by its own label keeps that size. Rounded up, as a
-  // width a fraction short ellipsizes the label.
   return (
     <View
       style={style}
@@ -279,5 +272,4 @@ function menuAction(item: MenuSection["items"][number]): MenuAction {
   };
 }
 
-// The trigger gives way when `style` lets the menu shrink (a chip truncating its name in a full row).
 const styles = StyleSheet.create({ shrink: { flexShrink: 1 } });

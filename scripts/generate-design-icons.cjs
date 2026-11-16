@@ -1,4 +1,3 @@
-// Regenerate the Lucide icon geometry used by design icon layers. Run: node scripts/generate-design-icons.cjs
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -13,7 +12,6 @@ for (const [name, children] of Object.entries(nodes)) {
   icons[name] = children
     .map(([tag, attributes]) => {
       if (!ELEMENTS.has(tag)) throw new Error(`${name}: unexpected <${tag}>`);
-      // Lucide marks a few small dots fill="currentColor"; keep exactly that so they take the icon's line color.
       const pairs = Object.entries(attributes).filter(([key, value]) => ATTRIBUTE.test(key) || (key === "fill" && value === "currentColor"));
       return `<${tag} ${pairs.map(([key, value]) => `${key}="${escape(value)}"`).join(" ")}/>`;
     })

@@ -6,15 +6,10 @@ import type { HugeIconData } from "./flow-look";
 
 const GAP = 6;
 const INSET = 12;
-/** Below this much room under its trigger, a panel opens above it when there is more room there. */
 const ROOM = 260;
 
 type Position = { left: number; top?: number; bottom?: number; maxHeight: number };
 
-/**
- * An anchored panel's state: a trigger ref, a panel ref, where the panel sits (under its trigger, or above it when the
- * window has no room below) and open/close. It closes through useDismiss and follows its trigger through scrolls.
- */
 export function usePopover(width: number, align: "start" | "end" = "start") {
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -47,10 +42,6 @@ export function usePopover(width: number, align: "start" | "end" = "start") {
 
 export type PopoverState = ReturnType<typeof usePopover>;
 
-/**
- * The panel of a `usePopover`, portaled to the body: a menu (`role="menu"`, arrow keys move between its rows) or a
- * dialog. Escape closes it and returns focus to its trigger; its first row or button takes focus as it opens.
- */
 export function Popover({
   state,
   label,
@@ -115,7 +106,6 @@ export function Popover({
   );
 }
 
-/** One row of a menu: its icon (in a tile when `tile` is given), its name and, below, what it does. */
 export function MenuRow({
   icon,
   tile,

@@ -30,7 +30,6 @@ type InboxKit = {
   exit?: ReturnType<typeof FadeOut.duration>;
 };
 const kits = new Map<number, InboxKit>();
-/** Layout and page animations for an Animations setting: Fast shortens them, Off drops them. */
 function kitFor(scale: number): InboxKit {
   let kit = kits.get(scale);
   if (kit) return kit;
@@ -78,7 +77,6 @@ export function InboxPager({ index, count, select, label = "message" }: { index:
   const last = Math.max(0, count - 1);
   const current = Math.min(last, Math.max(0, index));
   const position = `${count ? current + 1 : 0} of ${count}`;
-  // Read the new position aloud when it changes (not on mount), on VoiceOver and TalkBack alike.
   const spoken = useRef(position);
   useEffect(() => {
     if (spoken.current === position) return;

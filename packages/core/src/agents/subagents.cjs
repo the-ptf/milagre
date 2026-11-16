@@ -1,4 +1,3 @@
-// Provider-owned children have their own lifecycle; a launch tool finishing is not a child finishing.
 const { capOutput, claudeStep, codexStep } = require("./steps.cjs");
 const { subagentActive: active } = require("@milagre/shared/agent-runs");
 const { addProgress } = require("@milagre/shared/subagent-glance");
@@ -14,7 +13,6 @@ function update(state, id, patch, entry) {
   const agent = { id, title: "Subagent", status: "running", startedAt: time, transcript: [], ...previous, ...patch, updatedAt: time };
   if (row && !sameRow) {
     agent.transcript = [...agent.transcript.filter((item) => item.id !== row.id), row].slice(-100);
-    // The transcript keeps its last 100 entries and a client only their tail, so the totals are counted here, once each.
     if (!previousRow) agent.progress = addProgress(agent.progress, row);
   }
   if (!active(agent)) agent.endedAt ??= time;
@@ -29,8 +27,6 @@ const textContent = (content) =>
         .map((b) => b.text ?? b.content ?? "")
         .filter((v) => typeof v === "string")
         .join("\n");
-// A subagent's own to-do list, as the chat's (tasks.cjs), kept per subagent. TaskCreate and TaskList wait for their
-// result, which holds the ids, so those calls are held until it comes.
 const TASK_TOOLS = new Set(["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"]);
 function subagentTasksUse(state, agentId, block) {
   state.subagentTasks ??= new Map();
@@ -39,7 +35,6 @@ function subagentTasksUse(state, agentId, block) {
     state.subagentTaskCalls ??= new Map();
     state.subagentTaskCalls.set(block.id, { agentId, call: block });
   } else {
-    // Their results stay out of the transcript as the calls do.
     state.subagentTaskResults ??= new Set();
     state.subagentTaskResults.add(block.id);
   }
@@ -60,7 +55,6 @@ function claudeSubagents(message, state) {
   if (message.type === "assistant" && Array.isArray(content)) {
     for (const [index, block] of content.entries()) {
       if (block.type === "tool_use" && ["Agent", "Task"].includes(block.name)) {
-        // A background Agent of the chat's own returns at once; its result wakes the chat later, with a turn of its own.
         const background = !parent && Boolean(block.input?.run_in_background);
         if (!parent && !background) {
           state.foregroundChildren ??= new Set();
@@ -77,7 +71,6 @@ function claudeSubagents(message, state) {
           }),
         );
       }
-      // A subagent's to-do list calls change its list, not its transcript: the panel shows the list itself.
       if (parent && state.subagents?.has(parent) && block.type === "tool_use" && TASK_TOOLS.has(block.name)) {
         events.push(...subagentTasksUse(state, parent, block));
         continue;
@@ -122,7 +115,6 @@ function claudeSubagents(message, state) {
       }
       if (parent && state.subagents?.has(parent)) {
         if (state.subagentTaskCalls?.has(block.tool_use_id)) {
-          // tool_use_result belongs to the message, so it can only be matched to a lone result.
           const results = content.filter((item) => item?.type === "tool_result");
           events.push(...subagentTasksResult(state, block, results.length === 1 ? message.tool_use_result : undefined));
         } else if (!state.subagentTaskResults?.delete(block.tool_use_id))
@@ -151,7 +143,6 @@ function claudeSubagents(message, state) {
       patch.latestActivity = message.summary;
     }
     if (message.subtype === "task_updated") {
-      // The chat's own agent moved to the background: its result wakes the chat later, as a background Agent's does.
       if (message.patch.is_backgrounded && !state.subagents?.get(id)?.parentId) patch.background = true;
       if (message.patch.status)
         patch.status =
@@ -192,7 +183,6 @@ function codexSubagents(method, params, state) {
       if (!state.subagents?.has(owner)) return [];
       state.subagentActivityIds.add(id);
       if (toId) {
-        // An interaction may wake a completed child, but only its next thread read can prove it.
         state.subagentRecheckUntil ??= new Map();
         state.subagentRecheckUntil.set(toId, Date.now() + 10_000);
       }
@@ -215,7 +205,6 @@ function codexSubagents(method, params, state) {
           ? "waiting"
           : "running"
         : { systemError: "failed", notLoaded: "unknown" }[params.status?.type];
-    // Unloading describes the provider process, not a change to its recorded turn outcome.
     const unloadedTerminal = params.status?.type === "notLoaded" && ["completed", "failed", "cancelled"].includes(state.subagents.get(params.threadId).status);
     if (status && !unloadedTerminal) events.push(update(state, params.threadId, { status }));
   }
@@ -287,7 +276,6 @@ function backgroundTasks(state, tasks) {
       title: (typeof task.description === "string" && task.description.trim().slice(0, 200)) || "Background task",
       startedAt: seen.get(task.task_id) ?? time,
     }))
-    // In a steady order, so the same set in another order is no change.
     .sort((a, b) => a.startedAt - b.startedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   state.backgroundTaskStarts = new Map(next.map((task) => [task.id, task.startedAt]));
   const key = JSON.stringify(next);
@@ -296,7 +284,6 @@ function backgroundTasks(state, tasks) {
   return [{ type: "background-tasks", tasks: next }];
 }
 
-/** A session that ends leaves no subagent running and no background task: its process took them with it. */
 function settleSubagents(state, status) {
   const events = [...(state.subagents?.values() ?? [])].filter(active).map((agent) => update(state, agent.id, { status }));
   return [...events, ...backgroundTasks(state, [])];

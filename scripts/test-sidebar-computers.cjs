@@ -1,9 +1,4 @@
 // Run with npm test -- --only test-sidebar-computers. The footer's computers popover in the real App against a stand-in for
-// main: the laptop button opens a popover of This Mac and each computer with its route line, a gear with its tooltip
-// opens that computer's settings (This Mac's opens Settings › Phone & sharing), unchecking a computer leaves its Projects out of
-// the sidebar and Filters › Projects (kept across a restart), Filters › Projects lists Projects under their computer, Add computer opens its
-// dialog from the popover and from Settings › Phone & sharing, and nothing about computers shows while Settings › Phone & sharing ›
-// Other computers is off. Set MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -156,7 +151,6 @@ async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "milagre-sidebar-computers-")));
   await app.whenReady();
-  // App waits for the splash animation to finish; a shown window keeps its compositor painting under Xvfb.
   const window = new BrowserWindow({ width: 1280, height: 760, show: true, webPreferences: { backgroundThrottling: false } });
   const evaluate = (source) => window.webContents.executeJavaScript(source);
   const errors = [];
@@ -186,16 +180,13 @@ async function browserChecks() {
       );
       window.webContents.sendInputEvent({ type: "mouseMove", x: Math.round(rect.x), y: Math.round(rect.y) });
     };
-    // Filters › Computers (the laptop button's popover before it joined Filters).
     const openPopover = async () => {
       await evaluate(`document.querySelector('[data-filters]').click()`);
       await waitFor(`!!document.querySelector('[data-filters-panel] [data-sub="computers"]')`);
       await evaluate(`document.querySelector('[data-filters-panel] [data-sub="computers"]').click()`);
       await waitFor(`!!document.querySelector('[data-filters-sub="computers"]')`);
-      // Measure rows after the pop-in scale settles, so a hover lands where the row ends up.
       await waitFor(`document.querySelector('[data-filters-sub="computers"]').getAnimations().every((a) => a.playState === "finished")`);
     };
-    // Escape steps back from Computers › to Filters, and again closes Filters.
     const closePopover = async () => {
       await evaluate(`document.querySelector('[data-filters-sub="computers"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
       await waitFor(`!document.querySelector('[data-filters-sub]')`);
@@ -206,8 +197,6 @@ async function browserChecks() {
       evaluate(
         `[...document.querySelectorAll('[data-filters-sub="computers"] [data-computer-row]')].map((row) => [row.dataset.computerRow, row.querySelector('[data-computer-name]').textContent.trim(), row.querySelector('[data-computer-line]').textContent.trim()])`,
       );
-    // A cold Vite dependency scan can reload the full App before its startup animation finishes.
-    // Give initial boot its own budget; interaction assertions keep the normal five-second deadline.
     await waitFor(`!!document.querySelector('[data-filters][data-computers-on]') && !document.querySelector('.startup-splash-screen')`, 20000);
     await openPopover();
     assert.deepEqual(await lines(), [
@@ -216,8 +205,6 @@ async function browserChecks() {
       ["c-studio", "studio", "Offline, seen 2h ago"],
     ]);
     assert.equal(await evaluate(`!!document.querySelector('[data-filters-sub="computers"] [data-add-computer-row]')`), true);
-    // Computers › opens beside its row, rising only as far as its own height needs to stay on screen
-    // (it used to rise as if it were always 420px tall, so a single computer floated far above its row).
     assert.equal(
       await evaluate(
         `(() => { const sub = document.querySelector('[data-filters-sub="computers"]').getBoundingClientRect(); const row = document.querySelector('[data-filters-panel] [data-sub="computers"]').getBoundingClientRect(); return Math.round(sub.top - Math.max(8, Math.min(row.top - 6, window.innerHeight - 8 - sub.height))); })()`,
@@ -247,7 +234,6 @@ async function browserChecks() {
     await waitFor(
       `document.querySelector('dialog[data-settings-modal] h1')?.textContent === 'victor-mbp' && !!document.querySelector('[data-this-mac-settings]')`,
     );
-    // Settings › Phone & sharing adds a computer too, not only the laptop button.
     await evaluate(`document.querySelector('[data-settings-add-computer]').click()`);
     await waitFor(`!!document.querySelector('dialog[data-add-computer]')?.open`);
     await screenshot("devices-add-computer");
@@ -258,7 +244,6 @@ async function browserChecks() {
     console.log("PASS: a computer's gear opens its settings, with Show in sidebar; This Mac's opens its own page, which adds a computer");
 
     const scopes = () => evaluate(`[...document.querySelectorAll('[data-sidebar-scope]')].map((section) => section.dataset.sidebarScope)`);
-    // Scope keys hold "|" and "/", which a double-quoted attribute selector takes as they are.
     const inScope = (scope, rest) => `[data-sidebar-scope="${scope}"] ${rest}`;
     const computerLines = (scope) =>
       evaluate(`[...document.querySelectorAll(${JSON.stringify(inScope(scope, "[data-scope-computer]"))})].map((line) => line.textContent.trim())`);
@@ -269,7 +254,6 @@ async function browserChecks() {
       "one list, by Project name",
     );
     await waitFor(`document.querySelectorAll('[data-scope-computer]').length >= 3`);
-    // Grouped, the computer sits in the Project's header, not on its rows.
     assert.equal(await evaluate(`document.querySelectorAll('[data-sidebar-scope] [data-chat-computer]').length`), 0);
     assert.deepEqual(await computerLines("/work/milagre-ade"), ["victor"], "a hostname shows its first part");
     assert.deepEqual(await computerLines("c-atlas|/Users/a/atlas-web"), ["atlas"]);
@@ -289,7 +273,6 @@ async function browserChecks() {
       "the offline computer's Project is dimmed",
     );
     assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="c-atlas|/Users/a/atlas-web"]').hasAttribute('data-offline')`), false);
-    // Dimmed once: the section is at 0.6 and its row adds no opacity of its own.
     assert.deepEqual(
       await evaluate(
         `(() => { const section = document.querySelector('[data-sidebar-scope="c-studio|/Users/s/homelab"]'); return [getComputedStyle(section).opacity, getComputedStyle(section.querySelector('[data-chat-id]')).opacity]; })()`,
@@ -300,8 +283,6 @@ async function browserChecks() {
     await screenshot("merged-list");
     console.log("PASS: every computer's Projects in one list by name, each row naming its computer, the offline one dimmed");
 
-    // At the sidebar's narrowest, a long computer name shows its first word, and a long Project name truncates while
-    // the chip keeps its width, hovered too; the chip's tooltip has the full name.
     const atlas = "c-atlas|/Users/a/atlas-web";
     await evaluate(`window.setComputers(window.computerList.map((c) => c.id === 'c-atlas' ? { ...c, name: "Atlas’s Mac mini" } : c))`);
     await waitFor(`document.querySelector(${JSON.stringify(inScope(atlas, "[data-scope-computer]"))})?.textContent.trim() === 'Atlas'`);
@@ -327,7 +308,6 @@ async function browserChecks() {
     await evaluate(`window.setComputers(window.computerList.map((c) => c.id === 'c-atlas' ? { ...c, name: "atlas" } : c))`);
     window.webContents.sendInputEvent({ type: "mouseMove", x: 900, y: 400 });
     await waitFor(`!document.querySelector('[role="tooltip"]')`);
-    // The open Project's + shows only on hover too, so at rest its chip also reaches the edge.
     const current = "/work/milagre-ade";
     await waitFor(`getComputedStyle(document.querySelector(${JSON.stringify(inScope(current, "[data-scope-action]"))})).opacity === '0'`);
     assert.equal(
@@ -340,7 +320,6 @@ async function browserChecks() {
       "PASS: at the narrowest sidebar, a long Project name truncates before the computer chip, hovered too, and the chip's tooltip names the computer",
     );
 
-    // Filters › Projects lists every computer's Projects under its computer (This Mac first, then by name), hidden ones unchecked.
     const choices = () =>
       evaluate(
         `[...document.querySelectorAll('[data-filters-sub="projects"] [data-project-choice]')].map((row) => [row.closest('[data-project-section]').dataset.projectSection, row.dataset.projectChoice, row.getAttribute('aria-checked')])`,
@@ -377,7 +356,6 @@ async function browserChecks() {
     );
     assert.equal(await evaluate(`window.remoteHiddenCalls`), 0, "the remote computer's setProjectHidden is never called");
 
-    // A computer added while the menu is open brings its Projects in.
     await evaluate(
       `window.setComputers([...window.computerList, { id: "c-new", name: "garden-mini", hostId: "n".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: 3, message: null, lan: true, lanRoutes: [] }])`,
     );
@@ -394,7 +372,6 @@ async function browserChecks() {
       "PASS: Filters › Projects lists every computer's Projects under its computer, hidden ones too, saves a choice on its computer, and follows a computer being added",
     );
 
-    // Unchecking a computer in the popover leaves its Projects out of the sidebar; it stays listed, paired and connected.
     await openPopover();
     const studioShow = `document.querySelector('[data-computer-row="c-studio"] [data-computer-show]')`;
     assert.equal(await evaluate(`${studioShow}.getAttribute('aria-checked')`), "true");
@@ -406,7 +383,6 @@ async function browserChecks() {
     assert.deepEqual(await scopes(), ["c-atlas|/Users/a/atlas-web", "/work/milagre-ade"]);
     await screenshot("popover-hidden-computer");
     await closePopover();
-    // Filters › Projects leaves its Projects out too; the count is still the unchecked Projects listed.
     await evaluate(`document.querySelector('[data-filters]').click()`);
     await waitFor(`!!document.querySelector('[data-filters-panel] [data-sub="projects"]')`);
     assert.match(await evaluate(`document.querySelector('[data-filters-panel] [data-sub="projects"]').textContent`), /1 hidden/);
@@ -426,7 +402,6 @@ async function browserChecks() {
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     await waitFor(`!document.querySelector('[data-filters-panel]')`);
-    // A restart keeps it hidden; checking it again brings its Projects back.
     await window.loadURL(process.argv[2]);
     await waitFor(`!!document.querySelector('[data-filters][data-computers-on]') && !document.querySelector('.startup-splash-screen')`);
     await waitFor(`document.querySelectorAll('[data-sidebar-scope]').length === 2`);
@@ -441,7 +416,6 @@ async function browserChecks() {
     assert.deepEqual(errors, []);
     console.log("PASS: unchecking a computer in the popover hides its Projects from the sidebar and Filters › Projects, and a restart keeps it");
 
-    // Removing a computer's Project from the list asks that computer, and leaves this Mac's list as it was.
     await evaluate(`document.querySelector('[data-sidebar-scope="c-atlas|/Users/a/atlas-web"] [data-scope-menu]').click()`);
     await waitFor(`!!document.querySelector('[data-scope-menu-panel]')`);
     await evaluate(`document.querySelector('[data-scope-menu-item="remove"]').click()`);
@@ -467,9 +441,6 @@ async function browserChecks() {
       rowsBeforeComputerSwitch,
       "switching to another computer's Chat preserves every sidebar row and its position",
     );
-    // The window holds the Project's numbered state from the sidebar's read: the other Mac is only asked for its name and
-    // number (project:read without the state), never project:switch, which would reorder its recent list and change its
-    // open Project.
     await waitFor(
       `window.remoteCalls.some(([method, key, options]) => method === 'readProject' && key === 'c-atlas|/Users/a/atlas-web' && options?.state === false)`,
     );
@@ -555,8 +526,6 @@ async function browserChecks() {
     );
     await waitFor(`!!document.querySelector('[data-offline-empty]')`);
     assert.equal(await evaluate(`document.querySelector('[data-offline-empty]').textContent.trim()`), `No copy of this Chat on ${thisComputer} yet.`);
-    // A host that keeps messages by Chat: the Chat's page read goes out first, then the Project's read, so it isn't queued
-    // behind everything the switch's render asks the other Mac for.
     const notesCalls = await evaluate(
       `window.remoteCalls.filter(([, key]) => key === 'c-studio|/Users/s/notes').map(([method, , detail]) => method + (detail?.state === false ? ' header' : ''))`,
     );
@@ -574,7 +543,6 @@ async function browserChecks() {
       `(() => { const box = document.querySelector('[data-prompt-editor]'); box.value = "Queued while studio sleeps"; box.dispatchEvent(new Event("input", { bubbles: true })); box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); })()`,
     );
     await waitFor(`!!document.querySelector('[data-offline-tray] [data-outbox-state="queued"]')`);
-    // The clock says it waits; the row shows only the message.
     assert.equal(await evaluate(`document.querySelector('[data-offline-message]').textContent`), "Queued while studio sleeps");
     await waitFor(`[...document.querySelectorAll('[data-chat-waiting]')].some((node) => node.textContent === "1 waiting")`);
     assert.equal(await evaluate(`window.sent.length`), 0, "offline enqueue never sends to the host");
@@ -588,7 +556,6 @@ async function browserChecks() {
       `!document.querySelector('.startup-splash-screen') && [...document.querySelectorAll('[data-sidebar-scope="c-studio|/Users/s/homelab"] [data-chat-id] button')].some((b) => b.textContent.includes('Backup rotation'))`,
       20000,
     );
-    // The sidebar row still says what waits for studio after a restart.
     await waitFor(`[...document.querySelectorAll('[data-chat-waiting]')].some((node) => node.textContent === "1 waiting")`);
     await evaluate(
       `[...document.querySelectorAll('[data-sidebar-scope="c-studio|/Users/s/homelab"] [data-chat-id] button')].find((b) => b.textContent.includes('Backup rotation')).click()`,
@@ -598,7 +565,6 @@ async function browserChecks() {
     );
     assert.equal(await evaluate(`window.sent.length`), 0, "restarting while offline keeps the message local, in its Chat");
     await screenshot("offline-queued-after-restart");
-    // The computer comes back: the chip goes, the message goes out and leaves the tray, and sending works, to that computer.
     await evaluate(
       `window.setComputers(window.computerList.map((c) => c.id === 'c-studio' ? { ...c, state: 'online', route: 'relay', lastSeen: Date.now() } : c))`,
     );
@@ -612,13 +578,11 @@ async function browserChecks() {
     assert.equal(await evaluate(`window.sent[0].projectPath`), "c-studio|/Users/s/homelab", "the send goes to studio's bridge, with the key main strips");
     console.log("PASS: back online, the composer sends to that computer");
 
-    // Removing the computer whose chat is open brings this Mac's Project back.
     await evaluate(`window.setComputers(window.computerList.filter((c) => c.id !== 'c-studio'))`);
     await waitFor(`!document.querySelector('[data-sidebar-scope="c-studio|/Users/s/homelab"]') && !document.querySelector('[data-offline-chip]')`);
     await waitFor(`document.querySelector('[data-sidebar-scope][data-current]')?.dataset.sidebarScope === '/work/milagre-ade'`);
     console.log("PASS: removing the open chat's computer goes back to this Mac's Project");
 
-    // The same repository cloned on atlas: one heading for both copies, their chats in one list, each naming its computer.
     const shared = "github.com/the-ptf/milagre-ade";
     await evaluate(`(() => {
       const state = structuredClone(window.remoteProjects["c-atlas-hidden"].state);
@@ -676,7 +640,6 @@ async function browserChecks() {
     assert.deepEqual(errors, []);
     console.log("PASS: Add computer opens from the popover, and nothing about computers shows while Other computers is off");
 
-    // A slow initial remote read must not undo live pin settings received while it was in flight.
     await window.loadURL(process.argv[2] + "?race=1");
     await waitFor(`typeof window.finishRemoteRead === 'function'`);
     await evaluate(`window.pushRemote({ ...window.remoteProjects['c-atlas'].state, messages: [], messagesInChats: true, sessions: {
@@ -698,7 +661,6 @@ async function browserChecks() {
     await evaluate(`window.setChatOrder('created')`);
     await waitFor(`JSON.stringify(${remoteIds}) === '["8","4"]'`);
     await screenshot("remote-chat-order");
-    // Removing the last local Project preserves access to the other computer from the full App.
     await evaluate(`document.querySelector('[data-sidebar-scope="/work/milagre-ade"] [data-scope-menu]').click()`);
     await waitFor(`!!document.querySelector('[data-scope-menu-item="remove"]')`);
     await evaluate(`document.querySelector('[data-scope-menu-item="remove"]').click()`);
@@ -715,7 +677,6 @@ async function browserChecks() {
     console.log("PASS: removing the last local Project keeps remote Projects accessible and opens one from the chooser");
     assert.deepEqual(errors, []);
     console.log("PASS: remote chats retain live pin settings through a delayed read and follow both Chat order choices");
-    // A host enabled outside this window overrides stale local preferences without a disconnect on launch.
     await window.loadURL(process.argv[2] + "?daemon=1");
     await waitFor(`!!document.querySelector('[data-filters][data-computers-on]') && document.querySelectorAll('[data-sidebar-scope]').length === 4`);
     assert.deepEqual(await evaluate(`window.computerEnableCalls`), [], "opening a window never overwrites the daemon's saved choice");

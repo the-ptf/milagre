@@ -9,9 +9,6 @@ const REQUEST_TTL = 5 * 60 * 1000;
 const PREFIX = "milagre-secret-";
 const isSecretRequest = (id) => typeof id === "string" && id.startsWith(PREFIX);
 
-// Values never enter Chat state, provider answers, tool arguments or log messages. Only the
-// resulting path leaves this module. File permissions protect against other OS users, not
-// other processes running as this user (including agents with unrestricted filesystem access).
 function createChatSecrets({ directory, send, active, now = Date.now }) {
   const pending = new Map();
   const timers = new Map();
@@ -93,7 +90,6 @@ function createChatSecrets({ directory, send, active, now = Date.now }) {
   function answer(chatId, id, answers) {
     const entry = pending.get(id);
     if (!entry || entry.chatId !== chatId || closed) return false;
-    // Timers can be delayed while the computer sleeps. Check the deadline again before writing.
     if (now() >= entry.expiresAt) {
       settle(id, "cancelled", "Secret request expired. No secret was saved.");
       return false;
@@ -123,9 +119,7 @@ function createChatSecrets({ directory, send, active, now = Date.now }) {
       if (fd !== undefined) fs.closeSync(fd);
       try {
         fs.unlinkSync(file);
-      } catch {
-        /* Nothing was published. */
-      }
+      } catch {}
       throw new Error("Could not save the secret privately. Check this computer's storage and try again.");
     }
     fs.closeSync(fd);

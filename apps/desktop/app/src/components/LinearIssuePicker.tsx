@@ -12,7 +12,6 @@ import { Tabs } from "./primitives/Tabs";
 type IssueList = { issues: LinearIssue[]; error?: string };
 type WorkspaceTab = { id: string; name: string };
 
-// The tabs and the chosen one outlive the picker, so it opens on the same workspace at its full height.
 const TABS_KEY = "milagre.linear.workspaces";
 const CHOSEN_KEY = "milagre.linear.workspace";
 function readTabs(): WorkspaceTab[] {
@@ -24,7 +23,6 @@ function readTabs(): WorkspaceTab[] {
   }
 }
 
-/** Placeholder rows the size of issue rows, filling the list's max height, so the panel opens at its full size instead of growing into it. */
 function IssueSkeleton() {
   return (
     <div role="status" data-linear-issue-skeleton className="h-64 overflow-hidden">
@@ -43,12 +41,6 @@ function IssueSkeleton() {
   );
 }
 
-/**
- * The "Start from a Linear issue" list: a search over the workspace's issues. Shared by the new-chat header and the
- * sidebar row's "Link issue…" menu item. A typed query waits 250 ms, and a stale answer is dropped. The Mac keeps the
- * assigned list for a minute, so reopening is instant; the refresh button reads it from Linear again. With several
- * workspaces connected, a tab per workspace picks which one is listed and searched.
- */
 export function LinearIssuePicker({
   onPick,
   onClose,
@@ -64,11 +56,9 @@ export function LinearIssuePicker({
 }) {
   const [query, setQuery] = useState("");
   const [issues, setIssues] = useState<IssueList | null>(null);
-  // Bumped by the refresh button; 0 reads whatever the Mac has kept.
   const [refreshes, setRefreshes] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [tabs, setTabs] = useState(readTabs);
-  // The workspace asked for, and the one the last answer listed (the first one when the asked one is gone).
   const [workspace, setWorkspace] = useState(() => localStorage.getItem(CHOSEN_KEY) ?? undefined);
   const [listed, setListed] = useState(workspace);
 

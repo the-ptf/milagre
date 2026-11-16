@@ -51,7 +51,6 @@ import { RunBar, RunInspector, RunRows, type FlowAct } from "./FlowRun";
 type Tab = "steps" | "runs" | "settings";
 type Mode = "edit" | "run";
 
-/** How long an edit waits before the draft is saved. */
 const SAVE_DELAY = 600;
 
 const outlineButton =
@@ -59,10 +58,8 @@ const outlineButton =
 const primaryButton =
   "inline-flex h-8 shrink-0 items-center gap-2 rounded-control bg-ink px-3 text-13 font-medium text-surface transition-opacity hover:opacity-90 aria-disabled:opacity-40 aria-disabled:hover:opacity-40";
 
-/** Where each flow's page was left (tab, Edit draft or Show Run, the Run), so coming back from a Chat finds it there. */
 const lastView = new Map<string, { tab: Tab; mode: Mode; runId: string | null }>();
 
-/** The trigger as a sentence for the page's subtitle: "Starts when the agent label is added to a MIL issue in Linear". */
 function triggerSentence(trigger: RoutineTrigger): string {
   if (trigger.kind === "linear") {
     const issue = trigger.team ? `a ${trigger.team} issue` : "an issue";
@@ -84,11 +81,6 @@ function triggerSentence(trigger: RoutineTrigger): string {
 const cannotOpen = () => false;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-/**
- * The flow's draft as it is edited: a copy of the published steps (or the saved draft), saved SAVE_DELAY after each edit
- * (as no draft once it matches the published steps again). While an edit is waiting or saving, the Mac's copy doesn't
- * overwrite it.
- */
 function useFlowDraft(routine: RoutineWithRuns) {
   const flow = routine.flow!;
   const fromMac = flow.draft?.steps ?? flow.steps;
@@ -108,7 +100,6 @@ function useFlowDraft(routine: RoutineWithRuns) {
   }, [macKey]);
   const save = (next: FlowStep[]) => {
     const current = published.current;
-    // Back to the published steps: no draft. A flow never published keeps its draft, which is all it has.
     const draft = current.revision > 0 && same(next, current.steps) ? null : next;
     saving.current += 1;
     const task = writing.current.catch(() => {}).then(() => bridgeForKey(routine.id).updateRoutine(routine.id, { flowDraft: draft }));
@@ -134,7 +125,6 @@ function useFlowDraft(routine: RoutineWithRuns) {
     timer.current = null;
     return true;
   };
-  // Leaving the page saves an edit still waiting.
   useEffect(
     () => () => {
       if (stop()) void save(latest.current).catch(() => {});
@@ -154,12 +144,10 @@ function useFlowDraft(routine: RoutineWithRuns) {
         void save(latest.current).catch(() => {});
       }, SAVE_DELAY);
     },
-    /** Saves an edit still waiting, now. */
     async flush() {
       if (stop()) await save(latest.current);
       await writing.current;
     },
-    /** Drops the waiting edit (Publish sends the steps itself; Discard drops them). */
     cancel: stop,
     settled: () => writing.current.catch(() => {}),
     reset(next: FlowStep[]) {
@@ -171,7 +159,6 @@ function useFlowDraft(routine: RoutineWithRuns) {
   };
 }
 
-/** The step a Run's view opens on: the one waiting for an answer, else the one it stopped at, else the one under way. */
 function defaultRunStep(run: RoutineRun | undefined): string {
   const flow = run?.flow;
   if (!flow) return "trigger";
@@ -184,7 +171,6 @@ function defaultRunStep(run: RoutineRun | undefined): string {
   return done.at(-1)?.step.id ?? "trigger";
 }
 
-/** The Runs tab's label: its count, and how many wait for you. */
 function RunsTabLabel({ count, waiting }: { count: number; waiting: number }) {
   return (
     <>
@@ -198,7 +184,6 @@ function RunsTabLabel({ count, waiting }: { count: number; waiting: number }) {
   );
 }
 
-/** "Draft, 3 changes": what the draft changes, with Discard draft behind a confirm. */
 function DraftChip({ changes, onDiscard }: { changes: string[]; onDiscard: () => void }) {
   const popover = usePopover(320);
   const [confirming, setConfirming] = useState(false);
@@ -253,7 +238,6 @@ function DraftChip({ changes, onDiscard }: { changes: string[]; onDiscard: () =>
   );
 }
 
-/** Publish revision N+1: what changes, what Runs in progress keep, then Publish. */
 function PublishButton({
   revision,
   changes,
@@ -345,7 +329,6 @@ function PublishButton({
   );
 }
 
-/** End Run, behind a confirm. */
 function EndRunButton({ name, onEnd }: { name: string; onEnd: () => void }) {
   const popover = usePopover(300, "end");
   return (
@@ -386,12 +369,6 @@ function EndRunButton({ name, onEnd }: { name: string; onEnd: () => void }) {
   );
 }
 
-/**
- * A flow Routine's page: its name with the Flow chip, the draft's changes and the revision it runs; Test run and Publish
- * while editing, Pause, Resume and End while showing a Run. Under it, Steps (Edit draft: the list editor and the selected
- * step's inspector; Show Run: a Run's steps as it ran them and the selected step's approval, receipt or failure), Runs and
- * Settings (the Routine form in place). With `narrow`, a Run Chat is open beside it and the inspector goes under the list.
- */
 export function FlowPage({
   routine,
   models,
@@ -432,7 +409,6 @@ export function FlowPage({
   const [now, setNow] = useState(() => Date.now());
   const [settingsKey, setSettingsKey] = useState(0);
   const [starting, setStarting] = useState(false);
-  // After Settings saves, its form starts again from the Routine once the Mac's new copy arrives.
   const [resetOn, setResetOn] = useState<number | null>(null);
   const back = useRef<HTMLButtonElement>(null);
   const { thisMac, computers } = useComputers();

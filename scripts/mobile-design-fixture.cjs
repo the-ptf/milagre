@@ -1,5 +1,3 @@
-// An isolated phone review with a real design document and Chat feedback. No provider account is used.
-// Run: node scripts/mobile-design-fixture.cjs. Defaults to bridge 8794 and Metro 8894.
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -238,7 +236,6 @@ async function startFixture({ port = 8794, metroPort = 8894, root: resumeRoot } 
               operations: [{ op: "update", id: "practice-title", patch: { text: "A little more outside." } }],
             });
             if (result.isError) throw new Error(result.text);
-            // The summary is the first line; the rest is notes for the agent.
             const { warnings: _warnings, warningCount: _count, ...summary } = JSON.parse(result.text.split("\n", 1)[0]);
             shown = summary;
           }

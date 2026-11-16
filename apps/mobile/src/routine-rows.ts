@@ -10,15 +10,12 @@ type RoutineLike = Routine & { runs?: RoutineRun[] };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
-/** A heartbeat checks back on one Chat; every other Routine starts a new Chat for each Run. */
 export const isHeartbeat = (routine: Pick<Routine, "target">) => routine.target.kind === "chat";
 
-/** What the delete confirmation says under "Delete <name>?", as desktop says it (shared deleteWarning). */
 export function routineDeleteMessage(routine: Pick<Routine, "target">) {
   return deleteWarning(routine);
 }
 
-/** The Routine's row icon: a pulse for a heartbeat, else what starts it. */
 export function routineIcon(routine: Pick<Routine, "target" | "trigger">): IconData {
   if (isHeartbeat(routine)) return Pulse01Icon;
   const { trigger } = routine;
@@ -30,7 +27,6 @@ export function routineIcon(routine: Pick<Routine, "target" | "trigger">): IconD
   return Exchange01Icon;
 }
 
-/** How long ago, in a few words: "just now", "5 min ago", "2 h ago", "yesterday", "3 days ago". */
 function ago(at: number, now: number) {
   const minutes = Math.floor(Math.max(0, now - at) / 60_000);
   if (minutes < 1) return "just now";
@@ -41,7 +37,6 @@ function ago(at: number, now: number) {
   return days === 1 ? "yesterday" : `${days} days ago`;
 }
 
-/** When a heartbeat ends: "3 Runs left", "ends Oct 24" ("ends 18:00" today), or "" when it has no end. */
 export function heartbeatEnd(routine: Pick<Routine, "maxRuns" | "runCount" | "expiresAt">, now: number) {
   if (typeof routine.maxRuns === "number") {
     const left = Math.max(0, routine.maxRuns - routine.runCount);
@@ -52,25 +47,18 @@ export function heartbeatEnd(routine: Pick<Routine, "maxRuns" | "runCount" | "ex
   return new Date(now).toDateString() === end.toDateString() ? `ends ${clock(end)}` : `ends ${MONTHS[end.getMonth()]} ${end.getDate()}`;
 }
 
-/** The newest Run, whichever order the Mac lists them in. */
 function lastRun(runs: RoutineRun[] | undefined) {
   let last: RoutineRun | undefined;
   for (const run of runs ?? []) if (!last || run.startedAt > last.startedAt) last = run;
   return last;
 }
 
-/**
- * The line under a Routine's name. Schedules name their next Run; Heartbeats add their end and other targets keep
- * their last Run. Event triggers name what starts them and their last Run. Off, paused or failing says why.
- */
 export function routineMeta(routine: RoutineLike, now: number) {
   const parts = [capital(triggerText(routine.trigger))];
   if (routine.pausedReason) parts.push(`Paused: ${routine.pausedReason}`);
-  // A flow saved before its first publish has nothing to run yet.
   else if (routine.flow && routine.flow.revision === 0) parts.push("Flow draft, not published");
   else if (!routine.enabled) parts.push("Off");
   else {
-    // Every scheduled target names its next Run, as desktop's status column does.
     if (routine.trigger.kind === "schedule" && typeof routine.nextRunAt === "number") {
       parts.push(`next ${nextRunWhen(routine.nextRunAt, now).text}`);
     }

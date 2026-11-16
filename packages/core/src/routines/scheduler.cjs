@@ -9,9 +9,7 @@ const { createFlowRunner } = require("./flow-runner.cjs");
 const TICK_MS = 1000;
 const BUSY = "chat was busy";
 const PASS_HINT = '\n\nIf nothing needs doing, reply starting with "(pass)" and a short reason.';
-// The Runs of one Linear or webhook Routine going at once; its other events wait in its queue (store.cjs).
 const CONCURRENT_RUNS = 3;
-// How long a comment whose Chat is busy waits before it tries again.
 const COMMENT_RETRY_MS = 15_000;
 const NO_CHAT = "issue has no Chat";
 const RUN_NOW_EVENTS = "Run now works for schedules and Heartbeats";
@@ -22,39 +20,23 @@ const errorText = (error) => error?.message ?? String(error);
 
 const isComment = (event) => event?.kind === "linear" && event.change === "comment";
 const isPullRequest = (event) => event?.kind === "pull-request";
-// Whether a claimed Run makes a Chat: a trigger's (a comment and a pull-request event go into a Chat that exists), or a
-// schedule's with a new-chat target.
 const startsChat = (routine, run) =>
   routine.flow ? true : run.event ? !isComment(run.event) && !isPullRequest(run.event) : routine.target.kind === "new-chat";
 
-// Characters that show nothing or turn text around: zero-width spaces and joiners, direction marks and overrides,
-// isolates, the BOM and soft hyphens.
 const INVISIBLE = /[\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
 
-// A comment's author as its divider names them: one line, nothing invisible, no {{ or }}, at most 80 characters. Empty
-// when nothing is left.
 function authorName(author) {
   let text = String(author ?? "")
     .replace(INVISIBLE, "")
     .replace(/\s+/g, " ");
-  // Taking out one pair of braces can bring two single ones together.
   while (/\{\{|\}\}/.test(text)) text = text.replace(/\{\{|\}\}/g, "");
   return Array.from(text.trim()).slice(0, AUTHOR_MAX).join("").trim();
 }
 
-// Linear's identifiers, as they look: an issue key (MIL-1) and a team key (MIL). Anything else is treated as text.
 const ISSUE_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
 const TEAM_KEY = /^[A-Za-z][A-Za-z0-9]*$/;
-/**
- * A Linear Run's message: the Routine's prompt with the issue's fields filled in, and a comment's when there is one.
- * Everything people wrote in Linear (the title, description, labels, state name, assignee, author and comment) reaches the
- * agent fenced as data, however short. Only identifiers go in as they are: the key and team key when they look like
- * Linear's, and the URL up to the key when it is in the Routine's `workspace`. A source label names the issue only by a
- * key that looks like one.
- */
 function linearPrompt(template, issue, comment, workspace) {
   const keyed = ISSUE_KEY.test(String(issue.key ?? ""));
-  // The URL up to the key, in the Routine's workspace; anything after the key is text anyone renaming the issue writes.
   const url = keyed ? linearIssueUrl(issue.url, issue.key, workspace) : null;
   const name = keyed ? `Linear issue ${issue.key}` : "Linear issue";
   const values = {
@@ -72,9 +54,7 @@ function linearPrompt(template, issue, comment, workspace) {
     "issue.description": `${name} description`,
     "issue.labels": `${name} labels`,
     "issue.assignee": `${name} assignee`,
-    // A workflow state's name is text a Linear admin can set to anything.
     "issue.state": `${name} state`,
-    // An identifier that doesn't look like one is data like the rest.
     ...(url ? {} : { "issue.url": `${name} url` }),
     ...(keyed ? {} : { "issue.key": `${name} key` }),
     ...(TEAM_KEY.test(String(issue.team ?? "")) ? {} : { "issue.team": `${name} team` }),
@@ -83,23 +63,18 @@ function linearPrompt(template, issue, comment, workspace) {
     Object.assign(values, { "comment.body": comment.body, "comment.author": comment.author });
     Object.assign(untrusted, {
       "comment.author": keyed ? `Linear comment author on ${issue.key}` : "Linear comment author",
-      // The author's name is fenced where {{comment.author}} puts it, never written into a label beside the instructions.
       "comment.body": keyed ? `Linear comment on ${issue.key}` : "Linear comment",
     });
   }
   return renderRoutinePrompt(template, values, untrusted);
 }
 
-// A schedule's message: the Routine's prompt with {{date}} and {{time}} filled in on the trigger's clock at `at`, the same
-// for a heartbeat's beat and a Run in a Chat of its own.
 function schedulePrompt(template, at, timezone) {
   const [date, time] = clock(at, timezone, true).split(" ");
   return renderRoutinePrompt(template, { date, time });
 }
 
-// What a Run executes on, as its Routine said when the Run was claimed (the claim's copy): an edit since never reaches it.
 const claimedSettings = (routine) => ({ provider: routine.provider, model: routine.model, permissionMode: routine.permissionMode });
-// A retry's: the fallback's provider, model and effort, in the Routine's permission mode.
 const fallbackSettings = (routine, fallback) => ({
   provider: fallback.provider,
   model: fallback.model,
@@ -108,19 +83,6 @@ const fallbackSettings = (routine, fallback) => ({
 });
 const sameModel = (a, b) => a.provider === b.provider && a.model === b.model;
 
-/**
- * Starts each Routine's Runs and records how their turns went. A heartbeat's beat goes into its Chat; a trigger's Run (and a
- * schedule's with a new-chat target) starts a Chat of its own; a Linear comment goes into the Chat linked to its issue.
- * `chats` is the adapter the runtime builds: exists, archived, busy (a turn open, preparing, or an approval or question
- * pending), send (resolves once the message is accepted, with a `started` promise for the turn), replyText,
- * patchRunContext, startChat (makes a Run's Chat, in a new Worktree or the Project folder, and words its first message),
- * archive, linkedChat (the Chat a Linear issue's comments go into, or null), headBranch (the branch checked out in a Chat's
- * Worktree, or null) and nameRun (titles an acted or quiet Run once
- * it has ended, and a Run's own Chat with it; `{ quietSummary }` for a quiet one). For a Run's retry, `ranOn(chatId)` is
- * the provider, model and effort its Chat's turn ran on (or null), `fallbackFor({ provider, projectPath })` the model to
- * retry on when the Routine names none (or null), and `retryChat({ routine, run, chatId })` makes the retry's Chat beside
- * the failed one (in its Worktree when it is still there).
- */
 function createRoutineScheduler({
   store,
   chats,
@@ -128,55 +90,41 @@ function createRoutineScheduler({
   setInterval: setTimer = setInterval,
   clearInterval: clearTimer = clearInterval,
   onChange = () => {},
-  // What flow steps change outside Milagre (flow-runner.cjs): pull requests, Linear comments, waits.
   flowActions = {},
 }) {
-  // A flow's Runs go step by step there; this scheduler only claims them and passes their Chats' events on.
   const flows = createFlowRunner({ store, chats, actions: flowActions, now, onChange: () => onChange() });
   let flowsResumed = false;
-  // chatId -> the Run in flight there. `sent` flips on its message-sent, `turnStarted` on turn-started; a turn's end only
-  // classifies the Run after both. `newChat` marks a Chat the Run started itself, which a quiet end archives.
   const pending = new Map();
   let timer = null;
   let ticking = false;
   let swept = false;
   let recovered = false;
-  // Work going on off the tick (a Run's Chat being made, a quiet Run's Chat being archived), so idle() can wait for it.
   const background = new Set();
   const track = (work) => {
     background.add(work);
     void work.finally(() => background.delete(work));
   };
-  // The comments going out, one after another (see dispatchAll), and whether the scheduler was stopped since.
   let comments = Promise.resolve();
   let stopped = false;
-  // The comments whose failed Chat lookup was logged, by event key: a comment retried every 15 s is logged once.
   const lookupWarned = new Set();
-  // Chats whose beat failed to start again, its turn end not yet published: that end is marked quiet when it comes.
   const silenced = new Set();
 
-  // What the UI lists of the Routines that a tick can change without a claim: which there are, which are on, and when each
-  // runs next (a slot missed while the Mac slept moves it, and leaves a missed Run).
   const signature = () =>
     store
       .list()
       .map((routine) => `${routine.id}:${routine.enabled}:${routine.nextRunAt}`)
       .join(",");
 
-  // Resolves with the Routine as the Run left it, or null when the Run was already finished.
   function finish(run, chatId, outcome) {
     return store.finishRun(run.id, { chatId, ...outcome });
   }
 
-  // A failed beat right after another failed beat tells no one: the first failure was announced (store.cjs ends the
-  // heartbeat on the third, and pauses a trigger).
   const failedAgain = (routine) => (routine?.failedStreak ?? 0) >= 2;
 
   function chatGone(chatId) {
     return !chats.exists(chatId) || chats.archived(chatId);
   }
 
-  // Heartbeats whose Chat is gone or archived end; nothing will ever answer them.
   function sweepGone() {
     for (const routine of store.list()) {
       if (routine.target.kind !== "chat" || !chatGone(routine.target.chatId)) continue;
@@ -184,8 +132,6 @@ function createRoutineScheduler({
     }
   }
 
-  // A schedule Routine never has two Runs at once, and one whose maxRuns was lowered to what it already ran ends instead of
-  // running again. Either way the Run just claimed is skipped-busy, which doesn't count.
   function scheduleAllows(routine, run) {
     const chatId = routine.target.chatId;
     if (routine.maxRuns !== undefined && routine.runCount >= routine.maxRuns) {
@@ -200,17 +146,13 @@ function createRoutineScheduler({
     return true;
   }
 
-  // Sends a Run's message into `chatId`, whose pending `entry` is already set, and leaves the Run to the turn it starts.
   async function deliver(chatId, entry, message) {
     let started;
     try {
       ({ started } = await chats.send(chatId, message));
-      // The message is saved: whatever starts in the Chat now is the Run's turn (or steers into it).
       entry.sent = true;
     } catch (error) {
       if (pending.get(chatId) === entry) pending.delete(chatId);
-      // The Chat got busy as the message was about to go (the adapter checks again as it is saved): a comment waits as
-      // it does for a busy Chat, and a beat is skipped, uncounted, as it would have been a moment earlier.
       if (error?.busy && entry.comment) store.deferRun(entry.runId, now() + COMMENT_RETRY_MS);
       else if (error?.busy && !entry.newChat) finish({ id: entry.runId }, chatId, { status: "skipped-busy" });
       else if (retries(entry, errorText(error))) await retry(chatId, entry, errorText(error));
@@ -220,8 +162,6 @@ function createRoutineScheduler({
       }
       return;
     }
-    // No turn of the Run's own will end it: a start that failed or was stopped resolves without a turn id, and a message
-    // steered into a turn already running belongs to that turn, which isn't the Run's to classify.
     Promise.resolve(started).then(
       (result) => {
         if (result?.turnId) entry.turnId ??= result.turnId;
@@ -252,21 +192,17 @@ function createRoutineScheduler({
     await deliver(chatId, entry, { body, prompt: body + PASS_HINT, context, settings: claimedSettings(routine) });
   }
 
-  // A Run in a Chat of its own. The adapter makes the Chat from the Routine as it was when the Run was claimed, and words
-  // its first message.
   async function runInNewChat(routine, run) {
     let chat;
     try {
       chat = await chats.startChat({ routine, run });
     } catch (error) {
-      // store.cjs pauses the trigger on the third failure in a row.
       finish(run, undefined, { status: "failed", error: errorText(error) });
       return;
     }
     const { chatId, worktreeId, createdWorktree, body, prompt, context } = chat;
     const removeWorktree = createdWorktree === true;
     if (!store.attachChat(run.id, { chatId, worktreeId })) {
-      // The Routine was deleted while its Chat was being made: nothing runs there, and the Chat goes.
       archive(chatId, removeWorktree);
       return;
     }
@@ -276,16 +212,8 @@ function createRoutineScheduler({
     await deliver(chatId, entry, { ...message, settings: claimedSettings(routine) });
   }
 
-  // Whether a failed attempt gets its one retry: a Run in a Chat of its own, on its first attempt, failing for a
-  // provider-side reason, while the scheduler runs.
   const retries = (entry, error, event) => Boolean(entry.newChat && entry.routine && !entry.retried && !stopped && providerFailure(error, event));
 
-  /**
-   * The one retry of a Run whose attempt in `chatId` failed for a provider-side reason: a new Chat beside it (in the same
-   * Worktree when it is still there) gets the same first message, on the Routine's fallback or, when it names none, the
-   * model `fallbackFor` picks on another installed provider. The Run keeps the failed attempt (store.cjs retryRun) and
-   * goes on running, so it ends, and counts toward the failure streak, once. With no model to retry on, it fails as is.
-   */
   async function retry(chatId, entry, error) {
     const { routine, message } = entry;
     const projectPath = routine.target.projectPath;
@@ -348,7 +276,6 @@ function createRoutineScheduler({
     onChange();
   }
 
-  // Starts a failed attempt's retry off the tick: it may look up models and make a Chat.
   function startRetry(chatId, entry, error) {
     track(
       retry(chatId, entry, error)
@@ -361,17 +288,12 @@ function createRoutineScheduler({
     );
   }
 
-  // A Linear comment goes into the Chat linked to its issue. A person wrote it, so a busy Chat makes it wait rather than skip
-  // it: its Run goes back to the head of the queue, uncounted, and tries again in 15 s (store.cjs gives up after 2 h, and
-  // holds the later comments on that issue back meanwhile, so they arrive in order).
   async function deliverComment(routine, run) {
     const { issue, comment } = run.event;
     let chatId;
     try {
       chatId = await chats.linkedChat({ key: issue.key, workspace: issue.workspace });
     } catch (error) {
-      // The Chats couldn't be looked up just now: the comment waits and tries again, uncounted, as for a busy Chat (store.cjs
-      // gives up after 2 h). Its key is already seen, so failing it would lose it for good.
       if (!lookupWarned.has(run.event.key)) {
         lookupWarned.add(run.event.key);
         console.warn("[routines] couldn't find a comment's Chat; it waits and tries again", error);
@@ -380,19 +302,16 @@ function createRoutineScheduler({
       return;
     }
     lookupWarned.delete(run.event.key);
-    // Stopped while the Chat was looked up: back to the queue for next time.
     if (stopped) {
       store.deferRun(run.id, now());
       return;
     }
-    // The Routine may have been turned off or deleted while its Chat was looked up.
     const current = store.get(routine.id);
     if (!current || !current.enabled || current.completedAt) {
       finish(run, undefined, { status: "skipped-busy", error: "Routine was turned off" });
       return;
     }
     if (!chatId) {
-      // A comment on an issue no Chat works on isn't for this Routine: skipped, so it never counts as a failure.
       finish(run, undefined, { status: "skipped-busy", error: NO_CHAT });
       return;
     }
@@ -409,9 +328,6 @@ function createRoutineScheduler({
     await deliver(chatId, entry, { body: text, prompt: text + PASS_HINT, context, settings: claimedSettings(routine) });
   }
 
-  // A watched PR's change goes into the Routine's own Chat, in the babysit prompt. Like a comment it waits for a busy Chat
-  // rather than being skipped (store.cjs keeps a pull-request Run to one at a time, and its events in order). It goes at
-  // the level the setting says only while the Chat's Worktree is on the PR's branch; anywhere else it only reports.
   async function deliverPullRequest(routine, run) {
     const chatId = routine.target.chatId;
     if (chatGone(chatId)) {
@@ -423,15 +339,11 @@ function createRoutineScheduler({
     let headBranch = null;
     try {
       headBranch = (await chats.headBranch?.(chatId)) ?? null;
-    } catch {
-      // A branch that can't be read is a Worktree that isn't known to be on the PR's: report only.
-    }
-    // Stopped while the branch was read: back to the queue for next time.
+    } catch {}
     if (stopped) {
       store.deferRun(run.id, now());
       return;
     }
-    // The Routine may have been turned off or deleted, or its Chat archived, meanwhile.
     const current = store.get(routine.id);
     if (!current || !current.enabled || current.completedAt || chatGone(chatId)) {
       finish(run, undefined, { status: "skipped-busy", error: "Routine was turned off" });
@@ -476,7 +388,6 @@ function createRoutineScheduler({
     }
   }
 
-  // Whatever a dispatch didn't see coming ends its Run, which would otherwise hold its slot until the daemon restarts.
   async function dispatchSafely(routine, run) {
     try {
       await dispatch(routine, run);
@@ -487,12 +398,10 @@ function createRoutineScheduler({
     }
   }
 
-  // Ends a pending Run that no turn end will finish. `event` is the turn end that says so, when one did.
   function release(chatId, entry, error, event) {
     if (pending.get(chatId) !== entry) return;
     pending.delete(chatId);
     if (retries(entry, error, event)) {
-      // The retry speaks for the Run: the failed attempt's end tells no one.
       if (event) event.quiet = true;
       startRetry(chatId, entry, error);
       onChange();
@@ -502,7 +411,6 @@ function createRoutineScheduler({
     if (entry.newChat) leave(chatId, entry, false);
     if (failedAgain(routine)) {
       if (event) event.quiet = true;
-      // A beat that steered into someone else's turn has no turn end of its own to silence.
       else if (error !== BUSY) silenced.add(chatId);
     }
     onChange();
@@ -511,12 +419,8 @@ function createRoutineScheduler({
   async function dispatchAll(claims) {
     for (const { routine, run } of claims) {
       if (isComment(run.event) || isPullRequest(run.event)) {
-        // Finding a comment's Chat reads every Project, and a babysit Run reads its Worktree's branch, so both go out off the
-        // tick, one after another in the order they were claimed (comments on one issue, and one PR's events, arrive in
-        // order), and a heartbeat never waits on that.
         comments = comments
           .then(() => {
-            // Stopped meanwhile (Routines off, Milagre closing): the comment goes back to its queue for next time.
             if (stopped) return store.deferRun(run.id, now());
             return dispatchSafely(routine, run);
           })
@@ -525,8 +429,6 @@ function createRoutineScheduler({
         continue;
       }
       if (startsChat(routine, run)) {
-        // Making a Chat can take a while (a Worktree, a fetch), so it holds up neither the tick nor the other Routines. It
-        // says when it's done: the Run has its Chat, or failed.
         track(
           dispatchSafely(routine, run)
             .then(() => onChange())
@@ -549,24 +451,19 @@ function createRoutineScheduler({
       const before = signature();
       const at = now();
       store.expireDue(at);
-      // Schedule Runs, then the events waiting in each trigger's queue, three Runs at most going per Routine.
       const claims = [...store.claimDue(at), ...store.claimQueued(at, CONCURRENT_RUNS)];
       await dispatchAll(claims);
       await flows.tick();
-      // A tick before start() does start's sweep, after its claims so a due beat still records its Run.
       if (!swept) {
         swept = true;
         sweepGone();
       }
-      // Expiry, a missed slot, a gone Chat or a used-up Routine whose queue the claim ended change the list without a claim.
       if (claims.length > 0 || signature() !== before) onChange();
     } finally {
       ticking = false;
     }
   }
 
-  // Once per daemon start: Runs a stop cut short fail (store.cjs), and heartbeats whose Chat is gone end. Never again
-  // later, when a Run in flight would be failed with them.
   function recover() {
     if (recovered) return;
     recovered = true;
@@ -575,11 +472,9 @@ function createRoutineScheduler({
     sweepGone();
   }
 
-  // The tick timer, from the runtime's start until its stop.
   function start() {
     recover();
     stopped = false;
-    // Flow Runs a stop left mid-way go on from where they were, once the Chats can be reached.
     if (!flowsResumed) {
       flowsResumed = true;
       flows.resume();
@@ -598,7 +493,6 @@ function createRoutineScheduler({
     timer = null;
   }
 
-  // Resolves once the patch is in, or has failed (logged).
   function patchContext(chatId, runId, patch, session) {
     try {
       return Promise.resolve(chats.patchRunContext(chatId, runId, patch, session)).catch((error) => console.warn("[routines] patchRunContext failed", error));
@@ -608,7 +502,6 @@ function createRoutineScheduler({
     }
   }
 
-  // Asks for a Run that has ended to be titled from what it did. Nothing it does reaches the Run, which has its status.
   function nameRun(chatId, runId, options) {
     try {
       track(Promise.resolve(chats.nameRun(chatId, runId, options)).catch((error) => console.warn("[routines] nameRun failed", error)));
@@ -617,8 +510,6 @@ function createRoutineScheduler({
     }
   }
 
-  // Archives a Chat a Run started, once `after` settles; its Worktree goes too when the Run made it (and, the adapter
-  // checks, nothing in it is worth keeping).
   function archive(chatId, removeWorktree, after = Promise.resolve()) {
     track(after.then(() => chats.archive(chatId, { removeWorktree })).catch((error) => console.warn("[routines] archive failed", error)));
   }
@@ -641,7 +532,6 @@ function createRoutineScheduler({
     );
   }
 
-  // Runs synchronously: it marks the event quiet before the runtime broadcasts it.
   function observe(chatId, event) {
     if (flows.observe(chatId, event)) return;
     if (silenced.has(chatId)) {
@@ -653,8 +543,6 @@ function createRoutineScheduler({
     }
     const entry = pending.get(chatId);
     if (!entry) return;
-    // Only the Run's own message counts (ChatHost names the Run on its message-sent), and only a turn after it, so a
-    // user's turn that starts and ends while the Run's message is on its way is never taken for the Run's.
     if (event.type === "message-sent") {
       if (event.routineRunId === entry.runId) entry.sent = true;
       return;
@@ -667,8 +555,6 @@ function createRoutineScheduler({
     }
     if (!isTurnEnd(event)) return;
     if (!entry.turnStarted) {
-      // A turn end before the beat's message is the Chat's previous turn, published late. One after it, before any
-      // turn-started, is the beat's turn failing to start (no agent CLI, Stop while it started).
       if (entry.sent && event.type !== "turn-completed")
         release(chatId, entry, event.type === "turn-failed" ? (event.message ?? "turn failed") : "cancelled", event);
       return;
@@ -698,16 +584,12 @@ function createRoutineScheduler({
         event.quiet = true;
       }
     }
-    // A quiet beat takes back only the unread mark its turn's end set (ChatHost marks that end `markedUnread`): a mark
-    // already there, or one the user cleared during the beat, is left as it is.
     const session = event.markedUnread ? { unread: false } : undefined;
     const patched = quiet ? patchContext(chatId, entry.runId, { quiet, summary }, session) : patchContext(chatId, entry.runId, { quiet });
     if (entry.newChat) leave(chatId, entry, quiet, patched);
     onChange();
   }
 
-  // A Chat archived or marked Done ends every Heartbeat on it (a Babysit PR one too): its work is over, and a beat would
-  // only bring a Done Chat back to the list.
   function chatEnded(chatId, reason) {
     let completed = false;
     for (const routine of store.list()) {
@@ -718,19 +600,12 @@ function createRoutineScheduler({
     if (completed) onChange();
   }
 
-  /**
-   * Queues Linear or webhook events (`[{ routineId, event }]`) with one store write, and returns what store.cjs
-   * `enqueueMany` said about each. The next tick, within a second, starts their Runs where a Routine has a slot free.
-   */
   function enqueueEvents(items) {
     const results = store.enqueueMany(items);
-    // A full queue (or a Routine with too many events to remember) answers an event with a missed Run, which the UI
-    // lists too. One change for the whole batch.
     if (results.some((result) => result.queued || result.reason === "full" || result.reason === "too-many")) onChange();
     return results;
   }
 
-  // One event: `enqueueEvents` with one item.
   function enqueueEvent(routineId, event) {
     return enqueueEvents([{ routineId, event }])[0];
   }
@@ -738,7 +613,6 @@ function createRoutineScheduler({
   async function runNow(routineId) {
     const routine = store.get(routineId);
     if (routine && !routine.completedAt && routine.trigger.kind === "pull-request") throw new Error(RUN_NOW_BABYSIT);
-    // A Linear or webhook Run needs the event it answers.
     if (routine && !routine.completedAt && routine.trigger.kind !== "schedule") throw new Error(RUN_NOW_EVENTS);
     const started = store.startRun(routineId, now());
     if (!started) throw new Error(`Routine not found or completed: ${routineId}`);
@@ -749,8 +623,6 @@ function createRoutineScheduler({
 
   return {
     recover,
-    // Resolves once the comments claimed so far have gone out (or waited) and, unless `background` is false, the Chats
-    // being made or archived are done; for tests and an orderly stop.
     idle: async ({ background: andBackground = true } = {}) => {
       await comments;
       if (!andBackground) return;
@@ -766,8 +638,6 @@ function createRoutineScheduler({
     runNow,
     enqueueEvent,
     enqueueEvents,
-    // Flow Runs: the owner's actions (approve, reject, pause, resume, end, retry), a Test run, and the fields a step's agent
-    // hands back through flow_step_output.
     flowAct: (runId, action, options) => flows.act(runId, action, options),
     flowTest: (routineId) => flows.test(routineId),
     flowOutput: (chatId, value) => flows.recordOutput(chatId, value),

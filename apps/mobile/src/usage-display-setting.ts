@@ -22,7 +22,6 @@ function setDisplay(next: UsageDisplay) {
   listeners.forEach((listener) => listener());
   void saveUsageDisplay(next);
 }
-/** Device-local display preference; the computer's account assignments are independent. */
 export function useUsageDisplay(): [UsageDisplay, (next: UsageDisplay) => void] {
   return [useSyncExternalStore(subscribe, () => display), setDisplay];
 }

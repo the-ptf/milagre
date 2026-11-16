@@ -33,7 +33,6 @@ import { lineHeight, radius, space, type } from "../design-tokens";
 import { ErrorNotice, Field, HeaderButton, InlineError, PageScroll, PillButton, Tag, pressStyle, showActions, tap, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
-/** Sends a flow action for the Run: approve, reject, pause, resume, end or retry. */
 type Act = (action: string, options?: { reason?: string; note?: string }, fallback?: string) => Promise<boolean>;
 const failure = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
 const firstLine = (text: string | undefined) =>
@@ -42,18 +41,11 @@ const firstLine = (text: string | undefined) =>
     .find((line) => line.trim())
     ?.trim() ?? "";
 
-/** "10:02" today, "Mon 16:20" before. */
 function when(at: number, now: number) {
   const day = dayLabel(at, now);
   return day === "Today" ? clock(at) : `${day} ${clock(at)}`;
 }
 
-/**
- * One flow Run, step by step, as desktop's Run view on a phone: its state, its issue, when and where it started on which
- * revision, then a timeline of its steps with what each did. An approval waiting on you sits inline with Approve and Reject
- * (Reject asks for a reason); a pull request it opened shows its receipt; a step that failed shows its error and tries,
- * with Retry with a note. Pause Run is under the title; End Run is in the menu, behind a confirmation.
- */
 export default function FlowRunScreen() {
   const params = useLocalSearchParams<{ id: string; run: string }>();
   const styles = useStyles();
@@ -154,7 +146,6 @@ export default function FlowRunScreen() {
       <Tag label={flowRunText(run)} dot />
     );
   const rows = runRows(flow);
-  // The step an approval expired or was rejected at: its time limit can be changed in the draft.
   const askStep = state === "ended" ? rows.find((row) => row.kind === "step" && row.run?.approval?.decision === "expired") : undefined;
   const askStepId = askStep?.kind === "step" && findStep(draft.steps, askStep.step.id) ? askStep.step.id : "";
   const again = canRunNow(routine) && routine.enabled;
@@ -245,7 +236,6 @@ export default function FlowRunScreen() {
   );
 }
 
-/** What the ended notice says: why the Run ended, when, and that nothing after it ran. */
 function endedText(run: RoutineRun, rows: FlowRunRow[], now: number) {
   const at = run.endedAt ? ` on ${when(run.endedAt, now)}` : "";
   for (const row of rows) {
@@ -259,7 +249,6 @@ function endedText(run: RoutineRun, rows: FlowRunRow[], now: number) {
   return run.error ? `The Run ended${at}: ${run.error}. Nothing after it ran.` : `The Run ended${at}. Nothing after it ran.`;
 }
 
-/** One line of the timeline: the state icon on the line that joins the steps, the name, what it did, and anything under it. */
 function TimelineRow({
   icon,
   title,
@@ -297,7 +286,6 @@ function TimelineRow({
   );
 }
 
-/** An If's path label in the timeline: "Yes, taken", "Otherwise, not taken". */
 function PathRow({ row, last }: { row: Extract<FlowRunRow, { kind: "path" }>; last: boolean }) {
   const { colors } = useTheme();
   const name = row.path === "yes" ? "Yes" : "Otherwise";
@@ -317,7 +305,6 @@ function PathRow({ row, last }: { row: Extract<FlowRunRow, { kind: "path" }>; la
   );
 }
 
-/** A step of the timeline, with its output chips and Chat link, and its approval, receipt or failure under it. */
 function StepRow({
   row,
   last,
@@ -371,7 +358,6 @@ function StepRow({
   );
 }
 
-/** A small accent link, as "Open Chat" beside the output chips. */
 function LinkText({ title, onPress }: { title: string; onPress: () => void }) {
   const { colors } = useTheme();
   return (
@@ -390,13 +376,11 @@ function LinkText({ title, onPress }: { title: string; onPress: () => void }) {
   );
 }
 
-/** A card under a timeline step. */
 function StepCard({ children }: { children: ReactNode }) {
   const styles = useStyles();
   return <View style={[styles.card, { marginTop: space.xs }]}>{children}</View>;
 }
 
-/** Label and value rows inside a card, split by hairlines: what a pull request will open, or its receipt. */
 function Rows({ rows }: { rows: [string, string][] }) {
   const { colors } = useTheme();
   return (
@@ -425,10 +409,6 @@ function Rows({ rows }: { rows: [string, string][] }) {
   );
 }
 
-/**
- * The approval a step waits for: its message and, for a pull request, what will open and that it keeps a receipt; then
- * Approve and Reject. Reject opens a field for a reason (optional) before it ends the Run.
- */
 function ApprovalCard({
   step,
   approval,
@@ -511,7 +491,6 @@ function ApprovalCard({
   );
 }
 
-/** What a step did that must never happen twice: the pull request it opened (or found) or the comment it posted. */
 function ReceiptCard({ receipt, runLabel }: { receipt: FlowReceipt; runLabel: string }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -556,7 +535,6 @@ function ReceiptCard({ receipt, runLabel }: { receipt: FlowReceipt; runLabel: st
   );
 }
 
-/** A step that failed: its error, the tries before it, and Retry with a note (the note goes into the next turn's prompt). */
 function FailedCard({
   step,
   stepRun,

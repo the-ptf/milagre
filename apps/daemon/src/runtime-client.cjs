@@ -3,31 +3,18 @@ const { ensureDaemon, compatibleClient, HOST_GONE } = require("./bootstrap.cjs")
 const { projectOfKey } = require("@milagre/shared/agent-runs");
 const { thisComputer } = require("@milagre/shared/host-computer");
 
-// A host from before result pages still works; it only fails on very large Projects, as it always did. The window
-// offers to restart it (see restartHost).
 const RESULT_PAGES = "result-pages-v1";
 const OUTDATED_HOST = "Restart Milagre's background host to load large projects.";
-// Events waiting behind one Project's state read. Past this the connection is dropped, and the reconnect re-reads every state.
 const MAX_HELD = 10_000;
 // A host that went away without being asked to (it crashed, or was killed) is started again: this many times, the
-// delay doubling from reconnectMs each time. Past that the window says it couldn't, and reconnects keep only connecting.
 const START_ATTEMPTS = 3;
 const RESTARTED_HOST = "Milagre's background host stopped unexpectedly, so it was started again.";
-// A paired computer's snapshot may announce at most this many pages and run to this many characters in all: the same
-// limits peer-client.cjs holds its paged replies to (not required from there, which would pull the whole peer client
-// into this file's type check).
 const MAX_PAGES = 1024;
 const MAX_PAGED_CHARS = 128 * 1024 * 1024;
-// A host that has them sends what changed in a state event, not the whole state; the window applies it (state-events.ts).
 const STATE_PATCHES = "state-patches-v1";
-// A host that keeps messages by Chat sends states without them; the window reads each Chat's own (chat-messages.ts).
 const CHAT_PAGES = "chat-pages-v1";
-// A host that can sends each subagent with only the end of its transcript; the panel reads a whole one (subagent-transcripts.ts).
 const SUBAGENT_TAILS = "subagent-tails-v1";
-// A host that can sends each archived subagent as a summary; the panel reads the rest when it opens one (subagent-transcripts.ts).
 const ARCHIVED_SUMMARIES = "archived-subagent-summaries-v1";
-// Calls whose reply is the Project the window shows from then on (server.cjs keeps the same list for its view). Not
-// chats:ensure, which opens the Chats home without moving the window to it.
 const SHOWN_PROJECT = new Set([
   "project:open",
   "project:current",
@@ -37,10 +24,6 @@ const SHOWN_PROJECT = new Set([
   "onboarding:clone",
   "onboarding:init-git",
 ]);
-/**
- * Asks a host that can for state patches, and for states without messages, with transcript tails and with archived
- * subagents as summaries when it can; an older one keeps sending whole states.
- */
 async function takeStatePatches(connection, status) {
   const capabilities = status.capabilities ?? [];
   if (capabilities.includes(CHAT_PAGES))
@@ -54,7 +37,6 @@ async function takeStatePatches(connection, status) {
   else if (status.capabilities?.includes(STATE_PATCHES)) await connection.call("daemon:state-patches");
 }
 
-// The Project an event belongs to, when it names one.
 function projectOfEvent({ channel, payload }) {
   if (!payload || typeof payload !== "object") return null;
   if (channel === "link:state") return typeof payload.linkId === "string" ? scopeKey({ kind: "link", linkId: payload.linkId }) : null;
@@ -69,16 +51,12 @@ async function connectDesktopRuntime(options) {
   const { emit = () => {}, dataDir, reconnectMs = 1000, maxPagedChars = MAX_PAGED_CHARS } = options;
   const outdated = (status) =>
     !status.capabilities?.includes(RESULT_PAGES) || (options.requiredCapabilities ?? []).some((name) => !status.capabilities?.includes(name));
-  // The start every launch and restartHost use; tests stand in for it.
   /** @type {typeof ensureDaemon} */
   const startHost = options.startHost ?? ensureDaemon;
-  // A paired computer's host (computers.cjs) is only reached, through `connect`: this Mac never starts, flushes, stops
-  // or restarts it. Without `connect` the runtime drives this Mac's own host.
   const remote = typeof options.connect === "function";
   const first = remote ? await options.connect() : await startHost(options);
   async function readStatus(connection) {
     const status = connection.status ?? (await connection.call("daemon:status"));
-    // Older desktops already register these names as native IPC handlers. Only new clients opt into daemon proxies.
     if (!remote && (options.requiredCapabilities ?? []).includes("computer-management-v1") && status.capabilities?.includes("computer-management-v1"))
       return connection.call("daemon:status", [{ computerManagement: true }]);
     return status;
@@ -90,13 +68,10 @@ async function connectDesktopRuntime(options) {
     status = await readStatus(first);
     await takeStatePatches(first, status);
   } catch (error) {
-    // No runtime is made, so nothing else would ever close this connection.
     first.close();
     throw error;
   }
   const methods = [...status.methods];
-  // The commands of the host connected now. `methods` only grows (each one has an IPC handler), so it says nothing
-  // about whether a host reconnected to, maybe an older one, still has a command.
   let hostMethods = [...status.methods];
   let hostOutdated = outdated(status);
   let closed = false;
@@ -123,11 +98,6 @@ async function connectDesktopRuntime(options) {
     hostOutdated = outdated(next);
   }
 
-  // The host leaves a state over a quarter of a frame out of an event (`stateTooLarge`). It is read in pages and put
-  // back before the window sees the event, so a turn's end and its saved reply still arrive together. Each Project
-  // waits on its own: other Projects' events, and other chats' streaming, keep flowing. Everything waiting when a read
-  // starts was sent before it, so one read answers them all: a burst of state events costs one read, and only the last
-  // project:state of a burst is passed on. A reconnect drops what is waiting: its snapshot holds every state.
   const holds = new Map();
   function deliver(connection, event) {
     const project = projectOfEvent(event);
@@ -152,7 +122,6 @@ async function connectDesktopRuntime(options) {
     }
     const created = { connection, queue: [event] };
     holds.set(project, created);
-    // Events that arrived in the same read from the socket join the first state read.
     setImmediate(() => void release(project, created));
   }
   async function release(project, hold) {
@@ -182,7 +151,6 @@ async function connectDesktopRuntime(options) {
           return;
         }
         const { stateTooLarge, state: _own, ...rest } = item.payload;
-        // A failed read keeps the window's state; the event still moves the turn on screen.
         if (!read) {
           if (!stateTooLarge) forward(item);
           else if (!["project:state", "link:state"].includes(item.channel)) forward({ ...item, payload: rest });
@@ -198,7 +166,6 @@ async function connectDesktopRuntime(options) {
   function attach(connection) {
     connection.on("event", (event) => {
       if (client !== connection || closed) return;
-      // The host was asked to stop (by this desktop or anyone else) and saved: it stays stopped.
       if (event.channel === "daemon:stopping") {
         hostStopped = true;
         return;
@@ -207,9 +174,8 @@ async function connectDesktopRuntime(options) {
         deliver(connection, event);
         return;
       }
-      if (!capturingSnapshot) return; // The later snapshot covers restoration events.
+      if (!capturingSnapshot) return;
       bufferedBytes += Buffer.byteLength(JSON.stringify(event));
-      // Recovery re-reads state instead of retaining an unbounded event stream.
       if (buffered.length >= 1024 || bufferedBytes > 16 * 1024 * 1024) {
         connection.close();
         return;
@@ -224,12 +190,7 @@ async function connectDesktopRuntime(options) {
       if (!recovering) scheduleReconnect();
     });
   }
-  // A host stopped on purpose stays stopped: an update, a restart until it starts its own, a quit, or a stop the host
-  // announced (daemon:stopping). Its reconnects only connect, and the next desktop launch can start it again. A host
-  // that went away otherwise is started again (see START_ATTEMPTS). Only the connection is retried: a command that
-  // was sent, or refused while disconnected, is never sent again.
   let hostStopped = false;
-  // Starts tried since the host went away; reset once connected.
   let starts = 0;
   const mayStart = () => !hostStopped && starts < START_ATTEMPTS;
   function scheduleReconnect() {
@@ -242,7 +203,6 @@ async function connectDesktopRuntime(options) {
       mayStart() ? reconnectMs * 2 ** starts : reconnectMs,
     );
   }
-  /** Resolves with the error when it couldn't connect (it then retries by itself), or nothing once connected. */
   async function reconnect() {
     let connection;
     let started = false;
@@ -281,8 +241,6 @@ async function connectDesktopRuntime(options) {
         } catch (error) {
           const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
           const message = error instanceof Error ? error.message : String(error);
-          // A broken Project must not prevent the remaining Projects from becoming usable. Connection failures
-          // still retry the reconnect; local and paired clients also report close/deadline failures without codes.
           if (
             ["DAEMON_CLOSED", "CLOSING", "UNAUTHORIZED", "ETIMEDOUT", "ECONNRESET", "ECONNABORTED", "EPIPE", "FRAME_TOO_LARGE", "INVALID_REQUEST"].includes(
               code,
@@ -306,7 +264,6 @@ async function connectDesktopRuntime(options) {
       await connection.call("daemon:focus", [{ focused }]);
       capturingSnapshot = true;
       const manifest = await connection.call("daemon:snapshot", [{ paged: true }]);
-      // This Mac's own host is trusted to size its pages; a paired computer's is not (peer-client.cjs holds its replies to the same limits).
       if (remote && (!Number.isSafeInteger(manifest.pageCount) || manifest.pageCount < 1 || manifest.pageCount > MAX_PAGES))
         throw new Error("The computer sent an invalid snapshot");
       const pages = [];
@@ -325,7 +282,6 @@ async function connectDesktopRuntime(options) {
       for (const event of buffered) if (event.seq > snapshot.eventSeq) deliver(connection, event);
       buffered = [];
       recovering = false;
-      // A restart the user asked for needs no notice; one that happened by itself does.
       const restarted = starts > 0 && !restarting;
       hostStopped = false;
       starts = 0;
@@ -338,8 +294,6 @@ async function connectDesktopRuntime(options) {
       connection?.close();
       if (!closed) {
         const reason = error instanceof Error ? error.message : String(error);
-        // The last start failed too: say why, and keep that on screen while the retries only try to connect to a host
-        // started some other way.
         if (started && starts >= START_ATTEMPTS)
           emit("runtime:connection", { connected: false, failed: true, message: `Milagre's background host couldn't start again: ${reason}` });
         else if (hostStopped || starts < START_ATTEMPTS) emit("runtime:connection", { connected: false, message: `Host unavailable: ${reason}` });
@@ -351,7 +305,6 @@ async function connectDesktopRuntime(options) {
   attach(client);
   if (hostOutdated) emit("runtime:connection", connectedState());
 
-  // Stops the host the way an update does (it saves and suspends running turns), then waits for the socket to close.
   async function stopHost(connection, message) {
     let deadline;
     let onClose;
@@ -371,8 +324,6 @@ async function connectDesktopRuntime(options) {
   async function invoke(method, args = []) {
     if (closed || !client || recovering) throw new Error("Milagre host is disconnected. Your command was not sent.");
     const result = /** @type {any} */ (await client.call(method, args));
-    // The Project the window shows from now on, opened again after a reconnect. A sidebar row (canvas:open-project) is
-    // only that: the Projects the sidebar went through aren't all opened again, each one's first read on the new host.
     if (SHOWN_PROJECT.has(method) && result && typeof result === "object" && "path" in result && typeof result.path === "string") {
       currentProject = result.path;
       if (method !== "canvas:open-project") projects.add(result.path);
@@ -385,28 +336,23 @@ async function connectDesktopRuntime(options) {
     return result;
   }
   return {
-    /** The host's commands; restartHost can add the newer host's. */
     methods,
-    /** The commands of the host connected now, which a reconnect replaces (an older host has fewer). */
     hostMethods: () => [...hostMethods],
     environmentReady: Promise.resolve(),
     invoke,
-    /** A TCP stream from a paired computer to `target:port` as it sees them (peer-streams.cjs); its own host has none. */
     async openStream(target, port) {
       if (closed || !client || recovering) throw new Error("Milagre host is disconnected.");
-      // A paired computer's client (peer-client.cjs) has openStream; this Mac's socket client doesn't.
       const peer = /** @type {any} */ (client);
       if (typeof peer.openStream !== "function") throw new Error("This host doesn't carry streams.");
       return peer.openStream(target, port);
     },
     openProject: (projectPath) => invoke("project:open", [projectPath, { takeNotice: true }]),
-    resumeRecentProjects: async () => {}, // The daemon resumes once, before it announces startup.
+    resumeRecentProjects: async () => {},
     focused: () => invoke("daemon:focus", [{ focused: true }]),
     setFocused(value) {
       focused = value === true;
       return invoke("daemon:focus", [{ focused }]);
     },
-    /** Replaces a running host with this desktop's own (an older one can't load large Projects). The window reconnects to it. */
     async restartHost() {
       if (remote) throw new Error(`Only ${thisComputer}'s own host restarts from here.`);
       if (closed || restarting) return;
@@ -418,7 +364,6 @@ async function connectDesktopRuntime(options) {
         await stopHost(connection, "The background host has not stopped. Try again.");
         clearTimeout(timer);
         timer = null;
-        // A new host that fails to start is reported to the window; the retries that follow start one again.
         hostStopped = false;
         starts = 0;
         const failure = await reconnect();
@@ -436,8 +381,6 @@ async function connectDesktopRuntime(options) {
       if (stop) {
         if (!client || recovering) throw new Error("Reconnect to the host before installing an update.");
         const connection = client;
-        // A stop acknowledgement follows saving. Socket closure also confirms
-        // host shutdown before the installer can replace its files.
         hostStopped = true;
         try {
           await stopHost(connection, "The host has not stopped. The update was not installed.");
@@ -450,11 +393,6 @@ async function connectDesktopRuntime(options) {
       clearTimeout(timer);
       client?.close();
     },
-    /**
-     * Brings this Mac's own host back after close({ stopHost }) for an update that did not go ahead: the stop failed
-     * part way (the host may have stopped all the same) or the install did. Starts the host when it is gone; a host the
-     * stop never reached is only connected to again. Resolves once connected; on a failure it retries by itself.
-     */
     async reopen() {
       if (remote) throw new Error(`Only ${thisComputer}'s own host starts from here.`);
       closed = false;
@@ -463,7 +401,6 @@ async function connectDesktopRuntime(options) {
       if (client && !recovering) return;
       clearTimeout(timer);
       timer = null;
-      // Asked for, like restartHost: no "stopped unexpectedly" notice once it is back.
       restarting = true;
       try {
         const failure = await reconnect();

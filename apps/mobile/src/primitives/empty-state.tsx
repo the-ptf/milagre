@@ -5,10 +5,6 @@ import { Icon, type IconData } from "../icons";
 import { useTheme } from "../theme";
 import { PillButton } from "./pill-button";
 
-/**
- * An empty list or screen, bare (no card) and centred, as desktop's EmptyState: a 24pt ink4 icon, a 17/22 semibold
- * title (no full stop), help in 15/20 ink3 (ending with one) at most 320 wide, and an optional small secondary action.
- */
 export function EmptyState({
   icon,
   title,
@@ -17,7 +13,6 @@ export function EmptyState({
 }: {
   icon?: IconData;
   title: string;
-  /** The help line; a string is styled, anything else drawn as given. */
   children?: React.ReactNode;
   action?: { title: string; onPress: () => void; icon?: IconData };
 }) {

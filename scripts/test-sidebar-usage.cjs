@@ -159,7 +159,6 @@ async function browserChecks() {
     throw new Error(`Timed out: ${source}`);
   }
   async function resize(width, height) {
-    // setContentSize returns before the renderer's resize event, which closes an open usage card.
     await evaluate('window.usageResized = false; window.addEventListener("resize", () => { window.usageResized = true; }, { once: true }); true');
     window.setContentSize(width, height);
     await waitFor(`window.usageResized && innerWidth === ${width} && innerHeight === ${height}`);
@@ -245,7 +244,6 @@ async function browserChecks() {
     assert.equal(await evaluate('document.querySelector("[data-usage-account]").textContent'), "victor@example.test");
     assert.match(await evaluate('document.querySelectorAll(".sidebar-usage-row")[1].getAttribute("aria-label")'), /victor@example.test/);
     await screenshot("codex-card-banked");
-    // Resizing really dismisses a card; the next click must happen after delivery of that event.
     await resize(580, 440);
     await waitFor('!document.querySelector("[data-usage-card]")');
     await evaluate('document.querySelectorAll(".sidebar-usage-row")[1].click()');
@@ -275,7 +273,6 @@ async function browserChecks() {
     assert.match(await evaluate(`${picker}.textContent`), /^work@example\.test$/);
     await evaluate(`${picker}.click()`);
     await waitFor('Boolean(document.querySelector("[role=listbox]"))');
-    // The panel sits outside the card: leaving the card for it keeps the card open.
     await evaluate('document.querySelector("[data-usage-card]").dispatchEvent(new PointerEvent("pointerleave"))');
     await delay(300);
     assert.equal(await evaluate('Boolean(document.querySelector("[data-usage-card]"))'), true, "Card stays while its picker is open");
@@ -358,7 +355,6 @@ async function browserChecks() {
     await waitFor('document.querySelector("aside").dataset.sidebarCollapsed === "true"');
     assert.equal(await evaluate('getComputedStyle(document.querySelectorAll(".sidebar-usage-row")[1].querySelector(".sidebar-copy")).display'), "none");
     assert.equal(await evaluate('document.querySelectorAll(".sidebar-usage-rail")[1].firstElementChild.getBoundingClientRect().width'), 16);
-    // The footer button: hover opens every provider's usage in one popover; Escape and a press outside close it.
     await resize(560, 520);
     await evaluate("window.setTheme('dark'); window.showUsageButton()");
     const usageButton = 'document.querySelector("[data-usage-button]")';
@@ -381,7 +377,6 @@ async function browserChecks() {
     assert.equal(await evaluate(`${usageButton}.getAttribute("aria-expanded")`), "false");
     const hover = (target, related = null) =>
       evaluate(`${target}.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse", relatedTarget: ${related} })); true`);
-    // React derives enter and leave from pointerout (with where the pointer went) and from pointerover when it came from outside the window.
     const unhover = (target, to = "document.body") =>
       evaluate(`${target}.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse", relatedTarget: ${to} })); true`);
     await hover(usageButton);
@@ -415,13 +410,11 @@ async function browserChecks() {
       "The popover opens above the footer, inside the window",
     );
     await screenshot("button-popover-dark");
-    // Moving from the button onto the popover keeps it open.
     await unhover(usageButton, popover);
     await delay(300);
     assert.equal(await evaluate(`Boolean(${popover})`), true, "The pointer on the popover keeps it open");
     await unhover(popover);
     await waitFor(`!${popover}`);
-    // Click opens it too, and never toggles it shut; Escape closes it.
     await evaluate(`${usageButton}.click()`);
     await waitFor(`Boolean(${popover})`);
     await evaluate(`${usageButton}.click()`);
@@ -437,13 +430,11 @@ async function browserChecks() {
     await waitFor(`Boolean(${popover})`);
     await evaluate('document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); true');
     await waitFor(`!${popover}`);
-    // The footer's Refresh reads every provider again, and the popover stays.
     await evaluate(`${usageButton}.click()`);
     await waitFor(`Boolean(${popover}?.querySelector("[data-usage-refresh]"))`);
     await evaluate(`${popover}.querySelector("[data-usage-refresh]").click()`);
     await waitFor("window.usageRefreshes === 1");
     assert.equal(await evaluate(`Boolean(${popover})`), true, "Refresh keeps the popover open");
-    // With a Project, Claude's account is a picker at the right of its name; choosing one keeps the popover open.
     await evaluate("window.setButtonScope('/projects/work')");
     const buttonPicker = `${popover}?.querySelector("[data-usage-provider=claude] [aria-haspopup=listbox]")`;
     await waitFor(`Boolean(${buttonPicker})`);
@@ -455,7 +446,6 @@ async function browserChecks() {
     const before = await evaluate("window.assigned.length");
     await evaluate(`${buttonPicker}.click()`);
     await waitFor('Boolean(document.querySelector("[role=listbox] [data-picker-row]"))');
-    // The pointer leaves the popover for the picker's panel, outside it.
     await unhover(popover, 'document.querySelector("[role=listbox]")');
     await delay(300);
     assert.equal(await evaluate(`Boolean(${popover})`), true, "The popover stays while its picker is open");
@@ -464,7 +454,6 @@ async function browserChecks() {
       '(() => { const row = [...document.querySelectorAll("[role=listbox] [data-picker-row]")].find((row) => row.textContent.includes("work@example.test")); row.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); row.click(); return true; })()',
     );
     await waitFor(`window.assigned.length === ${before + 1}`);
-    // The first row holding work@ is Default (work is the default account), which clears the Project's choice.
     assert.deepEqual(await evaluate("window.assigned.at(-1)"), ["/projects/work", "claude", null]);
     await delay(50);
     assert.equal(await evaluate(`Boolean(${popover})`), true, "Choosing an account keeps the popover open");
@@ -505,7 +494,6 @@ async function browserChecks() {
     await waitFor(`!${popover}`);
     await evaluate("window.setTheme('dark')");
     await resize(320, 180);
-    // The hook routes reads and live signals to the computer on screen, without touching this Mac's usage.
     await evaluate("window.showLiveUsage()");
     await waitFor('document.querySelector(".sidebar-usage-row")?.textContent.includes("34%")');
     assert.equal(await evaluate("window.localUsageReads"), 0);

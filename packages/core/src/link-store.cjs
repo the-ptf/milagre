@@ -4,7 +4,6 @@ const { validLinkId } = require("@milagre/shared/chat-scopes");
 const { ProjectStates } = require("./project-states.cjs");
 const { readProjectState, saveProjectState, compactProjectState } = require("./project-store.cjs");
 
-/** `active(id, chatId)` says whether a shared Chat's turn is busy, so its messages stay in memory (see ProjectStates). */
 function createLinkStore({ dataDir, active = () => true, lazyMessages = {}, persistenceChanged }) {
   const root = path.join(dataDir, "links");
   const directory = (id) => {
@@ -60,10 +59,7 @@ function createLinkStore({ dataDir, active = () => true, lazyMessages = {}, pers
       }
       const owned = new Map();
       for (const id of ids) {
-        // A Link read already answers from memory, without waiting behind its queued changes (a member is saved before
-        // its Worktree is made); one not read yet this run is read from disk.
         const state = states.states.get(id) ?? (await states.get(id));
-        // A deleted Link's kept Worktrees go back to their Projects, which list them like any other (link:delete).
         if (state.deletedAt || state.releasedAt) continue;
         for (const session of Object.values(state.sessions))
           for (const member of session.worktrees ?? [])

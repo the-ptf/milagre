@@ -26,7 +26,6 @@ createRoot(document.getElementById('root')).render(<ScrollArea style={{height:'1
         configureServer(viteServer) {
           viteServer.middlewares.use((req, res, next) => {
             try {
-              // Serve only review evidence, never private MCP configs or executable generated HTML.
               const route = new URL(req.url, "http://eval.invalid").pathname;
               if (/^\/(report\.(html|md)|inspection\/[a-z0-9-]+\/(final-[0-9]+-(light|dark)\.png|final-source\.txt))$/.test(route)) {
                 const file = path.join(out, route.slice(1));

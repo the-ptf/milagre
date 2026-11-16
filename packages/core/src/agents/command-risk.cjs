@@ -4,12 +4,6 @@ const path = require("node:path");
 const { babysitDenial, commandsOf } = require("../babysit-guard.cjs");
 
 // Auto mode's risk filter for an agent that asks before every command it doesn't consider read-only (Kiro; see
-// docs/providers.md). A command is risky when it reaches outside the Chat's worktree or can't be undone
-// from it: it writes or deletes outside the worktree, discards uncommitted work, writes to GitHub or another remote
-// service, runs as an administrator, installs software on the computer, runs a script from the internet, sends data
-// over the network or changes the computer itself. A risky command gets a card that says why; anything else runs.
-// The check reads the command's words, as babysit-guard.cjs does: it can't see what a script it runs will do, so a
-// command that runs one from outside the worktree counts as risky.
 
 const WINDOWS = process.platform === "win32";
 
@@ -19,16 +13,13 @@ const base = (word) => {
   return WINDOWS ? name.toLowerCase() : name;
 };
 
-// The shell parser reads a backslash as an escape, so C:\Users\me would reach the checks as the harmless C:Usersme. On
 // Windows a backslash inside or at the end of a path is a separator; one before a quote still escapes it.
 const windowsPaths = (text) => text.replace(/(?<=[\w.~%:$-])\\+(?=[\w.~%$-]|\s|$)|(?<=:)\\+(?=["'])/gm, "/");
 
-// `cmd /c …` and `powershell -Command …` run the rest of their words as a command of its own.
 const TEXT_FLAGS = { cmd: /^\/[ck]$/i, powershell: /^-c(?:ommand)?$/i, pwsh: /^-c(?:ommand)?$/i };
 // Windows tools take switches that look like paths: `del /s /q build`.
 const SWITCHED = new Set(["del", "erase", "rd", "rmdir", "copy", "move", "xcopy", "robocopy"]);
 
-// Words that only change how a command runs, ahead of the command itself.
 const PREFIXES = new Set(["command", "builtin", "exec", "nohup", "time", "nice", "env", "xargs", "timeout", "caffeinate"]);
 
 const ADMIN = new Set(["sudo", "su", "doas", "pkexec"]);
@@ -55,7 +46,6 @@ const SYSTEM = new Set([
   "killall",
 ]);
 const REMOTE_SHELLS = new Set(["ssh", "scp", "sftp", "rsync", "nc", "ncat", "netcat", "telnet", "ftp"]);
-// Package managers that install for the whole computer, by the subcommands that do.
 const SYSTEM_PACKAGES = new Map([
   ["brew", /^(?:install|reinstall|uninstall|remove|rm|upgrade|tap|untap|link|unlink|services|cleanup)$/],
   ["apt", /^(?:install|remove|purge|upgrade|dist-upgrade|autoremove)$/],
@@ -70,7 +60,6 @@ const SYSTEM_PACKAGES = new Map([
   ["mas", /^(?:install|uninstall|upgrade)$/],
 ]);
 const JS_PACKAGES = new Set(["npm", "pnpm", "yarn", "bun"]);
-// Cloud and deploy CLIs: anything but reading is a change to a remote service.
 const CLOUD = new Set([
   "aws",
   "gcloud",
@@ -93,7 +82,6 @@ const CLOUD = new Set([
 ]);
 const CLOUD_READS = /^(?:describe|list|get|show|status|version|help|whoami|logs?|plan|diff|validate|ls|info|--version|-v|--help|-h|config|auth)(?:-|$)/;
 const DOCKER_CHANGES = /^(?:rm|rmi|kill|stop|prune|push|login|system|volume|network|swarm|compose)$/;
-// Commands that write or delete the paths they are given (besides options).
 const WRITERS = new Set([
   "rm",
   "rmdir",
@@ -132,12 +120,9 @@ const WRITERS = new Set([
   "out-file",
 ]);
 const DELETERS = new Set(["rm", "rmdir", "unlink", "shred", "trash", "del", "erase", "rd", "ri", "remove-item"]);
-// Only their last path is written.
 const COPIERS = new Set(["cp", "rsync", "install", "copy", "xcopy", "robocopy", "copy-item"]);
-// Files that hold credentials, read or written.
 const SECRETS = /(?:^|\/)(?:\.ssh|\.aws|\.gnupg|\.kube|\.docker\/config\.json|\.netrc|\.npmrc|\.pypirc|\.config\/gh|\.git-credentials|Keychains)(?:\/|$)/;
 
-// The real path, through symlinks, of a file that may not exist yet: its nearest existing folder resolved, the rest
 // kept. Agents name files by their real path (/private/var/… on macOS) where the Chat knows /var/….
 function real(file) {
   try {
@@ -148,7 +133,6 @@ function real(file) {
   }
 }
 
-// A path a command names, made absolute against the command's folder; null for an option or a word that isn't one.
 function pathOf(word, cwd) {
   if (!word || word.startsWith("-") || /^[a-z][\w+.-]*:\/\//i.test(word)) return null;
   const expanded =
@@ -168,14 +152,12 @@ const inside = (roots, file) =>
     return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
   });
 
-// The words after the command and its prefixes (`sudo` is a risk of its own, so it isn't skipped here).
 function strip(words) {
   let index = 0;
   while (index < words.length && (PREFIXES.has(base(words[index])) || /^\w+=/.test(words[index]))) index += 1;
   return words.slice(index);
 }
 
-// The redirection targets of a simple command: `> file`, `>>file`, `2> file`, `&> file`.
 function redirections(words) {
   const targets = [];
   words.forEach((word, index) => {
@@ -226,7 +208,6 @@ function curlRisk(name, args) {
   return null;
 }
 
-/** Why one simple command is risky, or null. */
 function simpleRisk(words, { cwd, roots }) {
   const all = strip(words);
   if (!all.length) return null;
@@ -270,7 +251,6 @@ function simpleRisk(words, { cwd, roots }) {
     const home = real(os.homedir());
     if (DELETERS.has(name) && targets.some((file) => roots.some((root) => same(root, file)) || same(home, file) || file === path.parse(file).root))
       return "deletes the whole worktree or more";
-    // cp and rsync only write their last path; the others write every path they name.
     const written = COPIERS.has(name) ? targets.slice(-1) : targets;
     if (written.some((file) => !inside(roots, file))) return DELETERS.has(name) ? "deletes files outside the worktree" : "writes outside the worktree";
   }
@@ -289,10 +269,6 @@ function textRisk(text, context) {
   return null;
 }
 
-/**
- * Why a shell command is risky in Auto mode, or null when it can run without asking. `cwd` is the folder it runs in
- * and `roots` the folders the Chat owns (its own folder, and a Link's other worktrees).
- */
 function commandRisk(command, { cwd, roots = [] } = {}) {
   const raw = String(command ?? "");
   const text = WINDOWS ? windowsPaths(raw) : raw;
@@ -303,7 +279,6 @@ function commandRisk(command, { cwd, roots = [] } = {}) {
   if (babysitDenial(raw, { level: 1, resolveThreads: false })) return "writes to GitHub";
   const commands = commandsOf(text);
   const names = commands.map((words) => base(strip(words)[0] ?? ""));
-  // `curl … | sh`, `bash <(curl …)`, `sh -c "$(wget …)"`.
   if (
     names.some((name) => name === "curl" || name === "wget") &&
     names.some((name) => ["sh", "bash", "zsh", "dash", "fish", "eval", "source", "."].includes(name))

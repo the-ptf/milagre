@@ -6,9 +6,7 @@ const path = require("node:path");
 const { PATHSPEC, fileLineCount } = require("./diffstat.cjs");
 const { kindOf, lanes } = require("./process-lanes.cjs");
 
-// Commit, push and open a PR for a chat's folder, from the "Commit and open PR" dialog. Milagre runs
 // git and gh itself, never through a shell: every program gets its arguments as an array, and text
-// (the commit message, the PR body) goes in on stdin.
 
 const NO_ORIGIN = gitMessage(GIT_CODES.NO_ORIGIN);
 const GH_MISSING = gitMessage(GIT_CODES.GH_MISSING, process.platform);
@@ -23,18 +21,12 @@ const CONFLICTS = "Some files have unresolved conflicts. Resolve them, then comm
 const OUTPUT_LIMIT = 6000;
 const FILE_LIMIT = 300;
 const DIFF_LIMIT = 40_000;
-// Hooks may run tests, so commits and pushes get time; reads stay quick.
 const GH_TIMEOUT = 60_000;
-// The tree of an empty repository, to diff against before the first commit.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const HOOKS = ["pre-commit", "prepare-commit-msg", "commit-msg"];
-// Git's own reasons a commit can fail; anything else with a commit hook installed is the hook's.
 const GIT_COMMIT_ERRORS =
   /Please tell me who you are|Author identity unknown|nothing to commit|empty commit message|unable to auto-detect email|could not lock|index\.lock/i;
-// A signing key that can't sign (gpg, ssh) is not something the agent can fix.
-// Narrow on purpose: hook output saying "assigning" or "designing" is still the hook's.
 const SIGNING_ERRORS = /gpg failed|failed to sign|signing (failed|key)/i;
-// What git leaves behind while a merge, rebase, cherry-pick or revert waits to be finished.
 const OPERATIONS = [
   ["MERGE_HEAD", "merge"],
   ["CHERRY_PICK_HEAD", "cherry-pick"],
@@ -43,10 +35,8 @@ const OPERATIONS = [
   ["rebase-apply", "rebase"],
 ];
 const LOCKFILES = new Set(["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "cargo.lock", "poetry.lock", "gemfile.lock", "composer.lock"]);
-// Example files are meant to be committed.
 const ENV_TEMPLATES = /^\.env\.(example|sample|template)$/;
 
-/** Paths whose contents never go to a model, and that are never committed from the dialog. */
 function looksSecret(file) {
   const name = path.posix.basename(String(file)).toLowerCase();
   if (name.startsWith(".env")) return !ENV_TEMPLATES.test(name);
@@ -57,7 +47,6 @@ function isLockfile(file) {
   return LOCKFILES.has(path.posix.basename(String(file)).toLowerCase());
 }
 
-/** Keeps the end of long output, where tools print what went wrong. */
 function capOutput(text, limit = OUTPUT_LIMIT) {
   const trimmed = String(text ?? "").trim();
   return trimmed.length > limit ? `…\n${trimmed.slice(-limit)}` : trimmed;
@@ -75,7 +64,6 @@ const excludeLiteral = (file) => `:(exclude,literal)${file}`;
  * absolute path. Tests pass their fake's path, so a gh installed on the machine is never the one run.
  */
 function createGitActions({ execFile = childProcess.execFile, env = process.env, gh = "gh" } = {}) {
-  // No prompt may wait on a terminal nobody sees: git and ssh fail instead of asking for credentials.
   const baseEnv = () => ({
     ...env,
     GIT_TERMINAL_PROMPT: "0",
@@ -120,10 +108,6 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
     return result.ok ? result.stdout.split("\0").filter(Boolean) : [];
   };
 
-  /**
-   * The folder must be the top of a checkout: a chat's worktree or project, never a folder inside
-   * one, so a commit can't land in an enclosing repository.
-   */
   async function checkTop(cwd) {
     const top = await gitOut(cwd, ["rev-parse", "--show-toplevel"]);
     if (!top) return { ok: false, message: NOT_REPO };
@@ -157,7 +141,6 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
     }
   }
 
-  /** Why nothing may be committed now: a merge, rebase, cherry-pick or revert to finish, or conflicts. */
   async function operationInProgress(cwd) {
     for (const [name, operation] of OPERATIONS) {
       if (await gitPathExists(cwd, name)) return `A ${operation} is in progress. Finish or abort it, then commit.`;
@@ -178,7 +161,6 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
     return countCommits(cwd, ["HEAD", "--not", "--remotes=origin"]);
   }
 
-  /** Staged, unstaged and untracked files with their line counts, in git's byte order. */
   async function changedFiles(cwd) {
     const status = await git(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames", ...PATHSPEC]);
     if (!status.ok) return [];
@@ -234,7 +216,6 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
     return repo && /^[\w.-]+\/[\w.-]+$/.test(repo) ? repo : null;
   }
 
-  /** What the dialog shows about a chat's folder; `{ isRepo: false, message }` when it can't be used. */
   async function readChanges({ cwd, base }) {
     const top = await checkTop(cwd);
     if (!top.ok) return { isRepo: false, message: top.message };
@@ -269,7 +250,6 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
     };
   }
 
-  // A failing commit is the hook's doing when a commit hook is installed and git gave none of its own reasons.
   async function hookFailed(cwd, output) {
     if (GIT_COMMIT_ERRORS.test(output)) return false;
     for (const hook of HOOKS) {
@@ -283,28 +263,19 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
     return false;
   }
 
-  /**
-   * `git add -A`, then `git commit -F -` with the message on stdin. Hooks run; nothing is skipped. It
-   * refuses mid-merge (or rebase, cherry-pick, revert), on a detached HEAD, and when a secret-looking
-   * file would be committed, putting the index back as it was.
-   */
   async function commit({ cwd, message }) {
     const top = await checkTop(cwd);
     if (!top.ok) return { ok: false, kind: "error", message: top.message };
     const text = String(message ?? "").trim();
     if (!text) return { ok: false, kind: "error", message: "Write a commit message first." };
-    // A rebase also detaches HEAD; its own reason says more.
     const blocked = await operationInProgress(cwd);
     if (blocked) return { ok: false, kind: "blocked", message: blocked };
     if (!(await currentBranch(cwd))) return { ok: false, kind: "blocked", message: DETACHED_COMMIT, code: GIT_CODES.DETACHED_COMMIT };
     const hasHead = await refExists(cwd, "HEAD");
-    // The index as the user left it, to go back to if the commit is refused.
     const before = (await write(cwd, ["write-tree"])).stdout.trim() || null;
     const added = await write(cwd, ["add", "-A", ...PATHSPEC], { profile: "COMMIT" });
     if (!added.ok) return { ok: false, kind: "error", message: capOutput(added.stderr || added.stdout) };
-    // A .milagre path staged earlier (by an agent, say) isn't the chat's work either.
     await write(cwd, hasHead ? ["reset", "-q", "--", ".milagre"] : ["rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", ".milagre"]);
-    // Without rename detection a `git mv x .env` is an added .env, not a rename that slips past the filter.
     const secrets = (await gitList(cwd, ["diff", "--cached", "--name-only", "-z", "--no-renames", "--diff-filter=AM"])).filter(looksSecret);
     if (secrets.length) {
       if (before) {
@@ -372,7 +343,6 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
     return { ok: true, url, number: prNumber(url) };
   }
 
-  /** At most `limit` bytes of an untracked file, as a new-file diff; null for anything but a text file. */
   async function newFileDiff(cwd, file, limit) {
     const fullPath = path.join(cwd, file);
     try {
@@ -396,11 +366,6 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
     }
   }
 
-  /**
-   * What the commit message and PR text are written from: a `git diff --stat`, the uncommitted diff
-   * (or, with nothing to commit, the branch's diff against its base), the branch's commits and the
-   * repo's recent subjects. Secret-looking files and lockfiles are named, never shown.
-   */
   async function readTextContext({ cwd, base }) {
     const top = await checkTop(cwd);
     if (!top.ok) throw new Error(top.message);
@@ -426,7 +391,6 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
         if (hidden.has(file.path)) continue;
         const remaining = DIFF_LIMIT - diff.length;
         if (remaining <= 0) break;
-        // A quarter of what's left each, so one big file can't crowd out the rest.
         diff += (await newFileDiff(cwd, file.path, Math.floor(remaining / 4))) ?? "";
       }
     }

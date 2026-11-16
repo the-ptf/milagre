@@ -1,8 +1,4 @@
 // @ts-check
-// The Browser panel's pages as the host's browser service sees them: a loopback DevTools endpoint over each page's
-// webContents.debugger (@milagre/core/cdp-proxy), and the list of pages with the Chat whose panel shows each, sent to
-// the host ("browser:panel-pages"). Another computer's Browser panel and the phone then view and control them like any other Chat
-// browser, and the agent's tools reach them the same way.
 const { randomBytes } = require("node:crypto");
 const { createCdpProxy } = require("@milagre/core/cdp-proxy");
 
@@ -35,13 +31,10 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
         record.ours = true;
       }
       record.users++;
-      // A page viewed from the phone or the pill has to keep painting while the panel doesn't show it.
       if (record.users === 1 && !host.isDestroyed()) host.send("browser-panel:viewed", { from: contentsId, viewed: true });
       let released = false;
       return {
         send(method, params, sessionId) {
-          // A viewer's size (browsers-cdp.cjs). Emulation would lay the page out at it but leave frames the guest's
-          // size, cut where the window ends, so the parked guest takes the size itself (browser-webviews.ts).
           if (!sessionId && (method === "Emulation.setDeviceMetricsOverride" || method === "Emulation.clearDeviceMetricsOverride")) {
             const { width, height } = /** @type {{ width?: unknown; height?: unknown }} */ (params ?? {});
             const viewport =
@@ -51,8 +44,6 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
             if (!host.isDestroyed()) host.send("browser-panel:viewed", { from: contentsId, viewed: true, viewport });
             return Promise.resolve({});
           }
-          // Page.reload through a webview's debugger reloads the window that holds it, Milagre's own, so the guest
-          // reloads itself (the agent's browser_navigate reload, a viewer's Reload).
           if (!sessionId && method === "Page.reload") {
             if (guest.isDestroyed()) return Promise.reject(new Error("The page is gone."));
             if (/** @type {{ ignoreCache?: unknown }} */ (params ?? {}).ignoreCache === true) guest.reloadIgnoringCache();
@@ -86,7 +77,6 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
   let endpoint = /** @type {Promise<{ port: number; token: string }> | null} */ (null);
   let timer = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
   let sent = "";
-  /** Sends the host the pages now, soon after the last change, and again whenever forced (a host started again). */
   function schedule(force = false) {
     if (force) sent = "";
     if (timer) return;
@@ -146,7 +136,6 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
           known.chatKey = chatKey;
           continue;
         }
-        // The host's list follows the page's title and address; a page that goes takes its DevTools connections with it.
         const changed = () => schedule();
         const destroyed = () => {
           const page = pages.get(contentsId);
@@ -157,7 +146,6 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
         const events = /** @type {const} */ (["page-title-updated", "did-navigate", "did-navigate-in-page"]);
         for (const event of events) guest.on(/** @type {any} */ (event), changed);
         guest.once("destroyed", destroyed);
-        // Taken off again when the renderer stops listing the page, which may list it again later.
         const off = () => {
           for (const event of events) guest.removeListener(/** @type {any} */ (event), changed);
           guest.removeListener("destroyed", destroyed);
@@ -175,7 +163,6 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
       page.host.send("browser-panel:close-page", { contentsId: page.contentsId, chatKey });
       return true;
     },
-    /** The host went away and came back: it has none of the pages until they are sent again. */
     republish: () => schedule(true),
     close: () => proxy.close(),
   };

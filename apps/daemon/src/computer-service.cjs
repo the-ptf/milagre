@@ -5,8 +5,6 @@ const { createBrowserProxies } = require("./browser-proxy.cjs");
 const net = require("node:net");
 const { computerOfKey, unqualifyKey, LOCAL_COMPUTER } = require("@milagre/shared/chat-scopes");
 
-// A computer whose host takes this Mac's Browser pages for its Chats over the channel (#832). An older host would read
-// the port as one on its own loopback, so it is never sent any.
 const PEER_PANEL_PAGES = "peer-panel-pages-v1";
 const { createComputerVault } = require("./computer-vault.cjs");
 const { createComputerCaches } = require("./computer-cache.cjs");
@@ -15,20 +13,12 @@ const { computerName } = require("./mobile-pairing.cjs");
 const { readOwnHostId } = require("./own-host.cjs");
 const { writePrivate } = require("./relay-identity.cjs");
 
-/** Runs a listener of the computers; one that throws must not break them. */
 function hear(listener) {
   try {
     listener();
-  } catch {
-    /* a listener must not break the computers */
-  }
+  } catch {}
 }
 
-/**
- * One manager and cache per owning daemon. Both native IPC and the CLI call these handlers. `onRemoteEvent(id, channel,
- * payload)` hears each computer's events as it sent them (unqualified), `onOnline(id)` each computer coming online, and
- * `onRemoved(id)` each one the user removed: this daemon's own Delegations to other computers follow them (spec 2026-10-23).
- */
 function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () => {}, onOnline = () => {}, onRemoved = () => {}, ...options }) {
   const handlers = new Map();
   const vault = createComputerVault({ dataDir });
@@ -42,7 +32,6 @@ function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () =>
     return next;
   };
   let ipc;
-  // This Mac's Browser pages for Chats on other computers (#832): main's DevTools proxy, and each computer's pages.
   /** @type {{ port: number; prefix: string } | null} */
   let pagesEndpoint = null;
   /** @type {Map<string, { id: string; chatId: string; title: string; url: string }[]>} */
@@ -55,19 +44,15 @@ function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () =>
       const request = pages.length && pagesEndpoint ? { via: "peer", ...pagesEndpoint, pages } : { via: "peer", pages: [] };
       await computers.invoke(id, "browser:panel-pages", [request]);
     } catch (error) {
-      // Sent again when it comes back online.
       console.log(`computers: ${id} did not take this Mac's Browser pages (${error?.message ?? error})`);
     }
   }
-  // Each computer's last state, so onOnline fires once per return.
   const states = new Map();
   const computers = createComputers({
     dataDir,
     credentials: vault,
     ownHostId: () => readOwnHostId(dataDir),
-    // Each computer's state changes land in daemon.log: a blip leaves no trace on screen once it is over.
     log: (line) => console.log(`computers: ${line}`),
-    // A computer reaches back only to this Mac's Browser pages' DevTools proxy, on loopback.
     acceptStream: (target, port) => {
       if (target !== "127.0.0.1" || !pagesEndpoint || port !== pagesEndpoint.port) throw Object.assign(new Error("Refused"), { code: "ECONNREFUSED" });
       return net.connect({ host: "127.0.0.1", port, noDelay: true });
@@ -107,17 +92,12 @@ function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () =>
     }
     await computers.setEnabled(enabled);
   })();
-  // Startup failures remain observable through calls; they never become unhandled rejections.
   void ready.catch(() => {});
-  // A remote Chat's Browser pages reach the web from its computer through this proxy (browser-proxy.cjs, #832). Desktop
-  // main points the page's session at it. computers:* is this Mac's own: a paired desktop is never let in (peer-policy).
   const proxies = createBrowserProxies({ openStream: (id, target, port) => computers.openStream(id, target, port), log: (line) => console.log(line) });
   handlers.set("computers:browser-proxy", async (_context, computerId) => {
     if (typeof computerId !== "string" || !computers.list().some((computer) => computer.id === computerId)) throw new Error("Unknown computer.");
     return { port: await proxies.port(computerId) };
   });
-  // Main's Browser panel pages for Chats on other computers: each computer's host gets its own, and serves them to its
-  // agent's browser tools and its phones through this Mac (panel-forwarders.cjs there).
   handlers.set("computers:browser-pages", async (_context, request) => {
     const pages = Array.isArray(request?.pages) ? request.pages : [];
     if (pages.length > 128) throw new Error("Too many Browser panel pages.");
@@ -183,7 +163,6 @@ function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () =>
       return result;
     },
     setFocused: (value) => computers.setFocused(value),
-    /** The paired computers as this daemon's own code reaches them: raw calls, no offline copy, no qualified keys. */
     remote: {
       list: () => (enabled ? computers.list().map((computer) => ({ id: computer.id, name: computer.name, online: computer.state === "online" })) : []),
       invoke: (id, method, args) => computers.invoke(id, method, args),

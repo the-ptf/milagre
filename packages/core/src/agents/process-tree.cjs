@@ -1,12 +1,7 @@
 const { closeWindowsJob } = require("./windows-job.cjs");
 const { execFile } = require("node:child_process");
 const { powershell, powershellEnvironment } = require("../private-files.cjs");
-// Stops a child process and everything it started. Agents start shells and MCP servers;
-// signalling the whole process group keeps them from outliving the session, even when the
-// leader itself already exited (an idle CLI exits as soon as its stdin ends). Children
-// spawned with `detached: true` lead their own group; others fall back to a plain kill.
 // `descendants` also stops every process below the child that left its group (Antigravity's
-// harness starts each command in a group of its own), found by parent pid before anything is
 // signalled, since an orphan's parent becomes launchd or init.
 const POLL_MS = 50;
 
@@ -28,7 +23,6 @@ function isAlive(pid) {
   }
 }
 
-// The processes below `pid` from one `ps` snapshot: [{ pid, pgid }]. Empty when ps fails.
 async function descendantsOf(pid, execFileImpl = execFile) {
   const stdout = await new Promise((resolve) => execFileImpl("ps", ["-A", "-o", "pid=,ppid=,pgid="], (error, out) => resolve(error ? "" : String(out))));
   const children = new Map();
@@ -60,7 +54,6 @@ async function killTree(child, { graceMs = 2000, platform = process.platform, ex
     return killWindowsTree(pid, execFileImpl, { isRootCurrent: current });
   }
   const exited = () => child.exitCode !== null || child.signalCode != null;
-  // Only groups led by a process of this tree are signalled whole; another process is signalled alone.
   const others = descendants ? (await descendantsOf(pid, execFileImpl)).filter((entry) => entry.pgid !== pid) : [];
   const leaders = new Set(others.filter((entry) => entry.pgid === entry.pid).map((entry) => entry.pid));
   const othersAlive = () => others.some((entry) => (leaders.has(entry.pgid) ? groupAlive(entry.pgid) : isAlive(entry.pid)));
@@ -69,9 +62,7 @@ async function killTree(child, { graceMs = 2000, platform = process.platform, ex
     for (const entry of others) {
       try {
         process.kill(leaders.has(entry.pgid) ? -entry.pgid : entry.pid, name);
-      } catch {
-        // Already gone.
-      }
+      } catch {}
     }
   };
   const signal = (name) => {
@@ -80,14 +71,11 @@ async function killTree(child, { graceMs = 2000, platform = process.platform, ex
       process.kill(-pid, name);
       return;
     } catch (error) {
-      // No such group: it is already gone, unless the child never led one (not detached).
       if (error.code === "ESRCH" && exited()) return;
     }
     try {
       child.kill(name);
-    } catch {
-      // Already gone.
-    }
+    } catch {}
   };
   if (!alive()) return;
   signal("SIGTERM");
@@ -96,7 +84,6 @@ async function killTree(child, { graceMs = 2000, platform = process.platform, ex
   await waitForExit(alive, graceMs);
 }
 
-// Polls until alive() is false (true) or ms pass (false). No timer is left once it settles.
 function waitForExit(alive, ms) {
   const deadline = Date.now() + ms;
   return new Promise((resolve) => {
@@ -109,9 +96,6 @@ function waitForExit(alive, ms) {
   });
 }
 
-// Pin validated kernel process objects before sending any termination. Reading
-// .Handle makes .Kill() use the same cached handle instead of reopening a PID.
-// The caller rechecks its ChildProcess after handles are pinned, before approval.
 function killWindowsTree(pid, execFileImpl = execFile, { expectedStartTime, isRootCurrent = () => true } = {}) {
   if (!Number.isSafeInteger(pid) || pid <= 0) return Promise.reject(new Error("Invalid process ID"));
   if (expectedStartTime !== undefined && !/^\d+$/.test(String(expectedStartTime))) return Promise.reject(new Error("Invalid process creation time"));

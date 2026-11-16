@@ -22,8 +22,6 @@ function advisorRow(record) {
     source: "milagre-advisor",
   };
 }
-// A retried turn asks the original question again, with the last saved output, and the follow-up that stopped when it
-// wasn't the first turn. Advisors saved before `question` existed retry their last prompt.
 function retryPrompt(record) {
   const question = record.question ?? record.prompt;
   const request = record.request ?? question;
@@ -115,7 +113,6 @@ function createAdvisors({
     return promise;
   }
   async function capability(chatId, input, ctx, pinned) {
-    // By default the advisor runs on a provider the Chat itself isn't on.
     const provider = input.provider ?? ADVISOR_PROVIDERS.find((candidate) => candidate !== ctx.parentProvider);
     const capabilities = await providersFor(chatId, pinned);
     const selected = capabilities[provider];
@@ -184,7 +181,6 @@ function createAdvisors({
             } catch (error) {
               console.warn("Advisor screenshots could not be saved:", error.message);
             }
-            // Execution owns processes, so release them before its completed row releases the slot and Stop control.
             if (record.mode === "execution") await closeEntry(entry);
           }
           if (!current()) return;
@@ -245,7 +241,6 @@ function createAdvisors({
           await show(next);
           if (!terminal) return;
           entry.busy = false;
-          // eslint-disable-next-line promise/no-callback-in-promise -- this is a host port, not a Node callback
           await completed(record.chatId, next.completions.at(-1));
           await serial(record.chatId, async () => {
             if (!current()) return;
@@ -300,7 +295,6 @@ function createAdvisors({
         .catch(async (error) => {
           entry.alive = false;
           await closeEntry(entry).catch(() => {});
-          // Keep the last durable state for recovery. A failed save must never trigger parent delivery.
           console.warn("Advisor activity could not be saved:", error.message);
         });
     };
@@ -311,7 +305,6 @@ function createAdvisors({
         if (!current()) return;
         entry.cwd = latest.cwd;
         if (!entry.session) entry.session = await launch({ record, context: latest, provider: selected, emit: (event) => entry.emit(event) });
-        // Reused sessions need the current generation callback for follow-ups.
         entry.emit = emit;
         if (!current()) {
           await closeEntry(entry);
@@ -334,7 +327,6 @@ function createAdvisors({
       .catch((error) => {
         emit({ type: "turn-failed", message: error.message });
       });
-    // The transport's stable callback forwards to each turn's generation.
     entry.emit = emit;
   }
   const manager = {
@@ -370,9 +362,7 @@ function createAdvisors({
           model: identity.model,
           mode: input.mode ?? "analysis",
           title: input.title,
-          // The analysis-only rules are in the advisor's system prompt (events.cjs advisorInstructions).
           prompt: input.prompt,
-          // What Retry asks again: the question the advisor was started with, and the request of the turn that stopped.
           question: input.prompt,
           request: input.prompt,
           status: "initializing",
@@ -439,7 +429,6 @@ function createAdvisors({
         entry.generation = Symbol();
       }
       const closing = closeEntry(entry, true);
-      // Record cleanup can wait on disk; native cancellation must begin before that wait.
       closing.catch(() => {});
       if (ACTIVE.has(record.status) || record.queuedPrompts.length) {
         record = await save(chatId, id, (r) => ({ ...r, status: "cancelled", retryable: true, queuedPrompts: [], endedAt: now(), updatedAt: now() }));
@@ -492,7 +481,6 @@ function createAdvisors({
       await stopped;
     },
     async stopExecution(chatId) {
-      // Fence pending admission too, before waiting on the Chat's serialized work.
       executionRevoked.add(chatId);
       executionEpochs.set(chatId, (executionEpochs.get(chatId) ?? 0) + 1);
       const closing = [];
@@ -502,7 +490,6 @@ function createAdvisors({
         entry.generation = Symbol();
         closing.push(closeEntry(entry, true));
       }
-      // Admission can be waiting on a slow provider. It must not delay stopping a live Full process.
       void serial(chatId, async () => {
         for (const record of await store.read(chatId)) if (record.mode === "execution") await manager.stop(chatId, record.id);
       }).catch((error) => console.warn("Execution advisor state could not be saved:", error.message));
@@ -541,12 +528,10 @@ function createAdvisors({
         for (const record of records) await show(record);
         return records;
       });
-      // Delivery can start a parent turn, which may revoke execution through this same queue.
       for (const record of records) for (const result of record.completions ?? []) if (result.delivery === "pending") await completed(chatId, result);
     },
     async close() {
       if (closed) return;
-      // Fence every generation before awaiting any teardown.
       closed = true;
       for (const entry of sessions.values()) entry.alive = false;
       for (const chatId of known) await manager.stopChat(chatId);

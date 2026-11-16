@@ -2,15 +2,11 @@ const fs = require("node:fs/promises");
 const { helloName } = require("@milagre/shared/relay-crypto");
 const { writePrivate } = require("./relay-identity.cjs");
 
-// lastSeen moves with every connection; the file follows at most this often.
 const SEEN_WRITE_MS = 60_000;
 const MAX_LAN_ROUTES = 4;
 const HOST_ID = /^[A-Za-z0-9_-]{22}$/;
-// A computer's id here; no "|", which PR 4's stored chat keys use (`${computerId}|${key}`).
 const ID = /^[A-Za-z0-9-]{1,64}$/;
 // A LAN route: a private or Tailscale (100.64.0.0/10) address, as the phone takes (apps/mobile/src/lan-route.ts). This Mac's own loopback reaches only
-// this Mac, so only the end-to-end tests (allowLocalRelay) take it; it would still have to pass the probe's host id and
-// the hello's pinned key.
 const LAN_ROUTE = /^ws:\/\/(10\.\d{1,3}|172\.(1[6-9]|2\d|3[01])|192\.168|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\.\d{1,3}\.\d{1,3}:\d{1,5}$/;
 const LOOPBACK_ROUTE = /^ws:\/\/127\.0\.\d{1,3}\.\d{1,3}:\d{1,5}$/;
 
@@ -34,17 +30,11 @@ function readComputer(value, allowLoopback) {
   };
 }
 
-/** The LAN routes in a computer's peer:routes answer, only when it names the Mac pinned at pairing; null otherwise. */
 function lanRoutesFrom(answer, { hostId, hostKey, allowLocalRelay = false }) {
   if (!answer || answer.hostId !== hostId || answer.key !== hostKey) return null;
   return lanRoutesOf(answer.lan, allowLocalRelay);
 }
 
-/**
- * The computers this Mac drives, oldest first, in `<userData>/computers.json` (0600): `[{ id, hostId, name, relay,
- * lanRoutes, addedAt, lastSeen }]`. `name` is this Mac's label ("Show it as"), sent nowhere. The Mac's pinned key and its
- * pairing token are secrets and live in computer-keys.cjs. Writes land in call order.
- */
 function createComputersStore({ file, now = Date.now, allowLocalRelay = false }) {
   let computers = [];
   let writes = Promise.resolve();
@@ -81,7 +71,6 @@ function createComputersStore({ file, now = Date.now, allowLocalRelay = false })
       try {
         await write();
       } catch (error) {
-        // What is shown must be what is on disk.
         if (computers === after) computers = before;
         throw error;
       }

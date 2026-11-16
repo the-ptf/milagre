@@ -5,15 +5,10 @@ import { bridgeForKey } from "../../lib/computer-bridge";
 import type { MilagreBridge } from "../../electron";
 
 const POLL_MS = 5 * 60_000;
-// A switch back to a scope read this recently shows its last numbers and reads nothing (usage:read runs the provider's
-// CLI on the scope's computer); the poll, a turn's end and the host's pushes keep them current.
 const FRESH_MS = 60_000;
-// Each scope's last numbers, so switching Projects shows them at once instead of an empty usage row, and when they were read.
 const lastSnapshots = new Map<string, UsageSnapshot>();
 const lastReads = new Map<string, number>();
 
-// A bridge without the usage calls (a check's fixture, an older paired computer) reads nothing instead of throwing:
-// the new Chat's cards and the sidebar then show no usage.
 const readUsage = (bridge: MilagreBridge, scopeKey?: string) => bridge.readUsage?.(scopeKey) ?? Promise.reject(new Error("Usage isn't available"));
 const cachedUsage = (bridge: MilagreBridge, scopeKey?: string) => bridge.getCachedUsage?.(scopeKey) ?? Promise.reject(new Error("Usage isn't available"));
 
@@ -73,7 +68,6 @@ export function useUsage(scopeKey?: string) {
     setLoading(false);
     const version = generation.current;
     if (!last || Date.now() - lastReadAt.current >= FRESH_MS) {
-      // Saved numbers first, so the sidebar isn't empty while the first read runs.
       cachedUsage(bridge, scopeKey)
         .then((cached) => {
           if (version === generation.current && currentScope.current === scopeKey) {
@@ -95,11 +89,8 @@ export function useUsage(scopeKey?: string) {
       lastReadAt.current = 0;
       lastSnapshots.clear();
       lastReads.clear();
-      // The numbers on screen stay until the new read replaces them (mergeSnapshot drops another account's),
-      // so switching accounts from the usage card doesn't unmount the sidebar rows and the card with them.
       void refresh();
     });
-    // Read the cache on a push, never the provider again: a live read emits this signal itself.
     const offUsage = bridge.onUsageChanged?.(({ scopeKey: changedScope }) => {
       if (changedScope !== scopeKey) return;
       const pushGeneration = generation.current;

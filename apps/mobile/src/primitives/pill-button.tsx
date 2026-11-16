@@ -7,19 +7,12 @@ import { tap } from "./tap";
 import { useHover } from "./hover";
 import { pressStyle } from "./press-style";
 
-/** Heights per size, set as `minHeight` so Dynamic Type can grow the pill: 32 inline/compact, 44 default, 52 a sheet's main action. */
 const SIZES = {
   small: { minHeight: 32, paddingHorizontal: 12, gap: 6, fontSize: type.footnote, lineHeight: lineHeight.footnote, icon: 16 },
   regular: { minHeight: 44, paddingHorizontal: 16, gap: 8, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, icon: 18 },
   large: { minHeight: 52, paddingHorizontal: 20, gap: 8, fontSize: type.body, lineHeight: lineHeight.body, icon: 20 },
 } as const;
 
-/**
- * The phone's one button, a capsule with a 600 label. `primary` is the main action (ink fill, onInk label);
- * `secondary` the surface with a 1px lineStrong edge; `tinted` a field fill; `plain` no fill or edge (a quiet action,
- * Cancel with `muted`). `destructive` makes a primary a redInk fill with an onRedInk label (a destructive confirm, as
- * desktop's danger Button) and the others a redInk label. Without an icon, loading keeps the width and centres the ring.
- */
 export function PillButton({
   title,
   onPress,
@@ -39,16 +32,13 @@ export function PillButton({
   onPress: () => void;
   icon?: IconData;
   variant?: "primary" | "secondary" | "tinted" | "plain";
-  /** Same as `variant="secondary"`. */
   secondary?: boolean;
   destructive?: boolean;
-  /** An ink2 label at 500, for Cancel beside the main action. */
   muted?: boolean;
   disabled?: boolean;
   loading?: boolean;
   size?: keyof typeof SIZES;
   tone?: "ink" | "orange";
-  /** What VoiceOver and TalkBack read, when the title alone doesn't say it ("Stop Heartbeat" for "Stop"). */
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
 }) {

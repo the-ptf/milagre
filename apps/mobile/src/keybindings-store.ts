@@ -4,14 +4,11 @@ import { defaultKeybindings, type KeybindingCommandId, type KeybindingRule, type
 import type { LiveOptions } from "./live";
 
 // The connected Mac's keybindings.json (core keybindings.cjs): the iPad's hardware keyboard runs its rules, and Settings ›
-// Keybindings edits it. Read when held, again on each `keybindings` signal and on return to the app. An older Mac
-// refuses the read and a confined connection answers nothing: both keep the defaults, and neither gets a socket.
 
 export type KeybindingsClient = {
   call: <T>(method: string, args: unknown[]) => Promise<T>;
   live: (path: string, options: Pick<LiveOptions, "onSignal" | "onStatus">) => { close(): void };
 };
-/** `state` is null until the Mac answers, and stays null on a Mac or connection without keybindings. */
 export type HostKeybindings = { state: KeybindingsState | null; error: string };
 
 const NONE: HostKeybindings = { state: null, error: "" };
@@ -53,7 +50,6 @@ function createStore(client: KeybindingsClient) {
       else set({ state: current.state, error: failure instanceof Error ? failure.message : "Could not read keybindings." });
     }
   }
-  /** Runs a write and shows the state it answers with; a failure stays in `error`. */
   async function write(method: string, args: unknown[]) {
     try {
       set({ state: await client.call<KeybindingsState>(method, args), error: "" });
@@ -94,7 +90,6 @@ function createStore(client: KeybindingsClient) {
 }
 
 type Store = ReturnType<typeof createStore>;
-// One store per client: a new connection gets a new client, and a late answer from the Mac the phone left stays on its own.
 const stores = new WeakMap<object, Store>();
 function storeFor(client: KeybindingsClient): Store {
   let store = stores.get(client);
@@ -108,7 +103,6 @@ function storeFor(client: KeybindingsClient): Store {
 const subscribeNone = () => () => {};
 const none = () => NONE;
 
-/** The connected Mac's keybindings, live, and the writes Settings makes. */
 export function useHostKeybindings(client: KeybindingsClient | null) {
   const store = client ? storeFor(client) : null;
   const value = useSyncExternalStore(store?.subscribe ?? subscribeNone, store?.get ?? none);
@@ -116,7 +110,6 @@ export function useHostKeybindings(client: KeybindingsClient | null) {
   return { ...value, store };
 }
 
-/** The rules to run: the Mac's, or the defaults until it answers (and on a Mac without keybindings). */
 export function rulesOf(value: HostKeybindings): KeybindingRule[] {
   return value.state?.rules ?? DEFAULTS;
 }

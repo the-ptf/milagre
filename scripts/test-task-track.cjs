@@ -13,6 +13,8 @@ import { updateSettings } from "/src/lib/settings";
 window.updateContextSettings = updateSettings;
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore, useDraftText } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 window.milagre = Object.freeze({ listEditors: async () => [] });
 const noop = () => {};
 function Fixture() {
@@ -40,7 +42,8 @@ function Fixture() {
   const archiveFinished = () => setChildren(items=>items.map(child=>["completed","failed","cancelled"].includes(child.status) ? {...child,archived:true} : child));
   window.setChildren = setChildren;
   window.finishChildren = () => {setChildren(items=>items.map(item=>({...item,status:"completed",endedAt:Date.now()})));setSending(false);};
-  const [draft, setDraft] = useState("");
+  const draft = useDraftText(draftStore);
+  const setDraft = draftStore.setText;
   const [usage, setUsage] = useState({ used: 366000, size: 1000000 });
   const [extra, setExtra] = useState([]);
   window.setContext = setUsage;
@@ -58,7 +61,7 @@ function Fixture() {
   return <div style={{ height: "100%", padding: 12 }}>
     <ChatComposer messages={[...messages, ...extra]} onCompact={() => window.compacted.push(Date.now())}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture" draft={draft} onDraftChange={setDraft} onSend={noop} isSending={sending} sendBlocked={false} plan={plan} contextUsage={usage} streamingText="" streamingSteps={[{ id: "c-1", kind: "other", title: "Compacting context", status: "running", offset: 0 }]} subagents={children} onArchiveFinishedSubagents={archiveFinished} onArchiveSubagent={archive} waitingForSubagents={true}
+      projectPath="/fixture" store={draftStore} onSend={noop} isSending={sending} sendBlocked={false} plan={plan} contextUsage={usage} streamingText="" streamingSteps={[{ id: "c-1", kind: "other", title: "Compacting context", status: "running", offset: 0 }]} subagents={children} onArchiveFinishedSubagents={archiveFinished} onArchiveSubagent={archive} waitingForSubagents={true}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={fastMode} onFastModeChange={setFastMode} permissionMode="auto" onPermissionModeChange={noop}

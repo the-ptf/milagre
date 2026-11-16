@@ -4,8 +4,6 @@ const path = require("node:path");
 const { outsideGit } = require("./project-identity.cjs");
 const git = createGit().read;
 
-// A Project folder outside Git has no ls-files: its files are walked instead, skipping dependency and hidden folders,
-// up to a limit so a huge folder can't stall the @ menu.
 const SKIPPED = new Set(["node_modules", "dist", "build", "target", "vendor", "Pods", "DerivedData"]);
 async function walkFiles(root, limit = 20000) {
   const files = [];
@@ -29,10 +27,6 @@ async function walkFiles(root, limit = 20000) {
   return files.slice(0, limit);
 }
 
-// What Milagre itself writes in a Project's .milagre folder (Chat storage, the runtime lock, saved details and images,
-// its Worktrees) is never a Project file to mention or dictate: in a repository that doesn't ignore it, ls-files lists it
-// as untracked, and a new Chats home has nothing else, so its @ menu would offer only the lock. What people write there
-// themselves (worktree.json, checkpoint-ignore) is still found.
 const INTERNAL_FOLDERS = ["runtime.lock", "runtime", "subagents", "details", "images", "worktrees"];
 const INTERNAL_FILES = /^\.milagre\/(chats\.db|coordination\.json)(\b|$)/;
 const isMilagreState = (file) => INTERNAL_FILES.test(file) || INTERNAL_FOLDERS.some((folder) => file.startsWith(`.milagre/${folder}/`));
@@ -52,7 +46,6 @@ function createFileSearch({ now = Date.now, ttl = 5000 } = {}) {
       .sort((a, b) => score(a) - score(b) || path.basename(a).length - path.basename(b).length || a.localeCompare(b))
       .slice(0, Math.min(50, Math.max(1, Number.isFinite(limit) ? limit : 30)));
   };
-  /** Every file of the folder, as the search reads them (cached for `ttl`). */
   search.list = (root) => {
     let entry = cache.get(root);
     if (!entry || now() - entry.at > ttl) {

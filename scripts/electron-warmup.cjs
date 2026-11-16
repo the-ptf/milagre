@@ -15,8 +15,6 @@ if (!process.versions.electron) {
 
 const { app, BrowserWindow } = require("electron");
 app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "milagre-warmup-")));
-// The warm-up exists because this launch can fail (its capturePage once rejected with UnknownVizError and the app
-// never quit, hanging every shard). Whatever happens, it ends.
 setTimeout(() => app.exit(0), 30_000).unref();
 app.whenReady().then(async () => {
   try {

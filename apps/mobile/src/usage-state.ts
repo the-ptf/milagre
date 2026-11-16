@@ -4,7 +4,6 @@ import { mergeSnapshot, seedSnapshot } from "@milagre/shared/usage";
 type UsageClient = { call: <T>(method: string, args?: unknown[]) => Promise<T> };
 export type UsageState = { snapshot: UsageSnapshot | null; loading: boolean; error: string };
 
-/** One computer's usage. Reads share a request, and a failed refresh keeps unexpired last-known limits. */
 export function createUsageState(client: UsageClient, now = Date.now, scopeKey?: string) {
   let state: UsageState = { snapshot: null, loading: true, error: "" };
   let inFlight: Promise<void> | null = null;

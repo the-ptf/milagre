@@ -8,13 +8,8 @@ import { shortcutCommand } from "../../lib/keybindings";
 import { findLabelElement, rowOf, useSettingsFindTarget } from "../../lib/settings-find";
 import { ScrollArea } from "../primitives/ScrollArea";
 
-/** Something the Settings search can open: a section, a row in one, a computer or a Project. */
 export type SettingsSearchItem = SettingsSearchEntry & { key: string; icon?: ReactNode; open: () => void };
 
-/**
- * The search field at the top of the Settings nav. ⌘F (the Find in Chat keys) focuses it while Settings is open; ↑ and ↓
- * move through the results, Return opens one, Escape clears the query before it leaves Settings.
- */
 export function SettingsSearchField({
   query,
   onQuery,
@@ -28,7 +23,6 @@ export function SettingsSearchField({
 }) {
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    // Capture, so Settings takes the keys before a Chat's Find, which isn't on screen.
     const focus = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || shortcutCommand(event) !== "chat.find") return;
       event.preventDefault();
@@ -40,9 +34,6 @@ export function SettingsSearchField({
     return () => window.removeEventListener("keydown", focus, true);
   }, []);
   return (
-    // Ends with the nav rows, which keep 10px for the list's scrollbar; icon and text sit on the rows' icon and label lines
-    // (an 8px inset counting the clear border, a 16px icon in an 18px slot, then the 8px gap). Bare, on the nav's own
-    // fill, so it doesn't read as the selected row.
     <div className="mr-4.5 mb-1 ml-2 shrink-0">
       <FieldGroup
         size={32}
@@ -92,7 +83,6 @@ export function SettingsSearchField({
   );
 }
 
-/** The query's letters in bold ink, the rest as they were. */
 function Marked({ text, ranges }: { text: string; ranges: [number, number][] }) {
   const parts: ReactNode[] = [];
   let at = 0;
@@ -109,9 +99,7 @@ function Marked({ text, ranges }: { text: string; ranges: [number, number][] }) 
   return <>{parts}</>;
 }
 
-/** The ranked results for `query`, with the one ↑/↓ points at; `active` is clamped into the list. */
 export function useSettingsSearch(items: readonly SettingsSearchItem[], query: string, pageTitle: (page: string) => string) {
-  // The pointed-at result, for the query it was picked in: a new query starts back at the top.
   const [pointer, setPointer] = useState({ query, index: 0 });
   const active = pointer.query === query ? pointer.index : 0;
   const setActive = (index: number) => setPointer({ query, index });
@@ -175,10 +163,6 @@ export function SettingsSearchResults({
   );
 }
 
-/**
- * Lights up the row a search result named once `section` renders it: scrolls it to the middle and tints it, fading out.
- * Rows that read from the Mac appear a moment later, so it watches the panel for a few seconds before giving up.
- */
 export function useFoundRow(root: RefObject<HTMLElement | null>, section: string) {
   const target = useSettingsFindTarget();
   useEffect(() => {

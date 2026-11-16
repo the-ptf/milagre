@@ -25,15 +25,10 @@ import Tooltip from "../primitives/Tooltip";
 
 type IconData = IconSvgElement;
 export type CheckpointReview = ReturnType<typeof useCheckpoints>;
-/** Undo previews a task's checkpoint; Redo previews the recovery checkpoint an undo saved. */
 export type UndoIntent = "Undo" | "Redo";
 
 const FILE_ICONS: Record<CheckpointFile["action"], IconData> = { replace: FileEditIcon, delete: FileAddIcon, create: FileRemoveIcon };
 
-/**
- * Undo changes in the composer's place: the Chat's tasks (Esc Esc), then one task's files with what undoing does to each.
- * Only a file edited after the task asks Keep current or Undo; the button stays off until it has an answer.
- */
 export function UndoPanel({
   review,
   readOnly = false,
@@ -45,24 +40,19 @@ export function UndoPanel({
   review: CheckpointReview;
   readOnly?: boolean;
   intent: UndoIntent;
-  /** The user message of the task in view, outlined in the transcript; null when none is. */
   onHighlight: (messageId: number | null) => void;
-  /** Opens a file's diff in the Changes panel. */
   onOpenFile?: (path: string, worktree: string) => void;
-  /** The panel closed: the prompt takes the focus back. */
   onClosed: () => void;
 }) {
   const panel = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
   const tasks = review.tasks;
   const preview = review.view === "preview" ? review.preview : null;
-  // The list can shrink under the highlighted row (a restore just reloaded it).
   const current = Math.max(0, Math.min(active, tasks.length - 1));
   const shown = review.view === "list" ? tasks[current] : preview;
   const highlight = shown?.messageId ?? null;
   useEffect(() => onHighlight(highlight), [highlight, onHighlight]);
   useEffect(() => () => onHighlight(null), [onHighlight]);
-  // The keys go to the panel each time it changes face, so Up, Down, Enter and Escape work at once.
   useEffect(
     () => panel.current?.focus({ preventScroll: true }),
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- refocus on the switch between list and preview.
@@ -239,7 +229,6 @@ export function UndoPanel({
   );
 }
 
-/** "Undo 3 files": every file until the conflicts are answered, then the ones that will change. */
 function restoreLabel(review: CheckpointReview, intent: UndoIntent) {
   if (review.pending && review.preview) return "Working…";
   const count = review.resolved ? review.restoreCount : (review.preview?.files.length ?? 0);

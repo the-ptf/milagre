@@ -27,22 +27,12 @@ const { commandRisk } = require("./command-risk.cjs");
 const { antigravityAcp, makeTempDir } = require("./antigravity-acp.cjs");
 const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
-// A chat's session with an Agent Client Protocol agent (docs/providers.md). The public
-// surface matches CodexSession, which SessionManager and ChatHost rely on. What is specific to one agent
-// (command, environment, permission modes, how it says "sign in") comes from `config`; see antigravity-acp.cjs.
-//
-// One agent process per session, started on the first turn: initialize, then session/new (or
-// session/resume for a saved id, else session/load with its replayed history dropped). Each turn is one
-// session/prompt request: its updates stream as session/update notifications and its response carries
 // the stopReason that ends the turn. ACP has no system prompt, so Milagre's instructions go first in the
 // first prompt each process sends. ACP can't steer a running turn: a message sent while one runs waits
-// and starts the next turn, unless Stop ends that turn first. Stop sends session/cancel; an agent that doesn't end the turn within the
-// grace period is killed, and the next turn resumes the session in a new process.
 
 const INITIALIZE_TIMEOUT_MS = 120_000;
 const SESSION_TIMEOUT_MS = 120_000;
 const CONFIG_TIMEOUT_MS = 15_000;
-// State-only updates still apply between turns.
 const STATE_UPDATES = new Set(["usage_update", "current_mode_update", "config_option_update", "available_commands_update"]);
 
 const sessionClosedError = () => Object.assign(new Error("The agent session closed before this message was sent."), { sessionClosed: true });
@@ -53,10 +43,8 @@ function compact(object) {
   return Object.fromEntries(Object.entries(object).filter(([, value]) => value !== undefined));
 }
 
-// "Running view_file", "Run create_file?" -> "view_file".
 const toolName = (call) => /^(?:Running|Run)\s+([\w.:-]+)\??$/.exec(str(call.title))?.[1] ?? (str(call.title) || "a tool");
 
-// session/request_permission params -> the permission-request shape (see permissions.cjs).
 function acpPermissionRequest(requestId, call, options) {
   const base = {
     requestId,
@@ -65,7 +53,6 @@ function acpPermissionRequest(requestId, call, options) {
   };
   if (call.kind === "execute") {
     const command = unwrapShell(commandOf(call));
-    // A GitHub write is only ever allowed once (see writesRemote).
     const allowForChat = base.allowForChat && !writesRemote(command);
     return compact({ ...base, allowForChat, kind: "command", tool: "Shell", title: "Run this command?", command, cwd: cwdOf(call) });
   }
@@ -87,8 +74,6 @@ function acpPermissionRequest(requestId, call, options) {
   return compact({ ...base, kind: "other", tool: name, title, detail });
 }
 
-// The user's decision -> the agent's option. Allow for chat falls back to allow once, and the reverse. With `once` (a
-// GitHub write, see writesRemote) an allow is only ever allow once: an agent with no such option gets no answer.
 function pickOption(options, decision, { once = false } = {}) {
   const of = (kind) => options.find((option) => option?.kind === kind);
   if (once && (decision === "allow" || decision === "allow-for-chat")) return of("allow_once") ?? null;
@@ -99,7 +84,6 @@ function pickOption(options, decision, { once = false } = {}) {
 }
 
 // Antigravity doesn't take the session's cwd as its working directory on its own: without this it guessed its
-// profile's skills folder and ran the first command there.
 function workspaceNote(cwd, roots = []) {
   const others = roots.filter((root) => root !== cwd);
   return [
@@ -121,7 +105,6 @@ class AcpSession {
     emit,
     workspaceRoots,
     readOnlyRoots,
-    // The SessionManager's, which follows a shared Link Chat's Worktrees; a session made alone (an advisor) has its own.
     access = new WorkspaceAccess({ cwd, workspaceRoots, readOnlyRoots }),
     workspaceInstructions,
     tldrEnabled = true,
@@ -160,9 +143,7 @@ class AcpSession {
     this.closed = false;
     this.turnActive = false;
     this.cancelRequested = false;
-    // Counts Stops, so a message waiting for a turn knows whether Stop ended it.
     this.stops = 0;
-    // Milagre's instructions travel with the first prompt each agent process gets.
     this.instructionsSent = false;
     this.replaying = false;
     this.processCount = 0;
@@ -170,7 +151,6 @@ class AcpSession {
     this.turnEnded = Promise.resolve();
     this.markTurnEnded = null;
     this.modeChange = Promise.resolve();
-    // Children the agent runs on its own, when the config knows how to see them.
     this.subagents =
       config.subagents?.({
         state: this.state,
@@ -181,8 +161,6 @@ class AcpSession {
       }) ?? null;
     this.permissions = new PendingPermissions((event) => this.emit(event));
     this.questions = new PendingQuestions((event) => this.emit(event));
-    // A babysit Run's level ({ level, resolveThreads }) while its turn runs, else null; and the commands it refused by
-    // tool call id ({ command, reason }), so their steps say why. A wake's EscalationTurn while its turn runs.
     this.guard = null;
     this.escalation = null;
     this.refused = new Map();
@@ -192,17 +170,14 @@ class AcpSession {
     return this.state.sessionId;
   }
 
-  /** The models the agent offered in its last session/new or session/resume answer: [{ value, name, description }]. */
   get models() {
     return this.state.models ?? null;
   }
 
-  /** The agent model id the session is on, as it last reported. */
   get currentModel() {
     return this.state.model ?? null;
   }
 
-  /** The agent process, while it runs; the ports its commands open belong to the chat. */
   get pid() {
     const child = this.rpc?.child;
     return this.closed || child?.exitCode != null || child?.signalCode != null || child?.killed ? null : (child?.pid ?? null);
@@ -228,9 +203,6 @@ class AcpSession {
   }
 
   // ACP can't steer: the message waits for the running turn to end and starts the next one. The user's messages
-  // never get here: ChatHost queues them where the chat shows them (see its afterTurn). What does is a send that
-  // checks `canStart` (an advisor's result, the local MCP's chat_start) or one racing the turn's end. An open
-  // question is dismissed, since the message is the user's reply to it. Stop drops what waits here, as it stops a
   // steered message on Claude and Codex (and stops advisor delivery); one sent after Stop starts the next turn.
   async queue(request) {
     this.questions.dismissAll();
@@ -272,7 +244,6 @@ class AcpSession {
       await this.finishTurn([]);
       return { turnId: null, steered: false, cancelled: true };
     }
-    // An agent that stays in a mode that doesn't ask would run tools no gate sees: a wake without its guard is no wake.
     if (this.cancelRequested || this.closed || (this.escalation && !this.inStrictMode())) {
       await this.finishTurn([{ type: "turn-cancelled" }]);
       return { turnId: null, steered: false, cancelled: true };
@@ -308,11 +279,9 @@ class AcpSession {
       return;
     }
     await this.finishTurn([this.cancelRequested ? { type: "turn-cancelled" } : this.failure(error)]);
-    // A session that never finished starting, or whose agent isn't signed in, is unusable; the next message starts over.
     if (!this.ready || this.config.isLoginError(error)) await this.close();
   }
 
-  // An error from the agent -> the turn's end.
   failure(error) {
     if (this.config.isLoginError(error)) return failedWith(loginMessage(this.provider), { login: true });
     if (this.config.isSubscriptionError?.(error)) return failedWith(this.config.subscriptionMessage);
@@ -328,11 +297,9 @@ class AcpSession {
   }
 
   promptFailed(turnId, error) {
-    // An agent that exited ends the turn in handleExit, with its own message.
     if (error.exited || this.state.turnId !== turnId || !this.turnActive) return;
     const login = !this.cancelRequested && this.config.isLoginError(error);
     const finished = this.finishTurn([this.cancelRequested ? { type: "turn-cancelled" } : this.failure(error)]);
-    // A process that lost its sign-in holds the old credentials; the next message starts a fresh one.
     if (login) void finished.then(() => this.close());
   }
 
@@ -352,16 +319,13 @@ class AcpSession {
       "initialize",
       {
         protocolVersion: 1,
-        // No fs or terminal: the agent reads, edits and runs commands itself.
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
         clientInfo: { name: "milagre", title: "Milagre", version: this.clientVersion },
       },
       { timeoutMs: INITIALIZE_TIMEOUT_MS },
     );
     this.agentCapabilities = init?.agentCapabilities ?? {};
-    // The Chat's linked tools reach the agent as an MCP server (see linked-mcp-server.cjs).
     const url = this.linked ? await this.linked.url().catch(() => null) : null;
-    // Settings › MCP: this account's Everywhere servers (the ones switched off are already left out).
     const extras = this.mcpExtras ? await readMcpExtras(this) : null;
     const mcpServers = [...(url ? [{ type: "http", name: "milagre", url, headers: [] }] : []), ...(extras?.servers ?? []).map(toAcpServer)];
     const result = this.state.sessionId ? await this.resume(mcpServers) : await this.requestSession("session/new", { cwd: this.cwd, mcpServers });
@@ -376,11 +340,8 @@ class AcpSession {
     this.ready = true;
   }
 
-  // An agent that refuses the linked tools' MCP server gets the session without it; the Chat then only
-  // receives Delegations. Sign-in errors aren't retried.
   async requestSession(method, params) {
     const own = params.mcpServers?.filter((server) => server.name === "milagre") ?? [];
-    // Without the Everywhere servers first (the linked tools stay), then without any MCP server.
     const attempts = [
       params,
       ...(own.length && own.length < params.mcpServers.length ? [{ ...params, mcpServers: own }] : []),
@@ -397,9 +358,6 @@ class AcpSession {
     }
   }
 
-  // session/resume continues without replaying anything. An agent without it, or one that can't resume,
-  // gets session/load, whose replayed history is dropped. Only an answer from the agent itself means the
-  // session is gone; timeouts and exits keep the saved id.
   async resume(mcpServers) {
     const params = { sessionId: this.state.sessionId, cwd: this.cwd, mcpServers };
     const fatal = (error) => !error.rpcError || this.config.isLoginError(error) || this.config.isSubscriptionError?.(error);
@@ -430,7 +388,6 @@ class AcpSession {
   }
 
   // An agent whose effort is a session option of its own (Kiro's `effortLevel`, offered per model) gets the turn's
-  // effort when the model takes it; one that refuses keeps its own and the turn goes on.
   async applyEffort(model, effort) {
     const option = this.config.effortOption;
     const value = option && this.config.resolveEffort?.({ model, effort, offered: this.state.models });
@@ -442,14 +399,8 @@ class AcpSession {
     }
   }
 
-  // The agent's mode follows Milagre's permission mode. An agent without config options gets session/set_mode;
-  // one that refuses both keeps its mode, and the approval cards still follow Milagre's (see PendingPermissions).
-  // Full's mode never asks, so a babysit Run's turn in Full runs in Auto's: its commands ask, the level refuses what it
-  // doesn't allow, and PendingPermissions allows the rest without a card.
-  // A wake's turn runs in Ask's, the strictest there is, whatever the Chat's; `permissions` keeps the Chat's own.
   async applyMode() {
     const mode = this.escalation ? "ask" : this.guard && this.permissions.mode === "full" ? "auto" : this.permissions.mode;
-    // A mode the agent has no mapping for asks: leaving the agent as it was could keep Full's mode.
     const target = this.config.modes[mode] ?? this.config.modes.ask;
     // Kiro's permission mode is its `autopilot` option; its `mode` names its agents (see kiro-acp.cjs).
     const option = this.config.modeOption ?? "mode";
@@ -467,7 +418,6 @@ class AcpSession {
     }
   }
 
-  // Whether the agent is really in Ask's mode: applyMode leaves it as it was when the agent refuses both ways of asking.
   inStrictMode() {
     return this.state[this.config.modeOption ?? "mode"] === this.config.modes.ask;
   }
@@ -476,7 +426,6 @@ class AcpSession {
     if (method !== "session/update" || this.replaying) return;
     if (params.sessionId && this.state.sessionId && params.sessionId !== this.state.sessionId) return;
     const update = params.update ?? {};
-    // A child's tool calls belong to the child, and may come after the parent's turn has ended.
     if (this.subagents?.route(update)) return;
     if (!this.turnActive && !STATE_UPDATES.has(update.sessionUpdate)) return;
     // Once Stop is pressed, Antigravity answers with "The request was cancelled by the client." as reply text.
@@ -489,7 +438,6 @@ class AcpSession {
     for (const event of mapAcpUpdate(update, this.state)) this.emit(this.withRefusal(event));
   }
 
-  // A command a babysit Run's level refused ends as a step that says why.
   withRefusal(event) {
     const refused = event.type === "step-completed" ? this.refused.get(event.id) : undefined;
     if (!refused) return event;
@@ -507,7 +455,6 @@ class AcpSession {
     } catch {}
   }
 
-  // The agent may already have exited; then there is nobody left to answer.
   reply(id, result) {
     try {
       this.rpc?.respond(id, result);
@@ -517,12 +464,10 @@ class AcpSession {
   askPermission(id, params) {
     const options = Array.isArray(params.options) ? params.options : [];
     const toolCall = params.toolCall ?? {};
-    // A request that arrives once its turn has stopped has nobody to ask.
     if (!this.turnActive || this.cancelRequested || this.closed) {
       this.reply(id, outcome(null));
       return;
     }
-    // Before the plan tools' shortcut and the edits Auto allows without a card. A question has nobody to ask in this turn.
     if (this.escalation) {
       const known = this.state.calls.get(String(toolCall.toolCallId ?? "")) ?? {};
       const refused = this.escalation.denial(acpCall({ ...known, ...toolCall }, this.linked?.tools));
@@ -559,7 +504,6 @@ class AcpSession {
     // Resolved through symlinks: the agent names files by their real path (/private/var/… on macOS).
     const inWorkspace = request.kind === "edit" && request.files.length > 0 && insideWorkspace(roots, request.files, this.cwd);
     // Auto allows changes inside the worktree. An agent whose own mode can't say so (Kiro asks before every edit)
-    // gets that answer here, without a card.
     if (inWorkspace && this.permissions.mode === "auto") {
       this.reply(id, outcome(pickOption(options, "allow", once)));
       return;
@@ -577,7 +521,6 @@ class AcpSession {
   }
 
   // Antigravity asks the user to choose through a permission request whose tool call id starts with
-  // `interaction_`: the title is the question and the options are the choices, with no typed answer.
   askQuestion(id, requestId, toolCall, options) {
     const question = str(toolCall.title);
     const choices = options.filter((option) => str(option?.name));
@@ -613,7 +556,6 @@ class AcpSession {
     return this.permissions.resolve(requestId, decision);
   }
 
-  // A switch mid-turn answers the waiting cards it covers (see PendingPermissions) and moves the agent's own mode.
   setPermissionMode(permissionMode) {
     this.permissions.setMode(permissionMode);
     if (!this.ready || this.closed) return this.modeChange;
@@ -643,9 +585,7 @@ class AcpSession {
     this.questions.cancelAll();
     this.refused.clear();
     const thinking = closeThinking(this.state);
-    // The transcripts' last word lands in the turn; a stopped turn stops its children too.
     this.subagents?.turnEnded({ cancelled: events.some((event) => event.type === "turn-cancelled") });
-    // A tool still running when the turn stopped never completes; the renderer closes its step.
     this.state.steps.clear();
     this.state.calls.clear();
     this.state.editDiffs.clear();
@@ -670,15 +610,12 @@ class AcpSession {
     this.questions.cancelAll();
   }
 
-  // Fallback for a cancel the agent doesn't honour: kill the process and the commands it started, then
   // end the turn ourselves. Antigravity holds a cancel until its background commands finish, and runs
-  // them outside its process group. The next turn resumes the session in a new process.
   async stopNow() {
     await this.close({ descendants: true });
     await this.finishTurn([{ type: "turn-cancelled" }]);
   }
 
-  // An exit starts the removal without waiting; close() then waits for that same removal instead of finding nothing to do.
   removeTemp() {
     const directory = this.tmpdir;
     this.tmpdir = null;

@@ -1,14 +1,9 @@
-// The linked context a Chat gets at the start of each turn: what every Worktree it can see is doing,
-// built from stored state without a model call. Capped per Worktree and in total; the caps drop the
-// Chats with the oldest activity first.
-
 const { backgroundLabel } = require("@milagre/shared/chat-activity");
 const { neutralizeTags } = require("@milagre/shared/untrusted-text");
 
 const CAPS = Object.freeze({ perWorktree: 4096, total: 16384, reply: 300 });
 const STATUS = { working: "working", waiting: "waiting on the user", background: "working in the background", failed: "last turn failed", idle: "idle" };
 
-/** The text on one line, cut to `length` characters with an ellipsis. */
 const clip = (text, length) => {
   const flat = String(text ?? "")
     .replace(/\s+/g, " ")
@@ -33,11 +28,6 @@ function sideBlock(side, chats, omitted, caps) {
   return lines.join("\n");
 }
 
-/**
- * sides: [{ project, worktree, branch, diff?, open?: string[], chats: [{ ref, title, provider, status, archived?,
- * activity, lastReply?, receiveOnly? }] }]. `activity` orders the Chats of one Worktree, newest highest.
- * Resolves to the context block, or "" when there is nothing linked.
- */
 function buildLinkedSummary(sides, caps = CAPS) {
   if (!sides.length) return "";
   const blocks = sides.map((side) => {
@@ -60,7 +50,6 @@ function buildLinkedSummary(sides, caps = CAPS) {
     if (!largest) break;
     dropOldest(largest);
   }
-  // Chat titles and replies come from other Chats: they can't close the block.
   const body = neutralizeTags(
     blocks
       .map((block) => block.text.slice(0, caps.perWorktree))

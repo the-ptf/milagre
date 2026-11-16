@@ -24,7 +24,6 @@ function metadata(content, file) {
   const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content);
   let data = {};
   if (match) {
-    // Provider-specific fields (such as argument-hint) are not catalog metadata.
     const fields = match[1]
       .split(/\r?\n(?=[^\s#])/)
       .filter((field) => /^(name|description):/.test(field))
@@ -32,8 +31,6 @@ function metadata(content, file) {
     try {
       data = parse(fields, { maxAliasCount: 0 });
     } catch {
-      // Common hand-written skills use unquoted colons in a one-line description.
-      // Keep full YAML support, but treat that field as text on this retry.
       const repaired = fields.replace(/^description:[ \t]+([^\r\n]+)$/m, (line, value) => {
         if (/^["'|>[{]/.test(value.trim())) return line;
         return `description: ${JSON.stringify(value.trim())}`;
@@ -47,14 +44,10 @@ function metadata(content, file) {
   return { name, description };
 }
 
-// `projectPath` null lists the user and bundled skills only (no open Project).
-// `projectPath` null lists the user and bundled skills only. A list of folders (a shared Chat's Worktrees and main
-// checkouts, or a named Link's Projects) reads each one's skills in order; the first of a name wins.
 async function discoverSkills(projectPath, { home = os.homedir(), bundledDirectory = BUNDLED_SKILLS_DIRECTORY } = {}) {
   const roots = projectPath === null ? [] : Array.isArray(projectPath) ? projectPath : [projectPath];
   if (roots.some((root) => typeof root !== "string" || !path.isAbsolute(root))) throw new Error("An absolute workspace path is required");
   const skills = new Map();
-  // Same-named skills found after the winner: the `/` menu ignores them, Settings shows them.
   const shadowed = [];
   const visited = new Set();
   const warnings = [];
@@ -89,7 +82,6 @@ async function discoverSkills(projectPath, { home = os.homedir(), bundledDirecto
       } catch (error) {
         warnings.push(`Cannot read ${file}: ${error.message}`);
       }
-      // A skill's references and scripts are not additional skills.
       return;
     }
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
@@ -104,8 +96,6 @@ async function discoverSkills(projectPath, { home = os.homedir(), bundledDirecto
   return { skills: [...skills.values()].sort((a, b) => a.name.localeCompare(b.name)), shadowed, warnings };
 }
 
-// One discovered SKILL.md (a winner or a shadowed one), read with the same size limit. Only a file discovery
-// returned is read, so the caller can't name any other file.
 async function readDiscoveredSkill(projectPath, file, options) {
   const { skills, shadowed } = await discoverSkills(projectPath, options);
   if (typeof file !== "string" || !file || ![...skills, ...shadowed].some((skill) => skill.path === file))
@@ -113,11 +103,7 @@ async function readDiscoveredSkill(projectPath, file, options) {
   return readSkill(file);
 }
 
-// A fence of text from outside Milagre (routine-prompt.mjs): a Linear issue's or a webhook's text a Routine's message
-// carries as data. Its text has every "<" escaped, so the first closing tag ends it.
 const UNTRUSTED_FENCE = /<untrusted-data source="[^"\n]*">[\s\S]*?<\/untrusted-data>/g;
-// The prompt with every fence blanked out (same length, line breaks kept): a /skill written inside one is data, never an
-// invocation. Only the words around the fences (a Routine's own prompt, what the user typed) can call a skill.
 const outsideFences = (prompt) => String(prompt ?? "").replace(UNTRUSTED_FENCE, (fence) => fence.replace(/[^\n]/g, " "));
 
 function skillCommands(prompt) {
@@ -148,11 +134,8 @@ async function expandSkillPrompt(projectPath, prompt, options) {
     sections.push(`Skill /${skill.name}\nSource: ${skill.path}\nResolve relative references from: ${path.dirname(skill.path)}\n\n${content}`);
   }
   // Claude Code runs a message that starts with `/name` as its own slash command, and when it has no such command
-  // it tells the model the skill is not installed and did not run. Only skills in .claude folders are its own,
-  // so a message led by any other skill gets a first line that doesn't start with a slash.
   const leading = promptSkillTokens(visible)[0];
   const lead = leading && !visible.slice(0, leading.start).trim() ? selected.find((skill) => skill.name.toLowerCase() === leading.name.toLowerCase()) : null;
-  // A shared Chat's agent runs in the Link's own folder, so a member Project's .claude skill isn't Claude's own there either.
   const native = lead && lead.provider === "claude" && !(Array.isArray(projectPath) && lead.scope === "workspace");
   const intro = lead && !native ? `The user invoked the skill /${lead.name} with this message:\n\n` : "";
   return `${intro}${prompt}\n\nThe user invoked the following skills. Read and apply their instructions for this request, subject to the user's instructions and the current permission mode.\n\n${sections.join("\n\n")}`;

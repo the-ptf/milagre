@@ -1,12 +1,3 @@
-// Records landing page clips from the full desktop app: the source build, its own host and real agents, run off screen
-// (MILAGRE_BACKGROUND=1) in a throwaway profile and Chats home, so the Milagre you have open is never touched.
-//   node scripts/site-demo/live.cjs <out-dir> <project-folder>
-// Reads commands from <out-dir>/cmd (one per write), like record.cjs:
-//   eval <js>       evaluate in the window and print the result
-//   shot <file>     screenshot the window
-//   record <file>   start recording an mp4 of the window at 30 fps
-//   stop            stop recording
-//   quit
 // Build the renderer first: npm run build:renderer --workspace milagre
 const fs = require("node:fs");
 const path = require("node:path");
@@ -52,7 +43,6 @@ async function main() {
       port ??= log.match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)/)?.[1];
     });
   child.on("exit", (code) => console.log(`electron exited ${code}\n${log.slice(-2000)}`));
-  // A copy left running keeps its Browser panel pages, and the next take's agent can reach those instead of its own.
   for (const signal of ["SIGINT", "SIGTERM"])
     process.once(signal, () => {
       child.kill();
@@ -67,7 +57,6 @@ async function main() {
   }
   const cdp = await connect(page.webSocketDebuggerUrl);
   await cdp.call("Runtime.enable");
-  // Layout at 1280×800, drawn at 2x: the hero recording's size.
   await cdp.call("Emulation.setDeviceMetricsOverride", { width: WIDTH, height: HEIGHT, deviceScaleFactor: SCALE, mobile: false });
   console.log(`desktop: ready (CDP ${port}, profile ${profile})`);
   fs.writeFileSync(path.join(out, "live.json"), JSON.stringify({ port, profile }, null, 2));

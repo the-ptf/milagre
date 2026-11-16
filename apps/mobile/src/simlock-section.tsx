@@ -12,10 +12,6 @@ const DEVICES = [1, 2, 3, 4, 6, 8].map((count) => ({ value: String(count), title
 const MINUTES = [15, 30, 60, 120, 240].map((minutes) => ({ value: String(minutes), title: minutes < 60 ? `${minutes} min` : `${minutes / 60} h` }));
 const message = (error: unknown) => (error instanceof Error ? error.message : "Could not reach this computer.");
 
-/**
- * Settings › Phone & sharing › Simlock devices, as on desktop: the connected Mac's pool. The agent token is sent once to the
- * Mac and never read back; the Mac keeps it for its own gateway.
- */
 export function SimlockSection() {
   const styles = useStyles();
   const { colors } = useTheme();

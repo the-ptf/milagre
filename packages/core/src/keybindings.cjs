@@ -12,16 +12,10 @@ const {
   withCommandRules,
 } = require("@milagre/shared/keybindings");
 
-// Keybindings, the T3 Code way: each computer keeps a keybindings.json in its data directory, a JSON array of
-// `{ key, command, when? }` rules. Settings › Keybindings (desktop and phone) edits it through these commands, and a hand
-// edit counts the same. A sidecar, keybindings.seen.json, lists the commands this file has already seen, so a command
-// the user unbound stays unbound while a command a newer Milagre brings gets its defaults once.
-
 const CHANGED = "keybindings:changed";
 const WATCH_DELAY_MS = 150;
 
 /**
- * JSON with `//` and `/* *\/` comments and trailing commas, as someone editing by hand writes it. Strings are left alone.
  * @param {string} text
  */
 function lenientJson(text) {
@@ -40,7 +34,6 @@ function lenientJson(text) {
       const end = text.indexOf("*/", index + 2);
       index = end < 0 ? text.length : end + 2;
     } else {
-      // A closing bracket takes a comma just before it (outside any string) with it.
       if (char === "]" || char === "}") {
         const trimmed = out.trimEnd();
         if (trimmed.endsWith(",")) out = trimmed.slice(0, -1) + out.slice(trimmed.length);
@@ -52,7 +45,6 @@ function lenientJson(text) {
   return out;
 }
 
-/** One rule per line, so a hand edit and a diff stay readable. */
 function format(rules) {
   if (!rules.length) return "[]\n";
   return `[\n${rules.map((rule) => `  ${JSON.stringify(rule)}`).join(",\n")}\n]\n`;
@@ -85,7 +77,6 @@ function createKeybindings({ file, emit = () => {}, watch = true }) {
   const writeSeen = (seen) => writeAtomic(seenFile, `${JSON.stringify(seen)}\n`);
   const allCommands = () => KEYBINDING_COMMANDS.map((command) => command.id);
 
-  /** The file as it stands: missing is seeded, a broken one reads as the defaults and is left alone. */
   function load() {
     let text;
     try {
@@ -116,12 +107,10 @@ function createKeybindings({ file, emit = () => {}, watch = true }) {
       };
     }
     const read = readRules(parsed);
-    // A file that isn't an array is as unusable as bad JSON: keep it, use the defaults.
     if (!Array.isArray(parsed)) return { path: file, rules: defaultKeybindings(), issues: read.issues, broken: true };
     const seen = readSeen();
     const next = addNewDefaults(read.rules, seen);
     if (read.issues.length) {
-      // Rewriting would drop the entries Milagre couldn't read: show the new defaults, leave the file for the user.
       return { path: file, rules: next.rules, issues: read.issues, broken: false };
     }
     if (next.added) writeAtomic(file, format(next.rules));
@@ -162,7 +151,6 @@ function createKeybindings({ file, emit = () => {}, watch = true }) {
       if (!result.rule) throw new Error(`Keybinding ${index + 1} ${result.error}.`);
       return { key: result.rule.key, ...(result.rule.when ? { when: result.rule.when } : {}) };
     });
-    // A file with unreadable entries is rewritten from what Milagre could read, so those entries go with this save.
     const state = load();
     if (state.broken) throw new Error("keybindings.json has errors; fix or reset it first");
     return write(withCommandRules(state.rules, command, checked));
@@ -184,9 +172,7 @@ function createKeybindings({ file, emit = () => {}, watch = true }) {
     try {
       const view = publicState(load());
       if (JSON.stringify(view) !== last) publish(view);
-    } catch {
-      /* the file is being replaced; the next change reports it */
-    }
+    } catch {}
   }
   function startWatching() {
     try {

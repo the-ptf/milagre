@@ -39,18 +39,14 @@ import { useTheme } from "./theme";
 import { PullDown, pressStyle, useStyles } from "./ui";
 import { lineHeight, radius, space, type } from "./design-tokens";
 
-// While a scan runs, the screen reads again this often; the host's token-usage signal also reads at once.
 const REFRESHING_POLL_MS = 2500;
 const FIRST_CHATS = 3;
 const GAP = 4;
 const LEVEL_MIX = [0.2, 0.38, 0.56, 0.76, 1];
-/** A calendar day outside the picked range keeps 35% of its shade, mixed into the card. */
 const OUTSIDE_RANGE = 0.35;
-/** A Chat row's provider dot; the rows and "Show more" line their text up past it. */
 const CHAT_DOT = 6;
 const CHAT_TEXT_INSET = space.xxl + CHAT_DOT + space.md;
 
-/** The connected computer's report for a range or picked days, read again when its host signals new numbers. */
 function useTokenUsage(client: Client | null, range: TokenUsageRange, days: TokenUsageDays | null) {
   const [report, setReport] = useState<TokenUsageReport | null>(null);
   const [error, setError] = useState("");
@@ -279,10 +275,6 @@ function ProjectRows({
   );
 }
 
-/**
- * Token usage on the connected computer, as on the desktop's Usage page: the total and its provider split, the last 90
- * days as a calendar whose days pick what the screen covers, then where it went (Projects and Chats) and the models.
- */
 export function TokenUsageSection({ navigation }: { navigation?: ReactNode }) {
   const { colors } = useTheme();
   const styles = useStyles();

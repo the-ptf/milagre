@@ -2,15 +2,6 @@ import { useLayoutEffect, useRef } from "react";
 import { setBookmarkReserve } from "../../lib/bookmark-reserve";
 import { useControlsClearance } from "../../lib/window-chrome";
 
-/**
- * The open Chat's name in the window's top strip, at the left of <main>: its title (13 medium ink), then its Project
- * (13 ink-3). The title truncates first; the Project stays. Its first glyph starts on the strip's edge, with no padding of
- * its own: 12px in from <main>, or one gap after the window controls and the sidebar's bar when they reach over it (the
- * sidebar collapsed), where a Subchat's parent crumb starts too. A Subchat shows its SubchatBookmark there instead, which names
- * it with its parent. Its right edge goes into the bookmark reserve (bookmark-reserve.ts), so the Routine chip keeps clear
- * of it; `corner` is the width (px) of the corner's buttons, which it stops short of. With no cap of its own, the title
- * runs as far as that room allows before it truncates.
- */
 export function ChatIdentity({ title, project, corner }: { title: string; project?: string; corner: number }) {
   const { bar, inset } = useControlsClearance<HTMLDivElement>(true, corner);
   const group = useRef<HTMLDivElement>(null);

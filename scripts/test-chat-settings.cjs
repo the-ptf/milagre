@@ -1,7 +1,4 @@
 // Settings › Chat, Voice, Models and General in Electron: Reasoning and Tool calls (Chat) and Chat list (General) are each two
-// picture cards in a radio group; dictation lives on Voice and context size on Models. Expanded
-// reasoning opens thinking rows until they are toggled, and Full detail shows a reply's tool calls one row each instead
-// of folding them into one line. A window that had Murilo mode on opens on Full detail.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -105,7 +102,6 @@ async function browserChecks() {
     assert.equal(await evaluate(checked("Tool calls")), "Compact", "tool calls start compact");
     assert.equal(await evaluate(`!!${reply("many", "[data-slot=activity]")}`), true, "Compact folds the activity into one line");
     assert.equal(await evaluate(shows("lone", "Only one way")), false, "a thinking row starts closed");
-    // Messages during a turn: one host-kept choice instead of a picker beside Send.
     const followUps = `document.querySelector('[aria-label="Messages during a turn"]')`;
     await waitFor(`${followUps}?.disabled === false`);
     assert.match(await evaluate(`${followUps}.textContent`), /Send now/, "follow-ups steer by default");
@@ -117,7 +113,6 @@ async function browserChecks() {
     await waitFor(`/Queue/.test(${followUps}.textContent)`);
     await screenshot("chat-settings-follow-ups-queue");
 
-    // Voice: dictation moved out of Chat to a page of its own.
     await openVoice();
     assert.equal(
       await evaluate(`document.querySelectorAll('main [role="radiogroup"]:not([aria-label="Speech model"]) [role="radio"]').length`),
@@ -135,7 +130,6 @@ async function browserChecks() {
     assert.equal((await saved()).dictationFixUp, false);
     await evaluate("document.querySelector('[aria-label=\"Fix names with AI\"]').click()");
     await waitFor("!document.querySelector('[aria-label=\"Fix-up model\"]').disabled");
-    // Speech model: four models named for what they're good at, the best any-language one by default.
     assert.equal(await evaluate(`document.querySelectorAll('[role="radiogroup"][aria-label="Speech model"] [role="radio"]').length`), 4);
     assert.equal(await evaluate(checked("Speech model")), "Best, any language");
     await evaluate(`${card("Speech model", "Best for English")}.click()`);
@@ -154,7 +148,6 @@ async function browserChecks() {
     assert.equal((await saved()).dictationAction, "paste");
     await screenshot("voice-settings");
 
-    // Models: context size and compaction moved here from Chat.
     await openModels();
     const contextSwitch = 'document.querySelector(\'[role="checkbox"][aria-label="Show context size"]\')';
     assert.equal(await evaluate(`${contextSwitch}.getAttribute("aria-checked")`), "true");
@@ -175,15 +168,12 @@ async function browserChecks() {
     assert.equal(await evaluate(`${contextSwitch}.getAttribute("aria-checked")`), "false", "context visibility survives reload");
     assert.equal(await evaluate(`${belowSwitch}.getAttribute("aria-checked")`), "true");
 
-    // General: the sidebar's Chat list moved here from Chat. The arrow keys move the choice between its cards, as in any
-    // radio group; a card takes the choice when focus lands on it, which needs the page focused.
     await openGeneral();
     assert.equal(await evaluate(checked("Chat list")), "One list", "the sidebar lists Chats in one list by default");
     window.webContents.focus();
     await evaluate(`${card("Chat list", "One list")}.focus()`);
     const arrowRight = () =>
       evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }))`);
-    // Title first is One list with Appearance's edge rows, so it saves both.
     await arrowRight();
     await waitFor(`${checked("Chat list")} === "Title first"`);
     assert.equal((await saved()).chatList, "list", "Title first keeps one list");
@@ -209,12 +199,10 @@ async function browserChecks() {
     assert.equal((await saved()).toolCallDisplay, "full", "Full detail is saved");
     await screenshot("chat-settings-full-detail");
 
-    // A click folds an expanded thinking row; the setting only sets where it starts.
     await evaluate(`${reply("lone", "[data-slot=step] button")}.click()`);
     await waitFor(`!(${shows("lone", "Only one way")})`);
     assert.equal(await evaluate(checked("Reasoning")), "Expanded");
 
-    // Murilo mode, the Experimental switch this replaces, opens on Full detail.
     await evaluate(`localStorage.setItem("milagre-settings", JSON.stringify({ muriloMode: true }))`);
     await window.loadURL(process.argv[2]);
     await openChat();

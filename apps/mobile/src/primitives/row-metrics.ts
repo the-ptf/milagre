@@ -1,9 +1,5 @@
 import { lineHeight, radius, type } from "../design-tokens";
 
-/**
- * A row's height and title (ListRow and CheckRow share them): one line at body 17 (52pt), a 16 medium title over a
- * subtitle (56pt), or `compact` 15 medium (48pt).
- */
 export function rowMetrics({ compact = false, subtitle = false }: { compact?: boolean; subtitle?: boolean }) {
   return {
     box: {

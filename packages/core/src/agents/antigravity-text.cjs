@@ -9,18 +9,13 @@ const { readConfigOptions } = require("./acp-events.cjs");
 const { ANTIGRAVITY_TEXT_FAMILY } = require("@milagre/shared/antigravity-models");
 
 // One-shot text generation through the Antigravity agent (docs/providers.md), for the calls the
-// user never sees: chat titles, commit text, handover briefs. A fresh agent process in an empty temporary
-// folder, no tools (mcpServers: []), a fast model, every permission request turned down; the JSON is
-// taken from the reply text.
 
-// Gemini 3.8 Flash at Low, resolved to the agent's id from what the session offers (else the catalog's).
 const ANTIGRAVITY_TEXT_MODEL = ANTIGRAVITY_TEXT_FAMILY.model;
 const ANTIGRAVITY_TEXT_EFFORT = ANTIGRAVITY_TEXT_FAMILY.effort;
 const INITIALIZE_TIMEOUT_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const PROMPT_TIMEOUT_MS = 90_000;
 
-/** The JSON object in a reply (plain or fenced), as text; the whole reply when there is none. */
 function extractJson(reply) {
   const text = String(reply ?? "").trim();
   const candidates = [];
@@ -110,7 +105,6 @@ function antigravityModel({
         try {
           await rpc.request("session/set_config_option", { sessionId, configId: "model", value }, { timeoutMs: REQUEST_TIMEOUT_MS });
         } catch (error) {
-          // A model this agent doesn't offer: the session's own model answers instead.
           if (!error.rpcError) throw error;
         }
         const instruction = outputSchema

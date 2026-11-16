@@ -8,7 +8,6 @@ import { IconButton } from "./primitives/Button";
 const MATCH = "find-match";
 const ACTIVE = "find-active";
 
-/** The nearest ancestor that isn't inline, so "a **bold** word" reads as one string. */
 function blockOf(element: Element, cache: Map<Element, Element>): Element {
   const cached = cache.get(element);
   if (cached) return cached;
@@ -18,7 +17,6 @@ function blockOf(element: Element, cache: Map<Element, Element>): Element {
   return block;
 }
 
-/** Text ranges for every match under `root`, including ones that cross inline markup. Hidden and inert text (collapsed tool rows) is skipped. */
 function collectRanges(root: Element, query: string): Range[] {
   const ranges: Range[] = [];
   const visible = new Map<Element, boolean>();
@@ -84,7 +82,6 @@ export function FindBar({
 }: {
   rootRef: RefObject<HTMLElement | null>;
   focusSignal: number;
-  /** Replaces the query each time `focusSignal` changes. */
   seed?: string;
   onClose: () => void;
 }) {
@@ -102,8 +99,6 @@ export function FindBar({
     const column = rootRef.current?.querySelector(".chat-column");
     const previous = ranges.current[activeRef.current];
     ranges.current = column && query ? collectRanges(column, query) : [];
-    // Matches that arrive above the active one (earlier messages rendering after the tail) shift every index: keep
-    // the same match active, so the highlight doesn't move to one off screen.
     const kept = previous ? ranges.current.findIndex((range) => sameStart(range, previous)) : -1;
     const next = jump ? 0 : kept >= 0 ? kept : clampMatch(activeRef.current, ranges.current.length);
     activeRef.current = next;
@@ -129,7 +124,6 @@ export function FindBar({
     };
   }, [query]);
 
-  // Before paint, so the count ("2 of 5") and the match scrolling into view land in the same frame.
   useLayoutEffect(() => {
     paint(ranges.current, active);
     if (!reveal.current) return;
@@ -137,8 +131,6 @@ export function FindBar({
     const target = range?.startContainer.parentElement;
     if (!range || !target) return;
     target.scrollIntoView({ block: "center" });
-    // Messages off screen stand at a placeholder height until they're laid out (content-visibility). Scrolling past
-    // them measures them, which can push the match back out of view: look again for a few frames and scroll back.
     const viewport = target.closest<HTMLElement>('[aria-label="Conversation"]');
     if (!viewport) return;
     let frame = 0;
@@ -153,7 +145,6 @@ export function FindBar({
     return () => cancelAnimationFrame(frame);
   }, [active, version]);
 
-  // Closing returns focus to where it was, usually the composer.
   const returnTo = useRef(document.activeElement);
   useEffect(
     () => () => {
@@ -165,7 +156,6 @@ export function FindBar({
     [],
   );
 
-  // Reopening while open selects the text, so a new search replaces the old one.
   useLayoutEffect(() => {
     if (seed !== undefined) setQuery(seed);
     input.current?.focus();

@@ -48,9 +48,6 @@ import { PopoverButton } from "./pr/Popover";
 import { Avatar, LabelsRow, ReviewersRow, type PrSource } from "./pr/Properties";
 import type { PullRequestReview } from "./usePullRequest";
 
-// The Changes panel's tab for a PR the Chat opened: its header and merge button, then Summary (reviewers, labels,
-// description, checks, comments) and Files. Files and threads open in the main column's diff.
-
 export type { PrSource };
 
 const CHECK_ICON: Record<PullRequestCheck["outcome"], { icon: IconSvgElement; className: string }> = {
@@ -60,17 +57,14 @@ const CHECK_ICON: Record<PullRequestCheck["outcome"], { icon: IconSvgElement; cl
   skipped: { icon: MinusSignCircleIcon, className: "text-ink-3" },
   neutral: { icon: CircleIcon, className: "text-ink-3" },
 };
-// Failing checks first, then the ones still running.
 const CHECK_ORDER: Record<PullRequestCheck["outcome"], number> = { fail: 0, running: 1, pass: 2, neutral: 3, skipped: 4 };
 
-/** Draft, Merged or Closed before the author, as GitHub shows it; the phone shows the same pill. An open PR has none. */
 const STATE_PILL = {
   draft: { label: "Draft", icon: GitPullRequestDraftIcon, className: "bg-hover text-ink-2" },
   MERGED: { label: "Merged", icon: GitMergeIcon, className: "bg-purple-tint text-purple-ink" },
   CLOSED: { label: "Closed", icon: GitPullRequestClosedIcon, className: "bg-red-tint text-red-ink" },
 } as const;
 
-/** The line under the branch: what stops an open PR, or how a merged or closed one ended. The phone words it the same. */
 const STATUS_LINE: Partial<Record<ReturnType<typeof mergeStatus>["tone"], { icon: IconSvgElement; ink: string; title: string }>> = {
   blocked: { icon: AlertCircleIcon, ink: "text-red-ink", title: "text-red-ink" },
   draft: { icon: GitPullRequestDraftIcon, ink: "text-ink-3", title: "text-ink" },
@@ -100,13 +94,10 @@ export function PullRequestPanelBody({
   project,
 }: {
   review: PullRequestReview;
-  /** Where the reviewer and label pickers read their options; without it they offer only what the PR has. */
   source?: PrSource;
   actions: PullRequestPanelActions;
   activePath?: string;
-  /** The Worktree's uncommitted files, which the PR doesn't have yet, and what shows them. */
   local?: { count: number; onOpen: () => void };
-  /** A Link Chat's PR names the Project it belongs to. */
   project?: { name: string; path: string };
 }) {
   const [tab, setTab] = useState<"summary" | "files">("summary");
@@ -124,7 +115,6 @@ export function PullRequestPanelBody({
       <div className="h-px bg-line" />
       <Tabs pr={pr} tab={tab} onTab={setTab} />
       {tab === "summary" ? (
-        // A Link Chat's PR tabs share this panel: another repository's PR starts with fresh pickers.
         <Summary key={`${pr.url}\0${source?.cwd ?? ""}`} pr={pr} review={review} source={source} onOpenFile={actions.openFile} />
       ) : (
         <Files pr={pr} activePath={activePath} onOpenFile={actions.openFile} />
@@ -157,7 +147,6 @@ function Header({
   const notInPr = local && open ? notInPrLabel(local.count, pr.localCommits ?? 0) : "";
   const status = mergeStatus(pr);
   const line = STATUS_LINE[status.tone];
-  // GitHub can't merge a conflicting PR, not even later or as an admin.
   const conflicts = pr.mergeStateStatus === "DIRTY";
   const merge = (admin = false) => {
     const step = admin ? "admin" : "merge";
@@ -188,7 +177,6 @@ function Header({
         data-pr-merge
         disabled={busy}
         onClick={() => merge()}
-        // GitHub lets an UNSTABLE PR merge past failing optional checks; only a ready PR gets the primary button.
         className={status.tone === "ready" ? buttonClass({ variant: "primary", size: 28 }) : secondary}
       >
         {icon(GitMergeIcon)}
@@ -213,7 +201,6 @@ function Header({
     );
   }
 
-  // Container widths are the header's content box: 316px is a 340px panel, where the merge button shortens its label.
   return (
     <div data-pr-identity data-pr-state={pr.state} className="@container flex flex-col gap-2 px-3 pt-3 pb-3">
       <div className="flex min-w-0 items-center gap-2">
@@ -229,7 +216,6 @@ function Header({
           data-pr-link
           className="flex min-w-0 items-center gap-1 text-12 text-ink-2 no-underline transition-colors hover:text-ink"
         >
-          {/* The first thing to go when the row is narrow; the number always shows. */}
           <span className="truncate @max-[272px]:hidden">{repoOf(pr.url) ?? project?.name}</span>
           <span className="shrink-0 text-accent-ink">#{pr.number}</span>
           <span className="flex shrink-0 text-accent-ink">{icon(LinkSquare02Icon, 11)}</span>
@@ -347,7 +333,6 @@ function Header({
       {line && (
         <div data-pr-status={status.title} className="flex min-w-0 items-start gap-1.5 text-12 leading-4">
           <span className={`flex h-4 shrink-0 items-center ${line.ink}`}>{icon(line.icon, 13)}</span>
-          {/* Wraps rather than cutting the base branch off in a narrow panel. */}
           <span className="line-clamp-2 min-w-0 text-ink-2">
             <span className={`font-semibold ${line.title}`}>{status.title}</span> · {status.detail}
           </span>
@@ -358,7 +343,6 @@ function Header({
           type="button"
           data-pr-local={notInPr}
           onClick={local?.onOpen}
-          // Ink-2 words, an ink-3 glyph: orange is only for what waits on you.
           className="relative -mx-1 flex min-w-0 items-center gap-1.5 self-start rounded-chip px-1 text-left text-12 text-ink-2 transition-colors before:absolute before:inset-x-0 before:-inset-y-1 hover:bg-hover hover:text-ink"
         >
           <span className="flex shrink-0 text-ink-3">{icon(CloudUploadIcon, 13)}</span>
@@ -386,7 +370,6 @@ function Tabs({ pr, tab, onTab }: { pr: PullRequestDetail; tab: "summary" | "fil
   const progress = checksProgress(pr.checks);
   return (
     <div className="flex flex-col gap-2 px-3 pt-3 pb-1">
-      {/* The Changes tab's Files/Commits control: one segmented look for every view switch in the panel. */}
       <Segmented
         label="Pull request view"
         value={tab}
@@ -439,7 +422,6 @@ function Summary({
       ...openThreads(pr).map((thread) => ({ thread, comments: thread.comments.filter((comment) => !comment.pending) })),
       ...pr.comments.filter((comment) => !comment.pending).map((comment) => ({ thread: undefined, comments: [comment] })),
     ];
-    // By the latest word in each.
     const at = (item: (typeof items)[number]) => Date.parse(item.comments.at(-1)?.createdAt ?? "") || 0;
     return items.toSorted((a, b) => (newest ? at(b) - at(a) : at(a) - at(b)));
   }, [pr, newest]);
@@ -552,7 +534,6 @@ function Section({
   );
 }
 
-/** A comment on the PR, or an open thread on a line with its replies; the thread's place opens the file's diff. */
 function CommentCard({
   thread,
   comments,

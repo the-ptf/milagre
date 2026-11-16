@@ -14,7 +14,6 @@ const SIDEBAR_USAGE_KEYWORDS: Record<SidebarUsagePick, string> = {
   off: "hide disable plan limits",
 };
 
-/** Explicit values make commands searchable and safe to run more than once. */
 export function settingsCommands(settings: AppSettings, update: (patch: Partial<AppSettings>) => void): Command[] {
   function choice<K extends keyof AppSettings>(key: K, value: AppSettings[K], label: string, keywords = ""): Command {
     return {
@@ -90,10 +89,6 @@ export function settingsCommands(settings: AppSettings, update: (patch: Partial<
   ];
 }
 
-/**
- * Every Settings page and every row on one, found by typing in ⌘K. A page opens Settings there; a row opens its page
- * scrolled to the row and lit up, as the Settings search does.
- */
 export function settingsPageCommands(open: (section: SettingsSection, row?: string) => void): Command[] {
   const pages = Object.entries(SECTION_TITLES) as [keyof typeof SECTION_TITLES, string][];
   return [

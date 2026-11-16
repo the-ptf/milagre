@@ -33,10 +33,8 @@ import type { MilagreBridge } from "../../electron";
 export type CleanupBridge = Pick<MilagreBridge, "readIdleWorktrees" | "removeIdleWorktree" | "readComputerResources">;
 
 const DAY_OPTIONS = IDLE_DAYS.map((days) => ({ value: String(days) as `${IdleDays}`, label: `${days} days` }));
-// An older Milagre answers with an unknown command.
 const older = (message: string) => /unknown|not (available|allowed|supported)|no handler/i.test(message);
 
-/** A group's card: its checkbox selects or clears every worktree in it. */
 function GroupCard({
   title,
   list,
@@ -71,20 +69,7 @@ function GroupCard({
   );
 }
 
-/**
- * Clean up worktrees for one computer: its worktrees no Chat has used for 30, 60 or 90 days, those with nothing unsaved
- * checked at first. Removing goes one at a time with progress and Stop; the folders are measured again after.
- */
-export function WorktreeCleanup({
-  bridge,
-  computerName,
-  onClose,
-}: {
-  bridge: CleanupBridge;
-  /** The paired computer it cleans, named in the description; null for this Mac. */
-  computerName: string | null;
-  onClose: () => void;
-}) {
+export function WorktreeCleanup({ bridge, computerName, onClose }: { bridge: CleanupBridge; computerName: string | null; onClose: () => void }) {
   const [list, setList] = useState<IdleWorktree[] | null>(null);
   const [loadError, setLoadError] = useState("");
   const [days, setDays] = useState<IdleDays>(30);
@@ -116,7 +101,6 @@ export function WorktreeCleanup({
 
   const pickDays = (value: IdleDays) => {
     setDays(value);
-    // A new span starts from what it would remove safely.
     setSelected(new Set(cleanupGroups(idleFor(list ?? [], value, now)).saved.map((item) => item.path)));
   };
   const toggle = (paths: string[], on: boolean) =>

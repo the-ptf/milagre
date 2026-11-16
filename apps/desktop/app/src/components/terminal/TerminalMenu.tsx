@@ -10,7 +10,6 @@ const MENU_WIDTH = 200;
 const COPY_KEY = isMac ? "⌘C" : isWindows ? "Ctrl+C" : "Ctrl+Shift+C";
 const PASTE_KEY = isMac ? "⌘V" : isWindows ? "Ctrl+V" : "Ctrl+Shift+V";
 
-/** The menu a right click opens on a Terminal. */
 export function TerminalMenu({
   x,
   y,

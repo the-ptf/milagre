@@ -1,6 +1,3 @@
-// The desktop composer's chip editor in the real App: skills and @files are atomic chips while the draft stays plain
-// text. Typing, picking, Backspace over a chip, undo, paste, IME composition, history recall, a restored draft and send.
-// Fake bridge, no agent calls.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -72,10 +69,8 @@ async function browserChecks() {
   const draft = () => evaluate(`${editor}.value`);
   const draftIs = (text) => waitFor(`${editor}?.value === ${JSON.stringify(text)}`, `draft is ${JSON.stringify(text)}`);
   const chips = (kind) => evaluate(`[...${editor}.querySelectorAll('[data-chip="${kind}"]')].map(chip => chip.querySelector(".truncate").textContent)`);
-  // Real key presses, as the keyboard sends them: they reach the field as keydown and then beforeinput.
   const press = async (keyCode, modifiers = []) => {
     window.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers });
-    // Enter and printable keys edit on the char event that follows keydown.
     if ((keyCode.length === 1 || keyCode === "Return") && !modifiers.includes("meta"))
       window.webContents.sendInputEvent({ type: "char", keyCode: keyCode === "Return" ? "\r" : keyCode, modifiers });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
@@ -92,7 +87,6 @@ async function browserChecks() {
     evaluate(
       `${editor}.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, bubbles: true, cancelable: true, ...${JSON.stringify(extra)} }))`,
     );
-  // The caret as an offset into the draft: chips count as their source text, line breaks as one character.
   const caret = () =>
     evaluate(`(() => {
       const s = getSelection(); const r = document.createRange(); r.selectNodeContents(${editor}); r.setEnd(s.focusNode, s.focusOffset);
@@ -101,7 +95,6 @@ async function browserChecks() {
       copy.querySelectorAll('br').forEach(br => br.replaceWith('\\n'));
       return copy.textContent.replace(/\u200B/g, '').length;
     })()`);
-  // A click's worth of caret placement: before everything, or before the closing line break.
   const caretTo = (where) =>
     evaluate(`(() => { const field = ${editor}; getSelection().collapse(field, ${where === "start" ? 0 : "field.childNodes.length - 1"}); })()`).then(() =>
       delay(60),
@@ -122,8 +115,6 @@ async function browserChecks() {
     await draftIs("");
     return evaluate("window.calls.at(-1)");
   };
-  // A skill chip and a file chip on one line share their box (top and height within 0.5px) and sit centred on the line of
-  // text around them (within 1px of the centre of the first text node's line).
   const assertAligned = async (scope, label) => {
     const boxes = await evaluate(`(() => {
       const scope = ${scope};
@@ -150,13 +141,11 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     window.webContents.focus();
-    // loadURL can finish before the fixture's awaited App import and initial render. Cold Vite transforms on
     // Linux CI exceed the interaction budget; wait for startup separately without relaxing later assertions.
     await waitFor(`!!${editor}`, "the initial app render", 30000);
     await openChat("Chips chat");
     assert.equal(await evaluate(`${editor}.getAttribute('aria-label')`), "Prompt");
     assert.equal(await evaluate(`${editor}.getAttribute('contenteditable')`), "true");
-    // Returning to a long draft restores its end, even when both Chats have identical text.
     const longDraft = Array.from({ length: 24 }, (_, index) => `Line ${index + 1}: continuing this draft`).join("\n");
     await evaluate(`${editor}.value = ${JSON.stringify(longDraft)}`);
     await draftIs(longDraft);
@@ -191,7 +180,6 @@ async function browserChecks() {
     console.log("PASS: switching Chats restores the caret and scroll to the end of a long draft");
     await evaluate(`${editor}.focus()`);
 
-    // Typing and a / pick: one skill chip, the draft as plain text.
     await typeText("use /tl");
     await draftIs("use /tl");
     await waitFor(`document.querySelector('[aria-label="Commands and skills"]')?.textContent.includes('/tldr')`, "the skill menu");
@@ -207,14 +195,12 @@ async function browserChecks() {
     assert.equal(await caret(), "use /tldr ".length, "the caret lands after the pick");
     console.log("PASS: typing and a / pick make one skill chip");
 
-    // An @ pick: a file chip, the quoted mention in the draft, one attachment.
     await typeText("@my");
     await waitFor(`document.querySelector('[aria-label="Project files and Chats"]')?.textContent.includes('my app.ts')`, "the file menu");
     await keydown("Enter");
     await draftIs('use /tldr @"src/my app.ts" ');
     assert.deepEqual(await chips("file"), ["my app.ts"]);
     assert.equal(await evaluate(`${editor}.querySelector('[data-chip="file"]').title`), "src/my app.ts");
-    // The chip is the file's only representation: no tile beside it.
     await delay(150);
     assert.equal(await evaluate(`!!${tile("my app.ts")}`), false, "a chip's file has no tile");
     await assertAligned(editor, "composer");
@@ -222,7 +208,6 @@ async function browserChecks() {
     await screenshot("composer-chips");
     console.log("PASS: an @ pick makes a file chip, writes the mention and attaches the file once");
 
-    // Backspace after the chip takes the whole chip and its attachment; ⌘Z brings both back.
     await press("Backspace");
     await draftIs('use /tldr @"src/my app.ts"');
     await press("Backspace");
@@ -235,14 +220,12 @@ async function browserChecks() {
     await draftIs("use /tldr ");
     await press("z", ["meta"]);
     await draftIs('use /tldr @"src/my app.ts"');
-    // Arrow keys step over a chip as one character.
     await press("Left");
     assert.equal(await caret(), "use /tldr ".length, "Left steps over the whole chip");
     await press("Right");
     assert.equal(await caret(), 'use /tldr @"src/my app.ts"'.length);
     console.log("PASS: Backspace removes a chip and its attachment, ⌘Z and ⌘⇧Z undo and redo it, arrows step over it");
 
-    // Paste is plain text: HTML is stripped.
     await evaluate(
       `(() => { const data = new DataTransfer(); data.setData('text/html', '<b>hi</b>'); ${editor}.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data })); })()`,
     );
@@ -255,7 +238,6 @@ async function browserChecks() {
     await draftIs('use /tldr @"src/my app.ts"hi');
     console.log("PASS: paste inserts plain text, one undo step each");
 
-    // Copying a selection with chips copies the plain text.
     const copied = await evaluate(`(() => {
       const range = document.createRange(); range.selectNodeContents(${editor});
       getSelection().removeAllRanges(); getSelection().addRange(range);
@@ -266,7 +248,6 @@ async function browserChecks() {
     assert.equal(copied, 'use /tldr @"src/my app.ts"hi');
     await caretTo("end");
 
-    // IME: a real composition through DevTools, then synthetic events. Enter while composing doesn't send.
     window.webContents.debugger.attach("1.3");
     await window.webContents.debugger.sendCommand("Input.imeSetComposition", { text: "にほん", selectionStart: 3, selectionEnd: 3 });
     await delay(100);
@@ -289,7 +270,6 @@ async function browserChecks() {
     assert.deepEqual(await chips("file"), ["my app.ts"]);
     console.log("PASS: IME compositions commit once, and Enter while composing doesn't send");
 
-    // Shift+Enter is a line break; Up on a later line moves the caret, not through history.
     await press("Return", ["shift"]);
     await typeText("x");
     await draftIs('use /tldr @"src/my app.ts"hi日本日本\nx');
@@ -297,7 +277,6 @@ async function browserChecks() {
     await keydown("ArrowUp");
     assert.equal(await draft(), 'use /tldr @"src/my app.ts"hi日本日本\nx', "Up on the second line stays in the draft");
 
-    // Enter sends the plain text and attaches the chip's file; the sent message shows the chips.
     await keydown("Enter");
     await waitFor("window.calls.length === 1", "the send");
     const sent = await evaluate("window.calls[0]");
@@ -310,7 +289,6 @@ async function browserChecks() {
     await assertAligned(`[...document.querySelectorAll('article')].find(a => a.querySelector('[data-chip="file"]'))`, "sent message");
     console.log("PASS: Enter sends the exact text with the file attached, and the sent message shows the chips");
 
-    // Up on the first line recalls the sent prompt, chips and all.
     await evaluate(`${editor}.focus()`);
     await keydown("ArrowUp");
     await draftIs('use /tldr @"src/my app.ts"hi日本日本\nx');
@@ -320,19 +298,16 @@ async function browserChecks() {
     await draftIs("");
     console.log("PASS: Up on the first line recalls history, Down restores the draft");
 
-    // A draft the composer didn't type (restored, from the phone): its mention becomes a chip once the search finds the file.
     await evaluate(`${editor}.value = 'fix @src/model.ts'`);
     await draftIs("fix @src/model.ts");
     await waitFor(`${editor}.querySelector('[data-chip="file"] .truncate')?.textContent === 'model.ts'`, "the restored mention's chip");
     assert.ok(await evaluate(`window.searches.some(s => s.query === 'src/model.ts' && s.root === '/fixture')`), "looked up in the Project");
     assert.equal(await evaluate(`!!${tile("model.ts")}`), false);
-    // A mention of a file that isn't there stays text.
     await evaluate(`${editor}.value = 'fix @src/missing.ts now'`);
     await delay(400);
     assert.deepEqual(await chips("file"), []);
     console.log("PASS: a restored draft's mention becomes a chip after the search; an unknown path stays text");
 
-    // Typing in the middle keeps every character, around chips too.
     await evaluate(`${editor}.value = ''`);
     await typeText("/tldr a");
     await draftIs("/tldr a");
@@ -348,8 +323,6 @@ async function browserChecks() {
     await draftIs("go ");
     console.log("PASS: typing before a chip and Backspace into one keep the text exact");
 
-    // A pasted image's chip stays the same element, in the field, while typing after and before it. Taken out and put
-    // back on every key, it lost :hover, so the chip under a resting pointer flashed its hover border with each key.
     await evaluate(`${editor}.value = ''`);
     await draftIs("");
     await evaluate(`(async () => {
@@ -383,7 +356,6 @@ async function browserChecks() {
     await waitFor(`!${tile("shot.png")}`, "the image leaves with its chip");
     console.log("PASS: typing around an image chip keeps its element in place (no hover flash)");
 
-    // Deleting a chip detaches its file: the message goes without it.
     await evaluate(`${editor}.value = 'see @src/model.ts'`);
     await waitFor(`${editor}.querySelectorAll('[data-chip="file"]').length === 1`, "the model.ts chip");
     await delay(150);
@@ -393,7 +365,6 @@ async function browserChecks() {
     await typeText("nothing attached");
     assert.deepEqual((await sendNow()).files, [], "a deleted chip's file isn't sent");
 
-    // A file attached with + keeps its tile; removing that tile leaves the chip's file alone.
     await evaluate(
       `(() => { const dt = new DataTransfer(); dt.items.add(new File(['note'], 'note.txt', { type: 'text/plain' })); const input = document.querySelector('input[type=file]'); input.files = dt.files; input.dispatchEvent(new Event('change', { bubbles: true })); })()`,
     );
@@ -410,7 +381,6 @@ async function browserChecks() {
     await waitFor(`[...document.querySelectorAll('article [data-chip="file"] .truncate')].some(chip => chip.textContent === 'model.ts')`, "the sent chip");
     console.log("PASS: a deleted chip detaches its file; a + file keeps its tile and removing it leaves the chip's file");
 
-    // Chats keep their own attachments and undo: both mention the same file, each send carries it; ⌘Z doesn't reach across.
     await evaluate(`${editor}.value = 'alpha @src/model.ts please'`);
     await waitFor(`${editor}.querySelectorAll('[data-chip="file"]').length === 1`, "chip in Chips chat");
     await delay(150);
@@ -442,7 +412,6 @@ async function browserChecks() {
     console.log("PASS: each Chat sends its chips' files after switching, and undo stays in its Chat");
 
     // A trailing empty line has no collapsed Range rect in Chromium. Check its actual line box before typing
-    // another character (which would hide the bug), including after soft wraps and an atomic chip.
     const visibleLine = async (index, label) => {
       const geometry = await evaluate(`(() => {
         const field = ${editor};
@@ -474,7 +443,6 @@ async function browserChecks() {
       await visibleLine(9, "empty line after optional screenshot");
     }
 
-    // An interior empty line scrolls only far enough to reveal the caret, in either direction.
     const interior = "top" + "\n".repeat(10) + "later line\n".repeat(20);
     await evaluate(`${editor}.value = ''`);
     await draftIs("");
@@ -507,8 +475,6 @@ async function browserChecks() {
     assert.equal(await evaluate("window.calls.length"), sendsBeforeScrolling, "newlines and undo never send");
     console.log("PASS: capped composer reveals every empty line after text, wraps and chips, including interior edits and undo/redo");
 
-    // An @ pick of another computer: a computer chip, `@computer:Name` in the draft, and the computer chip in the sent bubble.
-    // The capped draft goes out first, so the computer's message starts from an empty composer.
     await sendNow();
     await typeText("run it on @San");
     await waitFor(`[...document.querySelectorAll('[data-skill-group]')].some(group => group.textContent === 'Computers')`, "the Computers group");
@@ -530,7 +496,6 @@ async function browserChecks() {
   } catch (error) {
     console.error(error);
     console.error(errors);
-    // What the sidebar and window held when a step timed out: rows missing from the sidebar show up here.
     console.error(
       "sidebar:",
       await evaluate(

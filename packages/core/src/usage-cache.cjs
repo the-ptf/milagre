@@ -5,7 +5,6 @@ const PROVIDERS = require("@milagre/shared/providers").PROVIDERS.toReversed();
 
 const emptyState = () => Object.fromEntries(PROVIDERS.map((provider) => [provider, { last: null, blocked: null }]));
 
-// Only plain numbers and labels are kept, so nothing from the credentials can end up on disk.
 function cleanWindow(item) {
   if (!item || typeof item !== "object") return null;
   const { id, label, shortLabel, usedPercent, resetsAt } = item;
@@ -39,7 +38,6 @@ function load(file) {
   }
 }
 
-// Last good plan usage and rate-limit blocks per provider. Without a file it only lives in memory.
 function createUsageStore({ file } = {}) {
   const state = file ? load(file) : emptyState();
   let writing = Promise.resolve();
@@ -77,7 +75,6 @@ function createUsageStore({ file } = {}) {
   };
 }
 
-// What the store can show with no network: each provider's last good windows, minus any that have reset.
 function cachedSnapshot(store, nowMs) {
   const providers = [];
   for (const provider of PROVIDERS) {

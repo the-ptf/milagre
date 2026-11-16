@@ -9,7 +9,6 @@ import type { QuestionAnswers, QuestionRequest } from "../../model";
 
 const TITLE_LIMIT = 160;
 
-/** The report's text with each placeholder Milagre put in marked, so the user sees what was replaced. */
 function MarkedReport({ text }: { text: string }) {
   return (
     <>
@@ -26,12 +25,6 @@ function MarkedReport({ text }: { text: string }) {
   );
 }
 
-/**
- * A Milagre bug report waiting for the user (bug-reports.cjs): the exact title and text that will go to Milagre's public
- * tracker, placeholders marked, editable before it is posted. Nothing goes out until Post; an edit with more private
- * details comes back from the host redacted, as a new card. "card" sits above the composer like QuestionCard; "inline"
- * goes inside an inbox card, which brings its own frame.
- */
 export function BugReportCard({
   request,
   busy,

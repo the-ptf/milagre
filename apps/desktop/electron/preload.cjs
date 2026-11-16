@@ -2,8 +2,6 @@
 /** @typedef {typeof import("../app/src/electron.d.ts")} BridgeTypes */
 const { contextBridge, ipcRenderer: electronIpc, webUtils } = require("electron");
 
-// The window opens before the host answers, and main registers the host's commands once it has (main.cjs), so calls
-// made until then wait here instead of finding no handler.
 let hostConnected = false;
 const hostReady = electronIpc.invoke("app:host-ready").then(() => {
   hostConnected = true;
@@ -24,9 +22,6 @@ const ipcRenderer = {
   },
 };
 
-// What only this Mac's own window does: its editors and Finder, the folder dialog, the clipboard and image menus,
-// notifications, updates, its own host, devices and accounts. A paired computer's bridge refuses them before any IPC,
-// and main refuses them again (computer-routing.cjs keeps the same lists; computer-routing.test.cjs compares them).
 const NOT_REMOTE = "Not available on a remote computer";
 const LOCAL_ONLY = new Set([
   "project:open",
@@ -72,7 +67,6 @@ const LOCAL_ONLY_PREFIXES = [
 const isLocalOnly = (channel) => LOCAL_ONLY.has(channel) || LOCAL_ONLY_PREFIXES.some((prefix) => channel.startsWith(prefix));
 
 /**
- * Every call and event the window has, over whatever carries them: this Mac's IPC, or a paired computer's through main.
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @param {(channel: string, ...args: any[]) => void} send
@@ -137,7 +131,6 @@ function makeBridge(invoke, listen, send) {
       close: (request) => invoke("terminal:close", request),
     },
     onTerminalsChanged: (callback) => listen("terminal:changed", callback),
-    // ⌘W closes the focused Terminal instead of the window; the main process needs to know where focus is to decide.
     setTerminalFocused: (focused) => send("app:terminal-focused", focused === true),
     onCloseFocusedTerminal: (callback) => listen("app:close-focused-terminal", () => callback()),
     readDesignsEnabled: () => invoke("designs:enabled:read"),
@@ -169,7 +162,6 @@ function makeBridge(invoke, listen, send) {
     listSkills: (projectPath) => invoke("skills:list", projectPath),
     readSkill: (projectPath, file) => invoke("skills:read", projectPath, file),
     dictationContext: (request) => invoke("dictation:context", request),
-    // The fix-up of a finished take's misheard names, which both apps write over the take in place.
     polishDictation: (request) => invoke("dictation:polish", request),
     openSkill: (request) => invoke("skills:open", request),
     revealSkill: (projectPath, file) => invoke("skills:reveal", projectPath, file),
@@ -311,18 +303,14 @@ function makeBridge(invoke, listen, send) {
     openInEditor: (request) => invoke("editor:open", request),
     getCurrentProject: () => invoke("project:current"),
     openProject: () => invoke("project:open"),
-    /** This Mac's folder dialog without opening anything: where a clone goes. A path, or null when cancelled. */
     chooseFolder: (title) => invoke("project:choose-folder", title),
-    /** A folder on this computer, opened as a Project without the folder dialog (the remote folder picker). */
     openProjectAt: (folder) => invoke("project:open-at", folder, { takeNotice: true }),
     listDirs: (request) => invoke("fs:list-dirs", request),
     readMedia: (request) => invoke("media:read", request),
     listRecentProjects: () => invoke("project:recent"),
-    /** The repositories in a folder being added, offered as Projects with a Named Link that groups them. */
     scanFolder: (folder) => invoke("project:scan-children", folder),
     readDetectRepositories: () => invoke("folder-repos:detect:read"),
     saveDetectRepositories: (value) => invoke("folder-repos:detect:save", value),
-    /** Every Project the computer knows, for the new-chat picker; the sidebar keeps to the recent ones. */
     listKnownProjects: () => invoke("project:known"),
     listAgentFolders: () => invoke("onboarding:agent-folders"),
     createProject: (name) => invoke("onboarding:create", name),
@@ -331,8 +319,6 @@ function makeBridge(invoke, listen, send) {
     setProjectHidden: (projectPath, hidden) => invoke("project:set-hidden", projectPath, hidden),
     retrySave: (scope) => invoke("scope:retry-save", scope),
     /**
-     * `{ state: false }`: the Project opened on its host without its state, `{ path, name, git, version, epoch }`, for a
-     * window that already holds the state.
      * @param {string} projectPath
      * @param {{ state?: boolean }} [options]
      */
@@ -508,12 +494,10 @@ const computerSubscribers = new Map();
 const anyComputerSubscribers = new Set();
 /** @param {unknown} _event @param {any} event */
 function dispatchComputerEvent(_event, event) {
-  // Copies: callbacks can unsubscribe and resubscribe during dispatch.
   for (const callback of Array.from(anyComputerSubscribers)) callback(event);
   const set = computerSubscribers.get(`${event?.computerId}|${event?.channel}`);
   if (set) for (const callback of Array.from(set)) callback(event.payload);
 }
-/** One ipcRenderer listener serves every computer subscription (many would pass EventEmitter's MaxListeners). */
 function syncComputerListener() {
   const wanted = computerSubscribers.size > 0 || anyComputerSubscribers.size > 0;
   ipcRenderer.removeListener("computers:event", dispatchComputerEvent);
@@ -542,7 +526,6 @@ function listenAnyComputer(callback) {
   };
 }
 
-/** This Mac's own IPC. */
 const local = makeBridge(
   (channel, ...args) => ipcRenderer.invoke(channel, ...args),
   listenHere,
@@ -551,7 +534,6 @@ const local = makeBridge(
 
 /** @type {Map<string, import("../app/src/electron.d.ts").MilagreBridge>} */
 const remotes = new Map();
-// A message for a paired computer's Chat was typed on this one: that Chat's agent is told (packages/core/src/sent-from.cjs).
 const SENDS = new Set(["chat:send", "link:send"]);
 /**
  * @param {string} channel
@@ -561,8 +543,6 @@ const SENDS = new Set(["chat:send", "link:send"]);
 const sentFromHere = (channel, args) =>
   SENDS.has(channel) && args[0] && typeof args[0] === "object" ? [{ ...args[0], sentFrom: "computer" }, ...args.slice(1)] : args;
 /**
- * A paired computer's bridge (spec "Routing"): the same calls, carried by main to that computer (computers-ipc.cjs), and
- * its events, tagged with it. This Mac's own actions refuse with NOT_REMOTE.
  * @param {string} computerId
  */
 function remote(computerId) {
@@ -581,7 +561,6 @@ function remote(computerId) {
   return bridge;
 }
 
-// A forgotten computer's bridge goes with it, so pairing it again starts clean.
 ipcRenderer.on("computers:changed", (_event, snapshot) => {
   const known = new Set((snapshot?.computers ?? []).map((/** @type {{ id: string }} */ computer) => computer.id));
   for (const id of remotes.keys()) if (!known.has(id)) remotes.delete(id);
@@ -607,7 +586,6 @@ const bridge = {
   onComputersChanged: (callback) => listenHere("computers:changed", callback),
   onComputerAddPending: (callback) => listenHere("computers:pending", () => callback()),
   onComputerEvent: (callback) => listenAnyComputer(callback),
-  // Dictation records and transcribes on this computer, whichever computer the Chat is on (dictation.cjs).
   dictation: {
     status: () => ipcRenderer.invoke("app:dictation-status"),
     download: (id) => ipcRenderer.invoke("app:dictation-download", id),
@@ -619,18 +597,14 @@ const bridge = {
     openSettings: () => ipcRenderer.invoke("app:dictation-open-settings"),
   },
 };
-// Window decoration belongs to this window, even when its Chat uses a paired computer's bridge.
 const controls = process.argv.find((argument) => argument.startsWith("--milagre-window-controls="))?.split("=")[1];
 contextBridge.exposeInMainWorld("milagreWindowChrome", { controls: controls === "leading" || controls === "overlay" ? controls : "external" });
 contextBridge.exposeInMainWorld("milagre", bridge);
-// Whether this computer had opened a Project before this launch; onboarding skips its first-launch intro then.
 contextBridge.exposeInMainWorld("milagreLaunch", {
   openedProjectsBefore: process.argv.includes("--milagre-opened-projects-before=1"),
   simpleIntro: process.argv.includes("--milagre-simple-intro=1"),
 });
 
-// The Browser panel's pages live in this window, whichever computer is selected: a page asking for a new window, and
-// ⌘L, ⌘R and ⌘W pressed inside one (browser-guests.cjs).
 contextBridge.exposeInMainWorld("milagreBrowserPanel", {
   partition: "persist:milagre-browser",
   onOpenTab: (callback) => listenHere("browser-panel:open-tab", callback),
@@ -649,7 +623,6 @@ contextBridge.exposeInMainWorld("milagreBrowserPanel", {
   clearSignIns: (computerId) => ipcRenderer.invoke("browser-panel:clear-sign-ins", computerId),
 });
 
-// Kept local to this window, independent of the selected computer or agent host.
 contextBridge.exposeInMainWorld("milagrePreferences", {
   get: (key) => ipcRenderer.sendSync("preferences:storage", "get", key),
   set: (key, value) => ipcRenderer.sendSync("preferences:storage", "set", key, value),

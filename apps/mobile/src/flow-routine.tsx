@@ -36,10 +36,8 @@ type Client = { call: <T>(method: string, args: unknown[]) => Promise<T> };
 const deviceZone = () => new Intl.DateTimeFormat().resolvedOptions().timeZone;
 const failure = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
 
-/** Opens a flow Run's page. */
 const openFlowRun = (routineId: string, runId: string) => router.push({ pathname: "/flow-run", params: { id: routineId, run: runId } });
 
-/** Starts a Test run of the draft (written first) and opens it. */
 export async function startTestRun(client: Client, routineId: string, flush: () => Promise<void>, refresh: () => Promise<void>) {
   await flush();
   const result = await client.call<{ run?: RoutineRun } | null>("routines:flow-test", [routineId]);
@@ -47,11 +45,6 @@ export async function startTestRun(client: Client, routineId: string, flush: () 
   if (result?.run?.id) openFlowRun(routineId, result.run.id);
 }
 
-/**
- * A flow's Routine page, as the designs draw it: its revision and draft chips, a bar when a Run waits for you, then Steps
- * (the editor, with Test run and Publish at the bottom), Runs, and Settings (the switch, the trigger and where Runs work,
- * and Edit, which opens the Routine form without its prompt).
- */
 export function FlowRoutineScreen({ routine, initialTab = "steps" }: { routine: RoutineWithRuns; initialTab?: FlowTab }) {
   const styles = useStyles();
   const { colors } = useTheme();

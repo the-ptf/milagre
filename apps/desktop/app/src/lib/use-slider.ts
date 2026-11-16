@@ -12,7 +12,6 @@ export interface SliderOptions {
   step?: number;
   disabled?: boolean;
   label: string;
-  /** Announced instead of the bare number when the value carries a unit ("35%"). */
   formatValueText?: (value: number) => string;
 }
 
@@ -21,7 +20,6 @@ export interface SliderOptions {
 export function useSlider({ value, onValueChange, min = 0, max = 100, step = 1, disabled = false, label, formatValueText }: SliderOptions) {
   const trackRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<HTMLElement | null>(null);
-  // The ref answers the first pointermove after pointerdown without waiting on a re-render.
   const draggingRef = useRef(false);
   const [dragging, setDragging] = useState(false);
   const low = min;
@@ -67,9 +65,7 @@ export function useSlider({ value, onValueChange, min = 0, max = 100, step = 1, 
   const endDrag = useCallback((event: PointerEvent<HTMLDivElement>) => {
     try {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    } catch {
-      /* already released */
-    }
+    } catch {}
     draggingRef.current = false;
     setDragging(false);
   }, []);

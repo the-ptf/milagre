@@ -1,4 +1,3 @@
-// Real renderer component; scripted frame transport is regression evidence only.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");

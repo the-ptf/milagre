@@ -22,7 +22,6 @@ const DIFF_COLORS = asOptions(DIFF_PAIRS);
 const MOTIONS = asOptions(MOTION_SPEEDS);
 const PROVIDER_ICONS = asOptions(PROVIDER_ICON_STYLES);
 
-/** One choice row: the label and what it changes on the left, a pull-down with the current choice on the right. */
 function Choice({
   label,
   detail,
@@ -87,7 +86,6 @@ function Tile({ id, label, name, detail }: { id: ThemeChoice; label: string; nam
           borderCurve: "continuous",
           backgroundColor: colors.field,
           borderWidth: 2,
-          // The chosen theme is outlined in ink, as on desktop: accent is for focus and links.
           borderColor: selected ? colors.ink : "transparent",
         },
         pressStyle({ pressed }),
@@ -108,11 +106,9 @@ function Tile({ id, label, name, detail }: { id: ThemeChoice; label: string; nam
   );
 }
 
-/** Settings › Appearance: the same modes and themes as desktop's Appearance page. */
 export function AppearanceSection() {
   const styles = useStyles();
   const { settings, set } = useTheme();
-  // On: start from the current theme's colors and select Custom. Off while Custom is selected: back to Milagre Blue, seeds kept.
   function changeCustomTheme(enabled: boolean) {
     if (!enabled) {
       set({

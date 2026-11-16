@@ -10,11 +10,6 @@ import { useReducedMotion } from "./motion";
 export type Tone = { [K in keyof Palette]: Palette[K] extends string ? K : never }[keyof Palette];
 export type IconData = IconSvgElement;
 
-/**
- * Desktop's icon set (Hugeicons), so the same action looks the same on both apps. `size` is on the scale 12 | 16 | 18 |
- * 20 | 24 (design-tokens.test.ts holds literals to it; a glyph sized to the chat text may follow the text). The line
- * weight comes with the size: 1.6 at 12, 1.8 from 16 up.
- */
 export function Icon({
   icon,
   tone = "ink2",
@@ -26,7 +21,6 @@ export function Icon({
   tone?: Tone;
   color?: string;
   size?: number;
-  /** @deprecated The stroke follows the size. */
   strokeWidth?: number;
 }) {
   const { colors } = useTheme();
@@ -37,7 +31,6 @@ export function Icon({
   );
 }
 
-/** Every provider mark follows the device's Appearance choice, using the same shapes as desktop. */
 export function ProviderLogo({
   provider,
   size = 16,
@@ -49,11 +42,9 @@ export function ProviderLogo({
   dim?: boolean;
   inverted?: boolean;
 }) {
-  // Gradient, mask and filter ids are per instance: two logos on one screen must not share them.
   const id = `logo${useId().replace(/[^\w-]/g, "")}`;
   const { settings, colors } = useTheme();
   const simplified = settings.providerIcons === "simplified";
-  // `inverted` sits on an ink fill.
   const monochrome = inverted ? colors.onInk : colors.ink;
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" opacity={dim ? 0.6 : 1} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
@@ -117,7 +108,6 @@ export function ProviderLogo({
 type RingClock = { value: Animated.Value; period: number; users: number; from: number; startedAt: number; loop?: Animated.CompositeAnimation };
 const ringClocks: { spin?: RingClock; pulse?: RingClock } = {};
 
-// Made on first use: the module also loads where no Animated exists (the provider logos' tests).
 function ringClock(kind: "spin" | "pulse") {
   return (ringClocks[kind] ??= { value: new Animated.Value(0), period: kind === "spin" ? 1100 : 1600, users: 0, from: 0, startedAt: 0 });
 }
@@ -135,7 +125,6 @@ function joinRingClock(clock: RingClock) {
   clock.loop.start();
 }
 
-/** Leaves the clock and returns where it stood; the last ring to leave stops it there. */
 function leaveRingClock(clock: RingClock) {
   const at = ringPhase(clock);
   clock.users -= 1;
@@ -151,7 +140,6 @@ function leaveRingClock(clock: RingClock) {
 
 type ScreenNavigation = { isFocused(): boolean; addListener(event: "focus" | "blur", listener: () => void): () => void };
 let navigationContext: Context<ScreenNavigation | undefined> | undefined;
-// Required on first use, not imported: this module also loads where no router exists (the provider logos' tests).
 function screenNavigationContext() {
   return (navigationContext ??= (require("expo-router/react-navigation") as { NavigationContext: Context<ScreenNavigation | undefined> }).NavigationContext);
 }
@@ -161,7 +149,6 @@ const subscribeAppState = (listener: () => void) => {
 };
 const appActive = () => AppState.currentState === "active";
 const NO_SCREEN = () => () => {};
-// The reduced-motion ring's dim step, as desktop's.
 const PULSE_LOW = 0.45;
 
 /**
@@ -186,18 +173,11 @@ function useRingActive() {
   return useSyncExternalStore(subscribeAppState, appActive, appActive) && focused;
 }
 
-/**
- * Desktop's SpinnerRing: a line-colored track with a short ink-3 arc turning once every 1.1s. Under reduced motion it
- * stands still and steps between full and 45% opacity every 0.8s, as desktop's does, so it still reads as loading.
- * Every ring turns on one shared clock; under another screen (or with the app in the background) a ring leaves it and
- * stands where it was.
- */
 export function SpinnerRing({ size = 16, stroke = 2, tone = "ink3", color }: { size?: number; stroke?: number; tone?: Tone; color?: string }) {
   const { colors } = useTheme();
   const reduced = useReducedMotion();
   const active = useRingActive();
   const kind = reduced ? "pulse" : "spin";
-  // Where this ring stands while it is off the clock, in turns.
   const [stopped, setStopped] = useState(0);
   useEffect(() => {
     if (!active) return;
@@ -210,8 +190,7 @@ export function SpinnerRing({ size = 16, stroke = 2, tone = "ink3", color }: { s
     const value = ringClock(kind).value;
     return reduced
       ? { opacity: Animated.modulo(value, 1).interpolate({ inputRange: [0, 0.5, 0.5001, 1], outputRange: [1, 1, PULSE_LOW, PULSE_LOW] }) }
-      : // Past one turn the rotation keeps going (extend), and 360° more looks the same.
-        { transform: [{ rotate: value.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }] };
+      : { transform: [{ rotate: value.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }] };
   }, [active, reduced, kind, stopped]);
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -234,7 +213,6 @@ export function SpinnerRing({ size = 16, stroke = 2, tone = "ink3", color }: { s
   );
 }
 
-/** Linear's mark, on Linear issue chips and pickers (same shape as desktop's LinearLogo), in the color of the text beside it. */
 export function LinearLogo({ size = 12, tone = "ink2" }: { size?: number; tone?: Tone }) {
   const { colors } = useTheme();
   return (

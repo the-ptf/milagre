@@ -1,4 +1,3 @@
-// Preserve prior installer and immutable index routes on fresh publishing runners.
 const fs = require("node:fs");
 const path = require("node:path");
 async function main() {

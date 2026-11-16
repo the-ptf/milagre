@@ -1,6 +1,4 @@
 // A stand-in for `claude` in scripts/perf/run.cjs: it speaks enough of Claude Code's stream-json protocol for a turn,
-// with no account, network or tokens, so every run streams the same text at the same pace. A prompt holding
-// `perf-run:mix` or `perf-run:code` gets a long reply; anything else (a generated title, a model probe) gets one line.
 const fs = require("node:fs");
 const path = require("node:path");
 const readline = require("node:readline");
@@ -42,7 +40,6 @@ function codeLine(n) {
   return `  const value${n} = rows.filter((row) => row.id !== ${n}).map((row) => ({ ...row, seen: ${n % 2 === 0} }));\n`;
 }
 
-/** The reply, sized to stream for SECONDS at the configured pace. */
 function replyText(kind, turn) {
   const size = Math.floor((SECONDS * 1000) / INTERVAL_MS) * CHARS;
   let text = `perf-reply-${turn}\n\n`;
@@ -61,7 +58,6 @@ async function reply(text, turn) {
   event({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
   const started = Date.now();
   for (let at = 0, tick = 0; at < text.length; at += CHARS, tick++) {
-    // Paced against the start, so a slow write doesn't stretch the stream.
     const wait = started + tick * INTERVAL_MS - Date.now();
     if (wait > 0) await delay(wait);
     event({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: text.slice(at, at + CHARS) } });
@@ -88,7 +84,6 @@ async function reply(text, turn) {
   if (turn) mark(`turn-${turn}-end`);
 }
 
-/** A turn that runs one Bash tool for SECONDS: what a window shows while an agent works (step row, shimmer, timers). */
 async function toolTurn(turn) {
   mark(`turn-${turn}-start`);
   const started = Date.now();

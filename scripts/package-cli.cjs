@@ -1,4 +1,3 @@
-// Package the daemon and its private workspace dependencies as an installable CLI.
 // Bundle private workspace sources. npm installs registry dependencies for the target platform.
 const { url: repository } = require("@milagre/shared/repository");
 const fs = require("node:fs/promises");
@@ -39,7 +38,6 @@ async function packageCli({ outDir = path.join(root, "release", "cli") } = {}) {
       const target = path.join(stage, "node_modules", pkg.name);
       await copySource(from, target);
       // The CLI owns the entire dependency graph. Keeping these edges on the bundled packages makes npm
-      // treat their registry dependencies as bundled too, skipping target-specific optional binaries.
       const {
         dependencies: _dependencies,
         optionalDependencies: _optional,

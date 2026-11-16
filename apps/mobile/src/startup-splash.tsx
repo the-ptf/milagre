@@ -24,8 +24,6 @@ export function StartupSplash({ ready, onDone }: { ready: boolean; onDone: () =>
   }, [onDone]);
   useEffect(() => {
     if (!ready) return;
-    // splash-leave and splash-logo-leave run together with their own curves; runs once, so session updates cannot restart it.
-    // Reduced motion: the splash only fades; the logo doesn't shrink.
     const leave = Animated.timing(fade, { toValue: 1, duration: 320, easing: Easing.bezier(0.4, 0, 0.2, 1), useNativeDriver: true });
     const logo = Animated.timing(shrink, { toValue: 1, duration: 320, easing: Easing.bezier(0.4, 0, 1, 1), useNativeDriver: true });
     Animated.parallel(reduced ? [leave] : [leave, logo]).start(() => done.current());

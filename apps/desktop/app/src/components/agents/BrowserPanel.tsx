@@ -49,10 +49,8 @@ import { shortcutLabel, useKeybindings } from "../../lib/keybindings";
 import { isRemoteKey } from "../../lib/computer-bridge";
 import { targetBrowserId, useChatBrowserTargets, type ChatBrowserTargets } from "./BrowserViewer";
 
-/** Sent with a Chat key when ⌘L is pressed in one of its pages: its address bar takes the focus. */
 const FOCUS_BROWSER_ADDRESS = "milagre:browser-address";
 
-/** Keeps every Chat's pages in line with its tabs, and takes main's page events. Mounted once, beside the app. */
 export function BrowserPages() {
   const chats = useAllChatBrowsers();
   useEffect(() => syncBrowserPages(chats), [chats]);
@@ -87,7 +85,6 @@ export function BrowserPanel({
 }) {
   const chat = useChatBrowser(chatKey);
   const listed = useChatBrowserTargets(viewerChatId, chat.open);
-  // Each device loads the page itself. A discovered page supplies an address, never a capture.
   const ownPages = new Set(chat.tabs.map((tab) => samePage(tab.url)));
   const streamed: ChatBrowserTargets = {
     ...listed,
@@ -106,14 +103,12 @@ export function BrowserPanel({
   const [expanded, setExpanded] = useState(false);
   const resize = usePanelWidth("browser");
   // Dragged wider than the room left now (the changes panel or a simulator opened beside it), it narrows so the chat
-  // keeps its width, down to its minimum; wider, it would push the row past the window, over the sidebar.
   const width = dock ? Math.max(resize.min, Math.min(resize.width, dock.width - dock.simulator - 12 - MIN_CHAT_WIDTH)) : resize.width;
   const full = expanded;
   const close = useCallback(() => setBrowserOpen(chatKey, false), [chatKey]);
   useCloseWhenDesignsExpand(close);
   useSidePanelRoom("browser", chat.open && !full, width + 12, close);
   const hasStreamed = streamed.targets.length > 0;
-  // Opened with only discovered pages (or while their initial read is in flight), show them rather than a blank page.
   const open = () => (!chatBrowser(chatKey).tabs.length && (hasStreamed || streamed.loading) ? showBrowserPanel(chatKey) : setBrowserOpen(chatKey, true));
   useSidePanel("browser", {
     open: chat.open,
@@ -121,7 +116,6 @@ export function BrowserPanel({
   });
   const closeTab = (tabId: string) => {
     closeBrowserTab(chatKey, tabId);
-    // The last page of its own closing leaves the discovered ones on show.
     if (!chatBrowser(chatKey).tabs.length && hasStreamed) showBrowserPanel(chatKey);
   };
   const selectTab = (tabId: string) => selectBrowserTab(chatKey, tabId);
@@ -130,19 +124,15 @@ export function BrowserPanel({
     const page = next?.targets.find((target) => targetBrowserId(target.id) === browserId && /^https?:\/\//i.test(target.url));
     if (page && /^https?:\/\//i.test(page.url)) openBrowserTab(chatKey, page.url);
   };
-  // Localhost links in this Chat's replies open here while it is on screen.
   useEffect(() => registerBrowserHost(chatKey), [chatKey]);
   useSentPageComments(chatKey);
   const active = own;
   return createPortal(
-    // This panel is made anew for each Chat: open as its Chat comes on screen, it was open before and is there at once
-    // (DockSlide), on every way of switching. Opened after that, it springs.
     <AnimatePresence initial={false}>
       {chat.open && active && (
         <ResizableDockSlide
           key="browser-dock"
           // Opens like the git changes panel and lines up with the sidebar's card, left of a docked simulator; the chat
-          // makes room through --browser-dock.
           panel="browser"
           label="Resize browser"
           width={full ? null : width}
@@ -224,7 +214,6 @@ function BrowserTabs({
   const { rules } = useKeybindings();
   return (
     <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2">
-      {/* The Tabs look and keys (one Tab stop, the arrows pick), with a close button per tab. */}
       <div
         role="tablist"
         aria-label="Pages"
@@ -239,7 +228,6 @@ function BrowserTabs({
             <div
               key={tab.id}
               data-browser-tab={tab.id}
-              // A middle click closes the tab, as in a browser.
               onAuxClick={(event) => {
                 if (event.button === 1) onCloseTab(tab.id);
               }}
@@ -310,7 +298,6 @@ const SOURCE_LABEL: Record<BrowserTarget["source"], string> = {
   panel: "Its computer's panel",
 };
 
-/** An address offered by the agent's own browser, an attached one or another computer's panel. */
 function DiscoveredTab({
   target,
   page,
@@ -344,7 +331,6 @@ function DiscoveredTab({
         <Icon icon={BrowserIcon} size={14} className="shrink-0 text-ink-3" />
         <span className="min-w-0 flex-1 truncate">{name}</span>
       </button>
-      {/* Only an attachment can end here: the agent's browser and another computer's panel close where they run. */}
       {target.source === "attached" && (
         <Tooltip label="Detach this browser from this Chat" side="bottom">
           <button
@@ -370,7 +356,6 @@ function TabIcon({ tab }: { tab: BrowserTab }) {
   return <Icon icon={Globe02Icon} size={14} className="shrink-0 text-ink-3" />;
 }
 
-/** An address as a page: its fragment and a trailing slash don't make another one. */
 const samePage = (url: string) => url.replace(/#.*$/, "").replace(/\/$/, "");
 
 const hostLabel = (url: string) => {
@@ -385,11 +370,9 @@ function BrowserToolbar({ chatKey, tab, onSendComments }: { chatKey: string; tab
   const input = useRef<HTMLInputElement>(null);
   const [text, setText] = useState(addressText(tab.url));
   const [editing, setEditing] = useState(false);
-  // The address follows the page while the field isn't being typed in.
   useEffect(() => {
     if (!editing) setText(addressText(tab.url));
   }, [tab.url, editing]);
-  // A blank tab starts with the address bar focused; ⌘L in the page focuses it too.
   useEffect(() => {
     if (tab.url === "about:blank") input.current?.focus();
     const focus = (event: Event) => {
@@ -507,7 +490,6 @@ function StartPage({
   streamed: ChatBrowserTargets;
   onAttach: (browserId: string) => void;
 }) {
-  // This Mac's servers only: the panel opens pages here.
   const servers = ports.filter((port) => !port.computerId).sort((a, b) => a.port - b.port);
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 px-8">
@@ -544,7 +526,6 @@ function StartPage({
   );
 }
 
-/** Browsers no Chat's agent started, on the Chat's computer. Attaching one offers its pages here, as tabs. */
 function OtherBrowsers({ chatKey, streamed, onAttach }: { chatKey: string; streamed: ChatBrowserTargets; onAttach: (browserId: string) => void }) {
   return (
     <div className="flex w-full max-w-[300px] flex-col gap-1">

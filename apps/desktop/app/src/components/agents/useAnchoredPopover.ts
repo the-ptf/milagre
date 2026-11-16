@@ -1,12 +1,6 @@
 import { useEffect, useLayoutEffect, useState, type RefObject } from "react";
 import { useDismiss } from "../../lib/use-dismiss";
 
-/**
- * Positions a nonmodal popover above its trigger (right edges aligned, kept inside the window) and wires
- * Escape to close it; useDismiss closes it on an outside press and keeps it on its trigger through scrolls and resizes. Escape returns focus to the trigger; the first button in the
- * popover (or the popover itself, when it has none) takes focus when it opens. The popover is never taller
- * than `height`, so a long list scrolls instead of climbing the window.
- */
 export function useAnchoredPopover({
   opened,
   setOpened,

@@ -4,7 +4,6 @@ const { neutralizeTags } = require("@milagre/shared/untrusted-text");
 const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 
-/** Explicit references survive steering. Resolve only against the sender's own summary state, never a transcript. */
 async function chatMentionsContext(request, readState) {
   const projectPath = projectOfKey(request.chatId);
   if (isLinkScopeKey(projectPath)) return "";

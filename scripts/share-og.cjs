@@ -1,4 +1,3 @@
-// Rebuild the public snapshot link image: node scripts/share-og.cjs.
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");

@@ -13,12 +13,6 @@ import { useRun } from "./session";
 /** The capsule's height; the touch area is 44 with the slop. */
 const HEIGHT = 32;
 
-/**
- * Over an open Subchat, under the header: `‹ ● Parent title`, one button that goes up to the Chat above (the title in the
- * header stays the Subchat). The dot is the parent's: orange when it needs the user, the accent while it works. When the
- * parent needs the user the capsule tints orange and adds "Needs you", which never truncates (the title gives way), so
- * the one alert is here and not in the Attention pill too.
- */
 function SubchatBookmark({ bookmark, top, onBack }: { bookmark: Bookmark; top: number; onBack: () => void }) {
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
@@ -68,11 +62,6 @@ function SubchatBookmark({ bookmark, top, onBack }: { bookmark: Bookmark; top: n
   );
 }
 
-/**
- * The capsule of the open Chat `chatKey`, which reads the Chats waiting on the user and its parent's turn itself, so the
- * Chat screen doesn't re-render when the poll answers or another Chat streams. Nothing when the Chat has no listed
- * ancestor. `onBack` gets the Chat above it.
- */
 export function SubchatBookmarkHost({
   sessions,
   chatKey,
@@ -85,7 +74,6 @@ export function SubchatBookmarkHost({
   onBack: (parentKey: string) => void;
 }) {
   const attention = useAttention();
-  // Only the parent's turn shows here (its dot and "Needs you"): another Chat's steps re-render nothing.
   const parent = bookmarkOf({ sessions, key: chatKey, attention: [], runs: undefined })?.parent;
   const parentRun = useRun(parent);
   const bookmark = bookmarkOf({ sessions, key: chatKey, attention, runs: parent && parentRun ? { [parent]: parentRun } : undefined });

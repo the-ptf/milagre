@@ -1,6 +1,3 @@
-// A short-lived process pins its working directory before traversing a Worktree.
-// Every mutating syscall uses a basename relative to that pinned directory, never
-// an absolute path whose ancestors another process could replace with symlinks.
 const fs = require("node:fs");
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
@@ -37,8 +34,6 @@ const statOf = (name) => {
     return null;
   }
 };
-// A file written this close to a capture could change again within the clock's resolution without its stamp moving,
-// so its stamp is not kept and the next capture reads it again (Git's "racy" check).
 const RACY_MS = 2000;
 function execute(request) {
   const { root, identity, op } = request;
@@ -70,16 +65,13 @@ function execute(request) {
       const leaf = parent(name);
       const before = fs.lstatSync(leaf);
       if (!before.isFile() || before.nlink > 1) return { blocked: true };
-      // O_NONBLOCK also covers a regular file swapped for a FIFO after lstat.
       fd = fs.openSync(leaf, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
       const stat = fs.fstatSync(fd);
       if (!stat.isFile() || stat.nlink > 1 || !sameInode(before, stat)) return { blocked: true };
-      // A file past 5 MiB stays out of checkpoints, like secrets and artifacts. Only the ignore file's own limit is an error.
       if (stat.size > limit) {
         if (limit === MAX_FILE) return { blocked: true };
         throw new Error(`Checkpoint file exceeds ignore-file limit: ${name}`);
       }
-      // A bounded read prevents a concurrently growing file exhausting host memory.
       const buffer = Buffer.alloc(Math.min(stat.size + 1, limit + 1));
       let offset = 0;
       while (offset < buffer.length) {
@@ -123,17 +115,11 @@ function execute(request) {
   if (op === "scan" || op === "inspect") {
     const files = Object.create(null),
       blocked = [];
-    // The Worktrees of a shared Chat split one budget (see checkpoints.cjs).
     const budget = Math.min(request.budget ?? MAX_TOTAL, MAX_TOTAL);
     let total = 0;
     if (op === "scan") fs.mkdirSync(request.blobDirectory, { recursive: true, mode: 0o700 });
-    // Smallest first: past the budget the largest files stay out, so the source an agent edits stays covered.
-    // A size read here orders the files; each read below checks its file again.
     atRoot();
     const stats = new Map(request.names.map((name) => [name, statOf(name)]));
-    // `known`: each file's stamp (size, mtime, ctime, inode, device) and entry from this Worktree's last scan. A file whose
-    // stamp is the same, and whose blob is saved,, is the same file: it is not read and hashed again. `stamps` are
-    // this scan's, for the next one.
     const known = op === "scan" ? (request.known ?? {}) : {};
     const stamps = Object.create(null);
     const settled = Date.now() - (request.racyMs ?? RACY_MS);
@@ -194,7 +180,6 @@ function execute(request) {
       const found = read(file.path, readRules());
       if (found.blocked || !same(found.entry, file.expected)) throw new Error("Files changed. Preview again before restoring");
     };
-    // Preflight the entire group before writing, then recheck each file next to its write.
     for (const file of request.files) verify(file);
     for (const file of request.files) {
       verify(file);
@@ -206,8 +191,6 @@ function execute(request) {
       }
       const bytes = fs.readFileSync(path.join(request.blobDirectory, file.target.hash));
       if (hash(bytes) !== file.target.hash || secretContent(bytes)) throw new Error("Checkpoint data failed verification");
-      // Restore through the verified descriptor. No path-based chmod or
-      // rename source can be redirected by swapping a temporary leaf.
       let fd, readOnlyFd, previousMode;
       let complete = false;
       const descriptor = (handle) => {

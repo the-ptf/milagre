@@ -2,7 +2,7 @@ import type { RefObject } from "react";
 import { GridViewIcon, LayoutTwoColumnIcon } from "@hugeicons/core-free-icons";
 import type { FamilyEntry, FamilyMenuModel } from "../../lib/family-menu";
 import { MenuLabel, MenuRow, MenuSeparator, Popover } from "../primitives/Popover";
-import { ChatMarkDot } from "../sidebar/ChatRow";
+import { ChatMarkDot } from "../sidebar/ChatMarks";
 
 /** One Chat of the family: its live dot, its title, and its state in words ("Parent · Working", "Needs you"). */
 export function FamilyRow({ entry, open = false, onPick }: { entry: FamilyEntry; open?: boolean; onPick: (key: string) => void }) {

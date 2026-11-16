@@ -8,7 +8,6 @@ const { providerName } = require("@milagre/shared/providers");
 const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { chatActivity } = require("@milagre/shared/chat-activity");
 
-/** A linked Chat's status, the same activity its sidebar row shows (chat-activity.mjs), with its background work. */
 function linkedStatus(session, run) {
   const { activity, background } = chatActivity(session, run);
   return { status: activity, ...(background ? { backgroundWork: background } : {}) };
@@ -22,7 +21,6 @@ const MAX_OUTPUT = 40_000;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const DEFAULT_MESSAGES = 30;
 
-// Whether a Chat has messages, from its summary when it has one: an unloaded Chat's aren't in the state.
 const hasMessages = (state, session) => (session.summary?.count ?? 0) > 0 || state.messages.some((message) => message.session_id === session.id);
 
 const cap = (text) => (text.length > MAX_OUTPUT ? `${text.slice(0, MAX_OUTPUT)}\n… truncated` : text);
@@ -33,8 +31,6 @@ function lastReply(state, sessionId) {
   )?.body;
 }
 
-// The text a reply ends with: what follows its last tool step, or the last stretch of text between steps when it ended on
-// one. A saved reply holds the whole turn (its narration between tool calls too); step offsets index its body.
 function replyEnd(message) {
   const body = message.body ?? "";
   const cuts = [...new Set([0, ...(message.steps ?? []).filter((step) => step.kind !== "thinking").map((step) => step.offset ?? 0)])]
@@ -47,10 +43,6 @@ function replyEnd(message) {
   return body.trim();
 }
 
-/**
- * What a Chat's agent ended its reply to a Delegation with (Milagre's own notes left out), or undefined: the text after
- * the last tool step of its last reply, so the narration of the work stays in that Chat and the report is its answer.
- */
 function delegationReply(state, sessionId, delegationId) {
   const messages = (state.messages ?? state).filter((message) => message.session_id === sessionId);
   const start = messages.findIndex((message) => message.context?.kind === "delegation" && message.context.delegationId === delegationId);
@@ -59,7 +51,6 @@ function delegationReply(state, sessionId, delegationId) {
   return last ? replyEnd(last) || undefined : undefined;
 }
 
-/** "Project / branch / Chat title", how one Chat names another across a Link. */
 function chatLabel(projectName, state, sessionId) {
   const session = state.sessions[sessionId];
   if (!session) return `${projectName} / unknown Chat`;
@@ -70,7 +61,6 @@ function chatLabel(projectName, state, sessionId) {
   )}`;
 }
 
-// A relative path inside the Worktree: no option-looking arguments, no way out through `..` or a symlink.
 async function insideWorktree(worktree, relative) {
   if (typeof relative !== "string" || !relative || relative.startsWith("-") || path.isAbsolute(relative))
     throw new Error("Give a path relative to the linked Worktree.");
@@ -81,16 +71,7 @@ async function insideWorktree(worktree, relative) {
   return resolved;
 }
 
-/**
- * Read access to the Worktrees a Chat can see, and nothing else. `view` supplies:
- *   sides(chatId) -> [{ project_id, worktree_path, link_id, projectPath, projectName }]
- *   state(projectPath) -> the Project's state, which can leave out unloaded Chats' messages (see message-store.cjs)
- *   messages(projectPath, chatIds) -> those Chats' messages, whole; bodies(projectPath, chatIds) -> their ids, roles
- *   and bodies; runs() -> streaming runs by chat key
- *   open(side) -> lines about the open Delegations and Negotiations with that side; receiveOnly(chatKey) -> boolean
- */
 function createLinkedReads(view) {
-  // A view without the message ports reads them from its states, which then hold every message.
   const messagesOf =
     view.messages ?? (async (projectPath, chatIds) => (await view.state(projectPath)).messages.filter((message) => chatIds.includes(message.session_id)));
   const bodiesOf = view.bodies ?? messagesOf;
@@ -107,7 +88,6 @@ function createLinkedReads(view) {
         const state = await view.state(item.projectPath);
         const worktree = Object.values(state.worktrees).find((entry) => entry.path === item.worktree_path);
         const listed = Object.values(state.sessions).filter((session) => session.worktree_id === worktree?.id && hasMessages(state, session));
-        // Ids, roles and bodies are all a summary reads, so an unloaded Chat isn't read whole.
         const all = listed.length
           ? await bodiesOf(
               item.projectPath,
@@ -262,15 +242,9 @@ function createLinkedReads(view) {
   return { summary, overview, readChat, git: linkedGit, readFile, search };
 }
 
-// Worktrees and Chats are named exactly as linked_overview shows them.
 const worktree = z.string().describe('The linked Worktree\'s absolute path, as linked_overview shows it after "worktree".');
 const range = z.object({ start: z.number().int().min(1).optional(), end: z.number().int().min(1).optional() }).optional();
 
-/**
- * The tools a Chat gets for its Links, as provider-neutral definitions: a zod input shape and `run`, which
- * resolves to text. Reads are scoped to the Worktrees the Chat can see; `delegate` and `conclude_negotiation`
- * go to the Delegations (see delegations.cjs). Nothing here writes to a linked Worktree.
- */
 function linkedToolDefinitions(chatId, { reads, delegations }) {
   return [
     {

@@ -1,22 +1,9 @@
 const path = require("node:path");
 const { capText, claudeEditDiff, codexChangesDiff, unwrapShell } = require("./permissions.cjs");
 
-// Tool steps: each command, edit, read, search or other tool call an agent makes, as the rows of
-// its reply, and each stretch of thinking. A step starts as { id, kind, title, detail? } and ends as
-// { id, status, title?, detail?, durationMs? }:
-//   kind    "shell" | "edit" | "read" | "search" | "other" | "thinking" | "setup" | "image" | "artifact"
 //   title   what it did, past tense, with code between backticks: "Ran `npm test`", "Edited `App.tsx`"
-//   file    the file a read or edit worked on, as the tool named it (absolute, or relative to the chat's folder);
-//           the title shows only its name, and the renderer opens it in an editor from here
-//   status  "done" | "failed"
 //   detail  a command and its output ("$ npm test\n…"), a unified diff, or the tool's result text.
-//           The detail a step ends with replaces anything streamed into it. A read that worked keeps none.
-// A title given at the end replaces the first one, for agents that only know it then.
-// A thinking step streams the agent's thinking summary into its detail and ends with how long it took.
-// An image step is an image the agent generated: it ends with the image's file and the prompt it was made from as its detail.
-// An artifact step is a design the agent showed or edited: it ends with its reference ({ id, version, title }).
 
-// Command output keeps its end, where results and errors are (capOutput); diffs and other details keep their start.
 const { MAX_OUTPUT, capOutput } = require("@milagre/shared/agent-runs");
 const { toolMetadata } = require("@milagre/shared/tool-activity");
 const { ROUTINE_TOOL_NAMES } = require("../routines/tools.cjs");
@@ -24,7 +11,6 @@ const { ROUTINE_TOOL_NAMES } = require("../routines/tools.cjs");
 const CLAUDE_EDIT_TOOLS = new Set(["Edit", "MultiEdit", "NotebookEdit"]);
 const CLAUDE_AGENT_TOOLS = new Set(["Agent", "Task"]);
 
-// Text shown as code in a title: one line of at most 80 characters, with no backticks of its own.
 function code(text, max = 80) {
   const flat = String(text ?? "")
     .trim()
@@ -33,17 +19,14 @@ function code(text, max = 80) {
   return `\`${flat.length > max ? `${flat.slice(0, max - 1)}…` : flat}\``;
 }
 
-// A step's file: a non-empty string, or nothing.
 const filePath = (file) => (typeof file === "string" && file ? file : undefined);
 
 const fileName = (file) => (file ? code(path.basename(String(file))) : "a file");
 
-// Drops undefined fields so steps stay plain and compare cleanly.
 function compact(object) {
   return Object.fromEntries(Object.entries(object).filter(([, value]) => value !== undefined));
 }
 
-// A tool result's content is a string or a list of blocks.
 function blocksText(content) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -53,19 +36,13 @@ function blocksText(content) {
     .join("\n");
 }
 
-// --- Artifacts ---
-
-// Milagre's design tools show their result as a card in the Chat.
 const isArtifactTool = (server, tool) => server === "milagre" && ["design_show", "design_apply", "artifact_show", "html_render"].includes(tool);
 const artifactTitle = (title, tool) =>
   `${tool === "design_apply" ? "Edited" : "Showed"} ${code(title || (tool === "artifact_show" ? "an artifact" : "a design"))}`;
-// The step names its tool: the Designs canvas opens when a design tool starts, not for an artifact page.
 const artifactStep = (step, title, tool) => ({ ...step("artifact", artifactTitle(title, tool)), tool });
-// Resolving a comment the user left on a design reads as that, not as a tool call.
 const isResolveTool = (server, tool) => server === "milagre" && (tool === "artifact_resolve_comment" || tool === "browser_resolve_comment");
 const resolvedTitle = (tool) => (tool === "browser_resolve_comment" ? "Resolved a page comment" : "Resolved a design comment");
 
-// Milagre's routine tools read as what they did to the Project's Heartbeats and Routines, not as tool calls.
 const ROUTINE_STEP_TOOLS = new Set(ROUTINE_TOOL_NAMES);
 function routineTitle(server, tool, input = {}) {
   if (server !== "milagre" || !ROUTINE_STEP_TOOLS.has(tool)) return null;
@@ -74,7 +51,6 @@ function routineTitle(server, tool, input = {}) {
   return tool === "routine_delete" ? "Stopped a Routine" : "Checked Routines";
 }
 
-// The artifact a finished design tool made, from the first line of its result: the JSON summary. Attached images follow it.
 function artifactRef(text) {
   try {
     const { id, version, title, format, group, inline, height } = JSON.parse(String(text).split("\n", 1)[0]);
@@ -93,8 +69,6 @@ function artifactRef(text) {
   }
 }
 
-// The Heartbeat a finished heartbeat_create set, from the first line of its result: the JSON { routine: { id, name } }.
-// `detail` is the rest of the result, without that line.
 function routineRef(text) {
   const [first, ...rest] = String(text).split("\n");
   try {
@@ -106,11 +80,8 @@ function routineRef(text) {
   }
 }
 
-// --- Thinking ---
-
 const thinkingStep = (id) => ({ id: String(id), kind: "thinking", title: "Thinking" });
 
-// "Thought for 4s", "Thought for 1m 5s"; just "Thought" when the start wasn't seen.
 function thinkingEnd(id, durationMs, text) {
   const title = durationMs === undefined ? "Thought" : `Thought for ${formatDuration(durationMs)}`;
   return compact({ id: String(id), status: "done", title, detail: text ? capText(text) : undefined, durationMs });
@@ -120,8 +91,6 @@ function formatDuration(ms) {
   const seconds = Math.max(1, Math.round(ms / 1000));
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
-
-// --- Claude ---
 
 function claudeStep(id, name, input = {}) {
   const mcp = /^mcp__(.+?)__(.+)$/.exec(String(name));
@@ -149,7 +118,6 @@ function claudeStep(id, name, input = {}) {
   return step("other", `Used ${name}`);
 }
 
-// Claude's structured patch (Edit and Write results) as unified diff hunks.
 function patchDiff(result) {
   const hunks = result?.structuredPatch;
   if (!Array.isArray(hunks) || !hunks.length) return undefined;
@@ -160,8 +128,6 @@ function patchDiff(result) {
 
 const TODO_MARKS = { completed: "[x]", in_progress: "[~]", pending: "[ ]" };
 
-// call: the tool_use block { id, name, input }; block: its tool_result; structured: the message's
-// tool_use_result, the tool's own output object.
 function claudeStepResult(call, block, structured) {
   const { name, input = {} } = call;
   const failed = block.is_error === true;
@@ -219,7 +185,6 @@ function webResults(results) {
   return lines.length ? capText(lines.join("\n\n")) : undefined;
 }
 
-// item/started item -> step, or null for items that aren't tool calls (messages, reasoning, plans…).
 function codexStep(item) {
   const metadata = item.type === "mcpToolCall" || item.type === "dynamicToolCall" ? toolMetadata(item.server, item.tool, item.arguments) : {};
   const step = (kind, title, detail, file) => compact({ id: String(item.id), kind, title, detail, file: filePath(file), ...metadata });
@@ -239,7 +204,6 @@ function codexStep(item) {
       return step("shell", `Ran ${code(command)}`, detail);
     }
     case "fileChange": {
-      // One file is the step's `file`; a patch over several keeps them all, for links to any of them.
       const paths = (item.changes ?? []).map((change) => filePath(change?.path)).filter(Boolean);
       const edit = step("edit", changeTitle(item.changes ?? []), undefined, item.changes?.length === 1 ? item.changes[0].path : undefined);
       return paths.length > 1 ? { ...edit, files: [...new Set(paths)] } : edit;
@@ -264,7 +228,6 @@ function codexStep(item) {
   }
 }
 
-// item/completed item -> the end of its step.
 function codexStepResult(item) {
   const id = String(item.id);
   switch (item.type) {

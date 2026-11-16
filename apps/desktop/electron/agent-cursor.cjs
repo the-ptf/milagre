@@ -1,8 +1,3 @@
-// Milagre's agent cursor (design cu-cursor, option A): while an agent operates an app on this computer (computer use),
-// a blue arrow travels to the element it acts on, outlines it, and shows the step beside it. It is drawn in a
-// transparent, click-through window above everything, one per display, so the user's own pointer and focus never move.
-// The host says where (computer-use:cursor, with the element's screen bounds) and when to hide.
-
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
 html,body{margin:0;height:100%;background:transparent;overflow:hidden;font:500 12px -apple-system,BlinkMacSystemFont,sans-serif}
 #cursor{position:absolute;left:0;top:0;opacity:0;transition:transform .32s cubic-bezier(.2,.8,.2,1),opacity .2s ease}
@@ -15,13 +10,8 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;font:500 1
 <div id="ring"></div>
 <div id="cursor"><svg width="32" height="32" viewBox="0 0 32 32"><path d="M5 3 L5 25 L10.5 19.8 L14.2 28.4 L17.9 26.8 L14.3 18.4 L21.8 18.4 Z" fill="#2F6BFF" stroke="#FFFFFF" stroke-width="1.8" stroke-linejoin="round"/></svg><div id="label"></div></div>
 </body></html>`;
-// The arrow's tip in the 32 px drawing: it sits on the element's center.
 const TIP = { x: 5, y: 3 };
 
-/**
- * `show({ bounds, label })` moves the cursor to the element (screen points, top-left origin, as agent-desktop reports
- * them) or, without bounds, only changes the step; `hide()` fades it out.
- */
 function createAgentCursor({ BrowserWindow, screen }) {
   const windows = new Map();
   let current = null;

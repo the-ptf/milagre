@@ -12,18 +12,12 @@ import { Icon } from "../primitives/Icon";
 
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
-/**
- * "Heartbeat set: <name>", its cadence and end, and Stop (which deletes the Routine), for a heartbeat_create step in a
- * reply. A Routine that no longer exists says Stopped. The step names the Routine as its own Mac knows it, so on another
- * computer's Chat its id is read as that computer's.
- */
 export function HeartbeatCard({ step }: { step: HeartbeatStep }) {
   const { byComputer, routines } = useRoutines();
   const computer = computerOfKey(useReplyChatId() ?? "");
   const { enabled, error: loadError } = byComputer[computer] ?? { enabled: null, error: null };
   const routineId = qualifyKey(computer, step.routine.id);
   const [stopping, setStopping] = useState(false);
-  // "ends in 3 days" moves with the clock: read again every minute (and on every Routine update, which re-renders).
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 60_000);

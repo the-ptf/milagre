@@ -23,11 +23,6 @@ function client(token, fetcher = fetch) {
   };
 }
 
-/**
- * Creates (or updates) everything a phone needs to reach this Mac from any network: a named tunnel whose remote config
- * points `<name>.<domain>` at the loopback bridge, its DNS record, an Access app that only lets a service token through,
- * and that token. Safe to run again; it reuses what exists. Writes the result to `<dataDir>/cloudflare.json` (0600).
- */
 async function setUpCloudflare({ token, domain, name = "mac", port = 8797, dataDir, fetcher }) {
   if (!token)
     throw new Error("Set CLOUDFLARE_API_TOKEN. It needs Cloudflare Tunnel, Access: Apps and Policies, Access: Service Tokens (account) and DNS (zone) edit.");
@@ -42,7 +37,6 @@ async function setUpCloudflare({ token, domain, name = "mac", port = 8797, dataD
   const tunnel =
     (await cf("GET", `accounts/${account}/cfd_tunnel?is_deleted=false&name=${tunnelName}`))[0] ??
     (await cf("POST", `accounts/${account}/cfd_tunnel`, { name: tunnelName, config_src: "cloudflare", tunnel_secret: randomBytes(32).toString("base64") }));
-  // The bridge only answers its own loopback Host, so the tunnel rewrites it.
   await cf("PUT", `accounts/${account}/cfd_tunnel/${tunnel.id}/configurations`, {
     config: {
       ingress: [{ hostname, service: `http://127.0.0.1:${port}`, originRequest: { httpHostHeader: `127.0.0.1:${port}` } }, { service: "http_status:404" }],
@@ -58,9 +52,7 @@ async function setUpCloudflare({ token, domain, name = "mac", port = 8797, dataD
   let saved = {};
   try {
     saved = JSON.parse(await fs.readFile(file, "utf8"));
-  } catch {
-    /* first run */
-  }
+  } catch {}
   const serviceName = `Milagre ${name}`;
   let service = (await cf("GET", `accounts/${account}/access/service_tokens`)).find((item) => item.name === serviceName);
   let secret = service && saved.access?.id === service.client_id ? saved.access.secret : undefined;

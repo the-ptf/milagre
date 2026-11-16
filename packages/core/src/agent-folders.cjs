@@ -4,8 +4,6 @@ const path = require("node:path");
 const { resolveProject } = require("./project-identity.cjs");
 
 // Onboarding's "Where your agents worked recently": the folders Claude Code and Codex sessions on this Mac ran in,
-// newest first, each read as the Project it would open as (a linked worktree lists as its repository). Only the
-// start of each session file is read, and only the newest files, so a long history stays quick.
 const HEAD_BYTES = 64 * 1024;
 const MAX_FILES = 400;
 const MAX_CANDIDATES = 120;
@@ -103,8 +101,6 @@ async function agentFolders({
   claudeHome = process.env.CLAUDE_CONFIG_DIR || path.join(homeDir, ".claude"),
   codexHome = process.env.CODEX_HOME || path.join(homeDir, ".codex"),
   resolve = resolveProject,
-  // Milagre's own Worktrees and Link folders, app data and scratch folders aren't anyone's project. The desktop check
-  // (scripts/test-desktop.cjs) keeps scratch folders with MILAGRE_ONBOARDING_TEMP_FOLDERS=1, as its fixtures live there.
   ignore = [
     path.join(homeDir, "Library"),
     path.join(homeDir, ".milagre"),
@@ -120,7 +116,6 @@ async function agentFolders({
     const cwd = cwdIn(await head(session.file));
     if (!cwd || !path.isAbsolute(cwd) || seen.has(cwd)) continue;
     seen.add(cwd);
-    // A Milagre Worktree under ~/.milagre still counts: it lists as its repository below.
     if (
       hidden(
         cwd,
@@ -141,7 +136,6 @@ async function agentFolders({
       continue;
     }
     if (found.has(project.path) || hidden(project.path, homeDir, ignore)) continue;
-    // Sessions in a folder and its subfolders (v1, v2, v3 of one piece of work) list once, at the newest.
     if (project.git === false && [...found.keys()].some((listed) => nested(listed, project.path) || nested(project.path, listed))) continue;
     found.set(project.path, {
       path: project.path,

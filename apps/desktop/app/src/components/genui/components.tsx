@@ -18,7 +18,6 @@ const Stack: GenuiRenderer<"Stack"> = ({ props, renderNode }) => (
   </div>
 );
 
-// Sized from the user's chat text size, as markdown headings are.
 const HEADING = {
   1: "text-[length:calc(var(--chat-size)+2px)] font-semibold text-ink",
   2: "text-[length:calc(var(--chat-size)+1px)] font-semibold text-ink",
@@ -78,7 +77,6 @@ const Table: GenuiRenderer<"Table"> = ({ props }) => {
   );
 };
 
-// Info is neutral (accent is for focus and links); a tone is its tint, with no edge.
 const CALLOUT = {
   info: "border-line-strong bg-field text-ink",
   success: "border-transparent bg-green-tint text-ink",
@@ -101,7 +99,6 @@ const Progress: GenuiRenderer<"Progress"> = ({ props }) => {
   const value = Math.min(1, Math.max(0, Number.isFinite(props.value) ? props.value : 0));
   return (
     <div data-slot="genui-progress" className="text-[length:var(--chat-size)]">
-      {/* The bar reads the label and its value; the row above only shows them. */}
       <div aria-hidden className="mb-1 flex justify-between text-ink-2">
         <span>{props.label}</span>
         <span className="tabular-nums">{Math.round(value * 100)}%</span>
@@ -128,7 +125,6 @@ const Button: GenuiRenderer<"Button"> = ({ props }) => {
   );
 };
 
-/** The chart components take flat props; wrap them so the renderer map has one shape. */
 const flat =
   <K extends GenuiComponentName>(Component: (props: GenuiProps<K>) => ReactNode): GenuiRenderer<K> =>
   ({ props }) =>

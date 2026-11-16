@@ -6,32 +6,16 @@ const { code } = require("./steps.cjs");
 const { active, update: setSubagent } = require("./subagents.cjs");
 
 // Antigravity's subagents as Milagre subagents (docs/providers.md). ACP says nothing about
-// them: the parent's `start_subagent` call ends as soon as the children are launched, and the children's tool
-// calls stream on the parent session with no parent field. What there is, verified against agy 1.3.0:
-//   - a child's tool call id is "<child conversationId>:N", 32 hex digits before the colon; the parent's own are
-//     "<session uuid>:N". view_file calls get ids like "call_474917" that name nobody.
-//   - every conversation keeps a live transcript at <GEMINI_HOME>/antigravity-acp/brain/<id>/.system_generated/
-//     logs/transcript.jsonl, one step per line ({ step_index, source, type, status, created_at, content,
-//     tool_calls: [{ name, args }] }, args JSON-encoded), not always in step order.
-//   - the parent's PLANNER_RESPONSE calls invoke_subagent with args.Subagents, a JSON list of { Role, Prompt };
-//     the INVOKE_SUBAGENT step after it lists the children created, in the same order, as JSON objects with a
-//     conversationId and logAbsoluteUri. A child's report arrives as a SYSTEM_MESSAGE step "sender=<child> ...
-//     content=<report>"; the child's own transcript has the send_message call that sent it.
-// All of this is undocumented, so every read is best effort: with no transcript, a launch stays the plain
-// step it was before, and a call_* read the children may have made is shown again as the parent's.
 
 const CHILD_ID = /^([0-9a-f]{32}):/;
 const POLL_MS = 500;
-// How long a launch may go without its children showing up in the parent's transcript.
 const LAUNCH_TIMEOUT_MS = 10_000;
-// A child still marked running this long after its turn ended, with no news, has stopped reporting.
 const STALE_MS = 120_000;
 
 const isUnattributed = (id) => id.startsWith("call_");
 const toolName = (call) => /^(?:Running|Run)\s+([\w.:-]+)\??$/.exec(String(call?.title ?? "").trim())?.[1];
 const isLaunch = (call) => toolName(call) === "start_subagent" && !call?.["_meta"]?.is_mcp_tool_call;
 
-// Transcript args are JSON-encoded ('"sleep 6"'); Subagents is a JSON list inside that.
 function decode(value) {
   for (let depth = 0; depth < 2 && typeof value === "string"; depth++) {
     try {
@@ -45,13 +29,11 @@ function decode(value) {
 
 const str = (value) => (typeof value === "string" ? value : "");
 
-// "[Message] timestamp=... sender=<id> priority=... content=<text>" inside a SYSTEM_MESSAGE step.
 function systemMessage(step) {
   const match = /\[Message\][^\n]*?\bsender=(\S+)[^\n]*?\bcontent=([\s\S]*?)\s*<\/SYSTEM_MESSAGE>/.exec(str(step.content));
   return match ? { sender: match[1], text: match[2].trim() } : null;
 }
 
-// The children an INVOKE_SUBAGENT step created, in order.
 function createdChildren(step) {
   const content = str(step.content);
   if (!content.includes("Created the following subagents")) return [];
@@ -75,13 +57,11 @@ function logPath(log) {
   }
 }
 
-/** One conversation's transcript, read as it grows. */
 class Transcript {
   constructor(file, offset = 0) {
     Object.assign(this, { file, offset, rest: "", steps: new Map() });
   }
 
-  /** New complete steps since the last read; [] when the file is missing or unchanged. */
   read() {
     let size;
     try {
@@ -89,7 +69,6 @@ class Transcript {
     } catch {
       return [];
     }
-    // A transcript that got shorter was rewritten: read it again; steps already seen are skipped by index.
     if (size < this.offset) Object.assign(this, { offset: 0, rest: "" });
     if (size === this.offset) return [];
     let chunk;
@@ -123,7 +102,6 @@ class Transcript {
     return steps;
   }
 
-  /** Every step read so far, in step order. */
   ordered() {
     return [...this.steps.values()].toSorted((a, b) => a.step_index - b.step_index);
   }
@@ -132,7 +110,6 @@ class Transcript {
 const brainFile = (home, id) =>
   home && /^[\w-]+$/.test(String(id)) ? path.join(home, "antigravity-acp", "brain", String(id), ".system_generated", "logs", "transcript.jsonl") : null;
 
-// Every step a transcript holds, a last line without its newline included (nothing is writing it any more).
 function readTranscript(file) {
   if (!file) return [];
   const transcript = new Transcript(file);
@@ -144,7 +121,6 @@ function readTranscript(file) {
   return steps.toSorted((a, b) => a.step_index - b.step_index);
 }
 
-// What the child sent its parent with send_message, from the child's own transcript.
 function sentReport(steps, recipients) {
   let report;
   for (const step of steps) {
@@ -169,7 +145,7 @@ function recoverAntigravitySubagents({ home, parentId, agents }) {
   try {
     const unknown = (agents ?? []).filter((agent) => agent?.status === "unknown" && !agent.archived && agent.id !== parentId);
     if (!home || !parentId || !unknown.length) return [];
-    const reports = new Map(); // parent id -> sender -> the report it got
+    const reports = new Map();
     const reportsTo = (id) => {
       if (!reports.has(id)) {
         const senders = new Map();
@@ -225,15 +201,15 @@ class AntigravitySubagents {
     Object.assign(this, { state, emit, forward, home, now, pollMs, launchTimeoutMs, staleMs });
     this.turnActive = () => this.ending || turnActive();
     this.ending = false;
-    this.children = new Map(); // id -> { parentId, transcript, done }
-    this.calls = new Map(); // a child's tool calls, merged like the session's own
-    this.launches = []; // this turn's start_subagent calls: { id, at, retitled }
-    this.held = []; // call_* updates kept back while a launch waits for its children
-    this.hidden = new Set(); // call_* ids the children made, as far as anyone can tell
+    this.children = new Map();
+    this.calls = new Map();
+    this.launches = [];
+    this.held = [];
+    this.hidden = new Set();
     this.transcriptTools = new Set(["view_file"]);
     this.root = null;
     this.rootReads = 0;
-    this.found = false; // a launch this turn was found in the transcript
+    this.found = false;
     this.parentQuietSince = 0;
     this.waiting = false;
     this.turnEndedAt = null;
@@ -246,7 +222,6 @@ class AntigravitySubagents {
     return brainFile(this.home, id);
   }
 
-  /** Before a turn's prompt: what the parent's transcript holds already belongs to earlier turns. */
   beginTurn() {
     const file = this.state.sessionId ? this.brain(this.state.sessionId) : null;
     let offset = 0;
@@ -258,12 +233,10 @@ class AntigravitySubagents {
     this.hidden.clear();
   }
 
-  /** Takes the session/update the subagents own. Returns true when the session must not map it itself. */
   route(update) {
     if (this.closed) return false;
     const kind = update?.sessionUpdate;
     if (kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
-      // Reply text ends the waiting on its own (see agent-runs).
       this.parentActive(kind === "agent_thought_chunk");
       return false;
     }
@@ -285,7 +258,6 @@ class AntigravitySubagents {
     return false;
   }
 
-  // The parent itself is doing something, so it isn't just waiting on its children.
   parentActive(say = true) {
     this.parentQuietSince = this.now();
     if (!this.waiting) return;
@@ -293,7 +265,6 @@ class AntigravitySubagents {
     if (say) this.emit({ type: "subagents-waiting", waiting: false });
   }
 
-  // A view_file call names nobody. While children run it is most likely theirs, and their transcripts show it.
   unattributed(id, update) {
     if (this.hidden.has(id)) return true;
     const name = toolName({ ...this.state.calls?.get(id), ...update });
@@ -309,7 +280,6 @@ class AntigravitySubagents {
     return false;
   }
 
-  // A launch of this turn whose children the transcript hasn't shown yet.
   pendingLaunch() {
     return Boolean(this.root) && this.launches.some((launch) => !launch.matched && this.now() - launch.at < this.launchTimeoutMs);
   }
@@ -328,7 +298,6 @@ class AntigravitySubagents {
     for (const event of events) this.emit(event);
   }
 
-  // A child known from a tool call or a transcript. Its transcript is the one the parent's names, or the usual path.
   ensureChild(id, { parentId = null, log } = {}) {
     let child = this.children.get(id);
     if (!child) {
@@ -377,7 +346,6 @@ class AntigravitySubagents {
     this.watchers.clear();
   }
 
-  // fs.watch makes a change show up at once; the timer is there for filesystems where it says nothing.
   watch(file) {
     const directory = path.dirname(file);
     if (this.watchers.has(directory) || !this.pollMs) return;
@@ -392,12 +360,10 @@ class AntigravitySubagents {
     } catch {}
   }
 
-  /** Reads what the transcripts added, then reports. Safe to call any time. */
   poll() {
     if (this.closed) return;
     try {
       this.readRoot();
-      // A child may add children of its own while this runs; they are read on the next pass.
       for (const [id, child] of Array.from(this.children)) this.readChild(id, child);
       this.checkLaunches();
       this.checkWaiting();
@@ -414,7 +380,6 @@ class AntigravitySubagents {
     this.readMessages(this.root);
   }
 
-  // invoke_subagent calls and the INVOKE_SUBAGENT steps that answer them, paired in step order.
   readInvocations(transcript, parentId) {
     const ordered = transcript.ordered();
     const specs = ordered.flatMap((step) =>
@@ -445,7 +410,6 @@ class AntigravitySubagents {
     });
   }
 
-  // The launch step says who it started, once the transcript knows.
   retitle(index, children) {
     const launch = this.launches[index];
     if (!launch) return;
@@ -460,7 +424,6 @@ class AntigravitySubagents {
     this.emit({ type: "step-completed", id: launch.id, status: "done", title });
   }
 
-  // A child's report to its parent ends it.
   readMessages(transcript) {
     for (const step of transcript.ordered()) {
       if (step.type !== "SYSTEM_MESSAGE") continue;
@@ -508,7 +471,6 @@ class AntigravitySubagents {
         ]);
       });
       const text = str(step.content).trim();
-      // What a child says after its report ("reported to the caller") repeats it.
       if (text && !(step.step_index > child.reportStep))
         this.push([setSubagent(this.state, id, live() ? { latestActivity: "Responding" } : {}, { id: `step:${step.step_index}`, kind: "message", text })]);
     }
@@ -516,7 +478,6 @@ class AntigravitySubagents {
     this.readMessages(child.transcript);
   }
 
-  // A launch whose children never showed up: the reads held back for them are the parent's after all.
   checkLaunches() {
     if (!this.held.length || this.pendingLaunch()) return;
     const held = this.held;
@@ -524,7 +485,6 @@ class AntigravitySubagents {
     if (this.turnActive()) for (const update of held) this.forward(update);
   }
 
-  // The parent waits on its children: say so when it has been quiet for a moment.
   checkWaiting() {
     if (!this.turnActive()) return;
     const waiting = this.found && this.anyActive() && this.now() - this.parentQuietSince >= this.pollMs;
@@ -542,9 +502,7 @@ class AntigravitySubagents {
     }
   }
 
-  /** At the end of a turn: the last word from the transcripts, then cancelled children are settled. */
   turnEnded({ cancelled = false } = {}) {
-    // The turn's events are still being written: what this read finds belongs to it.
     this.ending = !cancelled;
     this.poll();
     this.ending = false;
@@ -552,7 +510,6 @@ class AntigravitySubagents {
       this.waiting = false;
       this.emit({ type: "subagents-waiting", waiting: false });
     }
-    // Reads still held back were never claimed by a child.
     if (this.held.length) {
       const held = this.held;
       this.held = [];
@@ -563,7 +520,6 @@ class AntigravitySubagents {
     else if (this.anyActive()) this.schedule();
   }
 
-  /** Ends every child still running, as `status`. */
   settle(status) {
     for (const [id, child] of this.children) {
       if (!this.isActive(id)) continue;

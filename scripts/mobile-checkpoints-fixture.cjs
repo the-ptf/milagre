@@ -1,4 +1,3 @@
-// Isolated host + existing mobile development client. No provider account, native build or public tunnel.
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");

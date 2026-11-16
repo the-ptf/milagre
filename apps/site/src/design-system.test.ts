@@ -1,6 +1,3 @@
-// DESIGN.md's token tables against the code: the theme builder's default theme, apps/desktop/app/src/styles.css,
-// the Icon primitive and apps/mobile/src/design-tokens.ts. When a token changes, change its table in DESIGN.md too.
-// node --test apps/site/src/design-system.test.ts
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -27,7 +24,6 @@ function table(id: string): Table {
   assert.ok(found, `DESIGN.md has a table under <!-- specimen: ${id} -->`);
   return found;
 }
-/** A table's rows as objects keyed by its header. */
 const rows = (id: string) => table(id).rows.map((row) => Object.fromEntries(table(id).header.map((name, i) => [name, row[i] ?? ""])));
 const sorted = (values: Iterable<string>) => [...values].sort();
 

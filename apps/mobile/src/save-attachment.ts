@@ -39,9 +39,7 @@ export async function saveAttachment({
   } catch (error) {
     try {
       destination.delete();
-    } catch {
-      /* Preserve the transfer error if the selected folder became unavailable. */
-    }
+    } catch {}
     throw error;
   }
 }

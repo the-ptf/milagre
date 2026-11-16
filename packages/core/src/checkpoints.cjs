@@ -14,12 +14,10 @@ const summary = (item) => ({
   kind: item.kind,
   permissionMode: item.permissionMode,
   excluded: item.excluded,
-  // The message that started the task, its text, and how many files the task changed (once it ended).
   ...(item.messageId !== undefined ? { messageId: item.messageId } : {}),
   ...(item.prompt ? { prompt: item.prompt } : {}),
   ...(item.changed !== undefined ? { changed: item.changed } : {}),
 });
-/** Files whose content differs between two captures of the same Worktrees, excluded files left out. */
 function changedCount(before, after) {
   let count = 0;
   for (const [index, start] of before.entries()) {
@@ -74,7 +72,6 @@ function fileOperation(request) {
 async function namesFor(root) {
   return (await git.text(root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])).split("\0").filter(Boolean);
 }
-/** `budget` caps the bytes one capture saves across a Chat's Worktrees; past it the largest files stay out. */
 function createCheckpoints({
   directory,
   budget = 100 * 1024 * 1024,
@@ -84,8 +81,6 @@ function createCheckpoints({
 }) {
   const running = new Map(),
     previews = new Map(),
-    // Each Worktree's file stamps from its last full scan, so the next one reads only the files that changed. Kept
-    // for the Worktrees captured most recently; a restart starts them over.
     stamps = new Map();
   const stampsKey = (id) => JSON.stringify([id.root, id.dev, id.ino, id.gitDir]);
   let queue = Promise.resolve();
@@ -105,7 +100,6 @@ function createCheckpoints({
     return item;
   }
 
-  /** `only[index]`, when given, limits root `index` to those files: a restore saves just the files it writes. */
   async function snapshot(roots, only) {
     const snapshots = [];
     let excluded = 0,
@@ -119,12 +113,10 @@ function createCheckpoints({
         identity: id,
         names: [...new Set(only ? only[index] : await namesFor(root))].toSorted(),
         blobDirectory: path.join(directory, "blobs"),
-        // A shared Chat's Worktrees take what the earlier ones left of the budget.
         budget: budget - total,
         known: stamps.get(key),
       });
       if (!same(id, await identity(root))) throw new Error("Worktree changed during checkpoint capture");
-      // A restore's scan covers only the files it writes; the full scans keep the stamps.
       if (!only) {
         stamps.delete(key);
         stamps.set(key, captured.stamps ?? {});
@@ -278,10 +270,8 @@ function createCheckpoints({
           throw new Error("Resolve every file with a keep or restore decision");
         previews.delete(request.token);
         const selected = current.files.filter((file) => choices[file.key] === "restore");
-        // `redo` marks restoring a recovery checkpoint: putting back the files an earlier restore replaced.
         const outcome = { checkpointId: item.id, kept: current.files.length - selected.length, redo: item.kind === "recovery" };
         if (!selected.length) return { ...outcome, restored: 0, recoveryId: null };
-        // Only the files about to change: the rest of the Worktree can't crowd them out of the budget.
         const captured = await snapshot(
           item.before.map((s) => s.identity.root),
           item.before.map((_, index) => selected.filter((file) => file.key.startsWith(`${index}:`)).map((file) => file.path)),
@@ -315,7 +305,6 @@ function createCheckpoints({
           for (const [index, before] of item.before.entries()) {
             const group = selected.filter((file) => file.key.startsWith(`${index}:`));
             if (!group.length) continue;
-            // A helper pins its cwd and uses basename-only syscalls. Directory swaps cannot redirect a write outside the Worktree.
             await assertWritable(chatId);
             const result = await fileOperation({
               op: "apply",

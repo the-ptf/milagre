@@ -12,17 +12,12 @@ export type SelectOption<T extends string> = {
   value: T;
   label: string;
   description?: string;
-  /** Short text before the tick on the same line ("default"), so the row keeps one height. */
   trailing?: string;
-  /** Branch names and other long choices can wrap above their description. */
   wrapLabel?: boolean;
   icon?: ReactNode;
-  // Shown in the trigger instead of the label when this option is selected.
   display?: ReactNode;
-  // Consecutive options with the same group sit under one heading.
   group?: string;
   disabled?: boolean;
-  // Applied to the row label and the trigger text, so a font row draws in its font.
   style?: CSSProperties;
 };
 
@@ -70,29 +65,13 @@ export function Select<T extends string>({
   onChange: (value: T) => void;
   width?: number;
   disabled?: boolean;
-  /** Added to the trigger's classes, e.g. `w-full` in a form. */
   triggerClassName?: string;
-  /** A search field over a long list (e.g. time zones); it filters by label. */
   searchable?: boolean;
-  /**
-   * `field` (default): the secondary Button's look, hover-2 while open. `chip`: the field-filled Chip (the Routine
-   * form's chips). `text`: the trigger reads as plain text with a chevron (a heading that is also a choice), and the
-   * panel opens from its left edge. Each fades to 40% while disabled.
-   */
   variant?: "field" | "chip" | "text";
-  /** The field (or the `text` trigger) at 28px, beside the toolbar's 28px icon buttons. */
   compact?: boolean;
-  /** Shown before the label when the selected option has no icon of its own. */
   leading?: ReactNode;
-  /** Told each time the menu opens or closes: a hover surface the trigger sits in (the usage card) stays open while the panel is in use, and the Appearance preview highlights the row's area. */
   onOpenChange?: (open: boolean) => void;
-  /**
-   * Which trigger edge the panel lines up with: `end` (the default) for a trigger at the end of a row, `start` (the
-   * default for `text`) for one that starts a row, such as the Routines page's filters.
-   */
   align?: "start" | "end";
-  /** Where the panel opens when it fits on both sides: a trigger at the bottom of a popover opens it `above`, over
-   * the popover, rather than over whatever sits below it. */
   side?: "above" | "below";
 }) {
   const fromStart = (align ?? (variant === "text" ? "start" : "end")) === "start";
@@ -100,8 +79,6 @@ export function Select<T extends string>({
   const [position, setPosition] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number }>({ left: 0, maxHeight: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  // Inside an open modal <dialog> the panel goes into the dialog: the dialog sits in the top layer, above anything in body.
-  // Inside a popover marked data-popover-host it goes into the popover, so a press on it counts as inside that popover.
   const [host, setHost] = useState<Element | null>(null);
   const [query, setQuery] = useState("");
   const words = query.toLowerCase().trim();
@@ -115,7 +92,6 @@ export function Select<T extends string>({
     const left = Math.max(INSET, Math.min(fromStart ? trigger.left : trigger.right - width, window.innerWidth - width - INSET));
     const roomBelow = window.innerHeight - trigger.bottom - GAP - INSET;
     const roomAbove = trigger.top - GAP - INSET;
-    // Open upward when the panel would not fit below and there is more room above, so a trigger near the bottom shows its rows.
     const fitsBelow = roomBelow >= naturalHeight(options, searchable);
     const fitsAbove = roomAbove >= naturalHeight(options, searchable);
     setPosition(
@@ -142,7 +118,6 @@ export function Select<T extends string>({
   }
 
   useLayoutEffect(() => {
-    // With a search field, it takes focus (autoFocus) so typing filters at once.
     if (!open || searchable) return;
     const rows = panelRef.current?.querySelectorAll<HTMLElement>("[data-picker-row]");
     const index = options.findIndex((option) => option.value === value && !option.disabled);
@@ -186,7 +161,6 @@ export function Select<T extends string>({
             close(false);
             return;
           }
-          // A new search each time it opens; place() also runs on resize and scroll, which keep the query.
           setQuery("");
           place();
           setShown(true);

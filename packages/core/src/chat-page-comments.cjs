@@ -3,9 +3,6 @@ const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
 const { z } = require("zod");
 
-// The comments the user sent on Browser panel pages, one file per Chat. The message names each comment and carries the
-// element's details; the host keeps what the agent needs to list them again and resolve them. Each:
-// { id, url, title, label, selector, source?, point?, text, createdAt, resolved?: { note, at } }.
 const MAX_COMMENTS = 2000;
 const COMMENT_ID = /^[a-f0-9]{8}$/;
 
@@ -39,7 +36,6 @@ function createChatPageComments({ directory, validateChat }) {
   }
   const line = (value, max) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");
   return {
-    /** Records the comments the user is sending, and returns them with their ids for the message to name. */
     add: (request) =>
       serial(async () => {
         const target = await chat(request?.chatId);
@@ -60,7 +56,6 @@ function createChatPageComments({ directory, validateChat }) {
               ? { x: fraction(element.point.x), y: fraction(element.point.y) }
               : null;
           return {
-            // The app names the comment in the message it sends first; a retried send names it again and is kept once.
             id: typeof comment.id === "string" && COMMENT_ID.test(comment.id) ? comment.id : randomUUID().replace(/-/g, "").slice(0, 8),
             url,
             title: line(comment.title, 200),
@@ -79,7 +74,6 @@ function createChatPageComments({ directory, validateChat }) {
         return added;
       }),
     list: (request) => serial(async () => read(await chat(request?.chatId))),
-    /** Marks a comment resolved, with the agent's note on what it did about it. */
     resolve: (request) =>
       serial(async () => {
         const target = await chat(request?.chatId);
@@ -92,7 +86,6 @@ function createChatPageComments({ directory, validateChat }) {
         await write(target, all);
         return comment;
       }),
-    /** Forgets comments recorded for a message that then didn't go. */
     forget: (request) =>
       serial(async () => {
         const target = await chat(request?.chatId);
@@ -101,7 +94,6 @@ function createChatPageComments({ directory, validateChat }) {
         const kept = all.filter((comment) => !ids.has(comment.id));
         if (kept.length !== all.length) await write(target, kept);
       }),
-    /** Forgets the comments of a Chat that is gone. */
     removeChat: (chatId) =>
       serial(async () => {
         if (typeof chatId !== "string" || !chatId || chatId.length > 8192) return;
@@ -111,7 +103,6 @@ function createChatPageComments({ directory, validateChat }) {
   };
 }
 
-/** The agent's tools for the comments the user left on Browser panel pages, bound to its own Chat. */
 function pageCommentToolDefinitions(chatId, pageComments) {
   return [
     {
@@ -136,11 +127,6 @@ function pageCommentToolDefinitions(chatId, pageComments) {
   ];
 }
 
-/**
- * What a tap on the phone's view of a page points at: the element at (x, y), fractions of the page's viewport, read like
- * a pick (selector, label, HTML, styles, component, the point on it), and a PNG of it with a margin, the comment pins
- * hidden. `page` is a DevTools session on the page. Throws when there is nothing to comment on there.
- */
 async function commentAtPoint(page, x, y) {
   const { pageDescribeAtScript } = await import("@milagre/shared/page-picker");
   const found = await page.send("Runtime.evaluate", { expression: pageDescribeAtScript(x, y), returnByValue: true });
@@ -163,18 +149,12 @@ async function commentAtPoint(page, x, y) {
     });
     shot = typeof capture.data === "string" ? capture.data : null;
   } catch {
-    // A comment without its screenshot is still a comment.
   } finally {
     await page.send("Runtime.evaluate", { expression: "window.__milagrePins?.hide(false)" }).catch(() => {});
   }
   return { element, shot };
 }
 
-/**
- * What the page said about an element, kept to the shape PageElement describes. The page is any web page and its
- * scripts can replace what the describe script returns, so nothing of it is trusted: strings are clipped, numbers must
- * be numbers, and anything else is dropped. null when it names no element.
- */
 function pageElement(value) {
   if (!value || typeof value !== "object") return null;
   const text = (item, max) => (typeof item === "string" ? item.slice(0, max) : undefined);

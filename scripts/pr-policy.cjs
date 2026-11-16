@@ -1,35 +1,24 @@
 #!/usr/bin/env node
-// PR rules from AGENTS.md that a diff can prove, run by .github/workflows/pr-policy.yml:
-// - no screenshots or other images in a PR's commits outside the folders that hold the app's own image assets;
-// - a change to the desktop app's UI comes with its mobile counterpart, and the reverse, unless labeled single-platform.
-//   This one only warns: one-platform PRs are common enough that a hard fail would mostly mean label clicks.
-// node scripts/pr-policy.cjs <images|sync> < name-status   (git diff --name-status output; LABELS='["label", ...]')
 const fs = require("node:fs");
 
-/**
- * Where the repository keeps image assets on purpose, taken from `git ls-files` (2026-11-15). An image anywhere else
- * in a PR is a screenshot. pr-policy.test.cjs fails when a tracked image sits outside these folders.
- */
 const IMAGE_FOLDERS = [
-  "apps/desktop/build/icons/", // app icons electron-builder packages
-  "apps/desktop/app/public/", // images the desktop renderer serves
-  "apps/mobile/assets/", // phone app icon, splash and bundled images
-  "apps/site/public/", // landing page images and demo stills
-  "apps/design-share/assets/", // share page social card
-  "scripts/fixtures/", // test fixtures
-  "scripts/site-demo/", // inputs to the landing page demo recorder
+  "apps/desktop/build/icons/",
+  "apps/desktop/app/public/",
+  "apps/mobile/assets/",
+  "apps/site/public/",
+  "apps/design-share/assets/",
+  "scripts/fixtures/",
+  "scripts/site-demo/",
 ];
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 
 const SYNC_LABEL = "single-platform";
-// Quoted from AGENTS.md, "Hit every surface"; pr-policy.test.cjs keeps the two equal.
 const SYNC_RULE =
   "Every change on desktop must also be applied on mobile, and every change on mobile must also be applied on desktop, in the same task. Skip syncing only when the user explicitly says to keep the change on one platform or not to sync it.";
 const DESKTOP = "apps/desktop/app/src/";
 const MOBILE = "apps/mobile/src/";
 const TEST_FILE = /(\.test\.[cm]?[jt]sx?|\.baseline\.json)$|(^|\/)(__tests__|fixtures)\//;
 
-/** `git diff --name-status` lines as { status, path }, the new path for renames and copies. */
 function parseNameStatus(text) {
   return text
     .split("\n")
@@ -40,7 +29,6 @@ function parseNameStatus(text) {
     });
 }
 
-/** Images a PR adds or changes (added, modified, renamed or copied) outside IMAGE_FOLDERS. */
 function strayImages(changes) {
   return changes
     .filter(({ status, path }) => "AMRC".includes(status) && IMAGE.test(path) && !IMAGE_FOLDERS.some((folder) => path.startsWith(folder)))
@@ -61,7 +49,6 @@ function checkImages(changes) {
   };
 }
 
-/** Which app UIs a PR changes outside tests, deletions included. */
 function platformsTouched(changes) {
   const product = changes.filter(({ path }) => !TEST_FILE.test(path));
   return { desktop: product.some(({ path }) => path.startsWith(DESKTOP)), mobile: product.some(({ path }) => path.startsWith(MOBILE)) };
@@ -91,7 +78,6 @@ if (require.main === module) {
   }
   const warnOnly = which === "sync";
   if (result.ok) console.log(result.message);
-  // A GitHub annotation carries the whole message on one line, %0A for each line break.
   else console.error(process.env.GITHUB_ACTIONS ? `::${warnOnly ? "warning" : "error"}::${result.message.replace(/\n/g, "%0A")}` : result.message);
   process.exit(result.ok || warnOnly ? 0 : 1);
 }

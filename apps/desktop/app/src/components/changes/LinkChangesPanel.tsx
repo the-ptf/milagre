@@ -55,10 +55,8 @@ export function LinkChangesPanel({
   onComparisonChange?: (path: string, value: string) => void;
   members: WorktreeBinding[];
   projects: Array<{ id: string; path: string; name: string }>;
-  /** Each Project's lists by mode, keyed by Project id: the Changes tab's two sections. */
   lists: Record<DiffMode, Record<string, DiffList>>;
   loading: boolean;
-  /** The section the diff shows. */
   mode: DiffMode;
   onModeChange: (mode: DiffMode) => void;
   onRefresh: () => void | Promise<unknown>;
@@ -67,13 +65,10 @@ export function LinkChangesPanel({
   activePath?: string;
   commentCounts?: CommentCounts;
   onCommit: (member: WorktreeBinding) => void;
-  /** Left out for a Link on another Mac: these only act on this one. */
   onOpenEditor?: (member: WorktreeBinding) => void;
   onReveal?: (member: WorktreeBinding) => void;
-  /** The Projects' PRs, a tab each (`hint` names the Project); while one is picked the panel shows it instead of the changes. */
   pullRequest?: {
     tabs: PrTab[];
-    /** The shown PR tab's key. */
     value?: string;
     onPick: (key: string) => void;
     shown: boolean;
@@ -96,7 +91,6 @@ export function LinkChangesPanel({
         count={count}
         prs={pullRequest?.tabs ?? []}
         selected={pullRequest?.shown ? pullRequest.value : undefined}
-        // The Changes tab opens on the shown Project's first section with files, as a Project Chat's panel does.
         onSelect={(key) => (key ? pullRequest?.onPick(key) : onModeChange(firstSection(listsOf(selectedProjectId ?? members[0]?.projectId ?? ""))))}
         onRefresh={onRefresh}
         loading={pullRequest?.shown ? pullRequest.loading : loading}
@@ -248,7 +242,6 @@ function ProjectActions({
   };
   return (
     <>
-      {/* Positioned by its wrapper (IconButton's own `relative` would beat `absolute`); shown on the row's hover or focus. */}
       <span
         className={`absolute top-1/2 right-1 z-10 -translate-y-1/2 transition-opacity focus-within:opacity-100 group-hover/project:opacity-100 ${open ? "opacity-100" : "opacity-0"}`}
       >

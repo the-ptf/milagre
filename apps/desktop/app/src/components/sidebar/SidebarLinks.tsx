@@ -20,37 +20,19 @@ import { useDismiss } from "../../lib/use-dismiss";
 import { undoHistory, type UndoAction } from "../../lib/undo-history";
 import type { SidebarRecent } from "./ChatRow";
 
-/* ─────────────────────────────────────────────────────────
- * SIDEBAR LINKS
- * The canvas Links (spec 003) as the sidebar shows and makes
- * them: the Link icon and hover-card lines on linked rows, the
- * popover a drop or "Link with…" opens (scope, Always allow,
- * Link and ask), the chat list behind "Link with…", the list
- * behind "Remove Link with…", and the undo history (the sidebar's
- * toast) that takes them back.
- * One provider serves every Project's chat list, so a chat
- * dropped on another Project's chat links the two.
- * ───────────────────────────────────────────────────────── */
-
 const POPOVER_WIDTH = 320;
 const PICKER_WIDTH = 300;
 
-/** One Link that reaches a chat's Worktree, named by its other end. */
 export type LinkedEnd = { linkId: string; label: string };
-/** A chat in one of the sidebar's lists. */
 export type LinkChat = { scopeKey: string; item: SidebarRecent };
 type Anchor = { top: number; left: number };
-/** A Project's chats as the sidebar lists them, for the Link icons and the "Link with…" list. */
 export type LinkScopeChats = { scopeKey: string; projectId: string; projectName: string; rows: SidebarRecent[] };
-/** A chat list a drag can land on, so a chat dropped on another Project's chat offers a Link. */
 export type LinkListHandle = { scopeKey: string; containers: () => HTMLElement[]; byId: (id: string) => SidebarRecent | undefined };
 
 type SidebarLinksValue = {
   links: ProjectLink[];
-  /** The Project id a Link endpoint takes for the list's chats; null when they can't be linked (another computer, a Named Link). */
   projectIdOf: (scopeKey: string) => string | null;
   endsFor: (scopeKey: string, item: SidebarRecent) => LinkedEnd[];
-  /** Reads the Links again, so a drag sees ones drawn on the canvas meanwhile. */
   refresh: () => void;
   ask: (source: LinkChat, target: LinkChat, anchor: Anchor) => void;
   pick: (source: LinkChat, anchor: Anchor, mode: "link" | "remove") => void;
@@ -60,7 +42,6 @@ type SidebarLinksValue = {
 };
 
 const NO_ENDS: LinkedEnd[] = [];
-/** With an `undo`, the toast's step joins the undo history, so ⌘Z takes it back too; without one it is a plain notice. */
 type ToastOptions = Partial<Omit<UndoAction, "text">>;
 
 const SidebarLinksContext = createContext<SidebarLinksValue>({
@@ -91,9 +72,7 @@ export function SidebarLinksProvider({
   children,
 }: {
   scopes: LinkScopeChats[];
-  /** This Mac's registered Projects, to name a Link's end in a Project the sidebar doesn't list. */
   projects: ReadonlyArray<{ id: string; name: string }>;
-  /** "Link and ask A…": sends the message to chat A through the normal send path. */
   onAskChat?: (scopeKey: string, id: string, message: { body: string; prompt: string }) => Promise<unknown>;
   children: ReactNode;
 }) {
@@ -113,7 +92,6 @@ export function SidebarLinksProvider({
     } catch {
       next = undefined;
     }
-    // A Mac that predates canvas:links still has them in the canvas snapshot.
     if (!Array.isArray(next))
       try {
         next = (await bridge.getCanvas?.())?.links;
@@ -149,7 +127,6 @@ export function SidebarLinksProvider({
     [scopes],
   );
 
-  // Each row keeps the same array while its Links and their names don't change, so the memo'd rows don't re-render.
   const endsCache = useRef(new Map<string, { key: string; ends: LinkedEnd[] }>());
   const endsFor = useCallback(
     (scopeKey: string, item: SidebarRecent) => {
@@ -191,7 +168,6 @@ export function SidebarLinksProvider({
       showToast(`Could not create the Link: ${ipcErrorMessage(error)}`);
       return;
     }
-    // A step after the Link that fails leaves the Link in place and says what didn't happen, in the phone's words.
     const undo = created && (() => void remove(created!, false));
     const undone = { undoneText: "Link removed" };
     if (choice.allow && created) {
@@ -233,7 +209,6 @@ export function SidebarLinksProvider({
       if (offerUndo)
         showToast("Link removed", {
           undoneText: "Linked again",
-          // The same Link comes back, id and all, so an Always allow grant on it holds again. A Mac before restore makes a new one.
           undo: () =>
             void (bridge.restoreLink ? bridge.restoreLink(link) : bridge.addLink(link.a, link.b)).then(setLinks, (error) =>
               showToast(`Could not link them again: ${ipcErrorMessage(error)}`),
@@ -331,7 +306,6 @@ export function SidebarLinksProvider({
   );
 }
 
-// A picker entry's key is the chat's own key, `scope#id`; a scope (a Project path) can hold a "#", the id can't.
 const splitKey = (key: string): [string, string] => {
   const at = key.lastIndexOf("#");
   return [key.slice(0, at), key.slice(at + 1)];
@@ -339,7 +313,6 @@ const splitKey = (key: string): [string, string] => {
 
 type PickerEntry = { key: string; title: string; detail?: string; problem: string | null };
 
-/** Every other chat with a Worktree, each saying why it can't be picked when it can't. */
 function linkCandidates(scopes: LinkScopeChats[], links: ProjectLink[], source: LinkChat): PickerEntry[] {
   const from = scopes.find((scope) => scope.scopeKey === source.scopeKey);
   const a = from ? worktreeOf(from.projectId, source.item) : null;
@@ -362,7 +335,6 @@ function linkCandidates(scopes: LinkScopeChats[], links: ProjectLink[], source: 
   );
 }
 
-/** Asks before a Link is made; nothing is created until Create Link. Escape or a press outside cancels. */
 function LinkPopover({
   source,
   target,
@@ -379,7 +351,6 @@ function LinkPopover({
   anchor: Anchor;
   sourceProject: string;
   targetProject: string;
-  /** The two chats are in different Projects, so the whole Projects can be linked. */
   projects: boolean;
   canAsk: boolean;
   onConfirm: (choice: { scope: LinkScope; allow: boolean; text: string }) => void;
@@ -393,7 +364,6 @@ function LinkPopover({
   useLayoutEffect(() => {
     ref.current?.querySelector<HTMLElement>("[data-link-confirm]")?.focus();
   }, []);
-  // Opens beside the row, moved up as far as it needs to stay in the window, again as the message field grows. The
   // height is offsetHeight: the pop-in animation scales the box, which getBoundingClientRect would measure.
   useLayoutEffect(() => {
     const element = ref.current;
@@ -419,7 +389,6 @@ function LinkPopover({
       data-link-popover
       onKeyDown={(event) => {
         if (event.key === "Escape") {
-          // Consumed here, so Escape doesn't also stop the open chat's turn.
           event.preventDefault();
           onCancel();
         } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -503,7 +472,6 @@ function LinkPopover({
   );
 }
 
-/** "Link with…" (every other chat, filtered as you type) or "Remove Link with…" (the chat's Links), at the menu's place. */
 function LinkPicker({
   mode,
   anchor,

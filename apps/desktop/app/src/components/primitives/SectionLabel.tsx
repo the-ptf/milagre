@@ -1,10 +1,5 @@
 import type { ReactNode } from "react";
 
-/**
- * The label over a group of rows: sentence case, no tracking, medium ink-3. 12px over a page or panel section (as
- * Settings' and Routines' groups), 11px inside a menu or picker (MenuLabel insets it). Write the text in sentence
- * case; nothing here uppercases it.
- */
 export function SectionLabel({
   as: Tag = "h2",
   variant = "section",

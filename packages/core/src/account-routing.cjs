@@ -3,7 +3,6 @@ const { createCliStatus, cliWhenLoggedIn } = require("./agents/status.cjs");
 const { createModelCache } = require("./agents/models.cjs");
 const { PROVIDERS } = require("@milagre/shared/providers");
 
-/** Services capture account IDs, never a mutable currently viewed Project. */
 function createAccountRouting({ accounts, cli: baseCli, clientVersion, statusFactory = createCliStatus, modelsFactory = createModelCache }) {
   const cache = new Map();
   function selection(scope) {

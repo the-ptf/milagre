@@ -45,13 +45,7 @@ export type SettingsRoute = keyof typeof SETTINGS_PAGES;
 
 export type PhoneSettingsEntry = SettingsSearchEntry<SettingsRoute>;
 
-/**
- * Every row a Settings page shows, in the order it shows them; each page's own name is found through SETTINGS_PAGES.
- * `title` is the row's text exactly as on screen: the page opens with that row lit up. settings-index.test.ts checks
- * each one is still in the page's source.
- */
 export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
-  // Notifications
   {
     page: "notifications",
     title: "Notify when waiting",
@@ -81,7 +75,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "lock screen dynamic island show in live activities questions only",
   },
 
-  // Appearance
   { page: "appearance", title: "Mode", keywords: "light dark system theme" },
   { page: "appearance", title: "App icon", keywords: "home screen icon alternate dawn black white sunset aurora glass 8-bit pixel" },
   {
@@ -133,7 +126,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "light dark custom theme colors",
   },
 
-  // Browser
   {
     page: "browser-settings",
     title: "Open links in Milagre",
@@ -142,7 +134,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "web links safari in-app browser",
   },
 
-  // Chat
   {
     page: "chat-display",
     title: "While the agent works",
@@ -175,7 +166,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     group: CHAT_LIST_TITLE,
     keywords: "one list by project grouped sidebar",
   },
-  // The phone never lists the Computer field: it is always on its rows.
   ...CHAT_ROW_FIELDS.filter((field) => field.id !== "computer").map((field) => ({
     page: "chat-display" as const,
     title: field.label,
@@ -227,7 +217,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     group: "This iPhone",
     keywords: "device phone name",
   },
-  // Church
   {
     page: "experimental",
     title: "Floating inbox",
@@ -259,7 +248,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "sent from phone ipad tokens",
   },
 
-  // Babysit PRs
   {
     page: "babysit-prs",
     title: "Babysit new PRs",
@@ -327,7 +315,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   },
   { page: "babysit-prs", title: "Reset all to defaults" },
 
-  // Simlock devices
   {
     page: "simlock",
     title: "Devices at once",
@@ -343,7 +330,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "lease minutes hours timeout",
   },
 
-  // Computer use
   {
     page: "computer-use",
     title: "Show the agent's cursor",
@@ -364,7 +350,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "grant permission system settings",
   },
 
-  // Worktrees
   {
     page: "worktrees",
     title: MAIN_SYNC_TITLE,
@@ -373,7 +358,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "git pull fast-forward main branch remote",
   },
 
-  // This Mac
   {
     page: "this-mac",
     title: AUTO_UPDATE_TITLE,
@@ -382,11 +366,9 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "install restart upgrade version",
   },
 
-  // Token usage
   { page: "token-usage", title: "Period", keywords: "range days week month" },
   { page: "token-usage", title: "Show", keywords: "cost tokens metric" },
 
-  // Accounts
   {
     page: "accounts",
     title: "Switch accounts at usage limits",
@@ -402,7 +384,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "rate limit resume",
   },
 
-  // Integrations
   {
     page: "connections",
     title: LINEAR_TITLE,
@@ -418,7 +399,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "linear status started",
   },
 
-  // Phone & sharing
   {
     page: "phone-sharing",
     title: "Published pages",
@@ -427,7 +407,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "share links",
   },
 
-  // MCP servers
   {
     page: "mcp",
     title: "Custom MCP",
@@ -435,7 +414,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "connection token access config",
   },
 
-  // Design system: each page of the catalogue is a row of its index, titled from design-system-catalogue.ts.
   ...DESIGN_SECTIONS.map((section) => ({
     page: "design-system" as const,
     title: section.title,
@@ -443,7 +421,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: section.keywords,
   })),
 
-  // Keybindings
   {
     page: "keybindings",
     title: "Reset all to defaults",
@@ -451,7 +428,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   },
 ];
 
-/** A Settings page (`row` false) or a row on one, as a search result. */
 export type PhoneSettingsItem = PhoneSettingsEntry & { row: boolean };
 
 const SEARCH_ITEMS: readonly PhoneSettingsItem[] = [

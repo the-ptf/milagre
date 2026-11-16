@@ -1,4 +1,3 @@
-// Browser integration check for diff comments: select, write, edit, delete, send, outdated and persistence.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -95,7 +94,6 @@ async function browserChecks() {
     evaluate(
       '[...document.querySelectorAll("[data-diff-comment]")].map(node => [node.querySelector("[data-diff-comment-label]").textContent, node.querySelector("[data-diff-comment-body]").textContent])',
     );
-  // Mouse-down on a row's "+", as a click or the start of a drag; the page-level mouse-up ends it.
   const press = (p, row, shift = false) =>
     evaluate(
       `document.querySelectorAll('${rows(p)}')[${row}].querySelector("[data-diff-add]").dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, shiftKey: ${shift} }))`,
@@ -127,7 +125,6 @@ async function browserChecks() {
     assert.equal(await evaluate('!!document.querySelector("[data-diff-send]")'), false, "No Send button without comments");
     assert.equal(await evaluate(`document.querySelector('${rows(A)}').querySelector("[data-diff-add]") !== null`), true, "Rows carry a + button");
 
-    // A single line: the + opens the editor under that row; Comment waits for text.
     await press(A, 3);
     await release();
     await waitFor('!!document.querySelector("[data-diff-comment-editor]")');
@@ -147,7 +144,6 @@ async function browserChecks() {
     assert.deepEqual(await bodies(), [["L3", "Single line note"]]);
     assert.equal(await evaluate('!!document.querySelector("[data-diff-comment-editor]")'), false);
 
-    // Esc cancels without saving.
     await press(A, 0);
     await release();
     await waitFor('!!document.querySelector("[data-diff-comment-editor]")');
@@ -157,7 +153,6 @@ async function browserChecks() {
     assert.equal((await stored()).length, 1, "Esc leaves no comment behind");
     assert.equal(await evaluate('document.querySelectorAll("[data-selected]").length'), 0, "Esc clears the selection");
 
-    // A drag selects every row passed over; Cmd+Enter saves.
     await press(A, 0);
     await delay(50);
     await hover(A, 1);
@@ -181,7 +176,6 @@ async function browserChecks() {
       ["L3", "Single line note"],
     ]);
 
-    // Shift-click extends the selection and the editor, keeping what was typed.
     await press(A, 4);
     await release();
     await waitFor('!!document.querySelector("[data-diff-comment-editor]")');
@@ -197,7 +191,6 @@ async function browserChecks() {
       ["L1–2", "L3", "L4–6"],
     );
 
-    // Edit swaps the card for a prefilled editor; delete removes.
     await evaluate(`document.querySelectorAll("[data-diff-comment-edit]")[1].click()`);
     await waitFor('!!document.querySelector("[data-diff-comment-editor]")');
     assert.equal(await evaluate('document.querySelector("[data-diff-comment-input]").value'), "Single line note");
@@ -217,7 +210,6 @@ async function browserChecks() {
     );
     await waitFor('document.querySelectorAll("[data-diff-comment]").length === 3');
 
-    // Split: the + sits in each half and a comment keeps its side.
     await evaluate('document.querySelector("[data-diff-layout=split]").click()');
     await waitFor(`document.querySelectorAll('${file("README.md")} [data-diff-cell]').length > 0`);
     assert.equal(await evaluate('document.querySelectorAll("[data-diff-comment]").length'), 3, "Comments follow into split");
@@ -237,9 +229,7 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-diff-layout=unified]").click()');
     await waitFor(`document.querySelectorAll('${rows(A)}').length === 7`);
 
-    // The tree counts, and the Send button sits above the drag strip.
     assert.equal(await evaluate(`document.querySelector('[data-diff-tree-file="${A}"] [data-diff-tree-comments]').dataset.diffTreeComments`), "3");
-    // Comments belong to the diff they were written on: the same file's committed row counts none.
     assert.deepEqual([...new Set((await stored()).map((item) => item.mode))], ["uncommitted"]);
     assert.equal(
       await evaluate(`document.querySelector('[data-changes-section="On this branch"] [data-diff-tree-file="${A}"] [data-diff-tree-comments]')`),
@@ -258,14 +248,12 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-diff-view]").scrollTo(0, 0)');
     await shot("diff-comments-saved");
 
-    // They belong to the chat and survive a remount.
     await evaluate("window.remount()");
     await waitFor('!!document.querySelector("[data-changes-toggle]")');
     await openDiff();
     await waitFor('document.querySelectorAll("[data-diff-comment]").length === 3');
     assert.equal(await evaluate('document.querySelector("[data-diff-send]").textContent'), "Send 3 comments");
 
-    // The diff changes under the range comment: it is outdated, not counted, and can still be deleted.
     await evaluate("window.editA(); window.endTurn()");
     await waitFor('document.querySelectorAll("[data-diff-comment-outdated]").length === 1');
     assert.equal(await evaluate('document.querySelector("[data-diff-comment][data-outdated] [data-diff-comment-label]").textContent'), "L1–2");
@@ -278,7 +266,6 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-diff-view]").scrollTo(0, 0)');
     await shot("diff-comments-outdated");
 
-    // Send goes out as one message, takes the sent comments with it and returns to the chat.
     await evaluate('document.querySelector("[data-diff-send]").click()');
     await waitFor("window.sent.length === 1");
     assert.equal(
@@ -308,7 +295,6 @@ async function browserChecks() {
       "Only the outdated comment stays",
     );
 
-    // It is still there, deletable, and nothing is left to send.
     await evaluate(`document.querySelector('[data-diff-tree-file="${A}"]').click()`);
     await waitFor('document.querySelectorAll("[data-diff-comment-outdated]").length === 1');
     assert.equal(await evaluate('!!document.querySelector("[data-diff-send]")'), false, "Outdated comments don't offer Send");

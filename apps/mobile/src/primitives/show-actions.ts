@@ -2,7 +2,6 @@ import { Keyboard } from "react-native";
 import { confirmSheet } from "../confirm-store";
 import { tap } from "./tap";
 
-/** A row's actions or a short list of choices, in the confirmation bottom sheet with Cancel last. */
 export function showActions({
   title,
   actions,

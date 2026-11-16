@@ -53,7 +53,6 @@ function loadImage(source: string, crossOrigin = false): Promise<HTMLImageElemen
   });
 }
 
-/** SVG images must be inline before the SVG itself can be loaded as a raster image. */
 async function pngSvg(document: DesignDocument): Promise<string> {
   const svg = new DOMParser().parseFromString(designSvg(document), "image/svg+xml");
   const sources = new Map<string, Promise<string>>();
@@ -91,9 +90,7 @@ async function pngSvg(document: DesignDocument): Promise<string> {
       .map(async (node) => {
         try {
           await window.document.fonts.load(`${node.fontWeight ?? 400} ${node.fontSize ?? 16}px ${designFontFamily(node.fontFamily)}`);
-        } catch {
-          // An unavailable font uses the same browser fallback as the SVG preview.
-        }
+        } catch {}
       }),
   );
   return new XMLSerializer().serializeToString(svg);
@@ -104,7 +101,6 @@ async function designExportBlob(document: DesignDocument, format: DesignExportFo
     return new Blob([JSON.stringify(document, null, 2)], {
       type: "application/json",
     });
-  // SVG and PNG embed the catalog families the design names.
   await loadDesignFonts(document);
   if (format === "svg") return new Blob([designSvg(document)], { type: "image/svg+xml" });
   const svg = URL.createObjectURL(new Blob([await pngSvg(document)], { type: "image/svg+xml" }));
@@ -124,7 +120,6 @@ async function designExportBlob(document: DesignDocument, format: DesignExportFo
   }
 }
 
-/** Every artboard is exported together, preserving editable source in the page JSON. */
 export async function designPageExportBlob(designs: DesignExportItem[], format: DesignExportFormat): Promise<Blob> {
   if (!designs.length) throw new Error("There are no designs to export.");
   if (format === "json") return new Blob([JSON.stringify({ schemaVersion: 1, format: "milagre-design-page", designs }, null, 2)], { type: "application/json" });
@@ -143,10 +138,8 @@ export async function designPageExportBlob(designs: DesignExportItem[], format: 
       bytes += new TextEncoder().encode(source).byteLength;
       if (bytes > 32 * 1024 * 1024) throw new Error("The page SVG exceeds the 32 MB export limit.");
       const artboard = new DOMParser().parseFromString(source, "image/svg+xml").documentElement;
-      // SVG fragment ids share a namespace even across nested SVG roots.
       const ids = new Map([...artboard.querySelectorAll("[id]")].map((element) => [element.id, `artboard${index}-${element.id}`]));
       for (const element of [artboard, ...artboard.querySelectorAll("*")]) {
-        // A copy: setAttributeNS can change this live attribute collection.
         for (const attribute of Array.from(element.attributes)) {
           let value = attribute.value.replace(/url\(#([^)]+)\)/g, (match, id) => (ids.has(id) ? `url(#${ids.get(id)})` : match));
           if (attribute.localName === "id") value = ids.get(value) ?? value;

@@ -9,13 +9,10 @@ const UUID = /^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa
 const EMULATOR = /^emulator-[0-9]{4,5}$/;
 const ORIENTATIONS = new Set(["portrait", "portrait-upside-down", "landscape-left", "landscape-right"]);
 const POSES = new Set(["closed", "open", "book", "laptop", "tent"]);
-// Duo's native panel IDs match Device Hub/T3: cover 1, inner 3.
-// Partially folded poses can retain either active panel. Always follow native selection for those.
 const DUO_SCREENS = { closed: 1, open: 3, tent: 1 };
 const sameHingeAngle = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.01;
 
 function resolveHelperPath(packagePath = require.resolve("expo-device-hub/package.json")) {
-  // Execute the whole package outside ASAR: native libraries resolve siblings.
   return path.join(path.dirname(packagePath.replace(/\.asar([/\\])/, ".asar.unpacked$1")), "dist", "server", "cli.mjs");
 }
 function configuredIceServers(env) {
@@ -50,7 +47,6 @@ function packet(event) {
   throw new Error("Invalid simulator input event.");
 }
 
-/** Private helper process. No helper address, token or general request API escapes. */
 function createSimulatorHelper(options = {}) {
   const android = options.platform === "android";
   const validDevice = android ? EMULATOR : UUID;
@@ -59,7 +55,6 @@ function createSimulatorHelper(options = {}) {
   const spawn = options.spawn ?? spawnProcess;
   const execFile = options.execFile ?? promisify(execFileCallback);
   const iceServers = options.iceServers ?? configuredIceServers(process.env);
-  // A viewer that closes and reopens (phone backgrounded, Retry) reuses the warm helper instead of a cold start.
   const idleMs = options.idleMs ?? 60000;
   let current = null,
     starting = null,
@@ -123,7 +118,6 @@ function createSimulatorHelper(options = {}) {
         "--video-bitrate",
         "2000000",
       ];
-      // Pass TURN secrets in the environment, not the OS-visible command line.
       if (android) args.push("--stream-source", "scrcpy");
       const childEnv = { ...process.env, ELECTRON_RUN_AS_NODE: "1" };
       if (android) {
@@ -170,7 +164,6 @@ function createSimulatorHelper(options = {}) {
             child.stdout.removeListener("data", onData);
             child.removeListener("exit", onExit);
             child.removeListener("error", onExit);
-            // Drain all later output without retaining helper URLs or credentials.
             child.stdout.resume();
             // oxlint-disable-next-line eslint/no-unused-expressions, promise/no-multiple-resolved -- flagged for review, see PR body
             error ? reject(error) : resolve();
@@ -203,15 +196,13 @@ function createSimulatorHelper(options = {}) {
       starting = null;
     }
   }
-  // Device Hub's input-mode flag is a diagnostic hint, not an acknowledgement that legacy touches were dropped.
-  // Resetting it restarts backboardd and closes apps, so the viewer offers a manual, confirmed reset only.
   const INPUT_FLAG = "com.apple.coredevice.dtuhidd.active";
   const spawnIn = (deviceId, ...args) => execFile("/usr/bin/xcrun", ["simctl", "spawn", deviceId, ...args], { timeout: 10000, encoding: "utf8" });
   async function deviceHubInputActive(deviceId) {
     try {
       return (await spawnIn(deviceId, "notifyutil", "-g", INPUT_FLAG)).stdout.trim() === `${INPUT_FLAG} 1`;
     } catch {
-      return false; // Missing or unreadable flags give no diagnostic hint.
+      return false;
     }
   }
   async function request(instance, deviceId, route, body) {
@@ -329,7 +320,6 @@ function createSimulatorHelper(options = {}) {
         if (change.geometry !== geometry) {
           change.geometry = geometry;
           change.geometryAt = Date.now();
-          // Discard cached pixels only after native observation and panel geometry agree.
           change.after = media?.discard() ?? 0;
         }
       };
@@ -419,8 +409,6 @@ function createSimulatorHelper(options = {}) {
             const physical = event.kind === "pose" ? (event.pose === "tent" ? "facedown" : event.pose === "laptop" ? "landscape-left" : "portrait") : null;
             const angle = event.kind === "hinge" ? event.angle : { closed: 0, open: 180, book: 90, laptop: 90, tent: 80 }[event.pose];
             const oldPhysical = nativeConfig?.physicalOrientation?.replaceAll("_", "-");
-            // Partial folds can retain the cover even after leaving Tent. Native selection is
-            // authoritative; only fully closed/open and Tent promise a particular panel.
             const screenId = event.kind === "pose" ? DUO_SCREENS[event.pose] : angle === 0 ? 1 : angle === 180 ? 3 : undefined;
             const unchanged =
               sameHingeAngle(state.hingeAngle, angle) &&
@@ -432,7 +420,6 @@ function createSimulatorHelper(options = {}) {
               physical,
               screenId,
               // Rotation may follow panel activation, and its final orientation is not fixed by
-              // the physical pose. Require stable native geometry and a fresh frame after settling.
               settleMs: unchanged ? 0 : (options.displaySettleMs ?? 1500),
               timer: setTimeout(() => fail("Simulator display did not settle. Reopen the viewer to retry."), options.displayTimeoutMs ?? 7000),
             };
@@ -511,7 +498,6 @@ function createSimulatorHelper(options = {}) {
           try {
             const health = await request(instance, deviceId, "health");
             if (localClosed || state.error) return;
-            // Snapshots can be larger than the helper's capped H.264 stream. Input geometry must not oscillate between them.
             const { width, height } = snapshotSize ?? health.size ?? {};
             if (
               health.status !== "streaming" ||
@@ -605,8 +591,6 @@ function createSimulatorHelper(options = {}) {
         }
         if (admitted && !state.error && !admissionResolved) {
           admissionResolved = true;
-          // Admission can precede capture/config. Let open finish so offer can
-          // start capture; input stays disabled until dimensions arrive.
           send(0x0e, { enabled: false });
           resolveAdmission();
         }
@@ -615,7 +599,6 @@ function createSimulatorHelper(options = {}) {
       try {
         await admission;
         if (!android) {
-          // Device Hub can attach while a viewer is open, so the flag is read again while the channel lives.
           const checkInput = async () => {
             const value = await deviceHubInputActive(deviceId);
             if (!localClosed) hubInputActive = value;
@@ -656,7 +639,6 @@ function createSimulatorHelper(options = {}) {
     },
   };
 }
-/** Discovery stays capture-free. Backend instances isolate iOS and Android failures. */
 function createSimulatorAdapter(options = {}) {
   const ios = createSimulatorHelper(options);
   const androidHelpers = new Map();
@@ -681,12 +663,11 @@ function createSimulatorAdapter(options = {}) {
       .filter(Boolean)
       .slice(0, 32);
     const devices = [];
-    // Bound subprocess concurrency even if many emulators are running.
     for (const id of ids) {
       try {
         const [name, version] = await Promise.all([run(["-s", id, "emu", "avd", "name"]), run(["-s", id, "shell", "getprop", "ro.build.version.release"])]);
         devices.push({ id, name: name.stdout.split(/\r?\n/)[0].trim().slice(0, 200) || id, platform: "android", version: version.stdout.trim().slice(0, 40) });
-      } catch {} // A device that disconnects during discovery is omitted.
+      } catch {}
     }
     return devices;
   }

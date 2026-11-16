@@ -26,7 +26,6 @@ export function UpdateReleaseNotes({ version, onClose }: { version: string; onCl
   }, [version, attempt]);
   return (
     <Dialog title="What's new" description={`Milagre v${version}`} onClose={onClose} closeLabel="Close release notes" width={600}>
-      {/* Release notes are prose: 13 on a 20 line, as multi-paragraph text may be. */}
       <div className="mt-3 text-13 leading-5 [overflow-wrap:anywhere]">
         {failed ? (
           <InlineError

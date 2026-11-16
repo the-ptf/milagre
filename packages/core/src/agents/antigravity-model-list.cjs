@@ -20,7 +20,6 @@ async function queryAntigravityModels({
     rpc = createRpc({ ...spec, cwd: tmpdir, name: "Antigravity" });
     rpc.on("request", ({ id }) => rpc.respondError(id, "Model discovery cannot run tools."));
     rpc.start();
-    // Keep the whole lookup below the desktop/phone bridge's 30-second deadline.
     const deadline = Date.now() + timeoutMs;
     const request = (method, params) => rpc.request(method, params, { timeoutMs: Math.max(1, deadline - Date.now()) });
     await request("initialize", {

@@ -4,9 +4,6 @@ const path = require("node:path");
 const { execCommand } = require("./agents/command.cjs");
 
 // Kiro's credits for the month (docs/providers.md). kiro-cli answers its `/usage` command without a model
-// turn, so it costs nothing: "Estimated Usage | resets on 2026-11-01 | KIRO POWER", then "Credits (452.97 of 10000
-// covered in plan), 4.5%". It takes a few seconds and leaves a session record behind, so it runs in a folder of its
-// own whose records are removed afterwards, at most once every few minutes, and never holds up the other providers.
 
 const WINDOW = { id: "kiro:month", label: "Kiro credits", shortLabel: "mo" };
 const READ_TIMEOUT_MS = 30_000;
@@ -17,7 +14,6 @@ const FIRST_WAIT_MS = 3_000;
 const number = (text) => Number(String(text).replace(/,/g, ""));
 const plain = (value) => Number(value.toFixed(2)).toLocaleString("en-US");
 
-/** The month's window from `/usage`'s text, with "453 of 10,000 credits" as its detail; null when it can't be read. */
 function parseKiroUsage(text) {
   const output = String(text ?? "").replace(/\x1b\[[0-9;]*m/g, ""); // oxlint-disable-line no-control-regex -- strips colours
   const credits = /Credits\s*\(\s*([\d.,]+)\s+of\s+([\d.,]+)[^)]*\)\s*,?\s*([\d.]+)\s*%/i.exec(output);
@@ -55,7 +51,6 @@ async function removeSessionsIn(folder, home = os.homedir()) {
   );
 }
 
-/** Runs `kiro-cli chat --no-interactive /usage` in a throwaway folder: { output } or { error }. */
 async function askUsage({ command, env, execImpl = execCommand, home }) {
   const folder = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-kiro-usage-")));
   try {

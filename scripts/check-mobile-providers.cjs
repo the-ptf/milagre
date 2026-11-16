@@ -1,4 +1,3 @@
-// Opt-in only: uses the installed provider accounts. Never part of automated tests.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");
@@ -49,7 +48,6 @@ async function main() {
       let message, snapshot;
       while (Date.now() < deadline) {
         snapshot = await client.snapshot(project);
-        // The snapshot leaves messages out; the Chat's come as a page.
         message = (await client.chatMessages(project, sessionId)).messages.findLast((m) => m.role === "assistant");
         const run = snapshot.runs.runs[`${project}#${sessionId}`];
         if (message && !run) break;

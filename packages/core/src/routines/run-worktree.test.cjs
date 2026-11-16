@@ -30,7 +30,7 @@ function harness({
   removeError,
   busy = [],
 } = {}) {
-  const calls = { closed: [], moves: [], removed: [], prChecks: 0 };
+  const calls = { closed: [], retired: [], moves: [], removed: [], prChecks: 0 };
   const deps = {
     projectPath: PROJECT,
     worktreeId: 7,
@@ -44,6 +44,7 @@ function harness({
       return pr;
     },
     closeChat: async (chatKey) => calls.closed.push(chatKey),
+    retireChat: async (chatKey) => calls.retired.push({ chatKey, afterRemoval: calls.removed.length > 0 }),
     moveChats: async (projectPath, ids, change) => {
       calls.moves.push({ projectPath, ids, change });
       return change.restore ? {} : { 4: { worktree_id: 7, archived: undefined }, 5: { worktree_id: 7, archived: undefined } };
@@ -56,7 +57,7 @@ function harness({
   return { calls, run: () => retireRunWorktree(deps) };
 }
 
-test("a Run's clean Worktree goes, after its Chat is closed and moved, archived, to the Project folder", async () => {
+test("a Run's clean Worktree goes, after its Chat is closed and moved, archived, to the Project folder, and then the Chat is retired", async () => {
   const { calls, run } = harness();
   assert.deepEqual(await run(), { removed: true });
   assert.deepEqual(calls.closed, [RUN_CHAT]);
@@ -68,6 +69,7 @@ test("a Run's clean Worktree goes, after its Chat is closed and moved, archived,
     },
   ]);
   assert.deepEqual(calls.removed, ["/worktrees/chat-ab12"]);
+  assert.deepEqual(calls.retired, [{ chatKey: RUN_CHAT, afterRemoval: true }]);
   assert.equal(calls.prChecks, 0);
 });
 
@@ -82,7 +84,7 @@ test("a Worktree with changes, commits nowhere else, or an open PR is kept, and 
   for (const [over, reason] of cases) {
     const { calls, run } = harness(over);
     assert.deepEqual(await run(), { removed: false, reason }, reason);
-    assert.deepEqual([calls.closed, calls.moves, calls.removed], [[], [], []], reason);
+    assert.deepEqual([calls.closed, calls.retired, calls.moves, calls.removed], [[], [], [], []], reason);
   }
 });
 
@@ -120,10 +122,11 @@ test("only a Worktree Milagre made for the Run goes", async () => {
   assert.deepEqual(await harness({ state: project({ worktrees: {} }) }).run(), { removed: false, reason: "the Worktree is gone" });
 });
 
-test("a removal that fails moves the Chats back as they were and keeps the Worktree", async () => {
+test("a removal that fails moves the Chats back as they were, not retired, and keeps the Worktree", async () => {
   const { calls, run } = harness({ removeError: new Error("Worktree changed after it was checked") });
   assert.deepEqual(await run(), { removed: false, reason: "Worktree changed after it was checked" });
   assert.equal(calls.moves.length, 2);
   assert.deepEqual(calls.moves[1].change, { restore: { 4: { worktree_id: 7, archived: undefined }, 5: { worktree_id: 7, archived: undefined } } });
   assert.deepEqual(calls.moves[1].ids, [4, 5]);
+  assert.deepEqual(calls.retired, []);
 });

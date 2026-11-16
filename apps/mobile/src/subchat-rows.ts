@@ -1,28 +1,16 @@
-// Subchats in the Chat list (subchats.ts): each subchat's row moves under its parent's, indented, and the parent's row
-// counts them and folds them away, as desktop's sidebar does (subchat-rows.ts there).
 import { nestSubchats } from "@milagre/shared/subchats";
 
 type Listed = { kind: string; key: string };
 type ChatLike = Listed & { kind: "chat"; chat: { id: number; parent?: number; pinned?: boolean }; mark?: string };
 
-// A subchat waiting on the user (a question or an approval) turns its family's count orange.
 const asks = (row: ChatLike) => row.mark === "question" || row.mark === "waiting";
 
-/**
- * What nesting adds to a Chat row: a subchat, indented `depth` levels (1 under the top Chat, 2 at most: a deeper one sits
- * level with its parent, as nestSubchats caps it), or a parent with `count` subchats.
- */
 export type SubchatMarks = { subchat?: boolean; depth?: number; family?: { count: number; folded: boolean; asking?: boolean } };
 
 const isChat = (row: Listed): row is ChatLike => row.kind === "chat";
 
-/** `<computer>|<project>#<parent>` for a row keyed `<computer>|<project>#<id>`. */
 const parentKeyOf = (row: ChatLike) => (row.chat.parent === undefined ? undefined : `${row.key.slice(0, row.key.lastIndexOf("#"))}#${row.chat.parent}`);
 
-/**
- * The list with each run of Chat rows (a Project's, or the one list's) nested: pinned rows keep their place, the rest put
- * each subchat under its topmost listed ancestor, and a family in `folded` (by the parent row's key) shows its parent alone.
- */
 export function nestChatRows<R extends Listed>(rows: readonly R[], folded: { has(key: string): boolean }): (R & SubchatMarks)[] {
   if (!rows.some((row) => isChat(row) && row.chat.parent !== undefined)) return rows as R[];
   const result: (R & SubchatMarks)[] = [];

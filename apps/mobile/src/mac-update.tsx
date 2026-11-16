@@ -17,29 +17,18 @@ import { radius } from "./design-tokens";
 import { Button, ErrorNotice, useStyles } from "./ui";
 import { useTheme } from "./theme";
 
-// How often the screen reads the update again while it moves: checking, downloading, restarting.
 const FOLLOW_MS = 2000;
-// The Mac answered and refused (no update ready, a demo Mac): the install never started. Anything else (the Mac going
-// away mid-restart, a proxy's 502) may be the restart itself.
 const refused = (failure: unknown) => {
   const status = (failure as { status?: number })?.status;
   return typeof status === "number" && status >= 400 && status < 500 && status !== 429;
 };
 const message = (failure: unknown) => (failure instanceof Error ? failure.message : "Could not reach your computer.");
 
-/**
- * The connected Mac's Milagre desktop app update (Settings › General › Updates), read through its host
- * (app-update:state, check, install). `update` is undefined until the Mac answers, and stays so on a Mac too old to have
- * these commands; null while no desktop app is open there.
- */
 export function useMacUpdate(client: Client | null) {
   const [update, setUpdate] = useState<HostUpdate | undefined>(undefined);
   const [error, setError] = useState("");
-  // Installing restarts Milagre on the Mac, which drops this phone's connection for a moment; until it answers again
-  // with the update done (or refused), the row says it is restarting.
   const [restarting, setRestarting] = useState(false);
   const following = restarting || updateBusy(update ?? null);
-  // A Mac that never answers again (its install failed with no host left to say so) ends "Restarting" with what to do.
   const restartingOn = useRef("");
   useEffect(() => {
     if (!restarting) return;
@@ -58,7 +47,6 @@ export function useMacUpdate(client: Client | null) {
         setUpdate(value);
         if (value?.status !== "installing") setRestarting(false);
       };
-      // While the Mac restarts it can't answer; otherwise it has no such command, or no answer to give.
       const lost = () => {
         if (live && !restarting) setUpdate(undefined);
       };
@@ -98,7 +86,6 @@ export function useMacUpdate(client: Client | null) {
   return { update, error, restarting, following, check, install };
 }
 
-/** The rows of that update, above the Auto update switch in the Updates card. */
 export function MacUpdateRows({ state, macName }: { state: ReturnType<typeof useMacUpdate>; macName: string }) {
   const styles = useStyles();
   const { colors } = useTheme();

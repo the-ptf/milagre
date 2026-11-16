@@ -1,6 +1,5 @@
 import { isLoopbackUrl, reachableUrl } from "@milagre/shared/loopback-url";
 
-/** A local/private server needs the computer's network, or an authenticated tunnel when that network is unavailable. */
 export function privatePage(url: string): boolean {
   try {
     const host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "");
@@ -15,10 +14,6 @@ export function privatePage(url: string): boolean {
   }
 }
 
-/**
- * The address the phone opens a page at itself, or null when only the Mac can reach it (through its page proxy): a
- * private page with no route to the Mac's network, or a localhost server in `loopbackOnly` (it answers on the Mac alone).
- */
 export function directPageUrl(url: string, host: string | null, loopbackOnly?: ReadonlySet<number>): string | null {
   try {
     const parsed = new URL(url);
@@ -32,7 +27,6 @@ export function directPageUrl(url: string, host: string | null, loopbackOnly?: R
   }
 }
 
-/** Legacy HTTP pairing already proves a route to a private address, even without the route supervisor. */
 export function pairedPageHost(connection: string | undefined): string | null {
   try {
     const url = new URL(connection ?? "");
@@ -42,7 +36,6 @@ export function pairedPageHost(connection: string | undefined): string | null {
   }
 }
 
-/** Keep comments and the address bar in the original site's coordinates, without leaking the proxy's login URL. */
 export function originalPageUrl(url: string, original: string, loaded: string): string {
   try {
     const page = new URL(url),
@@ -54,7 +47,6 @@ export function originalPageUrl(url: string, original: string, loaded: string): 
   }
 }
 
-/** A second browser needs its own cookie, but should open the path currently being viewed. */
 export function externalPageUrl(url: string, bootstrap: string, proxyOrigin: string): string {
   const page = new URL(url);
   if (page.origin !== proxyOrigin) return url;

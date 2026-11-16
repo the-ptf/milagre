@@ -721,6 +721,99 @@ function reloadAgents() {
   };
 }
 
+const RETIRED = "/p#1";
+function retirementFixture({ running = false, holdAgent = null } = {}) {
+  const { createChatRetirement } = require("./runtime/chat-lifecycle.cjs");
+  const calls = [];
+  const note = (name) => () => void calls.push(name);
+  const retirement = createChatRetirement({
+    agents: {
+      closeChat: async () => {
+        await holdAgent;
+        calls.push("close the agent session");
+      },
+    },
+    background: new Set(),
+    chats: {
+      runs: running ? { [RETIRED]: {} } : {},
+      cancelLimitResume: async () => calls.push("cancel a pending continuation"),
+      forget: note("forget the Chat"),
+    },
+    scopeStates: { has: () => true },
+    track: (work) => work(),
+    worktreeSetups: { cancel: async () => calls.push("cancel Worktree setup") },
+    terminals: { closeChat: note("stop background commands") },
+    artifacts: { removeChat: async () => calls.push("remove Designs and artifacts") },
+    computerUseScreen: { forget: note("forget the screen") },
+    pageComments: { removeChat: async () => calls.push("remove page comments") },
+    advisorDelivery: () => ({ stop: async () => calls.push("stop advisor delivery") }),
+    advisors: () => ({ stopChat: async () => calls.push("stop advisors") }),
+    bugReports: () => ({ cancel: note("cancel a bug report") }),
+    chatSecrets: () => ({ cancel: note("cancel a secret request") }),
+    linked: () => ({ stop: async ({ chatKey }) => calls.push(`settle delegations of ${chatKey}`) }),
+    routines: () => ({ chatArchived: note("end Heartbeats") }),
+    stopChat: async () => calls.push("stop the turn"),
+  });
+  const edit = async () => void calls.push("save the Project");
+  return { calls, retirement, edit };
+}
+const RETIRE_CORE = [
+  "end Heartbeats",
+  "cancel a pending continuation",
+  "cancel Worktree setup",
+  "close the agent session",
+  "stop background commands",
+  "stop advisor delivery",
+  "stop advisors",
+  `settle delegations of ${RETIRED}`,
+  "cancel a secret request",
+  "cancel a bug report",
+];
+const RETIRE_DATA = ["forget the Chat", "forget the screen", "remove Designs and artifacts", "remove page comments"];
+
+test("every way to retire a Chat runs the same steps in one order; only delete and Worktree removal take its stored data", async () => {
+  for (const [mode, expected] of [
+    ["delete", [...RETIRE_CORE, "save the Project", ...RETIRE_DATA]],
+    ["worktree-removal", [...RETIRE_CORE, "save the Project", ...RETIRE_DATA]],
+    ["run-cleanup", ["save the Project", ...RETIRE_CORE]],
+  ]) {
+    const { calls, retirement, edit } = retirementFixture();
+    await retirement.retireChat(RETIRED, { mode, edit });
+    assert.deepEqual(calls, expected, mode);
+  }
+  const running = retirementFixture({ running: true });
+  await running.retirement.retireChat(RETIRED, { mode: "delete" });
+  assert.deepEqual(running.calls.slice(0, 3), ["end Heartbeats", "cancel a pending continuation", "stop the turn"], "a running turn stops first");
+  await assert.rejects(retirementFixture().retirement.retireChat(RETIRED, { mode: "hide" }), /Unknown way to retire a Chat/);
+});
+
+test("archive saves at once and finishes the same steps in the background, keeping the Chat's data", async () => {
+  let release;
+  const { calls, retirement, edit } = retirementFixture({ holdAgent: new Promise((resolve) => (release = resolve)) });
+  const { stopped } = await retirement.retireChat(RETIRED, { mode: "archive", edit });
+  assert.ok(calls.includes("save the Project"), "the row moves before the agent has closed");
+  assert.equal(calls.includes("close the agent session"), false);
+  release();
+  await stopped;
+  assert.deepEqual(
+    calls.filter((call) => call !== "save the Project"),
+    RETIRE_CORE,
+  );
+});
+
+test("a Worktree's removal frees it with the process steps first, so a refused removal ends nothing else", async () => {
+  const { calls, retirement } = retirementFixture({ running: true });
+  await retirement.releaseChat(RETIRED);
+  assert.deepEqual(calls, [
+    "stop the turn",
+    "cancel Worktree setup",
+    "close the agent session",
+    "stop background commands",
+    "stop advisor delivery",
+    "stop advisors",
+  ]);
+});
+
 test("archiving a Chat stops its running turn, so the question it waits on stops asking", async (t) => {
   const { project, make } = await fixture(t);
   const agents = reloadAgents();
@@ -742,6 +835,8 @@ test("archiving a Chat stops its running turn, so the question it waits on stops
   for (let i = 0; i < 200 && (await runOf()); i++) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(session.turnActive, false);
   assert.equal(await runOf(), undefined);
+  for (let i = 0; i < 200 && !session.closed; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(session.closed, true, "its agent session closes too");
   await runtime.close();
 });
 
@@ -2027,14 +2122,22 @@ test('an attention notice for a project-less Chat is titled "No project"', async
   assert.doesNotMatch(`${notice.title} ${notice.body}`, /\bchats\b/);
 });
 
-async function homeChatOnWorktree(t) {
+async function homeChatOnWorktree(t, overrides = {}) {
   const { make, chatsHome, dataDir } = await fixture(t);
-  const runtime = make({ worktreeRoot: path.join(path.dirname(chatsHome), "worktrees") });
+  const runtime = make({ worktreeRoot: path.join(path.dirname(chatsHome), "worktrees"), ...overrides });
   await runtime.invoke("chats:ensure");
   const made = await runtime.invoke("worktree:create", [{ projectPath: chatsHome, baseBranch: "main", prompt: "" }]);
   const worktree = made.project.state.worktrees[made.worktreeId];
   const session = Object.values(made.project.state.sessions).find((item) => item.worktree_id === worktree.id);
   return { runtime, chatsHome, dataDir, worktree, chatId: `${chatsHome}#${session.id}`, sessionId: session.id };
+}
+
+async function savedPageComment(runtime, dataDir, chatId) {
+  await runtime.invoke("browser-comments:add", [{ chatId, comments: [{ url: "https://example.com/", text: "Bigger", element: { selector: "h1" } }] }]);
+  const name = require("node:crypto").createHash("sha256").update(chatId).digest("hex").slice(0, 32);
+  const file = path.join(dataDir, "page-comments", `${name}.json`);
+  await fs.stat(file);
+  return file;
 }
 
 async function savedScreen(dataDir, chatId, image = "SAVED_SCREEN") {
@@ -2046,19 +2149,21 @@ async function savedScreen(dataDir, chatId, image = "SAVED_SCREEN") {
   return file;
 }
 
-test("chat:delete removes its screen and rejects pending, later and restarted viewers", async (t) => {
+test("chat:delete removes its screen and page comments and rejects pending, later and restarted viewers", async (t) => {
   const { make, project, dataDir } = await fixture(t);
   const runtime = make();
   const opened = await runtime.invoke("project:current");
   const session = Object.values(opened.state.sessions)[0];
   const chatId = `${project}#${session.id}`;
   const file = await savedScreen(dataDir, chatId);
+  const comments = await savedPageComment(runtime, dataDir, chatId);
   assert.equal((await runtime.invoke("computer-use:frame", [{ chatId }])).image, "SAVED_SCREEN");
   const pending = assert.rejects(runtime.invoke("computer-use:frame", [{ chatId, after: 1 }]), /existing Chat/);
   await new Promise((resolve) => setImmediate(resolve));
   await runtime.invoke("chat:delete", [project, session.id]);
   await pending;
   await assert.rejects(fs.stat(file), { code: "ENOENT" });
+  await assert.rejects(fs.stat(comments), { code: "ENOENT" });
   await assert.rejects(runtime.invoke("computer-use:frame", [{ chatId }]), /existing Chat/);
   await runtime.close();
   const restarted = make();
@@ -2098,6 +2203,30 @@ test("worktree:remove removes a Chats home worktree and drops its Chat", async (
   await assert.rejects(runtime.invoke("computer-use:frame", [{ chatId }]), /existing Chat/);
   // The home itself stays.
   assert.ok((await fs.stat(chatsHome)).isDirectory());
+});
+
+test("worktree:remove retires the Chat that goes with it: its Heartbeats end, its agent closes, its page comments go", async (t) => {
+  const agents = reloadAgents();
+  const { runtime, chatsHome, dataDir, worktree, chatId, sessionId } = await homeChatOnWorktree(t, {
+    titleModels: {},
+    agentCli: async () => ({ command: "/fake" }),
+    createSession: agents.createSession,
+  });
+  await runtime.invoke("chat:send", [{ projectPath: chatsHome, sessionId, body: "Hi", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && (!agents.sessions.length || (await runtime.invoke("chat:runs")).runs[chatId]); i++)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  const { routine } = await runtime.invoke("routines:create", [
+    { name: "Beat", prompt: "Look", trigger: { kind: "schedule", cron: "*/5 * * * *", timezone: "UTC" }, target: { kind: "chat", chatId }, maxRuns: 3 },
+  ]);
+  const comments = await savedPageComment(runtime, dataDir, chatId);
+  const listed = async () => (await runtime.invoke("routines:list")).routines.some((item) => item.id === routine.id);
+  assert.equal(await listed(), true);
+  const seen = await runtime.invoke("worktree:status", [worktree.path, "main"]);
+  const result = await runtime.invoke("worktree:remove", [worktree.path, { projectPath: chatsHome, base: "main", seen, force: false, chatId }]);
+  assert.equal(result.removed, true);
+  assert.equal(agents.sessions[0].closed, true);
+  assert.equal(await listed(), false, "its Heartbeat ended");
+  await assert.rejects(fs.stat(comments), { code: "ENOENT" });
 });
 
 test("worktree:remove of a Chats home worktree holding files needs delete, and delete removes it", async (t) => {

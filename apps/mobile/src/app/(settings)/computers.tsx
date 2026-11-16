@@ -15,7 +15,6 @@ import { useTheme } from "../../theme";
 
 const add = () => router.push("/add-computer");
 
-/** Settings › Computers: every paired computer with whether it answers and whether its Chats show in the list. */
 export default function ComputersScreen() {
   const styles = useStyles();
   const { colors } = useTheme();

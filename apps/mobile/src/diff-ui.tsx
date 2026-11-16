@@ -11,7 +11,6 @@ const statusTable = (colors: Palette) =>
     renamed: { letter: "R", label: "Renamed", color: colors.accentInk, tint: colors.accentTint },
   }) as const;
 
-/** Desktop's +N −M counts, caption1 by default or footnote beside a section title. */
 export function Counts({ added, removed, size = type.caption1 }: { added: number; removed: number; size?: typeof type.caption1 | typeof type.footnote }) {
   const { colors } = useTheme();
   return (
@@ -29,7 +28,6 @@ export function Counts({ added, removed, size = type.caption1 }: { added: number
   );
 }
 
-/** Desktop's A/D/M/R status box: 20 square, growing with Dynamic Type up to 1.3x. */
 export function StatusBox({ status }: { status: DiffFileEntry["status"] }) {
   const { colors } = useTheme();
   const { letter, label, color, tint } = statusTable(colors)[status];

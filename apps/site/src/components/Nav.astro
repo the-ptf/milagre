@@ -1,12 +1,10 @@
 ---
 import { REPO_URL } from "../links";
 interface Props {
-  /** The app icon and name, linking home. The landing leaves it out: its hero's logo is the brand there. */
   brand?: boolean;
 }
 const { brand = true } = Astro.props;
 const current = Astro.url.pathname.replace(/\/$/, "");
-// The Docs link stays marked on every page under /docs.
 const here = (path: string) => (current === path || current.startsWith(`${path}/`) ? "page" : undefined);
 ---
 <header class:list={["nav container", { "no-brand": !brand }]}>
@@ -27,7 +25,6 @@ const here = (path: string) => (current === path || current.startsWith(`${path}/
 </header>
 
 <script>
-  // The Worker serves /api/stars; without it (or if GitHub is down) the pill stays a plain "Star" link.
   const count = document.querySelector<HTMLElement>("[data-stars]");
   fetch("/api/stars")
     .then(response => (response.ok ? response.json() : null))
@@ -45,7 +42,6 @@ const here = (path: string) => (current === path || current.startsWith(`${path}/
   .help a { color: var(--ink-2); text-decoration: none; text-underline-offset: 4px; }
   .help a:hover { color: var(--ink); text-decoration: underline; }
   .help a[aria-current="page"] { color: var(--ink); }
-  /* Without the brand, the links take the left and the star pill keeps the right. */
   .no-brand .help { margin-left: 0; }
   .no-brand .stars { margin-left: auto; }
   @media (max-width: 420px) { .help { gap: 12px; margin-right: 12px; } .brand span { display: none; } }

@@ -17,19 +17,15 @@ const keyOf = (item: ArchivedChat) => `${item.hostId}|${item.projectPath}#${item
 const MENU: MenuSection[] = [{ items: [{ id: "unarchive", title: "Unarchive", systemImage: "tray.and.arrow.up" }] }];
 const RADIUS = radius.card;
 
-/** Settings › Archived Chats: the archived Chats of every computer, newest first. Tap opens one; Unarchive puts it back in the list. */
 export default function ArchivedChatsScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
   const session = useSession();
   const { chats, loading } = useArchivedChats();
   const [error, setError] = useState("");
-  // The Chats being put back, by computer: a row takes no taps meanwhile.
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
-  // The Chat being opened: every row takes no taps meanwhile, whichever computer it is on.
   const [opening, setOpening] = useState<string | null>(null);
   const alive = useRef(true);
-  // One open at a time for the whole page; leaving the page makes a pending one stale (see createOpenGuard).
   const [guard] = useState(() => createOpenGuard(session.cancelNavigation));
   useEffect(() => {
     alive.current = true;
@@ -64,7 +60,6 @@ export default function ArchivedChatsScreen() {
         });
     }
   };
-  // Another computer is connected first, as the sidebar does; the sheet closes once the Chat is ready to show.
   const open = async (item: ArchivedChat) => {
     const ticket = guard.begin();
     if (!ticket) return;
@@ -89,7 +84,6 @@ export default function ArchivedChatsScreen() {
       if (ticket.current() && alive.current) setOpening(null);
     }
   };
-  // The same call the sidebar's Restore makes, through the Chat's own computer.
   const unarchive = (item: ArchivedChat) =>
     working(item, async () => {
       const { hostId, projectPath, chat } = item;
@@ -112,7 +106,6 @@ export default function ArchivedChatsScreen() {
     const first = index === 0;
     const last = index === chats.length - 1;
     return (
-      // One card across the rows: each carries its slice of the card's background, border and corners.
       <View
         pointerEvents={locked ? "none" : "auto"}
         style={{
@@ -189,7 +182,6 @@ export default function ArchivedChatsScreen() {
         data={chats}
         keyExtractor={keyOf}
         renderItem={renderItem}
-        // Rows rerender for the busy and opening state, which the list cannot see in `data`.
         extraData={`${opening ?? ""}|${[...busy].join(",")}|${many}`}
         style={styles.screen}
         contentInsetAdjustmentBehavior="automatic"

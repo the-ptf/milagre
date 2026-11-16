@@ -39,7 +39,6 @@ function usePushState() {
       await sessionRef.current.loadHosts();
     }
   }, []);
-  // The factory only stores forgetHost; it invokes it later from async refresh, never during render.
   // eslint-disable-next-line react-hooks/refs
   const [controller] = useState(() =>
     createPushController({
@@ -57,7 +56,6 @@ function usePushState() {
     path === "/chat" && targetMatches && session.client && session.snapshot && params.id && /^\d+$/.test(String(params.id))
       ? { hostId: session.client.url, chatId: `${session.snapshot.project.path}#${params.id}` }
       : null;
-  // A sheet's route replaces /chat, but the Chat it opened over is still on screen.
   const [shown, setShown] = useState<PushView>(null);
   const view = viewedChat(path, chat, shown, session.client?.url);
   if (view?.hostId !== shown?.hostId || view?.chatId !== shown?.chatId) setShown(view);

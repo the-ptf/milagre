@@ -7,8 +7,6 @@ function prepareToken(dataDir) {
   const file = tokenPath(dataDir);
   preparePrivateDirectory(path.dirname(file));
   if (!fs.existsSync(file)) {
-    // Link a complete, protected file into place atomically. Concurrent launches
-    // cannot overwrite a live token or observe a token between open and write.
     const temporary = `${file}.${randomBytes(8).toString("hex")}.tmp`;
     try {
       fs.writeFileSync(temporary, randomBytes(32).toString("hex"), { flag: "wx", mode: 0o600 });
@@ -27,9 +25,7 @@ function prepareToken(dataDir) {
 
 function readToken(dataDir) {
   const file = tokenPath(dataDir);
-  // The completed token is published after the daemon secures its directory.
   // Before publication, ENOENT tells bootstrap to retry, rather than treating
-  // the directory's intermediate owner/ACL as a permanent security failure.
   assertPrivate(file);
   assertPrivate(path.dirname(file));
   const token = fs.readFileSync(file, "utf8");

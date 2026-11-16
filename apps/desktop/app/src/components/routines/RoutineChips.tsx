@@ -9,7 +9,6 @@ type HugeIconData = IconSvgElement;
 const GAP = 6;
 const INSET = 12;
 
-/** A Routine's setting as a pill on the field fill: its icon and words ("Every hour", "New Worktree in payments-api"). */
 export function Chip({ icon, children, ...data }: { icon?: HugeIconData; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
   return (
     <ChipBase variant="static" icon={icon} className="max-w-full" {...data}>
@@ -18,11 +17,6 @@ export function Chip({ icon, children, ...data }: { icon?: HugeIconData; childre
   );
 }
 
-/**
- * A chip that opens a popover anchored under it (the Routine form's Schedule and Where chips). The popover carries
- * data-popover-host, so a Select inside it opens its list into the popover and a press there stays inside. It closes
- * through useDismiss, and on Escape, which it consumes and which returns focus to the chip.
- */
 export function PopoverChip({
   label,
   icon,
@@ -100,5 +94,4 @@ export function PopoverChip({
   );
 }
 
-/** The segmented control moved to primitives; Routines' imports keep working. */
 export { Segmented } from "../primitives/Segmented";

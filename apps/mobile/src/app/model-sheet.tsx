@@ -21,21 +21,17 @@ import { CheckRow, Chip, CircleButton, InlineError, SectionLabel, SheetHeader, p
 import { lineHeight, radius, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
-/** The model's context window as the picker shows it: "1M", "272k". */
 function contextLabel(model: { provider: ModelProvider; id: string }) {
   const size = contextWindowFor(model);
   return size ? formatTokens(size) : undefined;
 }
 
-/** A Kiro model's credit multiplier ("2×") and how a screen reader says it, else its context window. */
 function metaOf(model: { provider: ModelProvider; id: string; credits?: number }) {
   if (model.credits) return { label: formatCredits(model.credits), spoken: `${formatCredits(model.credits)} the credits Auto would use` };
   const label = contextLabel(model);
   return label ? { label, spoken: `${label} context window` } : null;
 }
 
-/** Model, thinking effort, fast mode and Ultracode for one Chat: provider chips that scroll sideways as providers grow,
- * the provider's models, and the settings pinned below them. Cancel (✕) discards, Done (✓) applies, per Apple's sheet guidance. */
 export default function ModelSheet() {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -53,13 +49,9 @@ export default function ModelSheet() {
   const effort = effortFor(model, draft.effort);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
   const [closing, setClosing] = useState(false);
-  // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Church).
   const [fatality, setFatality] = useState(0);
-  // The settings panel floats over the bottom of the models list (the sheet stretches its ScrollView to the full
-  // sheet), so the list pads its end by the panel's height and every model can scroll above it.
   const [panelHeight, setPanelHeight] = useState(0);
   const hasSettings = model.efforts.length > 0 || model.fastMode || model.ultracode;
-  // The composer has no permission chip: as on desktop, the mode sits in this sheet's footer (Full in orange).
   const permissionMode = useChatPermissionMode(params.chatId);
   const [fatalityOn] = useUltracodeFatality();
   usePreventRemove(dirty && !closing, ({ repeat }) =>
@@ -68,7 +60,6 @@ export default function ModelSheet() {
       {
         text: "Discard",
         style: "destructive",
-        // repeat() lifts the prevention before dispatching; dispatching the action again would be blocked again.
         onPress: () => {
           setClosing(true);
           repeat();
@@ -91,10 +82,7 @@ export default function ModelSheet() {
   const levels = model.efforts;
   const level = Math.max(0, levels.indexOf(effort ?? ""));
   return (
-    // Not collapsable: a form sheet lays out a ScrollView with at most one header beside it, and a flattened root would
-    // hand it every row below (RNScreens warns "expects at most 2 subviews") and misplace the list.
     <View collapsable={false} style={styles.screen}>
-      {/* The header and provider chips ride inside the models scroller as one pinned block. */}
       <ScrollView
         style={{ flex: 1 }}
         stickyHeaderIndices={[0]}
@@ -118,7 +106,6 @@ export default function ModelSheet() {
             {pickerProviders(session.cliStatus, initial.provider, draft.provider).map((provider) => {
               const on = provider === draft.provider;
               const problem = session.cliStatus?.[provider] && session.cliStatus[provider].state !== "ready";
-              // Chips kept as tabs: these switch the list below.
               return (
                 <Chip
                   key={provider}
@@ -271,7 +258,6 @@ function SettingTile({
   onChange,
   tone = "orange",
 }: {
-  /** The color the tile takes while on: Fast is orange, Ultracode purple like its Fatality overlay. */
   tone?: "orange" | "purple";
   icon: typeof FlashIcon;
   label: string;
@@ -307,7 +293,6 @@ function SettingTile({
         pressStyle({ pressed }),
       ]}
     >
-      {/* Fills are for icons: the orange or purple fill while on. */}
       <Icon icon={icon} tone={value ? tone : "ink2"} size={18} />
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={{ color: value ? ink : colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>{title}</Text>

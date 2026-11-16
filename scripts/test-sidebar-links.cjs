@@ -1,8 +1,3 @@
-// Browser check: canvas Links in the sidebar. A chat dropped on another Project's chat offers a Link whose popover
-// chooses "Only these Worktrees" or "The whole Projects", can always allow Delegations and can ask the dropped chat
-// something; linked rows show a Link icon and the hover card lists what they're linked with; the row menu's
-// "Link with…" leads through a filterable chat list to the same popover and "Remove Link with…" removes one, with Undo.
-// The bridge is stubbed.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -119,7 +114,6 @@ async function browserChecks() {
   const calls = () => evaluate("window.calls");
   const text = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)})?.textContent ?? ""`);
   const clickSelector = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
-  // Picks a row up, then moves onto the target row, measured again once the drag shows the Pinned drop area above.
   async function drag(from, toSelector, { release = true } = {}) {
     mouse("mouseMove", from.x, from.y, false);
     mouse("mouseDown", from.x, from.y);
@@ -139,7 +133,6 @@ async function browserChecks() {
       await delay(250);
     }
   }
-  // Opens a row's ⋯ menu the way a right-click does.
   async function openMenu(scope, id) {
     const point = await box(rowSelector(scope, id));
     window.webContents.sendInputEvent({ type: "mouseDown", x: point.x, y: point.y, button: "right", clickCount: 1 });
@@ -162,7 +155,6 @@ async function browserChecks() {
     await delay(300);
     assert.equal(await evaluate('document.querySelectorAll("[data-chat-linked]").length'), 0, "no Links, no icons");
 
-    // Within one Project: the popover joins the two Worktrees and doesn't offer the whole Projects.
     await drag(await box(rowSelector("/work/api", "2")), rowSelector("/work/api", "1"), { release: false });
     await waitFor('document.querySelector("[data-drop-target]")?.dataset.dropTarget === "link"');
     mouse("mouseUp", 0, 0);
@@ -177,7 +169,6 @@ async function browserChecks() {
     assert.deepEqual((await calls()).grants, [], "Always allow is off unless checked");
     assert.deepEqual((await calls()).asked, [], "nothing is sent without a message");
 
-    // Both rows show the Link icon, labelled with the other end.
     await waitFor('document.querySelectorAll("[data-chat-linked]").length === 2');
     assert.match(
       await evaluate(`document.querySelector('${rowSelector("/work/api", "1")} [data-chat-linked]').getAttribute("aria-label")`),
@@ -185,7 +176,6 @@ async function browserChecks() {
     );
     await screenshot("row-icons");
 
-    // The hover card lists the linked Worktrees.
     const alpha = await box(rowSelector("/work/api", "1"));
     mouse("mouseMove", alpha.x, alpha.y, false);
     await waitFor('!!document.querySelector("[data-chat-hover-card] [data-chat-card-links]")');
@@ -194,10 +184,8 @@ async function browserChecks() {
     mouse("mouseMove", 1000, 600, false);
     await waitFor('!document.querySelector("[data-chat-hover-card]")');
 
-    // The toast leaves after 6 seconds, out of the way of the popover in the screenshots.
     for (let i = 0; i < 40 && (await evaluate('!!document.querySelector("[data-chat-toast]")')); i++) await delay(250);
 
-    // Across Projects: Charlie dropped on the web Project's chat offers the whole Projects too.
     await drag(await box(rowSelector("/work/api", "3")), rowSelector("/work/web", "7"), { release: false });
     await waitFor('document.querySelector("[data-drop-target][data-drop-scope]")?.dataset.dropTarget === "link"');
     await screenshot("cross-project-target");
@@ -228,10 +216,8 @@ async function browserChecks() {
     assert.equal(after.asked[0][1], "3", "the message goes to the dropped chat");
     assert.match(after.asked[0][2].body, /^Wire the new endpoint into the login form\n\nDestination: “Web login form” \(web \/ form\)/);
     assert.match(after.asked[0][2].prompt, /\/work\/web#7/);
-    // Every chat of both Projects is now linked.
     await waitFor(`!!document.querySelector('${rowSelector("/work/web", "8")} [data-chat-linked]')`);
 
-    // "Link with…" from the menu: a filterable list, with linked chats shown but not pickable.
     await openMenu("/work/api", "1");
     await screenshot("menu");
     assert.ok(await evaluate(`!!${menuItem("Link with…")}`));
@@ -254,12 +240,10 @@ async function browserChecks() {
     })()`);
     await waitFor('document.querySelectorAll("[data-link-entry]").length === 1');
     await screenshot("link-with");
-    // Nothing pickable is left (the web header is linked through the Projects), so the list says so by disabling it.
     assert.equal(await evaluate('document.querySelector("[data-link-entry]").disabled'), true);
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     await waitFor('!document.querySelector("[data-link-picker]")');
 
-    // "Remove Link with…": the chat's Links by their other end; removing one offers Undo.
     await openMenu("/work/api", "3");
     await evaluate(`${menuItem("Remove Link with…")}.click()`);
     await waitFor('!!document.querySelector("[data-link-picker=remove]")');
@@ -274,7 +258,6 @@ async function browserChecks() {
     assert.deepEqual((await calls()).restored, ["l2"], "Undo restores the same Link, so its Always allow grant still matches");
     assert.equal((await calls()).added.length, 2, "Undo makes no new Link");
 
-    // Then "Link with…" picks a chat with the keyboard: the filter, Enter, and the popover for that chat.
     await evaluate("window.milagre.removeLink('l2')");
     await openMenu("/work/api", "1");
     await evaluate(`${menuItem("Link with…")}.click()`);

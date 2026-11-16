@@ -25,7 +25,6 @@ export function SaveFailure({ scope, name, failure, offline }: UnsavedScope) {
     }
   }
   return (
-    // A blocking failure with a way out: the error card, on a surface (with the overlay shadow) because it floats over the app.
     <div
       data-save-failure
       className="mb-2 rounded-card bg-surface shadow-overlay"
@@ -51,7 +50,6 @@ export function SaveFailure({ scope, name, failure, offline }: UnsavedScope) {
   );
 }
 
-/** Save warnings outlive view changes and cannot be dismissed while data remains unsaved. */
 export function PersistenceNotices({ scopes, children }: { scopes: UnsavedScope[]; children?: ReactNode }) {
   if (!scopes.length && !children) return null;
   return (

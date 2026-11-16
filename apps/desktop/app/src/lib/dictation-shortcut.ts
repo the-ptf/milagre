@@ -3,19 +3,13 @@ import { type DictationShortcutMode } from "@milagre/shared/dictation";
 import { isModalOpen } from "./modal";
 import { shortcutCommand } from "./keybindings";
 
-// The Dictate shortcut (keybinding `dictation.toggle`, ⌥Space by default). One listener for the window; the key goes to
 // the composer that has the keyboard, else the one dictating, else the visible one used last, so a grid of Chats or the
-// Chats kept mounted off screen never all start at once.
-//
-// Hold to talk starts on the press and finishes on release of the key or any of its modifiers.
-// Press to start, press to stop does what the mic button does.
 
 export type DictationShortcutTarget = {
   root: () => HTMLElement | null;
   dictating: () => boolean;
   mode: () => DictationShortcutMode;
   start: () => void;
-  /** Finishes the take; one that hasn't started recording yet finishes as soon as it does. */
   finish: () => void;
 };
 
@@ -31,7 +25,6 @@ function shown(entry: Entry) {
   return Boolean(root?.isConnected && root.getClientRects().length > 0 && root.checkVisibility());
 }
 
-/** The composer the key is for. */
 function pickTarget<T extends { usedAt: number }>(
   entries: readonly T[],
   { focused, dictating, visible }: { focused: (entry: T) => boolean; dictating: (entry: T) => boolean; visible: (entry: T) => boolean },
@@ -54,7 +47,6 @@ function onKeyDown(event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing || shortcutCommand(event) !== "dictation.toggle") return;
   const entry = current();
   if (!entry) return;
-  // ⌥Space would type a non-breaking space into the field.
   event.preventDefault();
   if (event.repeat || held) return;
   if (entry.dictating()) return entry.finish();
@@ -81,11 +73,9 @@ function install() {
   installed = true;
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("keyup", onKeyUp, true);
-  // Keys let go in another app never send their keyup here.
   window.addEventListener("blur", release);
 }
 
-/** Makes a composer answer the Dictate shortcut while it is mounted. */
 export function useDictationShortcut(target: DictationShortcutTarget) {
   const latest = useRef(target);
   latest.current = target;

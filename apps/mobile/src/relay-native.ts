@@ -7,7 +7,6 @@ import { phoneName } from "./phone-name-native";
 import type { RelayRuntime } from "./client";
 import { lanRoutes } from "./routes-native";
 
-/** One transport per Mac, shared by every client; a new pairing code for the same Mac replaces it. */
 const open = new Map<string, { pairing: string; transport: RelayTransport }>();
 
 // iOS suspends a backgrounded app and its sockets with it. Close them on the way out; the next request reopens.
@@ -44,7 +43,6 @@ export const relayRuntime: RelayRuntime & { forget(hostId: string): void } = {
     open.set(relay.hostId, { pairing, transport });
     return transport;
   },
-  /** A forgotten Mac's socket closes now, not when the app next goes to the background. */
   forget(hostId) {
     open.get(hostId)?.transport.close();
     open.delete(hostId);

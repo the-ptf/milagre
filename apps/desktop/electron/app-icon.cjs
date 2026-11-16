@@ -1,6 +1,5 @@
 // @ts-check
 // Settings › Appearance › App icon: which icon the Dock (macOS) or the windows' taskbar entry (Windows, Linux) shows.
-// Only the running app's icon changes. The bundle keeps its own: rewriting a signed .app's icon breaks its signature.
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -10,7 +9,6 @@ const APP_ICONS = /** @type {const} */ (["default", "dawn", "mono-dark", "mono-l
 const isAppIcon = (/** @type {unknown} */ value) => typeof value === "string" && APP_ICONS.includes(/** @type {AppIcon} */ (value));
 
 /**
- * The choice, in its own file in userData: the Dock icon is set before the window loads, so it can't wait on the renderer.
  * @param {{ file: string }} options
  * @returns {{ get(): AppIcon, set(icon: unknown): AppIcon }}
  */
@@ -37,7 +35,6 @@ function createAppIconStore({ file }) {
 }
 
 /**
- * The PNG for `icon` under app/public: the default is the app's own logo, the others are pre-shaped like it in app-icons/.
  * @param {string} publicDir
  * @param {AppIcon} icon
  */

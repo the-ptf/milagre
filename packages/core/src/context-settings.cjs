@@ -3,8 +3,6 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { normalizeContextSettings } = require("@milagre/shared/context-settings");
 
-// Host-owned thresholds: Settings on the desktop, phone and paired computers edit the same configuration.
-
 function read(file) {
   try {
     return normalizeContextSettings(JSON.parse(fs.readFileSync(file, "utf8")));
@@ -13,7 +11,6 @@ function read(file) {
   }
 }
 
-/** The settings, saved in `file`. A save goes out as `context:settings` so every open Settings view follows it at once. */
 function createContextSettings({ file, emit = () => {} }) {
   function save(patch) {
     if (typeof patch !== "object" || patch === null || Array.isArray(patch)) {

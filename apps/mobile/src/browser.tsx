@@ -39,7 +39,6 @@ import { useReachableHost } from "./routes-native";
 import type { AgentPort } from "@milagre/shared/model";
 import { useVisibleRunChatKeys } from "./visible-run-chats";
 
-/** Poll this Chat's browser pages only while the screen is visible. Listing never starts a capture. */
 function useBrowsers(client: Client | null, chatId: string | undefined, visible = true) {
   const [list, setList] = useState<BrowserList | null>(null);
   const refresh = useRef<() => Promise<void>>(async () => {});
@@ -49,7 +48,6 @@ function useBrowsers(client: Client | null, chatId: string | undefined, visible 
       if (!client || !chatId || !visible) return;
       let disposed = false,
         busy = false;
-      // Keep the last list while returning to the same Chat, so the pill does not blink.
       const key = `${client.url}|${chatId}`;
       if (listed.current !== key) {
         listed.current = key;
@@ -83,7 +81,6 @@ function useBrowsers(client: Client | null, chatId: string | undefined, visible 
   return { list, setList, refresh: () => refresh.current() };
 }
 
-/** The header offers Browser only while this Chat owns a page. */
 export function useBrowserShortcut({ chatId, openInPanel }: { chatId?: string; openInPanel?: ((tab: ChatTab) => void) | null }) {
   const { client } = useSession();
   const { list } = useBrowsers(client, chatId);
@@ -123,13 +120,10 @@ function useLoopbackOnlyPorts(client: Client | null, chatId: string | undefined,
   return useMemo(() => loopbackOnlyPorts(ports), [ports]);
 }
 
-/** A comment written in comment mode, waiting for Send with the others. */
 type Draft = { key: string; page: { url: string; title: string }; element: PageElement; text: string };
-/** What the comment box shows: a new comment on a picked element, a waiting one, or a sent one to read. */
 type Box = { kind: "new" | "draft"; key: string } | { kind: "sent"; id: string };
 
 const PAGE_COMMENTS_PER_SEND = 50;
-// Waiting comments outlive the sheet: closing the Browser and opening it again keeps them, per Chat.
 const draftsByChat = new Map<string, Draft[]>();
 let draftKey = 0;
 
@@ -161,7 +155,6 @@ export function BrowserSheet({
   const source = client && (!hostId || hostId === client.url) ? client : null;
   const { list } = useBrowsers(source, chatId, visible);
   const loopbackOnly = useLoopbackOnlyPorts(source, chatId, visible);
-  // Each link is a local page, even when the host has no desktop window open.
   const requested = url ? { id: `link:${requestId ?? url}`, title: "", url, browser: "Browser", source: "panel" as const } : null;
   const linkKey = `${hostId}:${chatId}:${url}:${requestId}`;
   const [lastLink, setLastLink] = useState(linkKey);
@@ -187,7 +180,6 @@ export function BrowserSheet({
   const automatic = !choosing && list?.targets.length === 1 ? list.targets[0] : null;
   if (lastLink === linkKey && !chosen && automatic) setChosen({ ...automatic });
   const selected = choosing ? null : (chosen ?? automatic);
-  // The pages to switch between: the agent's, plus a link opened from the Chat.
   const pages = [...(requested && !list?.targets.some((target) => target.url === requested.url) ? [requested] : []), ...(list?.targets ?? [])];
   const shown = selected ? (page ?? { title: selected.title, url: selected.url }) : null;
   const reachableHost = useReachableHost(source?.url) ?? pairedPageHost(source?.url);
@@ -216,16 +208,13 @@ export function BrowserSheet({
   const [sent, setSent] = useState<SavedPageComment[]>([]);
   // A docked iPad page stays mounted while the agent resolves comments beside it.
   const commentRevision = commentActivity(snapshot, chatId, "page");
-  // Its comment refresh reads the Chat's live steps, so that run comes in full.
   useVisibleRunChatKeys(client, chatId ? [chatId] : []);
   const loadSent = useCallback(async () => {
     if (!source || !chatId) return;
     try {
       const comments = await source.call<SavedPageComment[]>("browser-comments:list", [{ chatId }]);
       setSent(Array.isArray(comments) ? comments : []);
-    } catch {
-      /* Pins of sent comments are a nicety; the page still works without them. */
-    }
+    } catch {}
   }, [source, chatId]);
   useEffect(() => {
     if (!visible || !source || !chatId) return;
@@ -276,21 +265,17 @@ export function BrowserSheet({
       setSending(false);
       return;
     }
-    // Leave the pin in place while the host sends; a slow connection must not keep its editor open.
     setCommenting(false);
     setBox(null);
     try {
       const comments = batch.map((draft) => ({ page: { ...draft.page, element: draft.element }, text: draft.text }));
       try {
-        // The Mac takes at most 50 per message; more go as several messages, none dropped.
         for (let start = 0; start < comments.length; start += PAGE_COMMENTS_PER_SEND)
           await source.call("browser-comments:send-from-page", [{ chatId, comments: comments.slice(start, start + PAGE_COMMENTS_PER_SEND) }]);
       } catch (error) {
-        // A Mac from before batches reads `text` only: send them one by one.
         if (!(error instanceof Error) || error.message !== "Write the comment first.") throw error;
         for (const comment of comments) await source.call("browser-comments:send-from-page", [{ chatId, ...comment }]);
       }
-      // A draft stays editable while the Mac sends its snapshot. Keep any newer text for the next Send.
       const delivered = new Map(batch.map((draft) => [draft.key, draft.text]));
       setDrafts((current) => current.filter((draft) => !delivered.has(draft.key) || delivered.get(draft.key) !== draft.text));
       setCommenting(false);
@@ -450,7 +435,6 @@ export function BrowserSheet({
             {commentButton}
             {sendButton}
             {moreButton}
-            {/* The docked panel's own tab strip closes it. */}
           </View>
         ) : (
           <SheetHeader
@@ -582,7 +566,6 @@ export function BrowserSheet({
   );
 }
 
-/** Comment mode's prompt at the bottom of the page, until an element is tapped. */
 function CommentHint({ bottom, count, onDone }: { bottom: number; count: number; onDone(): void }) {
   const { colors } = useTheme();
   return (
@@ -693,8 +676,6 @@ function BrowserWebView({
       onInk: colors.page,
     };
   });
-  // The route is chosen when the page opens. A network change afterwards (Wi-Fi to cellular, the LAN check flipping)
-  // must not tear down a working page and its tunnel; Retry and Load through Mac choose again.
   const routing = useRef({ host, loopbackOnly });
   useEffect(() => {
     if (!route && !error) routing.current = { host, loopbackOnly };
@@ -707,9 +688,7 @@ function BrowserWebView({
       try {
         const alive = await client.call<boolean>("browser:keep-page-url", [{ id: lease }]);
         if (!alive && !disposed) setAttempt((value) => value + 1);
-      } catch {
-        /* Reconnect or the next heartbeat retries. */
-      }
+      } catch {}
     };
     const heartbeat = setInterval(() => void renew(), 60_000);
     const subscription = AppState.addEventListener("change", () => void renew());
@@ -759,7 +738,6 @@ function BrowserWebView({
     if (!route) return;
     const timer = setTimeout(() => {
       if (ready.current) return;
-      // A direct address to the Mac's network that doesn't answer goes through the Mac on its own.
       if (route.via === "direct" && privatePage(url)) setForceProxy(true);
       else setError(route.via === "mac" ? "The page didn't load through the computer. Check that its server is running, then retry." : "The page didn't load.");
     }, 20_000);
@@ -782,7 +760,6 @@ function BrowserWebView({
       backOrLeave: (leave) => {
         if (!view.current || error || !ready.current) return leave();
         leaving.current = leave;
-        // A page that can't go back stays where it is; a cross-document back unloads it before the check runs.
         view.current.injectJavaScript(
           "(() => { const at = location.href; history.back(); setTimeout(() => { if (location.href === at) window.ReactNativeWebView.postMessage(JSON.stringify({kind:'nohistory'})); }, 300); })();true;",
         );
@@ -794,7 +771,6 @@ function BrowserWebView({
     });
   }, [onControls, viaMac, retry, error, forceProxy, route]);
   useEffect(() => () => onControls(null), [onControls]);
-  // The picker and pins live in the page, which forgets them on every load: arm them again whenever it reports in.
   const arm = useCallback(() => {
     const current = view.current;
     if (!current || !ready.current) return;
@@ -870,11 +846,9 @@ function BrowserWebView({
             ready.current = true;
             if (first) latest.current.onLoaded(true);
             // The native WebView compares its source with its current URL on prop updates. Follow navigation so a
-            // title/comment render cannot reload the initial address (or the tunnel's bootstrap redirect).
             setRoute((current) => (current && current.uri !== message.url ? { ...current, uri: message.url } : current));
             const address = originalPageUrl(message.url, url, route.origin);
             latest.current.onPage({ title: String(message.title ?? ""), url: address });
-            // An external browser needs its own authentication cookie; always enter a proxy through its login URL.
             latest.current.onExternalUrl(route.via === "mac" ? externalPageUrl(message.url, route.external, route.origin) : message.url);
             if (message.fresh === true || armedAt.current !== message.url) {
               armedAt.current = message.url;
@@ -892,9 +866,7 @@ function BrowserWebView({
               ),
             );
           } else if (message.kind === "pin" && typeof message.id === "string") latest.current.onPin(message.id);
-        } catch {
-          /* Web content cannot issue RPCs. Only a page title/address, a picked element or a tapped pin is read. */
-        }
+        } catch {}
       }}
       onContentProcessDidTerminate={failed}
       onRenderProcessGone={failed}
@@ -920,9 +892,7 @@ function PageError({
   let address = url;
   try {
     address = new URL(url).host;
-  } catch {
-    /* Shown as written. */
-  }
+  } catch {}
   return (
     <PageScroll contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 24, gap: space.xl }}>
       <View style={{ width: 56, height: 56, borderRadius: radius.full, alignItems: "center", justifyContent: "center", backgroundColor: colors.field }}>

@@ -12,7 +12,6 @@ import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-c
 import { useNewChatStats } from "./chat-display-setting";
 import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL, DEVICE_NOTES_WARNING } from "@milagre/shared/device-notes";
 
-/** Settings › Church: features still taking shape, like desktop's Church section. Babysit PRs, Simlock and Computer use graduated. */
 export function ExperimentalSection() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -21,7 +20,6 @@ export function ExperimentalSection() {
   const [fatality, setFatality] = useUltracodeFatality();
   const [newChatStats, setNewChatStats] = useNewChatStats();
   const session = useSession();
-  // Device notes, also kept by the Mac (its agents get the notes); null on a Mac without them.
   const [deviceNotes, setDeviceNotes] = useState<boolean | null>(null);
   const [deviceNotesError, setDeviceNotesError] = useState("");
   const [deviceNotesSaving, setDeviceNotesSaving] = useState(false);
@@ -32,7 +30,6 @@ export function ExperimentalSection() {
     setDeviceNotesError("");
     setDeviceNotesSaving(false);
   }
-  // Keep a pending write across blur/focus, but never apply its reply to a different connection.
   const deviceNotesScope = useRef<{ client: Client; saving: boolean; revision: number } | null>(null);
   useEffect(() => {
     const client = session.client;
@@ -94,7 +91,7 @@ export function ExperimentalSection() {
               const scope = deviceNotesScope.current;
               if (!scope || scope.client !== session.client || scope.saving) return;
               scope.saving = true;
-              ++scope.revision; // A read started before this write must not replace its acknowledgement.
+              ++scope.revision;
               const next = !deviceNotes;
               setDeviceNotesSaving(true);
               setDeviceNotesError("");

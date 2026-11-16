@@ -16,12 +16,10 @@ export const MAX_HOOK_BODY = 256 * 1024;
 const MAX_HOOK_HEADERS = 16 * 1024;
 export const MAX_STORED = 200;
 const MAX_STORED_BYTES = 20 * 1024 * 1024;
-// One noisy hook can fill at most a quarter of the room, so the others always have space left.
 export const MAX_STORED_PER_HOOK = 50;
 const MAX_STORED_BYTES_PER_HOOK = 5 * 1024 * 1024;
 export const HOLD_MS = 24 * 60 * 60 * 1000;
 const MAX_HOOKS = 100;
-/** The one answer for every hook nobody can deliver to: unknown, malformed, released or owned by another room. */
 export const NOT_FOUND = Object.freeze({ status: 404, json: Object.freeze({ error: "not found" }) });
 const NOT_FOUND_BODY = JSON.stringify(NOT_FOUND.json);
 const FULL = Object.freeze({ status: 429, json: Object.freeze({ error: "too many deliveries waiting" }) });
@@ -29,26 +27,22 @@ const TOO_LARGE = Object.freeze({ status: 413, json: Object.freeze({ error: "pay
 
 const SECRET = /^[A-Za-z0-9_-]{43}$/;
 const HOOK_ID = /^[0-9a-f]{64}$/;
-// Headers that belong to the relay or the network, or that a sender should not hand an agent.
 const SKIPPED_HEADERS = /^(cf-|x-forwarded-|x-real-ip$|x-milagre-|cookie$|authorization$|host$|content-length$|connection$|transfer-encoding$)/;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const defaultRandomId = () => b64url(crypto.getRandomValues(new Uint8Array(16)));
 
-/** The secret in a `/hook/<secret>` path, or null when the path or the secret's shape is wrong. */
 export function hookSecretOf(pathname) {
   if (typeof pathname !== "string" || !pathname.startsWith("/hook/")) return null;
   const secret = pathname.slice("/hook/".length);
   return SECRET.test(secret) ? secret : null;
 }
 
-/** The hook id for a secret: its hex sha256. Hashing every candidate is the only way a secret is ever compared. */
 export async function hookIdOf(secret) {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(String(secret))));
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** A request's body as bytes, or null past `max` (256 KiB), whatever its Content-Length says. */
 export async function readHookBody(request, max = MAX_HOOK_BODY) {
   const declared = Number(request.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > max) return null;
@@ -75,7 +69,6 @@ export async function readHookBody(request, max = MAX_HOOK_BODY) {
   return out;
 }
 
-/** The sender's headers worth passing on: lowercased, the relay's and network's own left out, 16 KiB at most. */
 export function pickHookHeaders(entries, max = MAX_HOOK_HEADERS) {
   const out = {};
   let size = 0;
@@ -90,14 +83,13 @@ export function pickHookHeaders(entries, max = MAX_HOOK_HEADERS) {
   return out;
 }
 
-/** The first value of each query parameter, as the agent's `{{query.<name>}}` reads it. */
 function pickHookQuery(search) {
   const out = {};
   for (const [name, value] of new URLSearchParams(search)) if (!Object.hasOwn(out, name)) out[name] = value;
   return out;
 }
 
-/** The JSON answer for a hook request; every 404 is these exact bytes and headers. */
+/** The JSON answer for a hook request; every 404 is these exact bytes and headers, so a probe learns nothing. */
 export function hookResponse(answer) {
   return new Response(answer === NOT_FOUND ? NOT_FOUND_BODY : JSON.stringify(answer.json), {
     status: answer.status,
@@ -115,8 +107,8 @@ export function hookResponse(answer) {
 export async function handleHookRequest(request, { lookupRoom, forwardToRoom }) {
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { allow: "POST" } });
   const url = new URL(request.url);
-  // A secret that can't be one is answered here, with the same bytes as an unknown hook, before any body is read or any
-  // directory is asked: a probe costs no Durable Object request.
+  // Answered before any body is read or directory is asked: a probe costs no Durable Object request (Cloudflare bills
+  // each one; see the 2026-11-10 relay outage).
   const secret = hookSecretOf(url.pathname);
   if (!secret) {
     await request.body?.cancel().catch(() => {});
@@ -178,14 +170,12 @@ export function sqlHookStorage(sql) {
   };
 }
 
-/** A HOOK frame's payload split into its JSON header line and the body bytes. */
 export function splitHookFrame(payload) {
   const at = payload.indexOf(10);
   if (at < 0) throw new Error("A HOOK frame needs a header line");
   return { header: JSON.parse(decoder.decode(payload.subarray(0, at))), body: payload.slice(at + 1) };
 }
 
-/** Packs a delivery for the Worker's hop to the room: a JSON line with headers and query, then the body. */
 function packHookRequest({ headers, query, body }) {
   const head = encoder.encode(JSON.stringify({ headers, query }) + "\n");
   const out = new Uint8Array(head.byteLength + body.byteLength);
@@ -255,8 +245,8 @@ export function createHookRoom({ storage, directory, roomId, now = Date.now, ran
       if (delivery && !forward(delivery)) return;
     }
   };
-  let desired = null; // the latest HOOK_SET, which the directory calls catch up with
-  const unreleased = new Set(); // hooks dropped here whose directory release hasn't gone through yet
+  let desired = null;
+  const unreleased = new Set();
   const release = (id, roomNow) =>
     Promise.resolve()
       .then(() => directory.release(id, roomNow))
@@ -267,8 +257,6 @@ export function createHookRoom({ storage, directory, roomId, now = Date.now, ran
   async function settle(removed, owners) {
     const roomNow = room();
     for (const id of removed) unreleased.add(id);
-    // Releases that failed before are tried again on every set; a hook wanted again is still this room's.
-    // A copy: release awaits storage and directory work that can update the set.
     for (const id of Array.from(unreleased)) {
       if (desired.has(id)) unreleased.delete(id);
       else await release(id, roomNow);
@@ -282,17 +270,13 @@ export function createHookRoom({ storage, directory, roomId, now = Date.now, ran
         .then(() => (ownerKey ? directory.claim(id, roomNow, ownerKey) : directory.claim(id, roomNow)))
         .catch(() => null);
       if (claimed !== true) {
-        // false: another room holds it (this Mac before a Reset, until its old room lets go or the owner key moves it here).
-        // null: the directory couldn't be asked. Either way the next set tries again.
         if (desired.has(id)) (claimed === null ? failed : refused).push(id);
         continue;
       }
-      // A later HOOK_SET may have dropped it while the claim was in flight.
       if (desired.has(id)) storage.hooks.add(id);
       else await release(id, roomNow);
     }
     try {
-      // `held`: deliveries still waiting here, so a room a Reset retired knows when nothing is left to drain.
       send(frame(HOOK_RESULT, 0n, encoder.encode(JSON.stringify({ refused, failed, held: storage.deliveries.size() }))));
     } catch {
       /* the Mac is gone; it sends its set again on the next ready */
@@ -325,12 +309,10 @@ export function createHookRoom({ storage, directory, roomId, now = Date.now, ran
       forward(delivery);
       return { status: 202, json: { id: delivery.id } };
     },
-    /** The Mac just proved itself: everything stored goes to it, oldest first. */
     onHostReady(nextSend) {
       if (nextSend) send = nextSend;
       flush();
     },
-    /** A HOOK_SET or HOOK_ACK from the Mac. HOOK_SETs apply one at a time, in the order they came. */
     onFrame(type, payload, nextSend) {
       if (nextSend) send = nextSend;
       if (type === HOOK_ACK) {
@@ -341,14 +323,11 @@ export function createHookRoom({ storage, directory, roomId, now = Date.now, ran
       const next = hookSetOf(payload);
       if (!next) return undefined;
       desired = next.ids;
-      // Removals now, before any directory call: a rotated hook is dead at once.
       const removed = [...storage.hooks].filter((id) => !next.ids.has(id));
       for (const id of removed) storage.hooks.delete(id);
-      // A settle that fails (no room id yet, storage trouble) must not stop every later set from applying.
       applying = applying.then(() => settle(removed, next.owners)).catch(() => {});
       return applying;
     },
-    /** Deletes deliveries held 24 h by `at`; returns when the next one expires, or null when none is left. */
     expire(at) {
       let next = null;
       for (const entry of storage.deliveries.list()) {
@@ -381,13 +360,11 @@ export function createHookDirectory({ storage }) {
         if (!known && key) storage.put("owner", await hookIdOf(key));
         return true;
       }
-      // A hook with an owner key, held or released (a paused or deleted Routine, a retiring room), goes only to that key.
       if (known) {
         if (!key || (await hookIdOf(key)) !== known) return false;
         storage.put("room", roomId);
         return true;
       }
-      // No key registered: first come, and one another room holds stays with it.
       if (current) return false;
       storage.put("room", roomId);
       if (key) storage.put("owner", await hookIdOf(key));
@@ -400,7 +377,6 @@ export function createHookDirectory({ storage }) {
   };
 }
 
-/** In-memory storage for one room's hooks: the daemon's local test relay and the tests. */
 export function memoryHookStorage() {
   const rows = new Map();
   let bytes = 0;
@@ -420,7 +396,6 @@ export function memoryHookStorage() {
         rows.delete(id);
         bytes -= old.size;
       },
-      // Insertion order is arrival order.
       list: () => [...rows.values()].map(({ id, hook, receivedAt, size }) => ({ id, hook, receivedAt, size })),
       size: () => rows.size,
       bytes: () => bytes,
@@ -428,7 +403,6 @@ export function memoryHookStorage() {
   };
 }
 
-/** Every hook's directory entry in one map: the daemon's local test relay and the tests. */
 export function memoryHookDirectory() {
   const entries = new Map();
   const entry = (hookId) => {

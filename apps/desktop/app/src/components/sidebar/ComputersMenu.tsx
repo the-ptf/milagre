@@ -22,13 +22,11 @@ function HostRow({
   name: string;
   line: string;
   tone: ComputerTone;
-  /** Its Projects are in the sidebar; unchecked, the sidebar leaves them out. */
   shown: boolean;
   onShow: (shown: boolean) => void;
   gearLabel: string;
   onGear: () => void;
 }) {
-  // A two-line menu row (MenuRow's metrics and highlight) holding two controls: the check and the gear.
   return (
     <div
       data-row
@@ -75,24 +73,15 @@ function HostRow({
   );
 }
 
-/**
- * Filters › Computers (spec "Computer status", design sidebar-c-sections v6): This Mac and each paired computer with its
- * status dot and route, a check that keeps its Projects in the sidebar or leaves them out (and quiet: no notice, badge or
- * inbox row here), a gear per computer that opens its settings (This Mac's: Settings › Phone & sharing), and Add computer.
- * Offered only while Settings › Phone & sharing › Other computers is on.
- */
 export function ComputersMenu({
   now,
   onAddComputer,
   onOpenSettings,
   onPicked,
 }: {
-  /** When the menu opened, for "seen 2h ago". */
   now: number;
   onAddComputer: () => void;
-  /** null: This Mac. */
   onOpenSettings: (id: string | null) => void;
-  /** A gear or Add computer was picked: the menu closes. */
   onPicked: () => void;
 }) {
   const { thisMac, computers } = useComputers();

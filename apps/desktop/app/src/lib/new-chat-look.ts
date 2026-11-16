@@ -1,10 +1,8 @@
 import { CHATS_PLACEHOLDER, CHATS_TRAY_LABEL, JUST_CHAT_HEADING, type ProjectKind } from "@milagre/shared/chats-home";
 
 type ChatsLook = { heading: string; tray: "chats"; trayLabel: string; placeholder: string };
-/** What a new Chat's screen says: the heading before the Project button, and what the tray above the composer holds. */
 export type NewChatLook = { heading: string; tray: "project" } | ChatsLook;
 
-/** A Chats home draft has no Project to build in: no isolation, branch or issue to pick, only where it runs. */
 export function newChatLook(kind: "chats"): ChatsLook;
 export function newChatLook(kind: ProjectKind | undefined): NewChatLook;
 export function newChatLook(kind: ProjectKind | undefined): NewChatLook {

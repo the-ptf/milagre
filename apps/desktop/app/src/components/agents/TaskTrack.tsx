@@ -67,21 +67,15 @@ function TaskRows({ tasks, depth, folded, toggle }: { tasks: ChatTask[]; depth: 
   });
 }
 
-// The panel is never wider than this nor taller than this (PillMorph also caps it at a share of the window).
 const PANEL_WIDTH = 380;
 const PANEL_HEIGHT = 520;
 
-/**
- * The Chat's plan: a "done/total" pill that grows in place into its task tree and phase graph (see PillMorph).
- */
 export function TaskTrack({ plan }: { plan?: ChatPlan }) {
   const panelId = useId();
   const [opened, setOpened] = useState(false);
-  // Each opening draws a fresh phase graph, so its Now is the moment the panel opened.
   const [opening, setOpening] = useState(0);
   const [folded, setFolded] = useState<Set<string>>(() => new Set());
   const empty = !plan || (!plan.tasks.length && !plan.phases.length);
-  // The plan goes with its Chat; a later one starts closed.
   useEffect(() => {
     if (empty) setOpened(false);
   }, [empty]);
@@ -129,7 +123,6 @@ export function TaskTrack({ plan }: { plan?: ChatPlan }) {
                 {collapse}
               </div>
             )}
-            {/* The tree and the graph scroll as one body under the fixed header, so a short window never squeezes the tree. */}
             <ScrollArea data-slot="task-body" className="flex flex-col gap-2">
               {plan.tasks.length > 0 && (
                 <ul aria-labelledby={`${panelId}-tasks`} className="shrink-0">

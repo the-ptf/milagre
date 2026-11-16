@@ -12,14 +12,8 @@ import { RowCheckbox } from "./row-checkbox";
 import { Findable } from "../settings-find";
 import { rowHover, rowMetrics } from "./row-metrics";
 
-/** From this text size the value no longer fits beside the title, so it moves under it. */
 const STACK_FONT_SCALE = 1.35;
 
-/**
- * A list row: leading icon, title, an optional subtitle or current value, and a chevron (see `rowMetrics`). With
- * `toggle` the whole row is a checkbox: a tap anywhere flips it and it reads as one ("Show its Chats, checkbox, checked").
- * Without `onPress` or `toggle` it isn't an element of its own, so VoiceOver reaches what's inside it.
- */
 export function ListRow({
   title,
   subtitle,
@@ -44,16 +38,13 @@ export function ListRow({
   subtitle?: string;
   subtitleLines?: number;
   inlineSubtitle?: boolean;
-  /** The subtitle's ink: `redInk` for a failure. */
   subtitleTone?: Tone;
   titleLines?: number;
-  /** The current value, in ink3 before the chevron (a Settings row). */
   value?: string;
   icon?: IconData;
   compact?: boolean;
   onPress?: () => void;
   onLongPress?: () => void;
-  /** The row is a checkbox: `value` its state, `onChange` flips it, `label` what it reads if not the title. */
   toggle?: { value: boolean; onChange: () => void; label?: string };
   disabled?: boolean;
   destructive?: boolean;
@@ -61,7 +52,6 @@ export function ListRow({
   /** The page this row opens is the one showing beside it (the iPad Settings sidebar): a filled row, without its chevron. */
   selected?: boolean;
   leading?: React.ReactNode;
-  /** Replaces the value and the chevron, for a custom accessory. */
   trailing?: React.ReactNode;
 }) {
   const styles = useStyles();
@@ -120,7 +110,6 @@ export function ListRow({
           <Text numberOfLines={titleLines} style={[styles.text, metrics.title, inlineSubtitle && { flex: 1 }, destructive && { color: colors.redInk }]}>
             {title}
           </Text>
-          {/* Paths keep their start and end; descriptions can wrap. */}
           {subtitle && (
             <Text
               style={[styles.caption, { color: colors[subtitleTone] }]}
@@ -133,7 +122,6 @@ export function ListRow({
           {stacked ? valueText : null}
         </View>
         {toggle ? (
-          // The row is the control: its checkbox only shows the state, so a tap on it isn't counted twice.
           <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             <RowCheckbox selected={toggle.value} onPress={toggle.onChange} disabled={disabled} label={toggle.label ?? title} />
           </View>

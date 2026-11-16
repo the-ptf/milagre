@@ -7,10 +7,6 @@ const VIEWS = [
   { value: "analytics", title: "Analytics" },
 ];
 
-/**
- * Keep both existing Settings routes reachable through the same Usage navigation: a segmented switch between them. It
- * grows into the room its row leaves beside the page's menus, and takes a line of its own when that is under 200.
- */
 export function UsageTabs({ value }: { value: "plan" | "analytics" }) {
   return (
     <View style={{ flexGrow: 1, flexBasis: 200 }}>

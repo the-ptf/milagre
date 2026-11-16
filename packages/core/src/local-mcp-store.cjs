@@ -23,7 +23,6 @@ const grantsSchema = z
 const configurationSchema = z.strictObject({ label: z.string().trim().min(1).max(120), grants: grantsSchema, expiresAt: z.iso.datetime().optional() });
 const hash = (text) => createHash("sha256").update(text).digest("hex");
 
-// Each small write is synchronous and fsynced: memory and durable authorization cannot race.
 function privateJson(directory, name, fallback) {
   preparePrivateDirectory(directory);
   const file = path.join(directory, name);
@@ -116,7 +115,6 @@ function createLocalMcpStore({ directory, now = Date.now }) {
       return { connection: replace(id, { tokenHash: hash(token) }), token };
     },
     revoke(id) {
-      // Revocation is idempotent, including an expired connection.
       const record = state.connections.find((item) => item.id === id);
       if (!record) throw Error("Unknown connection");
       if (!record.revokedAt)

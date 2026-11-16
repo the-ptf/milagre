@@ -1,6 +1,3 @@
-// What happens to the Worktree a Routine's Run made once the Run ends: it goes when it leaves nothing behind, and the Run's
-// Chat stays, archived, readable from the Run's history.
-
 const hasMessages = (state, session) => (session.summary?.count ?? 0) > 0 || (state.messages ?? []).some((message) => message.session_id === session.id);
 
 /**
@@ -13,10 +10,11 @@ const hasMessages = (state, session) => (session.summary?.count ?? 0) > 0 || (st
  * there is running (`busy`), when the Run's Chat was kept by the user (its `routine.hidden` is false), or when another
  * Chat with messages that isn't archived uses it.
  *
- * Otherwise every Chat with messages there (the Run's, a retry's) is closed (`closeChat`), archived and moved to the
- * Project folder's Worktree with `formerWorktree` naming where it ran (`moveChats`), since a Chat leaves the Project with
- * its Worktree; then `remove(worktreePath)` removes the Worktree the way worktree_remove does. A removal that fails moves
- * the Chats back as they were. Resolves with `{ removed: true }` or `{ removed: false, reason }`; never throws.
+ * Otherwise every Chat with messages there (the Run's, a retry's) lets go of the Worktree (`closeChat`), is archived and
+ * moved to the Project folder's Worktree with `formerWorktree` naming where it ran (`moveChats`), since a Chat leaves the
+ * Project with its Worktree; then `remove(worktreePath)` removes the Worktree the way worktree_remove does, and each moved
+ * Chat is retired (`retireChat`). A removal that fails moves the Chats back as they were, not retired. Resolves with
+ * `{ removed: true }` or `{ removed: false, reason }`; never throws.
  */
 async function retireRunWorktree({
   projectPath,
@@ -28,6 +26,7 @@ async function retireRunWorktree({
   hasRemote,
   openPullRequest,
   closeChat,
+  retireChat,
   moveChats,
   remove,
 }) {
@@ -60,7 +59,6 @@ async function retireRunWorktree({
     const moved = sessions.filter((session) => hasMessages(state, session));
     for (const session of moved) await closeChat(keyOf(session));
     const formerWorktree = { path: worktree.path, name: worktree.name, ...(checked.branch ? { branch: checked.branch } : {}) };
-    // An empty Chat there (one a Worktree keeps for its next send) goes with the Worktree; archived, it no longer holds it.
     const empty = sessions.filter((session) => !session.archived && !hasMessages(state, session)).map((session) => session.id);
     const before = await moveChats(
       projectPath,
@@ -73,6 +71,7 @@ async function retireRunWorktree({
       await moveChats(projectPath, Object.keys(before).map(Number), { restore: before }).catch(() => {});
       return keep(error?.message ?? String(error));
     }
+    for (const session of moved) await retireChat(keyOf(session));
     return { removed: true };
   } catch (error) {
     return keep(error?.message ?? String(error));

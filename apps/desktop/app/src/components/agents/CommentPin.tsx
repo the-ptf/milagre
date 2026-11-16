@@ -11,14 +11,11 @@ import { Icon } from "../primitives/Icon";
 
 const SEND_KEYS = /Mac/.test(navigator.userAgent) ? "⌘Enter" : "Ctrl+Enter";
 
-/** A pin's size, in screen pixels: a round bubble whose top-left corner is its point (DESIGN.md, Sizes: 20). */
 const PIN = 20;
 const PIN_RADIUS = `0 ${PIN / 2}px ${PIN / 2}px ${PIN / 2}px`;
 const BUBBLE_RADIUS = "3px 10px 10px 10px";
-/** The pin and its bubble are one surface: its size, corners, fill and ring move together; reduced motion jumps. */
 const SURFACE =
   "transition-[width,height,border-radius,background-color,box-shadow] duration-base ease-enter motion-reduce:transition-none motion-reduce:duration-0";
-/** A surface-coloured ring sets the pin off the design under it. */
 const PIN_SHADOW = "var(--shadow-pin)";
 
 const themeColor = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -35,7 +32,6 @@ export function commentCursor(fill: string, ring = themeColor("--surface") || "w
   return `image-set(${svg(22)} 1x, ${svg(44)} 2x) 2 2, crosshair`;
 }
 
-/** The comment cursor in the current theme's accent-ink (the pins' fill), read again when the theme changes. */
 function useCommentCursor(on: boolean) {
   const [theme, setTheme] = useState(0);
   useEffect(() => {
@@ -47,16 +43,10 @@ function useCommentCursor(on: boolean) {
   return useMemo(() => {
     if (!on) return undefined;
     return commentCursor(themeColor("--accent-ink"));
-    // `theme` is only a signal to read the accent again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [on, theme]);
 }
 
-/**
- * The layer over a design that holds its comments. In comment mode it takes the clicks, each pinning a comment at its
- * point (as fractions of the design); otherwise only the pins take the mouse. It sits outside the design's clipping,
- * so a bubble near an edge stays whole.
- */
 export function CommentLayer({
   commenting,
   title,
@@ -88,12 +78,6 @@ export function CommentLayer({
   );
 }
 
-/**
- * A pinned comment, Figma-like: a numbered pin whose point marks the spot, which grows from that point into the bubble
- * holding the comment, and shrinks back into the pin when it closes. Enter, Escape or a press elsewhere closes the
- * bubble, keeping the comment for Send; ⌘Enter sends it right away with the rest of the feedback; one closed empty is
- * removed. Both stay the same size on screen however far the canvas zooms.
- */
 export function CommentPin({
   pin,
   number,
@@ -108,23 +92,19 @@ export function CommentPin({
   open: boolean;
   scale: number;
   comments: Pick<PinControls, "onOpen" | "onText" | "onRemove" | "onSend">;
-  /** Keep an open bubble inside a constrained viewer without moving its closed pin. */
   offsetX?: number;
-  /** A comment already sent: its bubble reads it back, and it can't change. */
   sent?: boolean;
 }) {
   const reduce = useReducedMotion();
   const motionScale = useMotionScale();
   const root = useRef<HTMLDivElement>(null);
   const [bubble, measureBubble] = useSize();
-  // Above the frames beside it while the bubble is open or shrinking back, so it stays whole past its design.
   const [lifted, setLifted] = useState(open);
   if (open && !lifted) setLifted(true);
   const close = () => {
     if (!sent && !pin.text.trim()) comments.onRemove(pin.key);
     comments.onOpen(null);
   };
-  // A press anywhere else closes the bubble. Pins stay where they are as the page scrolls, so a scroll doesn't.
   useDismiss(
     open,
     close,
@@ -142,7 +122,6 @@ export function CommentPin({
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open, sent, comments]);
-  // A number on a coloured fill sits on the -ink fill, so it reaches 4.5:1.
   const [fill, ink] = pin.resolved !== undefined ? ["bg-green-ink", "text-on-green"] : sent ? ["bg-ink", "text-on-ink"] : ["bg-accent-ink", "text-on-accent"];
   return (
     <div
@@ -157,10 +136,8 @@ export function CommentPin({
         transformOrigin: "top left",
         marginLeft: open ? offsetX : undefined,
       }}
-      // A click in the bubble isn't a click on the design to pin another comment.
       onClick={(event) => event.stopPropagation()}
     >
-      {/* One surface is the pin and grows into the bubble; the pin's number and the bubble's comment crossfade over it. */}
       <div
         aria-hidden
         data-slot="artifact-comment-surface"
@@ -191,7 +168,6 @@ export function CommentPin({
             ref={measureBubble}
             data-slot="artifact-comment-bubble"
             initial={{ opacity: 0 }}
-            // The comment fades in once the surface has mostly grown, and out first as it shrinks back.
             animate={{ opacity: 1, transition: { duration: reduce ? 0 : DURATION.fast, delay: reduce ? 0 : 0.1, ease: EASE_OUT } }}
             exit={{ opacity: 0, transition: { duration: reduce ? 0 : DURATION.fast, ease: EASE_OUT } }}
             className="absolute top-0 left-0 flex w-64 cursor-default flex-col gap-2 p-2 text-ink"
@@ -211,7 +187,6 @@ export function CommentPin({
             ) : (
               <>
                 <textarea
-                  // oxlint-disable-next-line jsx-a11y/no-autofocus -- the bubble opens to be written in, like Figma's
                   autoFocus
                   aria-label={`Comment ${number} on ${pin.design.title}`}
                   value={pin.text}
@@ -227,12 +202,10 @@ export function CommentPin({
                       event.preventDefault();
                       close();
                     } else if (event.key === "Escape") {
-                      // Closes the bubble, not the canvas.
                       event.preventDefault();
                       close();
                     }
                   }}
-                  // Grows with the comment up to eight lines, then scrolls; the surface follows the bubble's size.
                   className="field-sizing-content max-h-[8lh] min-h-[2lh] w-full resize-none rounded-chip bg-transparent px-1 text-13 outline-none"
                 />
                 <div className="flex items-center justify-between text-11 text-ink-3">

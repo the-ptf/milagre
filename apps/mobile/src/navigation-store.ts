@@ -14,7 +14,6 @@ export function parseLocation(raw: string | null): ChatLocation | null {
   }
 }
 
-/** Serialize writes so a slow save cannot put an older Chat back on the next launch. */
 export function createNavigationStore(storage: Storage) {
   let pending = Promise.resolve();
   return {

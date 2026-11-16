@@ -1,4 +1,3 @@
-// Generates small signed repository metadata. DEB/RPM assets stay on GitHub Releases.
 // The RPM must already be signed: run linux-repository-sign-rpm.cjs first.
 const fs = require("node:fs");
 const path = require("node:path");
@@ -80,7 +79,6 @@ function sign(file, output, fingerprint, clear = false) {
 
 function verifyRPM(file, publicKey, temporary) {
   // An isolated rpm keyring prevents a package signed with an unrelated local key
-  // from passing. The verification also checks the package's own payload digest.
   const database = path.join(temporary, "rpm-keyring");
   fs.mkdirSync(database);
   run("rpm", ["--dbpath", database, "--initdb"]);
@@ -153,7 +151,6 @@ function previousPackages(file) {
     if (
       !match ||
       !entry ||
-      // Accept retained maps written before the rename, then emit canonical URLs.
       ![repository + releasePath, `${repository}-ade${releasePath}`].includes(entry.url) ||
       !/^[a-f0-9]{64}$/.test(entry.sha256 ?? "") ||
       !Number.isSafeInteger(entry.size) ||
@@ -222,13 +219,10 @@ async function generate(options) {
     throw new Error("SOURCE_DATE_EPOCH must be a valid Unix timestamp in seconds");
   }
   const date = new Date(Number(epoch) * 1000).toUTCString();
-  // Reject a mismatched version/name before signing any bytes.
   packageControl(originalDeb, originalRPM, version);
   if (options.signRPM) signRPM(originalRPM);
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-repository-"));
   try {
-    // Verify and hash immutable snapshots, then compare the upload inputs again
-    // before publishing metadata. Concurrent changes cannot produce unchecked hashes.
     const deb = path.join(temporary, debName);
     const rpm = path.join(temporary, rpmName);
     fs.copyFileSync(originalDeb, deb);
@@ -236,8 +230,6 @@ async function generate(options) {
     const publicKey = write(temporary, "archive-keyring.asc", run("gpg", ["--batch", "--armor", "--export", fingerprint]));
     if (!fs.statSync(publicKey).size) throw new Error("Could not export the public signing key");
     verifyRPM(rpm, publicKey, temporary);
-    // Integrity fields always describe the final bytes, never fields supplied by
-    // package control metadata. Keep dependency and multiline Description fields.
     const control = packageControl(deb, rpm, version);
     const debHash = await hashFile(deb);
     const rpmHash = await hashFile(rpm);
@@ -256,7 +248,6 @@ async function generate(options) {
     for (const [name, contents] of aptEntries) {
       const hash = createHash("sha256").update(contents).digest("hex");
       write(staged, `${aptBase}/${name}`, contents);
-      // by-hash URLs avoid mismatching cached Release and Packages across updates.
       write(staged, `${aptBase}/${path.posix.dirname(name)}/by-hash/SHA256/${hash}`, contents);
       release += ` ${hash} ${contents.length} ${name}\n`;
     }
@@ -264,8 +255,6 @@ async function generate(options) {
     const releaseFile = write(staged, `${aptBase}/Release`, release);
     sign(releaseFile, path.join(staged, aptBase, "InRelease"), fingerprint, true);
     sign(releaseFile, path.join(staged, aptBase, "Release.gpg"), fingerprint);
-    // createrepo must inspect real signed RPM bytes. Work in a private temporary
-    // directory and copy only repodata into the deployment; never include RPMs.
     const rpmWorking = path.join(temporary, "rpm-working");
     fs.mkdirSync(rpmWorking);
     fs.copyFileSync(rpm, path.join(rpmWorking, rpmName));
@@ -352,10 +341,8 @@ async function generate(options) {
       "repository-manifest.json",
       JSON.stringify({ tag: options.tag, fingerprint, date, packages, metadataPaths: Object.keys(metadata) }, null, 2) + "\n",
     );
-    // Ensure input artifacts were not modified concurrently while indexing.
     if ((await hashFile(originalDeb)) !== debHash || (await hashFile(originalRPM)) !== rpmHash)
       throw new Error("Installer bytes changed during repository generation");
-    // Prepare a complete tree before replacing the previous generated deployment.
     fs.mkdirSync(path.dirname(output), { recursive: true });
     const incoming = fs.mkdtempSync(path.join(path.dirname(output), ".milagre-repository-"));
     try {

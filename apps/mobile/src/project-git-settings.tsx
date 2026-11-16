@@ -21,7 +21,6 @@ function insertToken(value: string, token: string, at: number) {
   return `${before}${glue}{${token}}${value.slice(at)}`;
 }
 
-/** Project settings › Branches, as on desktop: saves as you type; a field set in .milagre/worktree.json is read-only. */
 export function ProjectGitSettings({ client, path }: { client: Client; path: string }) {
   const styles = useStyles();
   const [saved, setSaved] = useState<BranchPolicySettings | null>(null);
@@ -62,7 +61,6 @@ export function ProjectGitSettings({ client, path }: { client: Client; path: str
       },
       (failure: unknown) => live && setError(failure instanceof Error ? failure.message : "Couldn't read branch settings."),
     );
-    // Leaving the screen saves what was typed last.
     return () => {
       live = false;
       flush();
@@ -83,7 +81,6 @@ export function ProjectGitSettings({ client, path }: { client: Client; path: str
     const next = { ...draft!, ...patch };
     setDraft(next);
     if (timer.current) clearTimeout(timer.current);
-    // An invalid template or base branch waits until it's fixed.
     const problems = branchPolicyCheck(next);
     if (problems.template || problems.baseBranch) {
       pending.current = null;
@@ -93,7 +90,6 @@ export function ProjectGitSettings({ client, path }: { client: Client; path: str
     if (now) flush();
     else timer.current = setTimeout(flush, 600);
   }
-  // Values are code; placeholders like "Current branch" are prose.
   const mono = (value: string) => (value ? { fontFamily: fonts.mono } : null);
   const textField = (field: "username" | "baseBranch") => (
     <View style={BLOCK}>

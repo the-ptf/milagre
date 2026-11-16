@@ -15,23 +15,14 @@ import { Row } from "./SettingsGroup";
 
 const BUTTON =
   "rounded-control border border-line bg-surface px-3 py-1.5 text-12 font-medium text-ink transition-colors hover:border-line-strong hover:bg-hover disabled:cursor-default disabled:opacity-50";
-// How often the row reads the update again while it moves (checking, downloading, restarting).
 const FOLLOW_MS = 2000;
 
-/**
- * A paired computer's desktop app update, on its Computer page, as the phone shows it in Settings › General: Check for
- * updates, and Install & restart after a question, since it restarts Milagre on that computer. Hidden while the
- * computer is too old to answer; this Mac's own update is Settings › About.
- */
 export function HostUpdateRow({ bridge, name }: { bridge: Pick<MilagreBridge, "readHostUpdate" | "checkHostUpdate" | "installHostUpdate">; name: string }) {
-  // undefined until the computer answers (an older one never does); null while no desktop app is open there.
   const [update, setUpdate] = useState<HostUpdate | undefined>(undefined);
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(false);
-  // Restarting there drops the computer's connection for a moment; the row keeps saying so until it answers again.
   const [restarting, setRestarting] = useState(false);
   const following = restarting || updateBusy(update ?? null);
-  // A computer that never answers again (its install failed with no host left to say so) ends "Restarting" with what to do.
   useEffect(() => {
     if (!restarting) return;
     const timer = setTimeout(() => {
@@ -59,7 +50,6 @@ export function HostUpdateRow({ bridge, name }: { bridge: Pick<MilagreBridge, "r
       clearInterval(timer);
     };
   }, [bridge, following, restarting]);
-  // Hidden while the computer can't answer, unless a restart it never came back from has something to say.
   if (update === undefined && !restarting && !error) return null;
   const run = async (action: () => Promise<HostUpdate>) => {
     setError("");

@@ -1,6 +1,5 @@
 // Loads the built landing page in headless Electron at desktop and phone sizes.
 // npm run test:site (builds the site first)
-// Set MILAGRE_SCREENSHOT_DIR (outside the repo) to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -56,23 +55,19 @@ async function waitFor(evaluate, window, code, description) {
   throw new Error(`Timed out: ${description}`);
 }
 
-// The hero is three quarters of the screen. Feature sections scroll below it; the hero's devices and CTA fit the hero.
 async function assertHeroScreen(evaluate, window) {
   const size = await evaluate(
     window,
     `({ sw: document.documentElement.scrollWidth, sh: document.querySelector('.page').getBoundingClientRect().height, w: innerWidth, h: innerHeight })`,
   );
   assert.ok(size.sw <= size.w, `scrollWidth ${size.sw} > ${size.w}`);
-  // 75dvh; phone emulation reports a taller innerHeight than the dynamic viewport, hence the range.
   assert.ok(size.sh >= size.h * 0.6 && size.sh <= size.h * 0.76, `hero height ${size.sh} is not about 75% of ${size.h}`);
-  // Everything below is measured against the hero, not the window.
   size.h = size.sh;
   const demo = await evaluate(
     window,
     `(() => { const r = document.querySelector(".demo").getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; })()`,
   );
   assert.ok(demo.left >= 0 && demo.right <= size.w + 1, `devices wider than the screen: ${JSON.stringify(demo)}`);
-  // They run down into Dawn's clouds, so they read as standing in them.
   const fade = await evaluate(window, `document.querySelector(".dawn-clouds").getBoundingClientRect().height`);
   assert.ok(demo.top < size.h * 0.6 && demo.bottom >= size.h - fade, `devices don't reach the clouds: ${JSON.stringify({ demo, fade })}`);
   const button = await evaluate(
@@ -111,7 +106,6 @@ const checks = [
         await evaluate(window, `document.querySelector('#designs').scrollIntoView()`);
         assert.ok(await evaluate(window, `document.documentElement.scrollWidth <= innerWidth`), "sections fit without horizontal scrolling");
         await shot(window, size.mobile ? "phone-sections.png" : "desktop-sections.png");
-        // The new Browser recording loads near the viewport; Computers links to the CLI guide.
         await evaluate(window, `document.querySelector('#browser').scrollIntoView()`);
         await waitFor(evaluate, window, `!document.querySelector('#browser video').paused`, "the Browser recording plays");
         assert.equal(await evaluate(window, `new URL(document.querySelector('#browser video').src).pathname`), "/demo/browser.mp4");
@@ -120,7 +114,6 @@ const checks = [
           await evaluate(window, `document.querySelector('#${id}').scrollIntoView()`);
           assert.ok(await evaluate(window, `document.documentElement.scrollWidth <= innerWidth`), `${id} fits without horizontal scrolling`);
         }
-        // The phone section plays the hero's phone recording once it scrolls near.
         await evaluate(window, `document.querySelector('#phone-companion').scrollIntoView()`);
         await waitFor(evaluate, window, `!document.querySelector('[data-phone-demo] video').paused`, "the phone recording plays");
         assert.equal(await evaluate(window, `new URL(document.querySelector('[data-phone-demo] video').src).pathname`), "/demo/phone.mp4");
@@ -134,7 +127,6 @@ const checks = [
           await evaluate(window, `[...document.querySelectorAll('.closing .button')].some(a => a.offsetParent)`),
           "the closing band offers this device's download",
         );
-        // The Designs panel: comment mode pins a comment on a design, Choose picks one, and Send hands both to the agent.
         await evaluate(window, `document.querySelector('#designs').scrollIntoView()`);
         const designs = await evaluate(
           window,
@@ -159,10 +151,8 @@ const checks = [
         );
         assert.deepEqual(designs, { count: "2", chosen: true, sent: 1, status: "Sent to the agent: 1 comment and your choice.", sendHidden: true });
         await shot(window, size.mobile ? "phone-designs.png" : "desktop-designs.png");
-        // Parallel work (the live sidebar) is switched off for now; its checks run whenever it is shown again.
         const sidebarShown = await evaluate(window, `!!document.querySelector('[data-sidebar-demo]')`);
         if (sidebarShown) {
-          // The sidebar is live: rows select and read, the ⋮ menu archives, Projects fold, PR numbers open the repository.
           const sidebar = await evaluate(
             window,
             `(() => {
@@ -187,15 +177,12 @@ const checks = [
             "archived row leaves",
           );
         }
-        // The canvas is the app's React Flow, hydrated when it scrolls into view: Stop ends the negotiation on its Link,
-        // a selected Link can be removed, and reloading brings the demo back.
         await evaluate(window, `document.querySelector('#linked-projects').scrollIntoView()`);
         await waitFor(evaluate, window, `!!document.querySelector('[data-canvas] .react-flow__edge')`, "canvas hydrates");
         assert.equal(await evaluate(window, `document.querySelectorAll('[data-canvas] .react-flow__node').length`), 9);
         await waitFor(evaluate, window, `!!document.querySelector('.canvas-activity button')`, "the negotiation starts");
         await evaluate(window, `document.querySelector('.canvas-activity button').click()`);
         await waitFor(evaluate, window, `!document.querySelector('.canvas-activity')`, "Stop ends the negotiation");
-        // A real pointer press ends the tour before the visitor edits the Link.
         await evaluate(window, `document.querySelector('[data-canvas]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
         await evaluate(window, `document.querySelector('[data-canvas] .react-flow__edge').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
         await waitFor(
@@ -214,7 +201,6 @@ const checks = [
         await waitFor(evaluate, window, `!!document.querySelector('.canvas-activity')`, "reload restarts the tour");
         await shot(window, size.mobile ? "phone-canvas.png" : "desktop-canvas.png");
         if (sidebarShown) {
-          // Three new Chats, then the fourth asks why instead of adding a row.
           const spam = await evaluate(
             window,
             `(() => {
@@ -431,7 +417,6 @@ const checks = [
           window,
           `(() => { const r = document.querySelector(".phone-video").getBoundingClientRect(); return { w: r.width, h: r.height }; })()`,
         );
-        // The Dawn logo above the headline takes a little of the hero's height, so the devices draw a little smaller.
         assert.ok(frame.w > 80 && frame.h > 175, `phone frame ${JSON.stringify(frame)}`);
         window.destroy();
       }
@@ -523,7 +508,7 @@ const checks = [
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   await app.whenReady();
-  app.on("window-all-closed", () => {}); // checks close their windows; keep the app alive until app.exit
+  app.on("window-all-closed", () => {});
   const server = await serve();
   const url = `http://127.0.0.1:${server.address().port}/`;
   const errors = [];

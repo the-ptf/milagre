@@ -6,7 +6,6 @@ const CHECK_MS = 30 * 1000;
 const RESET_PROMPT =
   "Your last turn stopped because the account hit its plan's usage limit. The limit has reset. Continue where you left off; check what is already done before repeating any of it.";
 
-// Called inside the Chat's state queue, with its transcript loaded. A continuation can never steer or queue behind new work.
 function eligibleLimitTurn(state, session, stopped) {
   if (!session || !stopped || session.archived || session.provider !== stopped.provider || session.queued?.length) return false;
   const messages = state.messages.filter((message) => message.session_id === session.id);
@@ -18,7 +17,6 @@ function eligibleLimitTurn(state, session, stopped) {
   );
 }
 
-/** Wall-clock polling survives sleep. Discovery reads durable scopes without opening windows or resuming other work. */
 function createLimitResume({ chats, settings, scopes, readState, prepareScope, accountId, now = Date.now, timers = globalThis, onError = console.warn }) {
   let stopped = false;
   let timer = null;

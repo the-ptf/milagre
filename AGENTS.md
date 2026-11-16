@@ -67,4 +67,5 @@ Read the error instead of remembering these:
 - Screenshots off the branch, desktop and mobile together, Lighthouse floors: the `PR policy` check (labels `single-platform`, `lighthouse-budget-approved`).
 - Mobile fingerprint changes: the `Mobile fingerprint` check (label `native-build-approved`).
 - Typecheck, lint and the electron smoke before a push: the lefthook `pre-push` hook.
+- File size: oxlint caps files at 800 code lines, functions at 250 and complexity at 40; files already over are capped at their size in the generated `.oxlintrc.size-baseline.json`. Split instead of raising a cap, then `npm run lint:baseline` (CI fails on a stale baseline). `npm run code-health` ranks files by size, churn and fixes.
 - "Your computer" copy, one slider, one dismiss hook, no native folders, background Electron checks: unit tests.

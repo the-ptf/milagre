@@ -2,9 +2,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-// The editor and its CLI script, as the launcher names them relative to itself. Each editor lays its install out its
-// own way: VS Code runs "%~dp0..\Code.exe" "%~dp0..\<commit>\resources\app\out\cli.js", Cursor (whose bin folder sits
-// in resources\app) runs "%~dp0..\..\..\Cursor.exe" "%~dp0..\out\cli.js". Null when the launcher has no such line.
 function launcherTargets(file) {
   let script;
   try {
@@ -25,7 +22,6 @@ function editorInvocation(file, args, { platform = process.platform } = {}) {
   if (!executable || path.basename(path.dirname(file)).toLowerCase() !== "bin") return null;
   const root = path.dirname(path.dirname(file));
   let { binary, cli } = launcherTargets(file) ?? { binary: path.join(root, executable), cli: path.join(root, "resources", "app", "out", "cli.js") };
-  // Only the editor this launcher is for, and a script inside its own install folder.
   const install = path.dirname(binary);
   const inside = path.relative(install, cli);
   if (path.basename(binary).toLowerCase() !== executable.toLowerCase() || inside.startsWith("..") || path.isAbsolute(inside))

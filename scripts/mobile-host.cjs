@@ -34,11 +34,6 @@ async function readToken(file) {
   }
 }
 
-/** `tunnel`: 'quick' opens a temporary trycloudflare.com URL; 'cloudflare' runs the named tunnel from mobile:cloudflare. */
-/**
- * `desktopDataDir` shares the Mac app's daemon (starting it the way the app does if it isn't running), so the phone sees
- * the app's recent Projects and its running Chats. `dataDir` then only holds the phone's token and tunnel secrets.
- */
 async function startMobileHost({
   dataDir,
   desktopDataDir,
@@ -59,12 +54,10 @@ async function startMobileHost({
   }
   if (tunnelMode && publicUrl) throw new Error("Use either a tunnel or --public-url, not both.");
   const cloudflare = tunnelMode === "cloudflare" ? await readCloudflare(dataDir) : null;
-  // The named tunnel's remote config points at a fixed port.
   if (cloudflare) port = cloudflare.port;
   if (desktopDataDir && !path.isAbsolute(desktopDataDir)) throw new Error("Use an absolute desktop data directory.");
   await fs.mkdir(dataDir, { recursive: true, mode: 0o700 });
   const runtimeDir = desktopDataDir || dataDir;
-  // A shared daemon belongs to the desktop as much as to this host, so closing the host leaves it running.
   const daemon = desktopDataDir
     ? await ensureDaemon({ dataDir: desktopDataDir, version, cwd: os.homedir() })
     : await startDaemon({ dataDir, version, runtimeOptions });
@@ -153,7 +146,6 @@ async function main() {
     await host.close();
   };
   // A bridge that lost its daemon would leave the tunnel answering 502. Exit instead, so launchd (or the user) starts
-  // a fresh host that reconnects, or starts the daemon again.
   void host.lost.then(async () => {
     if (stopping) return;
     console.error("The host lost its connection to the Milagre daemon. Exiting so it can restart.");

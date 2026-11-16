@@ -1,4 +1,3 @@
-// Prints desktop's chip icons as SVG strings for build-chip-glyphs.py, keyed by the character that draws each one.
 const icons = require("@hugeicons/core-free-icons");
 
 const attr = (name) => name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);

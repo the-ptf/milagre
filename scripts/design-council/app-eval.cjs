@@ -1,19 +1,7 @@
 // Evaluates JavaScript in the running Milagre debug app through Metro's inspector proxy (Hermes CDP).
-// Used by capture-phone.sh to read the current route (a readiness check) and to silence LogBox toasts.
-// No app source is changed: everything here happens at runtime in the debug build.
-//
-//   node scripts/design-council/app-eval.cjs <metroPort> <command> [arg]
-//   commands: route            print {"name","params","sheet"} of the focused screen
-//             quiet            LogBox.ignoreAllLogs + clear, so no warning toast covers a screenshot
-//             wait-route NAME  wait (up to 20 s) until the focused route is NAME (e.g. chat, model-sheet, settings)
-//             settle [NAMES]   wait until the focused route (one of NAMES, comma-separated) holds still for 1.5 s
-//             navigate|push|replace HREF   expo-router's router.<method>(HREF): the same route a milagre:// deep link
 //                              opens, without iOS's "Open in Milagre?" prompt that `simctl openurl` raises on iOS 27
-//             reset            router.dismissAll(): close sheets and pushed screens
-//             eval EXPR        evaluate EXPR and print the result
 const [port = "8899", command = "route", arg] = process.argv.slice(2);
 
-// Metro modules are looked up by their path in dev builds (verboseName), never by numeric id.
 const PRELUDE = `
 var __council = (function () {
   var mods = __r.getModules();
@@ -53,7 +41,6 @@ const EXPRESSIONS = {
   navigate: (href) => routerCall("navigate", href),
   push: (href) => routerCall("push", href),
   replace: (href) => routerCall("replace", href),
-  // Closes every sheet and pushed screen above the root, so the next replace starts from a known stack.
   reset: () => `(function(){ var r = __councilRouter(); if (!r) return "no router"; if (r.canDismiss && r.canDismiss()) r.dismissAll(); return "ok"; })()`,
   eval: (expr) => expr,
 };
@@ -70,7 +57,6 @@ async function target() {
 }
 
 async function evaluate(expression) {
-  // Metro's inspector proxy only accepts a loopback Origin (Node's WebSocket takes headers as a non-standard option).
   const socket = new WebSocket(await target(), { headers: { Origin: `http://127.0.0.1:${port}` } });
   await new Promise((resolve, reject) => {
     socket.addEventListener("open", resolve, { once: true });
@@ -98,8 +84,6 @@ async function evaluate(expression) {
 
 async function main() {
   if (command === "wait-route" || command === "settle") {
-    // wait-route NAME[,NAME]: the focused route is one of NAMEs. settle [NAMES]: also unchanged for 1.5 s, which
-    // outlasts the app's own start-up redirects (auto-connect, then restoring the last Chat).
     const names = arg ? arg.split(",") : null;
     const stableFor = command === "settle" ? 1500 : 0;
     const deadline = Date.now() + Number(process.env.COUNCIL_ROUTE_TIMEOUT_MS || 30000);

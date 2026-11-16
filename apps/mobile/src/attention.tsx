@@ -8,10 +8,6 @@ import { FloatingInboxChip } from "./inbox";
 
 const NONE: string[] = [];
 type AttentionClient = { attention: () => Promise<string[]> };
-/**
- * One poller per computer, however many lists and pills read it: the first reader starts it, the last one to go stops
- * it. Each answer is kept with its computer, so switching computers never shows the last one's Chats.
- */
 type Poller = { keys: string[]; readers: Set<() => void>; timer: ReturnType<typeof setInterval> | null; busy: boolean };
 const pollers = new Map<AttentionClient, Poller>();
 const POLL_MS = 5000;
@@ -21,7 +17,6 @@ function pollerOf(client: AttentionClient) {
   return poller;
 }
 function load(client: AttentionClient, poller: Poller) {
-  // One call at a time: on a busy Mac a slow answer would otherwise stack a new call every 5 s.
   if (poller.busy || AppState.currentState !== "active") return;
   poller.busy = true;
   client
@@ -52,8 +47,6 @@ function subscribeAttention(client: AttentionClient, reader: () => void) {
     pollers.delete(client);
   };
 }
-/** Chat keys, in every Project, whose turn waits on an approval or question. A Mac from before /attention gives none. */
-// ponytail: polls every 5 s while the app is open; a live "attention" signal from the bridge if this ever costs too much.
 export function useAttention(): string[] {
   const { client } = useSession();
   const subscribe = useCallback((reader: () => void) => (client ? subscribeAttention(client, reader) : () => {}), [client]);
@@ -65,10 +58,6 @@ export function AttentionDot() {
   return <View accessibilityLabel="Needs attention" style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.orange }} />;
 }
 
-/**
- * Under the header's right edge, while the experimental floating inbox is on: its chip. (The "N waiting" pill that sat
- * here is gone; waiting Chats show in the list and in notifications.)
- */
 export function FloatingInboxSlot({ bottom }: { bottom?: number }) {
   const { client } = useSession();
   const [floatingInbox] = useFloatingInbox();

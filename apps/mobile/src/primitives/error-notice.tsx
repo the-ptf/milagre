@@ -5,10 +5,6 @@ import { useStyles } from "./styles";
 import { useAnnounce } from "./announce";
 import { PillButton } from "./pill-button";
 
-/**
- * A blocking failure (tier 2): a redTint card with the message in redInk 15/20 and its retry inside, read aloud as it
- * shows. A field-level or in-card error is an `InlineError`.
- */
 export function ErrorNotice({
   message,
   retry,

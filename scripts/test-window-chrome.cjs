@@ -163,7 +163,6 @@ async function browserChecks() {
           win.webContents.setZoomFactor(1);
           await delay(100);
         }
-        // Every offered panel sits directly in the top-right bar with no overflow menu.
         assert.equal(await evaluate('!!document.querySelector("button[aria-label=\\"Chat actions\\"]")'), false, "no overflow menu button");
         assert.equal(await evaluate('document.querySelectorAll("[data-slot=panel-toggles] button").length'), 2, "Terminals and Changes show inline");
         await evaluate("window.setBrowserAvailable(true); window.setPrAvailable(true)");
@@ -215,7 +214,6 @@ async function browserChecks() {
         await capture(integrated ? "integrated-diff" : "native-diff");
         await click("[data-diff-back]");
         await waitFor('!document.querySelector("[data-diff-back]")');
-        // Settings is a modal over the window, inset below the top bar so the window controls stay clear; its × closes it.
         await evaluate("window.showSettings(true)");
         await waitFor(`!!document.querySelector('dialog[data-settings-modal]')?.open`);
         const chromeHeight = await evaluate(`parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--window-chrome-height'))`);
@@ -230,7 +228,6 @@ async function browserChecks() {
         await waitFor('document.querySelector("[data-sidebar-toggle]").getBoundingClientRect().x === 80');
         await evaluate('window.simulateGeometry("leading", 0, innerWidth, false)');
         await waitFor('document.querySelector("[data-sidebar-toggle]").getBoundingClientRect().x === 12');
-        // Resizing and geometry events move every subscribed control together.
         await evaluate('window.simulateGeometry("overlay", 0, innerWidth - 160)');
         await waitFor('Math.abs(document.querySelector("[data-slot=panel-toggles]").getBoundingClientRect().right - (innerWidth - 180)) < 1');
         await evaluate(

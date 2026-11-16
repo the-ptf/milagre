@@ -48,7 +48,6 @@ import { useTheme } from "../../theme";
 import { HeaderButton, PageScroll, pressStyle, useStyles } from "../../ui";
 import { lineHeight, radius, space, type } from "../../design-tokens";
 
-// Every page Settings opens, from its list or from search.
 type SettingsPage = SettingsRoute;
 
 const MODE_LABEL = { system: "System", light: "Light", dark: "Dark" } as const;
@@ -56,16 +55,13 @@ const MODE_LABEL = { system: "System", light: "Light", dark: "Dark" } as const;
 export default function SettingsScreen() {
   const [query, setQuery] = useState("");
   const open = (page: SettingsPage, find?: string) => {
-    // Routines is a full page of the app, not a page of the sheet: close the sheet, then open it over the Chat.
     if (page === "routines") router.back();
-    // A row found by search: its page scrolls to it and lights it up (findAt makes the same row light again).
     if (find) router.push({ pathname: `/${page}`, params: { find, findAt: String(Date.now()) } });
     else router.push(`/${page}`);
   };
   return (
     <>
       <Stack.Screen options={{ title: "Settings" }} />
-      {/* Settings is the first page of its sheet, so Back here closes the sheet. */}
       <Stack.Toolbar placement="right">
         {Platform.OS === "ios" ? (
           <Stack.Toolbar.Button icon="xmark" accessibilityLabel="Close Settings" onPress={() => router.back()} />
@@ -89,7 +85,6 @@ export default function SettingsScreen() {
   );
 }
 
-/** The query's letters in bold, the rest as they were. */
 function Marked({ text, ranges, color }: { text: string; ranges: [number, number][]; color: string }) {
   const parts: React.ReactNode[] = [];
   let at = 0;
@@ -157,7 +152,6 @@ export function SettingsResults({ query, onOpen }: { query: string; onOpen: (pag
   );
 }
 
-/** A square entry point at the top of Settings: icon, title and a one-line state. */
 function Tile({
   title,
   icon,
@@ -170,7 +164,6 @@ function Tile({
   title: string;
   icon: IconData;
   value?: string;
-  /** A status dot before the value. */
   dot?: string;
   disabled?: boolean;
   /** The page it opened shows beside it (the iPad sheet's sidebar). */
@@ -209,14 +202,12 @@ function Tile({
   );
 }
 
-/** Opens a page of Milagre's site in the browser. */
 function openSite(url: string) {
   void Linking.openURL(url).catch(() => Alert.alert("Could not open this page", `Visit ${url} in your browser.`));
 }
 
 const openProjectSettings = (path: string, name: string) => router.push({ pathname: "/project-settings", params: { path, name } });
 
-/** The first page of the Settings sheet; each row opens a page inside the same sheet. */
 export function SettingsView({
   onOpen,
   onOpenProject = openProjectSettings,
@@ -239,8 +230,6 @@ export function SettingsView({
   const host = client ? session.hosts.find((saved) => saved.id === client.url) : undefined;
   const macName = host?.name || session.hostName || "Your computer";
   const projects = session.recent.filter((project) => !project.link);
-  // Connections only lists what the phone can change: a connected Mac that answers for Linear. Re-read on focus, since
-  // the Mac can turn it on or connect while the phone is elsewhere; an older Mac answers null and keeps it hidden.
   const [linear, setLinear] = useState<{ client: typeof client; enabled: boolean } | null>(null);
   useFocusEffect(
     useCallback(() => {
@@ -286,7 +275,6 @@ export function SettingsView({
         : offline === 0
           ? `${online} online`
           : `${online} online · ${offline} offline`;
-  // Routines: the Mac's switch gates the tile; the count comes from the same store the Routines page reads.
   const routinesAvailable = useRoutinesAvailable(client);
   const routines = useRoutines(routinesAvailable ? client : null);
   const routinesOn = routines.routines.filter((routine) => routine.enabled).length;
@@ -298,7 +286,6 @@ export function SettingsView({
           title="Computers"
           icon={ComputerIcon}
           value={computersValue}
-          // The presence palette (presenceTone): green while one answers, ink4 when none does.
           dot={online > 0 ? colors.green : colors.ink4}
           selected={selected === "computers"}
           onPress={() => onOpen("computers")}
@@ -341,7 +328,6 @@ export function SettingsView({
           <Row title="Keybindings" icon={KeyboardIcon} selected={selected === "keybindings"} onPress={() => onOpen("keybindings")} />
         ) : null}
       </Group>
-      {/* The connected Mac's settings, grouped as desktop groups them; without one there is nothing here the phone can change. */}
       {client ? (
         <>
           <Group title={`Agents on ${macName}`}>
@@ -367,7 +353,6 @@ export function SettingsView({
           </Group>
         </>
       ) : null}
-      {/* The connected computer's Projects; each opens its own settings. */}
       {client && projects.length > 0 ? (
         <Group title="Projects">
           {projects.map((project) => (
@@ -386,7 +371,6 @@ export function SettingsView({
         <Row title="Design system" icon={SwatchIcon} selected={selected === "design-system"} onPress={() => onOpen("design-system")} />
         <Row title="Privacy policy" icon={SecurityCheckIcon} onPress={() => openSite(PRIVACY_URL)} />
         <Row title="Support" icon={HelpCircleIcon} onPress={() => openSite(SUPPORT_URL)} />
-        {/* Checks now and shows the update sheet, which follows the check to Up to date or Update now. */}
         <Row
           title="App update"
           icon={Download04Icon}
@@ -398,7 +382,6 @@ export function SettingsView({
           }}
         />
       </Group>
-      {/* Version · build · runtime, and the running update's commit: what to quote when reporting a bug. */}
       <Text selectable style={[styles.footnote, { textAlign: "center", marginTop: -8 }]}>
         {appVersionLine()}
       </Text>

@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { Button } from "./primitives/Button";
 
-/** A dismissable notice card, above the composer or over a view: a line of text, or a list. `className` sets its outer spacing and width. */
 export function Notice({
   children,
   onDismiss,

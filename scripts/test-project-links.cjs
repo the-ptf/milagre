@@ -1,4 +1,3 @@
-// Real main/preload/renderer and daemon against temporary Git repositories.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");
@@ -68,7 +67,6 @@ async function main() {
     cwd: projects[0],
     registryRoots: [],
     worktreeRoot,
-    // Its own Chats home: the default ~/.milagre/chats belongs to the Milagre running on this Mac.
     chatsHome: path.join(dir, "chats-home"),
     environmentReady: Promise.resolve(),
     titleModels: {},
@@ -78,7 +76,6 @@ async function main() {
       async startTurn(request) {
         permissionModes.push(request.permissionMode);
         providerCalls++;
-        // A shared Chat starts with no Worktree: the agent makes one in each Project it is about to change.
         const create = context.linked.tools.find((tool) => tool.name === "link_worktree_create");
         if (!context.access.roots.length) for (const project of projects) await create.run({ project: path.basename(project) });
         assert.equal(context.access.roots.length, 2);
@@ -108,7 +105,6 @@ async function main() {
     for (const project of projects) await client.call("project:open", [project]);
     await client.call("project:open", [projects[0]]);
     const rendererUrl = process.env.MILAGRE_TEST_DEV_SERVER_URL || pathToFileURL(path.join(root, "apps/desktop/dist/index.html")).href;
-    // Off screen: no Dock icon, window or focus change on the Mac running it. MILAGRE_BACKGROUND=0 shows the app.
     const env = { MILAGRE_BACKGROUND: "1", ...process.env, MILAGRE_DEV_SERVER_URL: rendererUrl, MILAGRE_WORKTREE_ROOT: worktreeRoot };
     delete env.ELECTRON_RUN_AS_NODE;
     // Other windows on a busy machine cover this one; macOS then pauses its animation frames and the canvas and panels never finish.
@@ -140,7 +136,6 @@ async function main() {
       assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails));
       return result.result.value;
     };
-    // CDP can advertise the destination URL before its execution context leaves about:blank.
     await waitFor(async () => {
       const { result } = await connection.call("Runtime.evaluate", {
         expression: `location.href === ${JSON.stringify(rendererUrl)} && document.readyState === "complete" && !!window.milagre`,
@@ -152,7 +147,6 @@ async function main() {
       () => evaluate(`!!document.querySelector('button[aria-label="Add Project"]') && !document.querySelector('.startup-splash-screen')`),
       "desktop ready",
     );
-    // The sidebar's Project groups, not its One list, are what this check drives.
     await evaluate(
       `window.milagrePreferences.set("milagre-settings", JSON.stringify({ ...JSON.parse(window.milagrePreferences.get("milagre-settings").value || "{}"), chatList: "grouped" })); window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }))`,
     );
@@ -161,7 +155,6 @@ async function main() {
       evaluate(
         `(() => {const input = document.querySelector(${JSON.stringify(selector)}); if (input.matches('[data-prompt-editor]')) input.value = ${JSON.stringify(value)}; else Object.getOwnPropertyDescriptor(input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', {bubbles:true})); })()`,
       );
-    // Link Projects lives in the Add Project dialog: its third choice hands over to the Link dialog.
     const linkProjects = async () => {
       await evaluate(`document.querySelector('button[aria-label="Add Project"]').click()`);
       await waitFor(() => evaluate(`!!document.querySelector('[data-add-project-mode="link"]')`), "Add Project dialog");
@@ -170,7 +163,6 @@ async function main() {
     const scopeOf = (name) => `[data-sidebar-scope][aria-label=${JSON.stringify(name)}]`;
     const linkScope = `[data-sidebar-scope^="milagre-link:"]`;
     const isCurrent = (selector) => evaluate(`!!document.querySelector(${JSON.stringify(selector + "[data-current]")})`);
-    // "New chat in <name>" on a group switches the sidebar to that Project or Link, restoring its unsent draft.
     const openScope = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector + " [data-scope-action]")}).click()`);
     const scopeMenu = async (selector) => {
       await evaluate(`document.querySelector(${JSON.stringify(selector + " [data-scope-menu]")}).click()`);
@@ -191,8 +183,6 @@ async function main() {
       () => evaluate(`!!document.querySelector('#link-name') && document.querySelectorAll('dialog input[type=checkbox]').length === 2`),
       "Link creation dialog",
     );
-    // The Dialog's pop-in fills `backwards`, so it has left getAnimations() by now: read the dialog's own animation and
-    // its keyframes from the stylesheet instead.
     const openingMotion = () =>
       evaluate(`(() => {
         const style = getComputedStyle(document.querySelector('dialog'));
@@ -216,8 +206,6 @@ async function main() {
       () => evaluate(`!!document.querySelector('#link-name') && document.querySelectorAll('dialog input[type=checkbox]').length === 2`),
       "reduced-motion Link dialog",
     );
-    // The global reduced-motion rule (styles.css) ends every animation at once, so the dialog appears without scaling;
-    // the old dialog's 60ms fade was cut to the same 0.01ms by that rule.
     const reducedMotion = await openingMotion();
     assert.ok(reducedMotion.duration <= 0.01, `Reduced motion removes scale movement: ${JSON.stringify(reducedMotion)}`);
     await click("Cancel");
@@ -270,8 +258,6 @@ async function main() {
     assert.equal(await evaluate(`document.querySelector('[data-chat-pane]').textContent.includes('RDFood / Link')`), false);
     assert.ok(await evaluate(`document.body.textContent.includes('2 Worktrees')`));
     await shot("shared-chat");
-    // Settings over a Link: ⌘K opens the Link's palette on top of it (App hands the key to the Link's workspace), and the
-    // palette closes back to Settings.
     await evaluate(`[...document.querySelectorAll('button')].find((button) => button.getAttribute('aria-label') === 'Settings').click()`);
     await waitFor(() => evaluate(`!!document.querySelector('dialog[data-settings-modal]')?.open`), "Settings over the Link");
     const mod = process.platform === "darwin" ? "metaKey" : "ctrlKey";
@@ -280,14 +266,12 @@ async function main() {
     await evaluate(`document.querySelector('dialog[aria-label="Command palette"]').dispatchEvent(new Event('cancel', { cancelable: true }))`);
     await waitFor(() => evaluate(`!document.querySelector('dialog[aria-label="Command palette"]')`), "palette closed");
     assert.equal(await evaluate(`!!document.querySelector('dialog[data-settings-modal]')?.open`), true, "closing the palette leaves Settings open");
-    // Opening a Chat from the Link's palette leaves Settings, as it does outside a Link.
     await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ${mod}: true, bubbles: true, cancelable: true }))`);
     await waitFor(() => evaluate(`!!document.querySelector('dialog[aria-label="Command palette"]')?.open`), "the Link's palette again");
     await evaluate(
       `[...document.querySelectorAll('dialog[aria-label="Command palette"] [role="option"]')].find((option) => option.textContent.includes('New Chat')).click()`,
     );
     await waitFor(() => evaluate(`!document.querySelector('dialog[data-settings-modal]')`), "a Chat from the Link's palette closes Settings");
-    // Back to the shared Chat for the steps below.
     await evaluate(`[...document.querySelectorAll('[data-chat-row], [data-row]')].find((row) => row.textContent.includes('Update status'))?.click()`);
     await input("[data-prompt-editor]", "Keep my draft while viewing the linked Projects");
     await evaluate(`document.querySelector('[data-canvas-toggle]').click()`);
@@ -526,8 +510,6 @@ async function main() {
       false,
       "Explicit new Chat selection must survive a scope switch",
     );
-    // A shared Chat's agent makes its Worktrees during the turn. Hold that creation, through the real
-    // Git/daemon/IPC path, so these checks run while the earlier send's turn is still busy.
     const worktreeGate = path.join(dir, "worktree-ready");
     const worktreeStarted = path.join(dir, "worktree-started");
     const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -587,7 +569,6 @@ async function main() {
     );
     assert.ok(await evaluate(`document.querySelector('[data-chat-pane]').textContent.includes('Send then switch scope')`));
     await evaluate(`[...document.querySelectorAll('button[data-row]')].find(button => button.textContent.includes('Update status.txt')).click()`);
-    // Missing members preserve history and the unsent draft, with a named error.
     await fs.rename(projects[0], projects[0] + "-moved");
     try {
       await input("[data-prompt-editor]", "Draft survives missing Project");
@@ -610,8 +591,6 @@ async function main() {
     await waitFor(() => evaluate(`!document.querySelector('[data-host-disconnected]')`), "Link reconnect");
     assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "Draft survives missing Project");
     assert.deepEqual((await client.call("link:snapshot", [link.id])).state.sessions[session.id].worktrees, session.worktrees);
-    // Deleting a Link Chat: the row goes at once, with no progress, while the host's save is still held, and stays gone
-    // from the Project's sidebar the window moves to. A save that fails brings the row back with the error.
     const rowNamed = (title) => `[...document.querySelectorAll('button[data-row]')].find(button => button.textContent.includes(${JSON.stringify(title)}))`;
     const deleteRow = async (title) => {
       await evaluate(`${rowNamed(title)}.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 140, clientY: 200 }))`);
@@ -623,7 +602,6 @@ async function main() {
       await waitFor(() => evaluate(`!document.querySelector('[data-chat-menu]')`), "Delete closes the menu");
       assert.equal(await evaluate(`!!document.querySelector('[data-archive-choice], [data-archive-reason]')`), false);
     };
-    // A slow host: hold the window's next chat:delete in the main process, then send it on or fail it.
     main = await cdp(output.match(/Debugger listening on (ws:\/\/\S+)/)[1]);
     const inMain = async (expression) => (await main.call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
     const holdSaves = (outcome) =>
@@ -673,7 +651,6 @@ async function main() {
     client = await connectHost({ dataDir: profile });
     assert.equal(await chatOnHost(session.id), undefined, "deletion survives a host restart");
     assert.equal(await chatCount(), before - 1);
-    // Existing isolated Worktrees use one saved permission mode, initially Ask even on a Full-default client.
     const adoptedPaths = projects.map((project, index) => path.join(dir, `adopted-${index}`));
     for (const [index, project] of projects.entries()) {
       execFileSync("git", ["-C", project, "worktree", "add", "-qb", `adopted-${index}`, adoptedPaths[index]]);

@@ -98,16 +98,8 @@ const SECTIONS: { mode: DiffMode; title: string }[] = [
   { mode: "committed", title: "On this branch" },
 ];
 
-/**
- * False while the lists are mounted but out of sight (the right panel's Changes tab under its PR tab, or the panel
- * slid away): they stop reading the Mac every few seconds and read again as soon as they show.
- */
 export const ChangesShownContext = createContext(true);
 
-/**
- * A Worktree's changes as one list: what isn't committed yet, then what the branch committed since its base. An empty
- * section hides, as on desktop.
- */
 export function ChangeSections({
   client,
   cwd,
@@ -118,7 +110,6 @@ export function ChangeSections({
   client: Client | null;
   cwd: string;
   base?: string;
-  /** Bumped by pull-to-refresh: both lists read again, keeping their folders as they are. */
   revision?: number;
   onOpen: (file: DiffFileEntry, mode: DiffMode, base: string | null, commit?: string, commitParent?: string | null) => void;
 }) {
@@ -150,7 +141,6 @@ export function ChangeSections({
   const merged = response ? withHistoryBranches(response, saved) : undefined;
   const data = merged?.isRepo ? merged : undefined;
   const [missing, setMissing] = useState<{ cwd: string; client: Client | null; name: string }>();
-  // Drop a deleted Git ref before rendering either list with a stale saved selection.
   if (active && selected && data && comparisonBaseMissing(data, selected)) {
     setChoices((previous) => ({ ...previous, [cwd]: "" }));
     setLimit(view === "commits" ? 30 : 0);
@@ -170,7 +160,6 @@ export function ChangeSections({
     const result = reads[mode].data;
     return result?.isRepo && result.files.length ? [{ mode, title, files: result.files, base: result.base }] : [];
   });
-  // A list that can't be read says so above the one that could.
   const failed = SECTIONS.filter(({ mode }) => reads[mode].error);
   const notice = failed[0] ? <ErrorNotice message={reads[failed[0].mode].error} retry={() => failed.forEach(({ mode }) => reads[mode].refresh())} /> : null;
   const fileCount = new Set(shown.flatMap((section) => section.files.map((file) => file.path))).size;
@@ -518,7 +507,6 @@ function CommitFiles({
   );
 }
 
-/** The file's diff address: the mode and base it was listed under. */
 export function diffTarget(
   file: DiffFileEntry,
   mode: DiffMode,

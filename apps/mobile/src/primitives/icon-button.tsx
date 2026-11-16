@@ -6,14 +6,9 @@ import { tap } from "./tap";
 import { useHover } from "./hover";
 import { pressStyle } from "./press-style";
 
-/** The sizes and their glyphs: 16 in a dense 32, 24 in a 48, 20 between. Each reaches 44 with its hitSlop. */
 const ICON = { 32: 16, 36: 20, 40: 20, 44: 20, 48: 24 } as const;
 export type IconButtonSize = keyof typeof ICON;
 
-/**
- * A round icon-only button with no edge (a sheet's close is a CircleButton). `filled` is the primary: an ink fill (or
- * `fill`, Ultracode's purple) with an onInk glyph. `selected` is an on toggle: a hover2 fill with an ink glyph.
- */
 export function IconButton({
   label,
   icon,
@@ -31,9 +26,7 @@ export function IconButton({
   onPress: () => void;
   disabled?: boolean;
   filled?: boolean;
-  /** The filled button's color instead of ink. */
   fill?: ColorValue;
-  /** A toggle's state; read as selected. */
   selected?: boolean;
   loading?: boolean;
   tone?: Tone;

@@ -2,17 +2,12 @@ const { computerMentionTokens } = require("@milagre/shared/prompt-parts");
 const { prosePrompt } = require("@milagre/shared/prompt-skills");
 const { neutralizeTags } = require("@milagre/shared/untrusted-text");
 
-// The turn waits on these: a paired computer slow to list its Projects is described without them.
 const TARGETS_TIMEOUT_MS = 4000;
 const MAX_PROJECTS = 40;
 const MAX_WORKTREES = 6;
 
 const quote = (value) => JSON.stringify(String(value).slice(0, 200));
 
-/**
- * The computers a prompt names: `@computer:Name` chips, and a bare `@Name` that is exactly a known computer's name
- * (typed or dictated without the menu). Unique, case-insensitive, in order.
- */
 function mentionedComputers(prompt, known) {
   const names = new Map();
   const add = (name) => {
@@ -38,10 +33,6 @@ function withTimeout(promise, ms) {
   );
 }
 
-/**
- * What the agent is told about the computers a message names. `remote` is the runtime's paired-computers port
- * (enabled(), list(), computer(name), invoke()), or null; `thisMac` is this computer's name.
- */
 async function computerMentionsContext(request, { remote, thisMac }) {
   const paired = remote?.list() ?? [];
   const names = mentionedComputers(request.prompt ?? "", [thisMac, ...paired.map((item) => item.name)]);

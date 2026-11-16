@@ -7,10 +7,6 @@ import { Icon } from "./icons";
 import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
-// An inline View in Text sits with its bottom on the text baseline, so every chip shares one box (`chipBox`) and one
-// shift down (`chipShift`) that centres it on the line, however the label or icon inside it is made. The box stays
-// inside the bubble's line (1.47em) and its label a step smaller than the prose, so a chip reads as a token in the
-// sentence rather than a button pushing the lines apart.
 const chipBox = (px: number) => ({
   height: Math.round(px * 1.2),
   paddingHorizontal: 6,
@@ -56,7 +52,6 @@ function Box({
   return <View style={style}>{children}</View>;
 }
 
-/** A skill in a sent prompt: a wand and its name title-cased. */
 export function SkillChip({ name }: { name: string }) {
   const { colors, textPx } = useTheme();
   return (
@@ -81,7 +76,6 @@ function KindIcon({ path, size }: { path: string; size: number }) {
   return <Icon icon={icon} color={kind.color} size={Math.round(size * 0.95)} />;
 }
 
-/** A file in a sent prompt: its type and name; a tap opens the preview when `onOpen` is given. */
 export function FileMentionChip({ path, onOpen }: { path: string; onOpen?: () => void }) {
   const { colors, textPx } = useTheme();
   const name = path.split("/").findLast(Boolean) ?? path;
@@ -95,13 +89,11 @@ export function FileMentionChip({ path, onOpen }: { path: string; onOpen?: () =>
   );
 }
 
-/** An inline image position (`[Image #1]`) in a sent prompt; a tap opens the photo viewer when `onOpen` is given. */
 export function ImageMentionChip({ index, onOpen }: { index: number; onOpen?: () => void }) {
   const { colors, textPx } = useTheme();
   const label = imageLabel(index);
   return (
     <Box px={textPx} color={colors.lineStrong} fill={colors.hover} onPress={onOpen} label={`Preview ${label}`}>
-      {/* The file-kind image colour, as a .png chip beside it and on desktop. */}
       <Icon icon={Image01Icon} color={IMAGE_COLOR} size={chipIcon(textPx)} />
       <Text numberOfLines={1} style={{ color: colors.ink, ...chipLabel(textPx), flexShrink: 1 }}>
         {label}
@@ -110,7 +102,6 @@ export function ImageMentionChip({ index, onOpen }: { index: number; onOpen?: ()
   );
 }
 
-/** A mentioned Chat opens through the same scoped navigation as a sender line. */
 export function ChatMentionChip({ title, onOpen }: { title: string; onOpen?: () => void }) {
   const { colors, textPx } = useTheme();
   return (
@@ -123,7 +114,6 @@ export function ChatMentionChip({ title, onOpen }: { title: string; onOpen?: () 
   );
 }
 
-/** A computer the message names: the agent is told about it and can hand work there. */
 export function ComputerMentionChip({ name }: { name: string }) {
   const { colors, textPx } = useTheme();
   return (

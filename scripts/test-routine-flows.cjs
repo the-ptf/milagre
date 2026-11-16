@@ -1,5 +1,3 @@
-// Flow editor and Run controls on the real renderer components with an isolated RPC fixture.
-// These screenshots are test evidence only, never PR images.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -46,7 +44,6 @@ async function browserChecks() {
     for (const kind of ["agent", "if", "ask", "pull-request", "wait", "linear-comment"])
       assert.equal(await evaluate(`!!document.querySelector('[data-flow-kind="${kind}"]')`), true, kind);
     await shot("flow-editor");
-    // Publish must wait for the autosave already in flight, then save the latest edit.
     await evaluate("window.holdNextSave=true");
     await type("[data-flow-step-name]", "Classify carefully");
     await waitFor("!!window.releaseSave");

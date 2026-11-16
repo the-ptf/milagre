@@ -82,12 +82,9 @@ export function PreviewRail({
     const preview = previewRef.current;
     if (!root || !row || !preview) return;
 
-    // Keep the whole card inside the conversation, even at the first/last tick
-    // or after the composer grows and reduces the available height.
     const measure = () => {
       const rootRect = root.getBoundingClientRect();
       const rowRect = row.getBoundingClientRect();
-      // A transcript that runs on under the composer (--composer-dock) keeps the card above the composer.
       const room = rootRect.height - (parseFloat(getComputedStyle(root).getPropertyValue("--composer-dock")) || 0);
       const maxHeight = Math.max(0, room - 12);
       const height = Math.min(preview.offsetHeight, maxHeight);
@@ -112,7 +109,6 @@ export function PreviewRail({
     [activeId, onActiveChange, onItemSelect],
   );
 
-  // The scrolled content changes independently; reuse its navigation until a rail input changes.
   const navigation = useMemo(
     () => (
       <>
@@ -129,7 +125,6 @@ export function PreviewRail({
             const scale = highlighted ? 1 : distance === 1 ? 0.68 : distance === 2 ? 0.44 : 0.25;
 
             return (
-              // The ticks start near the column's left edge (the Chat's), shrinking toward it.
               <button
                 key={item.id}
                 data-slot="preview-rail-item"

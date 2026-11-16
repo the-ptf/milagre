@@ -5,11 +5,9 @@ import { useFocusEffect } from "expo-router";
 import { useSession } from "./session";
 import { ErrorNotice, InlineError, SectionLabel, Toggle, useStyles } from "./ui";
 
-/** Settings › Accounts › Usage limits: the connected Mac's auto-switch, like desktop. Nothing shows for an older Mac. */
 export function LimitAutoSwitchSection() {
   const styles = useStyles();
   const session = useSession();
-  // The Mac's limit auto-switch; null until the Mac answers (an older Mac never does).
   const [autoSwitch, setAutoSwitch] = useState<boolean | null>(null);
   const [autoSwitchError, setAutoSwitchError] = useState("");
   const [resumeAtReset, setResumeAtReset] = useState<boolean | null>(null);

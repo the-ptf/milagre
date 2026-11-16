@@ -1,31 +1,5 @@
 // Stand-in for an ACP agent (Antigravity's agy_acp_server) in tests: JSON-RPC 2.0 over stdio, shaped
-// like what agy 1.3.0 sends. FAKE_SCENARIO picks how a prompt behaves:
-//   reply (default)  two text chunks, end_turn
-//   thinking         thought chunks, then text
-//   command          a command runs (pending -> in_progress -> completed with output), then text
-//   failing-command  a command that exits 2
-//   permission       a command asks first; the reply text names the option picked ("cancelled" if none)
-//   guarded          `git push origin HEAD` asks first and fails when refused, then `ls build` asks; the reply names both
-//                    options picked
-//   mcp-plan-tool    a Milagre plan tool call asks first; the reply text names the option picked
-//   mcp-design-tool  as mcp-plan-tool, for a Milagre tool that still needs the user's say
-//   edit             an edit asks with its diff, runs as another call, and the asking call fails "never executed"
-//   question         an interaction_ request (a question); the reply text names the option picked
-//   plan             a plan with three entries
-//   json             a fenced JSON object naming the session's model, cwd and mcpServers (text generation)
-//   json-permission  a command asks first; the JSON object names the option picked
-//   slow             the prompt waits for session/cancel, then ends "cancelled"; fake/finish ends it "end_turn"
-//   stubborn         the prompt never ends and session/cancel is ignored
-//   stubborn-command as stubborn, with a command running in a process group of its own (fake/received names its pid)
 //   crash            the agent logs an error and exits during the prompt
-//   logged-out       session/new fails with -32000 Authentication required
-//   prompt-login     session/prompt fails with -32000
-//   subscription     session/new fails with SUBSCRIPTION_REQUIRED
-//   reject-mcp       session/new and session/resume refuse a non-empty mcpServers
-//   reject-extra-mcp session/new and session/resume refuse an mcpServers list with a server other than milagre
-//   no-resume        no session/resume capability: session/load replays history first
-//   sign-in-line     prints the sign-in URL on stdout and stderr at startup
-// A session id "missing" can't be resumed or loaded. fake/received returns every message received.
 const { createInterface } = require("node:readline");
 
 const scenario = process.env.FAKE_SCENARIO || "reply";
@@ -36,7 +10,6 @@ let sessions = 0;
 let model = kiro ? "auto" : "gemini-3.8-flash-high";
 let mode = kiro ? "vibe" : "default";
 // Kiro: models carry their credits and efforts, `effortLevel` follows the model at its default,
-// and approvals are the `autopilot` option.
 const KIRO_MODELS = [
   { value: "auto", name: "Auto", description: "Models chosen by task", _meta: { kiro: { rateMultiplier: 1, rateUnit: "Credit" } } },
   {
@@ -79,7 +52,6 @@ const antigravityConfigOptions = () => [
     currentValue: model,
     options: [
       { value: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)", description: "gemini-3.8-flash-high" },
-      // An id the catalog doesn't have: Flash at Low resolves to it only from what the session offers.
       { value: "flash-lite-agent", name: "Gemini 3.8 Flash (Low)", description: "flash-lite-agent" },
       { value: "gemini-pro-agent", name: "Gemini 3.1 Pro (High)", description: "gemini-pro-agent" },
     ],
@@ -105,10 +77,8 @@ const OPTIONS = [
   { optionId: "deny", name: "Deny", kind: "reject_once" },
 ];
 
-// A pending shell command call.
 const commandCall = (toolCallId, line) => ({ toolCallId, title: line, kind: "execute", status: "pending", rawInput: { CommandLine: line, Cwd: "/w" } });
 
-// Asks the client and resolves with its reply's result.
 function ask(params) {
   const id = nextServerId++;
   send({ id, method: "session/request_permission", params });
@@ -190,7 +160,6 @@ async function runPrompt(id, sessionId) {
       return end();
     }
     case "kiro-tools": {
-      // A tool call reports its command first; the permission request that follows names only its title.
       const edit = { type: "diff", path: `${process.cwd()}/notes.txt`, oldText: null, newText: "hello\n" };
       const results = [];
       update(sessionId, {

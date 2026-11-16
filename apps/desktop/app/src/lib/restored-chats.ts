@@ -1,6 +1,5 @@
 import type { RestoredChats } from "../model";
 
-/** The one-line notice after chats saved in linked worktrees' old project files came back: "Brought back 7 chats saved in feature." */
 export function restoredChatsNotice(restored: RestoredChats[] | undefined): string | null {
   if (!restored?.length) return null;
   const count = restored.reduce((sum, item) => sum + item.count, 0);

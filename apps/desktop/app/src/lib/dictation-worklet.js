@@ -1,5 +1,3 @@
-// Capture on the audio thread. The main thread receives ~100 ms buffers instead of encoding a complete recording.
-/* global AudioWorkletProcessor, sampleRate, registerProcessor */
 class DictationCapture extends AudioWorkletProcessor {
   constructor() {
     super();

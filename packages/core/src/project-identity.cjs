@@ -14,14 +14,11 @@ async function isDirectory(folder) {
   }
 }
 
-// A folder outside any Git repository is a Project too. It has one Worktree, the folder itself, so its Chats work
-// there directly. Any other Git failure stays a failure: a broken repository is not a plain folder.
 async function outsideGit(folder) {
   const result = await client.run(folder, ["rev-parse", "--show-toplevel"]);
   return isPlainResult(folder, result);
 }
 
-// A missing executable says nothing about a repository's files. Never open a Git checkout as a plain folder.
 async function isPlainResult(folder, result) {
   if (result.ok) return false;
   if (!result.missing) return result.code === 128 && /not a git repository/i.test(result.stderr);
@@ -47,11 +44,6 @@ async function present(listed) {
   return listed.filter((_worktree, index) => found[index]);
 }
 
-/**
- * activeWorktrees of a Project read before as a Git repository's main checkout (`projectPath`, a real path): its
- * Worktree list alone, one git call instead of two, while the list's first entry is still that checkout. Null when
- * it isn't (it moved, the folder left Git, or the list failed): the caller reads the Project afresh.
- */
 async function mainCheckoutWorktrees(projectPath) {
   const listed = await listedWorktrees(projectPath).catch(() => null);
   const main = listed?.[0]?.path;
@@ -59,9 +51,7 @@ async function mainCheckoutWorktrees(projectPath) {
   return present(listed);
 }
 
-// Git's common directory is shared by the main checkout and all linked worktrees. The first entry in
 // `git worktree list` is the main checkout, where Milagre keeps the Project's coordination state.
-// A folder outside Git is its own Project, identified by its real path, with `git: false`.
 // `listed`: what `git worktree list` gave on the way (null outside Git).
 async function identify(openedPath) {
   if (typeof openedPath !== "string" || !path.isAbsolute(openedPath)) throw new Error("Choose a folder.");

@@ -1,4 +1,3 @@
-// The real Link dialog with a controlled registry response. --preview leaves the mock open.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -120,7 +119,6 @@ async function browserChecks() {
     );
     await screenshot("link-project-list-scrolled");
 
-    // Editing: a member whose folder is gone is listed so it can be removed, and another Project can be added.
     await evaluate(`document.querySelector('dialog form button[type=button]').click()`);
     await waitFor(`!document.querySelector('dialog')`);
     await evaluate(
@@ -145,7 +143,6 @@ async function browserChecks() {
     });
     await waitFor(`document.body.textContent.includes('RDFood links 3 Projects')`);
 
-    // A Link with a running Chat names it and can't be deleted yet; Cancel leaves it as it was.
     const food = { id: "food", name: "RDFood", projectIds: ["/preview/food-api/.git", "/preview/food-web/.git"], createdAt: "2026-10-01T00:00:00.000Z" };
     await evaluate(`window.deleteCheck = { chats: 2, running: ['Fix the checkout header'] }; window.deleteLinkDialog(${JSON.stringify(food)})`);
     await waitFor(`!!document.querySelector('[data-link-delete-dialog] [role="alert"]')`);
@@ -155,11 +152,9 @@ async function browserChecks() {
     );
     assert.equal(await evaluate(`document.querySelector('[data-link-delete-confirm]').disabled`), true);
     await screenshot("link-delete-running");
-    // The Chat stops: the dialog asks again on its own, and Delete enables without reopening it.
     await evaluate("window.deleteCheck = { chats: 2, running: [] }");
     await waitFor(`!document.querySelector('[data-link-delete-confirm]').disabled && !document.querySelector('[data-link-delete-dialog] [role="alert"]')`);
     assert.match(await evaluate(`document.querySelector('#delete-link-description').textContent`), /^Its 2 Chats are archived/);
-    // A computer too old to delete Links is asked to update, not shown its refusal.
     await evaluate(`window.deleteFailure = 'Unknown command: link:delete'; document.querySelector('[data-link-delete-confirm]').click()`);
     await waitFor(`document.querySelector('[data-link-delete-dialog] [role="alert"]')?.textContent === 'Update Milagre on this Mac to delete its Links.'`);
     assert.equal(await evaluate(`document.querySelector('[data-link-delete-confirm]').disabled`), false, "Delete can be tried again");
@@ -170,7 +165,6 @@ async function browserChecks() {
     assert.equal(await evaluate("window.deleted ?? null"), null);
     await evaluate("window.deleteFailure = null");
 
-    // Edit Link offers Delete Link…, which asks first with the Link's Chat count, Cancel focused.
     await evaluate(`window.deleteCheck = null; window.editLinkDialog(${JSON.stringify(food)})`);
     await waitFor(`!!document.querySelector('[data-link-delete]')`);
     await screenshot("link-edit-delete");

@@ -40,7 +40,6 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** A text field that stays editable while its text is generated; the spinner sits inside it. Read-only while steps run. */
 function GeneratedField({
   label,
   value,
@@ -169,10 +168,6 @@ function FileList({ changes }: { changes: Extract<GitChanges, { isRepo: true }> 
   );
 }
 
-/**
- * "Commit and open PR": commits the chat's folder, pushes its branch and opens a PR, with a generated,
- * editable commit message and PR text. Milagre runs git and gh itself; the agent isn't asked.
- */
 export function GitActionsDialog({
   projectName,
   cwd,
@@ -184,19 +179,14 @@ export function GitActionsDialog({
   onSendToAgent,
   onRan,
 }: {
-  /** The chat's folder: its worktree, or the project's checkout. */
   projectName?: string;
   cwd: string;
-  /** The ref the worktree started from; the repo's default branch when absent. */
   base?: string;
   provider?: ModelProvider;
   chat: GitChatContext;
-  /** The chat's agent is mid-turn: committing waits for it. */
   turnRunning: boolean;
   onClose: () => void;
-  /** Sends a message to the chat: a new turn, or a steer when a turn is running. */
   onSendToAgent: (text: string) => void;
-  /** Steps ran: the note to save in the chat. */
   onRan: (note: string) => void;
 }) {
   const bridge = useBridge();
@@ -206,11 +196,9 @@ export function GitActionsDialog({
   const [changes, setChanges] = useState<GitChanges | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
   const [fields, setFields] = useState<Fields>({ commitMessage: "", prTitle: "", prBody: "" });
-  // The values a run uses are read here at click time, not from a render's closure.
   const fieldsRef = useRef(fields);
   fieldsRef.current = fields;
   const [generating, setGenerating] = useState(false);
-  /** Which fields came back without text: the note shows under them. */
   const [generationFailed, setGenerationFailed] = useState<{ commit: boolean; pr: boolean }>({ commit: false, pr: false });
   const [steps, setSteps] = useState<StepState[]>([]);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -237,7 +225,6 @@ export function GitActionsDialog({
     });
   const mode = repo ? modeFor(repo, turnRunning) : null;
 
-  // A failure shows below the form, so bring it into view.
   const failureRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (failure) failureRef.current?.scrollIntoView({ block: "nearest" });
@@ -254,7 +241,6 @@ export function GitActionsDialog({
     }
   }, [cwd, base, bridge.git]);
 
-  // Read the folder, then write the text. The ref keeps StrictMode's second mount from asking twice.
   useEffect(() => {
     mounted.current = true;
     if (!started.current) {
@@ -262,9 +248,7 @@ export function GitActionsDialog({
       void (async () => {
         const next = await load();
         if (!next?.isRepo) return;
-        // A running turn doesn't change which sections show, only which buttons work.
         const initial = modeFor(next, false);
-        // Mid-merge (or rebase…) nothing can be committed yet, and the diff holds conflict markers.
         if (next.commitBlocked || (!initial.showCommit && !initial.showPrFields)) return;
         setGenerating(true);
         const text = await bridge.git.generate({ cwd, base, provider, chat }).catch(() => ({ ok: false as const, message: GENERATION_FAILED }));
@@ -274,13 +258,11 @@ export function GitActionsDialog({
           setGenerationFailed({ commit: true, pr: true });
           return;
         }
-        // Text the user typed while it was being written stays.
         setFields((current) => ({
           commitMessage: edited.current.commitMessage ? current.commitMessage : text.commitMessage,
           prTitle: edited.current.prTitle ? current.prTitle : text.prTitle,
           prBody: edited.current.prBody ? current.prBody : text.prBody,
         }));
-        // A subject that kept repeating an earlier commit comes back empty.
         setGenerationFailed({ commit: !text.commitMessage, pr: !text.prTitle });
       })();
     }
@@ -300,8 +282,6 @@ export function GitActionsDialog({
   const closeRef = useRef(close);
   closeRef.current = close;
 
-  // Escape closes the dialog (unless steps run), and is consumed here so the app's Escape doesn't also stop the
-  // chat's turn.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.isComposing) return;
@@ -313,7 +293,6 @@ export function GitActionsDialog({
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, []);
   async function run(stepsToRun: GitStep[]) {
-    // A second click before React re-renders mustn't start a second run.
     if (!repo || runningRef.current) return;
     runningRef.current = true;
     const { commitMessage, prTitle, prBody } = fieldsRef.current;
@@ -331,7 +310,6 @@ export function GitActionsDialog({
           const committed = await bridge.git.commit({ cwd, message: commitMessage });
           if (!committed.ok) {
             failed = true;
-            // Only a hook's complaint is something the agent can fix; a signing key isn't.
             setFailure(
               committed.kind === "hook"
                 ? { message: committed.code ? gitMessage(committed.code) : committed.message, output: committed.output, hook: true }
@@ -369,12 +347,10 @@ export function GitActionsDialog({
         break;
       }
     }
-    // A push to a branch with an open PR updates it.
     if (repo.pr && outcome.pushedBranch && !outcome.pr) outcome.pr = { url: repo.pr.url, number: repo.pr.number, created: false };
     setResult(outcome);
     const note = gitRunNote(outcome);
     if (note) onRan(note);
-    // The folder has moved on (after a failure a commit may be in), so the list and the buttons follow it.
     if (!failed) setFinished(true);
     await load();
     runningRef.current = false;
@@ -383,7 +359,6 @@ export function GitActionsDialog({
 
   const primary = mode?.primary ?? null;
   const secondary = mode?.secondary ?? null;
-  // A button needs the fields its steps use; generation may still be filling them.
   const missingField = (button: DialogButton | null) =>
     !button
       ? null
@@ -393,15 +368,11 @@ export function GitActionsDialog({
           ? "Add a PR title."
           : null;
   const disabled = (button: DialogButton | null) => running || !button || Boolean(button.disabledReason) || Boolean(missingField(button));
-  // The reason beside the buttons: git's or the agent's state first, then a missing field.
   const footerReason = primary?.disabledReason ?? secondary?.disabledReason ?? (generating ? null : missingField(primary));
-  // The PR section already says why a PR can't open; the footer doesn't repeat it.
   const shownReason = footerReason && footerReason === mode?.prBlocked ? null : footerReason;
   const showForm = !finished;
   const prTarget = repo ? prTargetLine(repo.remotes, repo.prRepo) : null;
 
-  // A modal <dialog>: the app behind is inert, focus stays in it, and Esc closes it (unless steps are running) without
-  // reaching the chat behind, so it doesn't also stop the turn.
   return (
     <Dialog
       data-git-dialog
@@ -545,7 +516,6 @@ export function GitActionsDialog({
 
           {failure && (
             <div ref={failureRef} role="alert" data-git-failure className="grid gap-2 rounded-card bg-red-tint p-3 text-13 text-red-ink">
-              {/* Git's and gh's own output keeps its lines; a one-line reason reads as text. */}
               {failure.output || failure.message.includes("\n") ? (
                 <>
                   {failure.output && <p className="font-medium">{failure.message}</p>}

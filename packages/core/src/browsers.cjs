@@ -1,20 +1,13 @@
 const { createHash, randomBytes } = require("node:crypto");
 
-// A browser belongs to a Chat on evidence only: its browser process descends from that Chat's agent
-// process (lineage), or the user attached it to the Chat. Names, titles and URLs never decide it.
 const TARGET = /^([A-Za-z0-9-]{8,64}):([A-Fa-f0-9]{32})$/;
 const BROWSER = /^[A-Za-z0-9-]{8,64}$/;
 const BUTTONS = new Set(["left", "middle", "right", "none"]);
 const COMMANDS = new Set(["selectAll", "copy", "cut", "paste", "undo", "redo"]);
 const NAVIGATION = new Set(["back", "forward", "reload"]);
 const MAX_ATTACHED = 16;
-// The viewer's size the page lays out at, in CSS pixels.
 const MIN_VIEWPORT = 100;
 const MAX_VIEWPORT = 4096;
-// How old a reading of the process table may be. Every window and phone asks for each Chat on screen every 15 s, and
-// a reading starts processes (ps, lsof). A Chat that can own no page now (its agent isn't running, and no browser was
-// attached to it or started by it) only learns of other browsers from one, so it takes one this old; a Chat that can
-// own one, like attach and open, takes one at most FRESH_MS old. While an agent works or a page is known, the lineage tick reads every 5 s.
 const FRESH_MS = 2000;
 const UNOWNED_MS = 30_000;
 
@@ -65,7 +58,6 @@ function validEvent(event) {
       return false;
   }
 }
-// Copy only admitted fields; callers cannot forward arbitrary DevTools commands.
 function cleanEvent(event) {
   const extra = event.modifiers ? { modifiers: event.modifiers } : {};
   switch (event.kind) {
@@ -106,7 +98,6 @@ function requireChat(request) {
   return chatId;
 }
 
-/** One host owns browser captures; viewer capabilities belong to a trusted transport connection. */
 function createBrowsers(options = {}) {
   const supported = options.supported ?? (process.platform === "darwin" || process.platform === "linux");
   const adapter = options.adapter ?? require("./browsers-cdp.cjs").createBrowserAdapter(options);
@@ -119,15 +110,9 @@ function createBrowsers(options = {}) {
   const owners = new Map(),
     viewers = new Map(),
     captures = new Map(),
-    // "chatId\0targetId" -> { chatId, target, session, state }: the agent tools' DevTools sessions, kept while the page
-    // stays the Chat's.
     devtoolsSessions = new Map();
-  // browserId -> { chatId, pid }: the Chat whose agent started it, kept until that browser exits.
   const lineage = new Map();
   const attachments = new Map();
-  // A desktop's Browser panel pages, by the desktop connection that registered them (setPanelPages): its loopback
-  // DevTools endpoint and each page with the Chat whose panel shows it. The panel opening a page is the ownership
-  // evidence, like lineage; the desktop disconnecting takes them away.
   const panels = new Map();
   let closed = false,
     queue = Promise.resolve(),
@@ -135,7 +120,6 @@ function createBrowsers(options = {}) {
     cache = null,
     discovering = null;
 
-  /** Ends an agent's DevTools session, also one still connecting. */
   function dropSession(key, entry) {
     devtoolsSessions.delete(key);
     if (entry.session) entry.session.close();
@@ -146,7 +130,6 @@ function createBrowsers(options = {}) {
       );
   }
 
-  /** Ends the agents' sessions on Browser panel pages no desktop shows any more; returns the pages still shown. */
   function dropGonePanelSessions() {
     const live = new Set(panelBrowsers().flatMap((browser) => browser.pages.map((page) => `${browser.id}:${page.id}`)));
     for (const [key, entry] of devtoolsSessions) if (entry.target.id.startsWith("panel-") && !live.has(entry.target.id)) dropSession(key, entry);
@@ -180,7 +163,6 @@ function createBrowsers(options = {}) {
     return v;
   }
 
-  /** The OS process tree is the ownership evidence; it is read again once the last reading is `maxAge` old. */
   async function snapshot(maxAge = FRESH_MS) {
     if (cache && now() - cache.at < maxAge) return cache.world;
     discovering ??= (async () => {
@@ -199,7 +181,6 @@ function createBrowsers(options = {}) {
           for (let depth = 0; pid && pid > 1 && depth < 64; depth++, pid = parents.get(pid)) {
             if (!agents.has(pid)) continue;
             lineage.set(browser.id, { chatId: agents.get(pid), pid: browser.pid });
-            // Evidence beats an earlier guess: another Chat's attachment ends once lineage shows the owner.
             for (const [chatId, set] of attachments) if (chatId !== agents.get(pid) && set.delete(browser.id) && !set.size) attachments.delete(chatId);
             break;
           }
@@ -212,7 +193,6 @@ function createBrowsers(options = {}) {
     })();
     return discovering;
   }
-  /** Each Chat's Browser panel pages, as one browser that Chat owns. */
   function panelBrowsers() {
     const browsers = [];
     for (const [owner, panel] of panels) {
@@ -235,7 +215,6 @@ function createBrowsers(options = {}) {
     return browsers;
   }
   const allBrowsers = (world) => [...world.browsers, ...panelBrowsers()];
-  /** Whether a page can belong to this Chat now: its agent runs, or a browser was attached to it or started by its agent. */
   function mayOwn(chatId) {
     if (attachments.has(chatId) || roots().has(chatId)) return true;
     for (const panel of panels.values()) if (panel.pages.some((page) => page.chatId === chatId)) return true;
@@ -284,7 +263,6 @@ function createBrowsers(options = {}) {
   }
   function metadata(capture) {
     const state = capture.channel.status();
-    // Input normalized to an old viewport must not land in a resized one.
     const signature = `${state.width}:${state.height}:${!!state.ready}:${state.error ?? ""}`;
     if (capture.signature !== signature) {
       if (capture.signature !== undefined) {
@@ -321,7 +299,6 @@ function createBrowsers(options = {}) {
     capture.viewers.delete(v.id);
     if (capture.viewers.size === 0) {
       captures.delete(capture.key);
-      // Ends only Milagre's capture. The page, its browser and the agent keep running.
       await capture.channel.close().catch(() => {});
     }
   }
@@ -339,15 +316,12 @@ function createBrowsers(options = {}) {
     Math.min(5000, ttl),
   );
   expiryTimer.unref();
-  // Idle provider processes can linger for minutes. Only work that can launch a browser, or pages we still
-  // need to track, warrants an OS scan. On-demand paths retain their normal snapshot freshness.
   function needsLineagePoll() {
     if (viewers.size || cache?.world.browsers.some((browser) => browser.pages.length)) return true;
     for (const panel of panels.values()) if (panel.pages.length) return true;
     for (const root of roots().values()) if (root.active) return true;
     return false;
   }
-  // Lineage must be seen while the agent's process tree still holds the browser, not only when someone opens the list.
   const lineageTimer = setInterval(() => {
     if (!closed && supported && needsLineagePoll()) void snapshot().catch(() => {});
   }, options.lineagePollMs ?? 5000);
@@ -379,7 +353,6 @@ function createBrowsers(options = {}) {
       attachments.set(chatId, set);
       return view(world, chatId);
     },
-    /** Ends this Chat's attachment and its viewers of that browser. The browser, its pages and other Chats' attachments stay. */
     async detach(request) {
       if (closed) throw new Error("Browser service is closed.");
       const chatId = requireChat(request);
@@ -390,7 +363,6 @@ function createBrowsers(options = {}) {
       set.delete(browserId);
       if (!set.size) attachments.delete(chatId);
       await serial(async () => {
-        // A copy: removing a viewer awaits channel cleanup.
         for (const v of Array.from(viewers.values())) if (v.chatId === chatId && v.capture.key.startsWith(`${browserId}:`)) await remove(v);
       });
       return view(await snapshot(), chatId);
@@ -411,7 +383,6 @@ function createBrowsers(options = {}) {
         if (!target || !browser) throw new Error("This page is not available in this Chat. Choose another page.");
         let capture = captures.get(target.id);
         if (capture && metadata(capture).error) {
-          // A copy: cleanup must finish the viewers present when repair started.
           for (const id of Array.from(capture.viewers)) await remove(viewers.get(id));
           capture = null;
         }
@@ -432,7 +403,6 @@ function createBrowsers(options = {}) {
         return { viewerId: id, target: { ...target } };
       });
     },
-    /** Long-polls for a frame newer than `after`. Only the newest frame is kept, so a slow link skips frames instead of queueing them. */
     async frame(request, owner) {
       const v = await serial(async () => {
         const v = await active(request, owner);
@@ -463,7 +433,6 @@ function createBrowsers(options = {}) {
             }
           });
         }
-        // Closing a viewer ends its pending wait quietly; the receiver has already moved on.
         if (v.removed) return null;
         const state = metadata(v.capture);
         if (state.error) throw new Error(state.error);
@@ -538,17 +507,6 @@ function createBrowsers(options = {}) {
         return null;
       });
     },
-    /**
-     * What a desktop's Browser panel shows: its DevTools endpoint (cdp-proxy.cjs) and each page with its Chat. Replaces
-     * what that desktop registered before; an empty list takes its pages away, and viewers of a page that went close.
-     */
-    /**
-     * A DevTools session on one of the Chat's pages for the agent's browser tools: `page` names a target from `list`;
-     * without it, the Chat's Browser panel page shown most recently, else its first page. Each call checks again that
-     * the page is still the Chat's. The session is kept between calls (its `state` holds what the tools remember).
-     * `files` turns paths on this computer into paths the page's browser can read: the same ones, or for a paired
-     * desktop's page, copies put on that desktop.
-     */
     async devtools(request) {
       if (closed) throw new Error("Browser service is closed.");
       const chatId = requireChat(request);
@@ -563,7 +521,6 @@ function createBrowsers(options = {}) {
             ? "That page is not in this Chat. List the pages with browser_list."
             : "This Chat has no browser page. Open one with browser_open, or ask the user to open the Browser panel.",
         );
-      // Sessions whose page closed go, and this Chat's on pages that left it.
       for (const [key, entry] of devtoolsSessions)
         if (entry.session?.closed || (entry.chatId === chatId && !targets.some((item) => item.id === entry.target.id))) dropSession(key, entry);
       const key = `${chatId}\0${target.id}`;
@@ -572,8 +529,6 @@ function createBrowsers(options = {}) {
         const match = TARGET.exec(target.id);
         const browser = match && allBrowsers(world).find((item) => item.id === match[1]);
         if (!browser || typeof adapter.session !== "function") throw new Error("This page can't be driven from here.");
-        // Kept while it connects, so two tools at once share one session (and one set of refs) instead of each opening
-        // their own.
         const made = { chatId, target, session: null, state: {}, ready: adapter.session(browser, match[2]) };
         entry = made;
         devtoolsSessions.set(key, made);
@@ -608,7 +563,6 @@ function createBrowsers(options = {}) {
         panels.set(owner, {
           port,
           prefix: request.prefix,
-          // A paired desktop's pages (#832), reached through a forwarder: its browser reads that desktop's files.
           remote: request.remote === true,
           pages: pages.map((page) => {
             if (typeof page?.id !== "string" || !/^[A-F0-9]{32}$/.test(page.id)) throw new Error("Invalid Browser panel page.");
@@ -619,7 +573,6 @@ function createBrowsers(options = {}) {
       }
       const live = dropGonePanelSessions();
       return serial(async () => {
-        // A copy: removing a viewer awaits channel cleanup.
         for (const v of Array.from(viewers.values())) if (v.capture.key.startsWith("panel-") && !live.has(v.capture.key)) await remove(v);
         return { pages: pages.length };
       });

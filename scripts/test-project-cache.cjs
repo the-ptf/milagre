@@ -1,5 +1,3 @@
-// Real desktop App and mobile SessionProvider/ProjectNavigation, with delayed host responses.
-// Mobile native controls are DOM adapters; this checks lifecycle and data flow, not native layout.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -123,18 +121,14 @@ const stubs = {
   "./theme":
     "export const useTheme = () => ({ colors: new Proxy({}, { get: (_, key) => String(key) }), scheme: 'light', settings: {}, set() {} }); export const inkFor = (colors, tone) => ['ink', 'ink2', 'ink3'].includes(tone) ? colors[tone] : colors[tone + 'Ink']; export const fonts = { mono: 'monospace' }; export const createStylesHook = () => () => new Proxy({}, { get: () => ({}) });",
   "./primitives/tap": "export const tap = () => {};",
-  // The toast pill draws the phone's icons and theme, native-only: here it is its text and Undo.
   "./primitives/toast":
     'export const ToastPill = ({ text, onUndo }) => <div role="status">{text}{onUndo ? <button aria-label="Undo" onClick={onUndo} /> : null}</div>;',
-  // The surface behind floating controls is native glass or a themed surface: here it draws nothing.
   "./primitives/glass-surface": "export const GlassSurface = () => null;",
   "@sbaiahmed1/react-native-blur": "export const LiquidGlassView = ({ children }) => <div>{children}</div>;",
   "expo-router": "import { useEffect } from 'react'; export const useFocusEffect = effect => useEffect(effect, [effect]);",
   "expo-linking": "export const openURL = async () => {};",
   "expo-clipboard": "export const setStringAsync = async () => {};",
   "react-native-safe-area-context": "export const useSafeAreaInsets = () => ({ top: 0, bottom: 0 });",
-  // A Project header drags to reorder on the phone; these native libs are stubbed so Vite never bundles their web
-  // builds (react-native-reanimated pulls react-native-web paths that don't resolve here).
   "react-native-gesture-handler":
     "const chain = () => new Proxy(() => chain(), { get: () => () => chain() }); export const Gesture = { Pan: chain, Tap: chain, Exclusive: () => chain() }; export const GestureDetector = ({ children }) => children;",
   "react-native-reanimated":
@@ -154,7 +148,6 @@ const stubs = {
   "./project-search": "export const ProjectSearch = () => null;",
   "./snooze-setting": "export const useSnoozeMinutes = () => [60, () => {}];",
   "./chat-actions": "export const chatMenu = () => []; export const runChatAction = async () => {};",
-  // The swipe row is Reanimated and the gesture handler, native-only: a row here renders without it.
   "./chat-swipe-row":
     "export const ChatSwipeRow = ({ children }) => children; export const hideRevealed = () => {}; export const ClosesLeftContext = { Provider: ({ children }) => children };",
   "./offline-tray": "export const WaitingLabel = () => null;",
@@ -175,7 +168,6 @@ async function browserChecks() {
     app.exit(1);
   }, 90_000).unref();
   await app.whenReady();
-  // App waits for the splash animation to finish; a shown window keeps its compositor painting under Xvfb.
   const window = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -204,7 +196,6 @@ async function browserChecks() {
   }
   const contains = (text) => `document.body.textContent.includes(${JSON.stringify(text)})`;
   const sidebar = (text) => `document.querySelector('aside')?.textContent.includes(${JSON.stringify(text)})`;
-  // "New chat in <name>" on another Project's sidebar group switches to that Project.
   async function switchTo(_current, next) {
     const target = `document.querySelector('[data-sidebar-scope="/${next}"] [data-scope-action]')`;
     await waitFor(`!!${target}`);
@@ -227,7 +218,6 @@ async function browserChecks() {
     assert.equal(await evaluate("window.requests[0].path"), "/alpha", "cached chats show before refresh resolves");
     await screenshot("desktop-cached-refresh");
     await evaluate(`[...document.querySelectorAll('aside [data-row]')].find(row => row.textContent.includes('alpha Chat')).click()`);
-    // The Delegation is one line; its dialog's Open Chat opens the sending Chat.
     await waitFor(`!!document.querySelector('[data-linked-message-line] button')`);
     await evaluate(`document.querySelector('[data-linked-message-line] button').click()`);
     await waitFor(`!!document.querySelector('[data-linked-open-chat="/alpha#2"]')`);
@@ -261,7 +251,6 @@ async function browserChecks() {
     await waitFor("!!window.session?.booted");
     await evaluate("window.process = { env: {} }");
     await evaluate("window.session.connect({ address: 'host-one', token: '' }, false)");
-    // Every Project's group starts open; only a group folded by hand stays folded.
     await waitFor(contains("alpha Chat"));
     await waitFor(contains("beta Chat"));
     assert.equal(await evaluate(`!!document.querySelector('[aria-label^="Collapse beta"]')`), true, "another Project's group is open too");
@@ -287,7 +276,6 @@ async function browserChecks() {
     await waitFor("window.requests.some(request => request.path === '/beta')");
     await evaluate("window.finish('/beta', 'Retried beta')");
     await waitFor(contains("Retried beta Chat"));
-    // Browsing the drawer (the all-computers store reading /beta) warmed the session's own cache.
     assert.equal(await evaluate("!!window.session.cachedProject('/beta')"), true, "the drawer's read of the current computer seeds the session cache");
     assert.equal(await evaluate("window.requests.some(request => request.path === '/beta')"), false, "no extra preview of beta is needed before opening it");
     await evaluate("window.session.open('/beta'); void 0");
@@ -296,10 +284,8 @@ async function browserChecks() {
     await waitFor("window.requests.some(request => request.path === '/beta')");
     await evaluate("window.finish('/beta', 'Opened beta')");
     await waitFor("window.session.opening === null");
-    // Selecting beta refreshes alpha's preview on the current connection.
     await waitFor("window.requests.some(request => request.host === 'host-one' && request.path === '/alpha')");
     await evaluate("window.finish('/alpha', 'Fresh alpha', 'host-one')");
-    // Both computers are saved, as paired phones have them: each keeps its own answers while the other is the open one.
     await evaluate("window.savedHostList = [{ id: 'host-one', name: 'One', address: 'host-one', token: '', lastUsed: 1 }]");
     await evaluate("window.session.connect({ address: 'host-two', token: '', name: 'Two' }, true)");
     await waitFor("window.requests.some(request => request.host === 'host-two')");
@@ -312,12 +298,10 @@ async function browserChecks() {
     await evaluate("window.session.connect({ address: 'host-one', token: '' }, false)");
     await waitFor(contains("Fresh alpha Chat"));
     await waitFor("window.requests.some(request => request.host === 'host-one' && request.path === '/alpha')");
-    // The reconnect and the store each read it; answer whichever reads are open until the list shows the new answer.
     await waitFor(`(() => { try { window.finish('/alpha', 'Returned alpha', 'host-one'); } catch {} return ${contains("Returned alpha Chat")}; })()`);
     assert.equal(await evaluate(alphaOn("host-two")), "Other computer Chat", "returning leaves the other computer's answers alone");
     await evaluate("window.drawer(false)");
     await delay(50);
-    // Answer every other open read, so only the empty alpha list below can still be loading.
     await evaluate(
       "window.requests.filter(request => request.path !== '/alpha').forEach(request => window.finish(request.path, request.path.slice(1) + ' settled', request.host))",
     );
@@ -370,8 +354,6 @@ async function main() {
   const server = await createServer({
     configFile: path.resolve("apps/desktop/vite.config.ts"),
     server: { host: "127.0.0.1", port: 0 },
-    // The mobile fixture's native libs are stubbed by the plugin below; keep Vite's optimizer from pre-bundling their
-    // real web builds, which pull react-native-web paths that don't resolve here.
     optimizeDeps: { exclude: ["react-native-gesture-handler", "react-native-reanimated", "react-native-worklets"] },
     plugins: [
       {

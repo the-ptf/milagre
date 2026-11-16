@@ -1,5 +1,3 @@
-// Every Chat, and the new-chat screen, keeps its own draft while you move between them,
-// and Up/Down in the prompt step through the prompts sent in that Chat.
 const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
@@ -79,11 +77,9 @@ async function browserChecks() {
     })()`);
   const promptIs = (text) => waitFor(`${prompt}?.value === ${JSON.stringify(text)}`);
   const press = (key) => evaluate(`${prompt}.dispatchEvent(new KeyboardEvent('keydown', { key: '${key}', bubbles: true, cancelable: true }))`);
-  // The permission lives in the model picker's footer; the model trigger carries the current mode.
   const trigger = `document.querySelector('[data-promptbar] [data-permission-mode]')`;
   const modeIs = (mode) => `${trigger}?.dataset.permissionMode === ${JSON.stringify(mode.toLowerCase())}`;
   const setPermissionMode = async (mode) => {
-    // Mode is "Ask", "Auto", or "Full"
     await evaluate(`${trigger}.click()`);
     const footer = `document.querySelector('[data-permission-footer] button[aria-label="Agent permissions"]')`;
     await waitFor(`!!${footer}`);
@@ -111,7 +107,6 @@ async function browserChecks() {
   async function screenshot(name) {
     const dir = process.env.MILAGRE_SCREENSHOT_DIR;
     if (!dir) return;
-    // The splash fades out and the window repaints after a selection; capture what is on screen, not the last frame.
     await delay(400);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, `${name}.png`), (await window.webContents.capturePage()).toPNG());
@@ -158,7 +153,6 @@ async function browserChecks() {
     await promptIs("Draft for alpha");
     console.log("PASS: Up and Down step through the Chat's sent prompts and restore the draft");
 
-    // Test permission mode options
     await openChat("Alpha chat");
     await setPermissionMode("Auto");
     await openChat("Beta chat");
@@ -192,7 +186,6 @@ async function browserChecks() {
     await promptIs("Edited while connecting");
     console.log("PASS: a slow or failed Project switch keeps the draft visible and carries edits made during the wait");
 
-    // Picking a Link from the same dropdown opens a new Chat there, not the Link's last one, and the draft goes with it.
     await type("Carry me to the Link");
     await evaluate(`document.querySelector('[data-new-chat-project]').click()`);
     const linkRow = `[...document.querySelectorAll('[data-new-chat-heading] [data-picker-row]')].find(row => row.querySelector('strong')?.textContent === 'Shop + API')`;
@@ -214,7 +207,6 @@ async function browserChecks() {
       await waitFor(`typeof window.finishLinkSwitch === 'function'`);
     };
     await pickLink();
-    // Even leaving and returning to the same new Chat cancels this handoff.
     await newChat();
     await evaluate(`window.finishLinkSwitch()`);
     await delay(150);

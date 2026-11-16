@@ -1,8 +1,3 @@
-// Themed surfaces gallery: the real App (sidebar, chat with a Shiki code block, Changes and its diff view, a real xterm
-// Terminal, the design canvas) under ten themes, switched live through the app's own settings. Each surface asserts its
-// computed colors against the registry's palette; set MILAGRE_SCREENSHOT_DIR for `<theme>-<surface>.png` images.
-// Only the host bridge on window.milagre is stubbed (a Proxy, as in capture-readme.cjs; a fake terminals API that
-// streams scripted ANSI output; fixed diffs and designs).
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -174,7 +169,6 @@ const files = {
   },
 };
 
-// One screen of a terminal: a prompt, `ls --color`, `git status` and a test run, then all sixteen ANSI colors.
 const E = "\x1b[";
 const terminalScript = [
   `${E}1;32mvictor@mac${E}0m:${E}1;34m~/milagre${E}0m$ ls --color`,
@@ -307,7 +301,6 @@ function designOpen() {
 
 const hexRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 const close = (rgb, hex) => rgb.every((value, i) => Math.abs(value - hexRgb(hex)[i]) <= 3);
-/** The pixel under a point given in CSS pixels, from a capture that may be at a higher device resolution. */
 function pixelAt(image, x, y, cssWidth) {
   const { width } = image.getSize();
   const scale = width / cssWidth;
@@ -362,7 +355,6 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-row]')`);
     await evaluate(`[...document.querySelectorAll('[data-row]')].find((row) => row.textContent.includes(${JSON.stringify(title)})).click()`);
   };
-  // Switches theme through the app's own settings and waits for its stylesheet; returns the palette for assertions.
   const applyTheme = async (colorTheme, mode) => {
     await evaluate(`window.__gallery.set(${JSON.stringify(colorTheme)}, ${JSON.stringify(mode)})`);
     const page = await evaluate(`window.__gallery.palette(${JSON.stringify(colorTheme)}, ${JSON.stringify(mode)}).page`);
@@ -446,7 +438,6 @@ async function browserChecks() {
       assert.equal(xterm.foreground, p.ink, `${label}: terminal text is the theme's ink`);
       assert.equal(xterm.cursor, p.cursor);
       assert.equal(xterm.selectionBackground, p.selection);
-      // The buffer holds every one of the sixteen colors, so the strip below really exercises the palette.
       const used = await evaluate(
         `(() => { const t = window.__gallery.terminal(), b = t.buffer.active, seen = new Set(); for (let r = 0; r < b.length; r++) { const line = b.getLine(r); for (let c = 0; c < t.cols; c++) { const cell = line.getCell(c); if (cell.isFgPalette()) seen.add(cell.getFgColor()); if (cell.isBgPalette()) seen.add(cell.getBgColor()); } } return [...seen].sort((a, b) => a - b); })()`,
       );
@@ -455,7 +446,6 @@ async function browserChecks() {
         [...Array(16).keys()],
         `${label}: the output uses all sixteen ANSI colors`,
       );
-      // And the terminal paints them: each background swatch's center pixel, read from the window's own capture, is the palette's color.
       // Only on macOS: Linux CI runners capture the terminal before its GPU layer composites, so the pixels read as background.
       if (process.platform !== "darwin") return;
       const geometry = await evaluate(

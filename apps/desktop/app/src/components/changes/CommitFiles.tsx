@@ -8,7 +8,6 @@ import { isLarge, type PatchState } from "./useDiffFiles";
 const CommitDiffFile = lazy(() => import("./DiffFile").then(({ DiffFile }) => ({ default: DiffFile })));
 const selectedFileIsVisible = () => {};
 
-/** Immutable commit inspection, independent of the current branch and working tree. */
 export function CommitFiles({ cwd, sha, bridge }: { cwd: string; sha: string; bridge: MilagreBridge }) {
   const [retry, setRetry] = useState(0);
   const [path, setPath] = useState("");

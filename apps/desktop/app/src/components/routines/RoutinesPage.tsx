@@ -23,11 +23,6 @@ type Filter = "all" | "heartbeats" | "triggers" | "paused";
 const HELP = "Routines run while the computer they are on is awake. Closing the lid on battery pauses them.";
 const NOT_REMOTE = "Not available on a remote computer";
 
-/**
- * Why another computer's Routines aren't listed or current, or null when they are. An older Milagre there refuses them
- * outright; an offline one is shown from the last copy it sent, which can't be changed until it is back. (One that can't
- * run Routines yet gets the Allow notice instead.)
- */
 function computerRoutinesProblem(view: ComputerView, error: string | null): string | null {
   if (error?.includes(NOT_REMOTE)) return `Update Milagre on ${view.name} to see its Routines.`;
   if (isDimmed(view)) return `${view.name} is offline. Its Routines are the last copy it sent; you can change them once it's back.`;
@@ -38,10 +33,6 @@ const card = "divide-y divide-line overflow-hidden rounded-card bg-surface shado
 
 const NO_CHATS: ReadonlySet<string> = new Set();
 
-/**
- * The Routines page: the heartbeats and triggers of this Mac and every paired computer, each with its switch and actions, and New Routine. With
- * `routineId` it shows that Routine's own page, with its Runs, instead.
- */
 export function RoutinesPage({
   models,
   capabilities = null,
@@ -58,35 +49,22 @@ export function RoutinesPage({
   onCloseRunChat,
 }: {
   models: ModelOption[];
-  /** What each reported model accepts (efforts), for the fallback's effort. */
   capabilities?: ModelCapabilities | null;
-  /** The open Project, where a new Routine runs unless another is picked. */
   projectPath?: string;
-  /** The ids of Routines with a hidden Run Chat nobody opened: their rows show a dot. */
   unreadRoutines?: ReadonlySet<string>;
-  /** The Routine whose page is open, or null for the list. */
   routineId?: string | null;
-  /** The keys of hidden Run Chats nobody opened: their Runs show a dot on the Routine's page. */
   unreadChats?: ReadonlySet<string>;
-  /** Whether a Run's row opens its Chat (canOpenRunChat). */
   canOpen?: (chatKey: string) => boolean;
-  /** The Run Chat open beside the Routine's page, which then narrows to a column. */
   runChat?: string | null;
-  /** Opens a Routine's page (a row's click), or goes back to the list with null. */
   onOpenRoutine?: (routineId: string | null) => void;
   onOpenChat: (chatKey: string) => void;
-  /** Marks a Routine's unread Run Chats read: its row's Mark as read. */
   onMarkRead?: (routineId: string) => void;
-  /** Opens a Run's Chat beside the Routine's page; without it a Run opens its Chat in the window (onOpenChat). */
   onOpenRunChat?: (chatKey: string) => void;
-  /** Closes the Run Chat beside the page: Edit and New Routine take the page over. */
   onCloseRunChat?: () => void;
 }) {
   const { enabled: read, routines, error: loadError, byComputer, refresh } = useRoutines();
-  // Routines have no switch: the page shows once this Mac has answered.
   const enabled = read !== null;
   const { thisMac, computers } = useComputers();
-  // With other computers, each row says which Mac it runs on, as Chat rows do.
   const computerName = (id: string) => (id === LOCAL_COMPUTER ? thisMac : (computers.find((computer) => computer.id === id)?.name ?? "Computer"));
   const remoteProblems = computers.flatMap((computer) => {
     const problem = computerRoutinesProblem(computer, byComputer[computer.id]?.error ?? null);
@@ -95,26 +73,19 @@ export function RoutinesPage({
   const onComputers = Object.keys(byComputer).filter((id) => typeof byComputer[id]?.enabled === "boolean");
   const onKey = onComputers.join(",");
   const [filter, setFilter] = useState<Filter>("all");
-  // One computer's Routines only, or every computer's ("all").
   const [onComputer, setOnComputer] = useState<string>("all");
   const [error, setError] = useState<string | null>(null);
-  // The Routine whose page shows its form in place (its id), "new" for New Routine in place of the list, or null.
   const [editing, setEditing] = useState<string | null>(null);
-  // Whether the open form has changes nobody saved: moving to another Routine, or the list, asks to discard them first.
   const [dirty, setDirty] = useState(false);
-  // A webhook Routine just created: its page shows the URL once.
   const [created, setCreated] = useState<{ id: string; url: string } | null>(null);
-  // A Routine just created, until the Mac's list has it: then its page opens (before, it would read as deleted).
   const [opening, setOpening] = useState<string | null>(null);
   const [chatTitles, setChatTitles] = useState<Map<string, string>>(new Map());
   const [now, setNow] = useState(() => Date.now());
 
-  // "2 h ago" and "ends in 3 h" move with the clock.
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
-  // A heartbeat's row names its Chat; each computer's Routine targets carry its Projects' Chat titles.
   useEffect(() => {
     if (!enabled) return;
     let live = true;
@@ -133,7 +104,6 @@ export function RoutinesPage({
   }, [enabled, routines.length, onKey]);
 
   const selected = routineId ? routines.find((routine) => routine.id === routineId) : undefined;
-  // A Routine deleted (here, from its page, or anywhere else) takes its page with it: back to the list.
   const gone = Boolean(routineId && enabled && !loadError && !selected);
   useEffect(() => {
     if (gone) onOpenRoutine?.(null);
@@ -145,13 +115,11 @@ export function RoutinesPage({
     setEditing(null);
     onOpenRoutine?.(opening);
   }, [arrived, opening, onOpenRoutine]);
-  // An edit belongs to its Routine's page: opening another page, or the list, leaves it, once its changes are discarded.
   const editHere = (current: string | null) => current === null || current === routineId || (current === "new" && !routineId);
   const switching = !editHere(editing) && dirty;
   useEffect(() => {
     if (!dirty) setEditing((current) => (editHere(current) ? current : null));
   }, [routineId, dirty]);
-  // Edit and New Routine take the page over: a Run Chat open beside it closes.
   useEffect(() => {
     if (editing !== null) onCloseRunChat?.();
   }, [editing]);
@@ -167,7 +135,6 @@ export function RoutinesPage({
     if (id) document.querySelector<HTMLElement>(`[data-routine-row="${CSS.escape(id)}"] [data-routine-open]`)?.focus();
   }, [routineId]);
 
-  // With paired computers, the list narrows to one of them; a computer that leaves takes its choice with it.
   const computerChoices =
     computers.length > 0 ? [LOCAL_COMPUTER, ...computers.filter((computer) => byComputer[computer.id]).map((computer) => computer.id)] : [];
   const pickedComputer = computerChoices.includes(onComputer) ? onComputer : "all";
@@ -190,8 +157,6 @@ export function RoutinesPage({
       again();
     });
   };
-  // Another computer's row leads with its laptop mark and name, as a Chat row does; this Mac's needs none, and neither
-  // does any row while the Computer filter already names the one computer listed.
   const rowComputer = (routine: RoutineWithRuns) => {
     const id = computerOfRoutine(routine);
     if (pickedComputer !== "all") return null;
@@ -218,7 +183,6 @@ export function RoutinesPage({
       onDelete={() => act(routine, () => bridgeForKey(routine.id).deleteRoutine(routine.id))}
     />
   );
-  // The two filters, each a dropdown with its counts in the menu: what kind of Routine, and (with paired computers) whose.
   const kinds: Array<{ value: Filter; label: string; count: number }> = [
     { value: "all", label: "All Routines", count: listed.length },
     { value: "heartbeats", label: "Heartbeats", count: groups.heartbeats.length },
@@ -243,7 +207,6 @@ export function RoutinesPage({
                 setDirty(false);
                 setEditing(null);
               },
-              // Back to the Routine (or the list) the form belongs to.
               onKeep: () => onOpenRoutine?.(editing === "new" ? null : editing),
             }
           : null
@@ -265,13 +228,11 @@ export function RoutinesPage({
       }}
     />
   );
-  // A form with changes stays while the window moves elsewhere, asking to discard them.
   if (enabled && switching) {
     const target = editing === "new" ? undefined : routines.find((routine) => routine.id === editing);
     if (editing === "new" || target) return editor(target);
   }
   if (enabled && selected && editing === selected.id) return editor(selected);
-  // A flow's page has its settings in a tab of its own, so it is never swapped for the form.
   if (enabled && selected?.flow)
     return (
       <FlowPage
@@ -313,7 +274,6 @@ export function RoutinesPage({
     <ScrollArea className="flex h-full flex-col">
       <div data-routines-page className="mx-auto flex w-full max-w-[720px] flex-1 flex-col px-6 pt-14 pb-10">
         <div className="flex items-center justify-between gap-4">
-          {/* The title alone, as on the phone: the lid note shows in the empty state, where nothing has run yet. */}
           <h1 className="min-w-0 text-22 font-semibold tracking-[-0.02em] text-ink">Routines</h1>
           {enabled && (
             <Button data-routine-new onClick={() => setEditing("new")}>

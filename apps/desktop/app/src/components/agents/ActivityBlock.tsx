@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { activityDuration, stepDisplayTitle } from "@milagre/shared/tool-activity";
 import { useDisplayValue } from "../../lib/display-clock";
 import { ActivitySources, StepIcon } from "./ActivitySource";
@@ -10,6 +10,7 @@ import { activityBoundary, earlierStepsLabel } from "../../lib/activity-window";
 import { useSettings } from "../../lib/settings";
 import { useStepTitleSweep } from "../../lib/step-sweep";
 import { SweepText } from "../primitives/SweepText";
+import { lockToBeat } from "../../lib/beat";
 import { CODE_CHIP, Markdown } from "../markdown/Markdown";
 import { HOVER_FILL, StepRow } from "./StepRow";
 import { InlineApproval, useStepApproval, useStepApprovalId, WaitingForApproval } from "./step-approval";
@@ -21,7 +22,6 @@ const NO_WAITING_STEPS: string[] = [];
 function Title({ step, running, waiting = false }: { step: ChatStep; running: boolean; waiting?: boolean }) {
   const sweep = useStepTitleSweep(running);
   return (
-    // A block inside the line's truncating span, so the band's copy truncates at the same width.
     <SweepText running={sweep.running} className="block min-w-0 truncate">
       {titleSpans(stepDisplayTitle({ ...step, description: undefined, detail: undefined }, running, waiting)).map((span, index) =>
         span.code ? (
@@ -38,12 +38,6 @@ function Title({ step, running, waiting = false }: { step: ChatStep; running: bo
   );
 }
 
-/**
- * A reply's thinking, tool steps and the text between them, folded into one line. While the agent
- * works the line shows what it is doing now; once done it sums up the activity. Rows mount on first
- * open, with earlier entries in long replies behind a reveal button. A single step needs no fold.
- * Full detail (Settings › Chat › Tool call display) skips the fold: every step is its own row in the chat, with the text between them.
- */
 export function ActivityBlock({
   entries,
   streaming = false,
@@ -53,20 +47,19 @@ export function ActivityBlock({
   entries: ActivityEntry[];
   streaming?: boolean;
   waitingStepIds?: string[];
-  /** What the turn cost (Kiro's credits), shown at the end of the summary. */
   credits?: number;
 }) {
   const [open, setOpen] = useState(false);
-  // Null until first opened; mounted rows and their output state survive later collapses.
   const [boundary, setBoundary] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (open) lockToBeat(body.current);
+  }, [open]);
   const hidden = boundary === null ? 0 : activityBoundary(entries, waitingStepIds, streaming, boundary);
-  // An earlier step can resume or need approval. Reveal it permanently, without evicting rows.
   if (boundary !== null && hidden < boundary) setBoundary(hidden);
   const { toolCallDisplay } = useSettings();
   const steps = entries.flatMap((entry): ChatStep[] => (entry.type === "step" ? [entry.step] : []));
   const elapsed = useDisplayValue(1000, (now) => activityDuration(steps, streaming, now), streaming);
-  // The step waiting on the approval the transcript shows leads the line, so its Deny and Allow sit under its name.
   const approvalStepId = useStepApprovalId();
   const current = streaming
     ? (steps.find((step) => step.status === "running" && step.id === approvalStepId && waitingStepIds.includes(step.id)) ??
@@ -104,10 +97,8 @@ export function ActivityBlock({
         if (boundary === null) setBoundary(activityBoundary(entries, waitingStepIds, streaming));
         setOpen((value) => !value);
       }}
-      // The whole line is the toggle, with time and chevron immediately after its content.
       className={`group/fold flex h-6 w-full min-w-0 items-center gap-2 rounded-control px-[var(--row-inset,0px)] text-left text-12 text-ink-2 transition-colors hover:text-ink ${HOVER_FILL}`}
     >
-      {/* A waiting line is about one call: its glyph alone, not the reply's mix. */}
       {waiting && current ? (
         <span aria-hidden className="flex shrink-0 text-ink-3">
           <StepIcon step={current} />
@@ -162,16 +153,7 @@ export function ActivityBlock({
         style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
       >
         <div className="min-w-0 overflow-hidden">
-          <div
-            ref={body}
-            tabIndex={-1}
-            data-slot="activity-body"
-            role="group"
-            aria-label="Activity"
-            aria-live="off"
-            // The open fold's rows keep the summary's glyph line: one inset line for every tool row.
-            className="relative mt-0.5 outline-none"
-          >
+          <div ref={body} tabIndex={-1} data-slot="activity-body" role="group" aria-label="Activity" aria-live="off" className="relative mt-0.5 outline-none">
             {hidden > 0 && (
               <Button
                 variant="secondary"

@@ -7,19 +7,15 @@ export type ArchivedChat = {
   hostName: string;
   projectPath: string;
   projectName: string;
-  /** The Chat's branch, empty for a shared Link Chat or a Worktree the copy doesn't list. */
   branch: string;
   chat: AgentSession;
   title: string;
 };
 
-/** When the Chat began, else when it last moved: how the sidebar's one list orders Chats. */
 const startedAt = (chat: AgentSession) => chat.summary?.firstAt ?? chat.summary?.lastAt ?? 0;
 
-/** A Project copy's archived Chats, kept for as long as the same copy (copies are replaced, never changed) is on the computer. */
 const built = new WeakMap<object, { key: string; items: ArchivedChat[] }>();
 
-/** One Project's archived Chats. The Project's messages are read once and grouped by Chat, however many Chats are archived. */
 function archivedOf(view: HostView, project: HostView["projects"][number], copy: NonNullable<ReturnType<HostView["copies"]["get"]>>): ArchivedChat[] {
   const projectName = project.name || project.path.split("/").at(-1) || "Project";
   const key = [view.hostId, view.name, project.path, projectName].join("\n");
@@ -47,7 +43,6 @@ function archivedOf(view: HostView, project: HostView["projects"][number], copy:
   return items;
 }
 
-/** The archived Chats of every computer's Projects as the computers last answered, the Chat that began last first. */
 export function listArchivedChats(views: readonly HostView[]): ArchivedChat[] {
   const found: ArchivedChat[] = [];
   for (const view of views) {

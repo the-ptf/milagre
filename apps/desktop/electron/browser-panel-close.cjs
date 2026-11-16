@@ -1,4 +1,3 @@
-// Routes Browser panel close requests from this host and from paired computers back to the renderer that owns the tabs.
 function routeBrowserPanelClose(channel, payload, { closePage, closeAll, qualifyKey }) {
   if (channel === "browser-panel:close-page" && typeof payload?.chatId === "string" && typeof payload.pageId === "string") {
     closePage(payload.chatId, payload.pageId);

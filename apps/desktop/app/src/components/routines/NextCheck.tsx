@@ -1,7 +1,6 @@
 import { clock } from "@milagre/shared/routines";
 import { useRoutines } from "../../lib/routines";
 
-/** "Next check 10:45" under a Chat's transcript while an enabled heartbeat checks back on it. */
 export function NextCheck({ chatKey }: { chatKey: string }) {
   const { routines } = useRoutines();
   const next = routines

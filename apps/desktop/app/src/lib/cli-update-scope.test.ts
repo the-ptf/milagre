@@ -5,8 +5,8 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 
 test("CLI update completion refreshes the current scope and ignores unscoped status", async () => {
-  const source = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
-  const body = source.slice(source.indexOf("  const updateCli = async"), source.indexOf("  // Every finished message card"));
+  const source = readFileSync(new URL("../app/useModelSelection.ts", import.meta.url), "utf8");
+  const body = source.slice(source.indexOf("  const updateCli = async"), source.indexOf("  const updateCliRef"));
   let finish!: (value: unknown) => void;
   const updating = new Promise((resolve) => {
     finish = resolve;

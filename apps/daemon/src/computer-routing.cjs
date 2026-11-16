@@ -1,8 +1,5 @@
 const { qualifyKey } = require("@milagre/shared/chat-scopes");
 
-// What only this Mac's own window does (spec "Routing": its editors and Finder, the folder dialog, image menus that read
-// local paths, notification settings, updates), plus its own host, devices, accounts, canvas and Links across Projects.
-// preload.cjs keeps the same two lists and refuses them before any IPC; computer-routing.test.cjs compares them.
 const LOCAL_ONLY = Object.freeze([
   "project:open",
   "project:choose-folder",
@@ -46,13 +43,10 @@ const LOCAL_ONLY_PREFIXES = Object.freeze([
 const NOT_REMOTE = "Not available on a remote computer";
 /** @param {string} channel */
 const isLocalOnly = (channel) => LOCAL_ONLY.includes(channel) || LOCAL_ONLY_PREFIXES.some((prefix) => channel.startsWith(prefix));
-// The window's names for calls whose daemon method is named otherwise: Add project's remote folder picker opens a path.
 /** @type {Readonly<Record<string, string>>} */
 const ALIASES = Object.freeze({ "project:open-at": "project:open" });
 
 /**
- * A remote call's arguments without `${computerId}|` anywhere. Computer ids are UUIDs, so a UUID and a bar never appear
- * in a path, a chat key or a message by chance.
  * @param {string} computerId @param {unknown} value @returns {any}
  */
 function stripComputer(computerId, value, depth = 0) {
@@ -87,8 +81,6 @@ const withPath = (id, item) => field(id, item, "path", key);
 const withRemotePath = (id, item) => withoutHidden(withPath(id, item));
 const withChat = (id, item) => field(id, item, "chatId", key);
 const withLink = (id, item) => withoutHidden(field(id, item, "id", linkId));
-// A Routine's and a Run's ids are 8 hex characters per Mac, so they name their computer like a chat key does. A flow Run's
-// steps name the Chats they ran in.
 /** @param {string} id @param {any} state */
 const withFlowStep = (id, state) =>
   isObject(state) ? { ...field(id, state, "chatId", key), ...(Array.isArray(state.tries) ? { tries: each(id, state.tries, withChat) } : {}) } : state;
@@ -146,7 +138,6 @@ const RESULTS = {
   "project:current": OPEN_PROJECT,
   "project:switch": OPEN_PROJECT,
   "project:read": OPEN_PROJECT,
-  // Each computer has its own Chats home: another's path comes back as a scope key, like any of its Projects.
   "chats:home": OPEN_PROJECT,
   "chats:ensure": OPEN_PROJECT,
   "project:recent": PROJECT_LIST,
@@ -189,9 +180,7 @@ const RESULTS = {
     each(id, result, (id, scope) => field(id, field(id, scope, "key", key), "projects", (id, list) => each(id, list, withPath))),
 };
 
-/** A computer's event as the window keeps it: its Project paths, Link ids and chat keys name the computer. */
 const qualifyEvent = (computerId, channel, payload) => (EVENTS[channel] ? EVENTS[channel](computerId, payload) : payload);
-/** The same for one call's result. */
 const qualifyResult = (computerId, method, result) => (RESULTS[method] ? RESULTS[method](computerId, result) : result);
 
 module.exports = { LOCAL_ONLY, LOCAL_ONLY_PREFIXES, NOT_REMOTE, isLocalOnly, ALIASES, stripComputer, qualifyEvent, qualifyResult };

@@ -26,7 +26,6 @@ function write(chatKey: string | null, comments: DiffComment[]) {
   else localStorage.removeItem(keyFor(chatKey));
 }
 
-// One view object per comment and outdated flag, so a file whose comments didn't change keeps its props.
 const views = new WeakMap<DiffComment, [CommentView?, CommentView?]>();
 function viewOf(comment: DiffComment, outdated: boolean): CommentView {
   const pair = views.get(comment) ?? [];
@@ -40,10 +39,6 @@ export type CommentStore = ReturnType<typeof useDiffComments>;
 
 const modeOf = (comment: DiffComment): ChangesMode => comment.mode ?? "uncommitted";
 
-/**
- * The chat's diff comments, kept in localStorage per chat. Each belongs to the diff it was written on; the shown
- * diff's comments are judged outdated against it: their file is gone from the list, or their rows read differently now.
- */
 export function useDiffComments(chatKey: string | null, changes: Changes) {
   const [store, setStore] = useState(() => ({ key: chatKey, comments: read(chatKey) }));
   if (store.key !== chatKey) setStore({ key: chatKey, comments: read(chatKey) });
@@ -72,7 +67,6 @@ export function useDiffComments(chatKey: string | null, changes: Changes) {
   const files = list.state === "ready" && list.isRepo ? list.files : undefined;
   const shown = comments.filter((comment) => modeOf(comment) === mode);
 
-  // Commented files need their patch to be judged, even when they're far from the viewport.
   useEffect(() => {
     if (!diffOpen || !files) return;
     for (const path of new Set(shown.map((comment) => comment.path))) {
@@ -91,12 +85,10 @@ export function useDiffComments(chatKey: string | null, changes: Changes) {
     }
     return viewOf(comment, outdated);
   });
-  // Stable until a comment or an outdated flag changes.
   const stable = useRef<CommentView[]>([]);
   if (stable.current.length !== current.length || stable.current.some((view, index) => view !== current[index])) stable.current = current;
   const all = stable.current;
 
-  // Every section's, for the Changes tab.
   const counts = useMemo(() => {
     const result: CommentCounts = {};
     for (const comment of comments) {
@@ -110,15 +102,12 @@ export function useDiffComments(chatKey: string | null, changes: Changes) {
   return { comments: all, sendable, counts, add, update, remove, removeMany };
 }
 
-/** The rows being selected for a new comment, or the ones of a comment being edited; `side` is only set in split. */
 export type Draft = { path: string; hunk: number; side?: DiffSide; anchor: number; head: number; dragging: boolean; editing?: string };
 
 type Target = { path: string; hunk: number; line: number; side?: DiffSide };
 
-/** Selection and editor state for the diff view. It lives apart from the store so dragging doesn't re-render the app. */
 export function useCommentDraft() {
   const [draft, setDraft] = useState<Draft | null>(null);
-  // The editor's text outlives its mount, so extending the range (which moves the editor) keeps what was typed.
   const text = useRef("");
   const dragging = draft?.dragging ?? false;
 
@@ -166,6 +155,5 @@ export type CommentActions = {
   cancel: () => void;
   save: (selection: DiffSelection | undefined, path: string, body: string, editing: string | undefined) => void;
   remove: (id: string) => void;
-  /** On a PR's diff: the comment goes to the viewer's pending review on GitHub instead of the Chat. */
   addToReview?: (selection: DiffSelection, path: string, body: string) => void;
 };

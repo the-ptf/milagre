@@ -1,4 +1,3 @@
-// Real mouse presses dismiss the composer pickers and Select from anywhere outside them. No agent calls.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -87,8 +86,6 @@ async function browserChecks() {
     await delay(100);
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await window.webContents.capturePage()).toPNG());
   };
-  // A real mouse press and release at the centre of the first element matching the selector, or `inset` px from
-  // an edge when the centre may sit under an open picker. Confirm the edge is not obscured.
   const click = async (selector, { inset, fromRight = false } = {}) => {
     const point = await evaluate(
       `(() => { const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(${inset === undefined ? "rect.x + rect.width / 2" : fromRight ? `rect.right - ${Number(inset)}` : `rect.x + ${Number(inset)}`}), y: Math.round(rect.y + rect.height / 2) }; })()`,
@@ -173,7 +170,6 @@ async function browserChecks() {
     }
     const tabs = `[...document.querySelectorAll('[data-picker-panel] [data-provider-tabs] > button')].map((tab) => tab.getAttribute('aria-label')).join()`;
     await evaluate(`window.setCliStatus((current) => ({ ...current, antigravity: { state: 'missing', message: 'Antigravity is not installed.' } }))`);
-    // The open tab stays until the picker reopens; then a missing CLI has no tab.
     await waitFor(`${tabs} === "Codex,Claude,Antigravity,Kiro"`);
     await click(model);
     await click(model);
@@ -199,8 +195,6 @@ async function browserChecks() {
     assert.equal(await panels(), 0, "A surface that stops propagation still closes the picker");
 
     await click(model);
-    // The open picker covers the transcript's centre and, right-aligned to its chip, its left side; press the
-    // transcript beside it on the right, not a model row.
     await click('[data-testid="transcript"]', { inset: 24, fromRight: true });
     assert.equal(await panels(), 0, "Pressing the transcript closes the picker");
 
@@ -216,7 +210,6 @@ async function browserChecks() {
     assert.equal(await panels(), 0);
     assert.equal(await evaluate(`document.querySelector('button[aria-label="Theme"]').textContent`), "Dark", "Choosing an option still works");
 
-    // Anchored surfaces follow their trigger through a scroll or resize; a press is what closes them.
     await click(model);
     await waitFor(`!!document.querySelector('[data-picker-panel] input')`);
     assert.equal(

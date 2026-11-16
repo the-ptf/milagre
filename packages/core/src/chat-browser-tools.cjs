@@ -2,11 +2,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { z } = require("zod");
 
-// The agent's tools for driving the Chat's browser pages: its Browser panel pages (the page the user sees and comments
-// on) and browsers attached to the Chat. Each acts on one page over DevTools (browsers.devtools), bound to the
-// calling Chat; `page` names a target from browser_list and defaults to the Chat's newest Browser panel page.
-// A snapshot gives each element a ref (@e12) that click, fill and the others take; refs go stale when the page navigates.
-
 const page = z.string().max(200).optional().describe("A page id from browser_list. Defaults to this Chat's newest Browser panel page.");
 const PANEL_PAGE_ID = /^panel-[a-f0-9]{24}:[A-F0-9]{32}$/;
 const ref = z
@@ -16,7 +11,6 @@ const ref = z
 const MAX_SNAPSHOT_LINES = 600;
 const MAX_TEXT = 20_000;
 const CONSOLE_KEPT = 200;
-// Roles that only group others: shown only when they carry a name.
 const STRUCTURE = new Set(["generic", "none", "presentation", "LineBreak", "InlineTextBox", "StaticText", "paragraph", "group", "Section"]);
 const KEYS = {
   Enter: { code: "Enter", keyCode: 13, text: "\r" },
@@ -37,7 +31,6 @@ const KEYS = {
 
 const clip = (text, max = MAX_TEXT) => (text.length > max ? `${text.slice(0, max)}… (${text.length - max} more characters)` : text);
 
-/** Sets up what the tools remember about a session the first time they use it: refs, console messages, navigation. */
 async function prepare(session, state) {
   if (state.ready) return;
   state.ready = true;
@@ -57,7 +50,6 @@ async function prepare(session, state) {
   await Promise.all([session.send("Page.enable"), session.send("Runtime.enable"), session.send("DOM.enable"), session.send("Log.enable").catch(() => {})]);
 }
 
-/** The Accessibility tree as indented lines, each element that can be acted on or named with a fresh ref. */
 async function snapshot(session, state) {
   const { nodes = [] } = await session.send("Accessibility.getFullAXTree", {}, 20000);
   const byId = new Map(nodes.map((node) => [node.nodeId, node]));
@@ -102,7 +94,6 @@ function backendNode(state, value) {
   return node;
 }
 
-/** The middle of an element on screen, scrolled into view first. */
 async function center(session, backendNodeId) {
   await session.send("DOM.scrollIntoViewIfNeeded", { backendNodeId }).catch(() => {});
   const { model } = await session.send("DOM.getBoxModel", { backendNodeId });
@@ -136,10 +127,6 @@ const inside = (root, file) => {
 };
 const megabytes = (size) => (size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`);
 
-/**
- * The files an agent may send to a page: regular files inside one of `roots` (the Chat's Worktrees, ~/Downloads), with
- * symlinks followed first so a link can't reach past them.
- */
 async function uploadable(paths, roots) {
   const real = (await Promise.all(roots.map((root) => fs.promises.realpath(root).catch(() => null)))).filter(Boolean);
   return Promise.all(
@@ -290,7 +277,6 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
         const { target, session, state } = await on(input);
         const node = backendNode(state, input.ref);
         await session.send("DOM.focus", { backendNodeId: node }).catch(() => {});
-        // Clear through the native setter, so React and other frameworks see the change.
         await onElement(
           session,
           node,
@@ -323,7 +309,6 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
         const { target, session, state, files } = await on(input);
         const chosen = await uploadable(input.paths, await uploads.roots());
         const summary = chosen.map((file) => `${file.name} (${megabytes(file.size)})`).join(", ");
-        // The page's browser reads the paths: a paired desktop's page gets copies put on that desktop first.
         const placed = files ? await files(chosen.map((file) => file.path)) : chosen.map((file) => file.path);
         let node;
         if (input.selector) {
@@ -345,7 +330,6 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
           return done(target, `Attached ${summary}.`);
         }
         if (input.selector) throw new Error(`${input.selector} is not a file input.`);
-        // Not a file input: click it with the picker caught, and set the files on the input that opened it.
         let off = () => {};
         const opened = new Promise((resolve) => {
           const timer = setTimeout(() => resolve(null), uploads.chooserWaitMs ?? CHOOSER_WAIT_MS);
@@ -413,8 +397,6 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
     {
       name: "browser_press",
       description: `Press a key on the page: ${Object.keys(KEYS).join(", ")}, or a single character, optionally with Shift or Alt. Command and Control shortcuts aren't sent: use browser_fill to replace a field's text.`,
-      // A key pressed on a Browser panel page reaches Milagre's window like the user's own, so ⌘ and Ctrl combinations
-      // (the app's shortcuts: close the panel, switch Chats) are never pressed for the agent.
       input: {
         page,
         key: z.string().min(1).max(20),

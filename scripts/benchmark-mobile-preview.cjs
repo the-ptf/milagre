@@ -1,4 +1,3 @@
-// Synthetic 10-chat/1,000-message project through the production drawer projection and relay codecs.
 // Measures CPU and base64 payload, not cellular/relay round-trip latency or native Hermes performance.
 const fs = require("node:fs");
 const { performance } = require("node:perf_hooks");

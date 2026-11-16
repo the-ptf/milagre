@@ -2,7 +2,6 @@ import type { AudioStream } from "expo-audio";
 import { createDictationResampler } from "@milagre/shared/voice-dictation";
 import type { RecorderLike, RecorderStatus } from "./voice-take";
 
-/** Both platforms already ship AudioStream. PCM goes straight to local inference, without encoding or a recording file. */
 export function createPcmRecorder(onPcm: (pcm: Int16Array) => void, createStream: () => AudioStream): RecorderLike {
   let stream: AudioStream | null = null;
   let recording = false;
@@ -67,7 +66,6 @@ export function createPcmRecorder(onPcm: (pcm: Int16Array) => void, createStream
         recording = false;
         return;
       }
-      // The stopped event follows the pending PCM events. Accept those buffers until the acknowledgement arrives.
       try {
         await new Promise<void>((resolve, reject) => {
           const timeout = setTimeout(() => reject(new Error("The microphone did not finish recording.")), 2000);

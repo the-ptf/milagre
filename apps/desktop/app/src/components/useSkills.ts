@@ -5,8 +5,6 @@ import { bridgeForKey, isRemoteKey, useBridge } from "../lib/computer-bridge";
 
 const EMPTY_CATALOG: SkillCatalog = { skills: [], warnings: [] };
 
-// `revision` reads the disk again when it changes (Settings > Skills > Reload). A Chat's Worktree path carries no
-// computer, so it uses the Project on screen. Settings explicitly owns its Project key, including bare local paths.
 export function useSkills(projectPath: string, open: boolean, revision = 0, scope: "worktree" | "project" = "worktree") {
   const shown = useBridge();
   const bridge = scope === "project" || isRemoteKey(projectPath) ? bridgeForKey(projectPath) : shown;

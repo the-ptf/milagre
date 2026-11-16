@@ -86,7 +86,6 @@ export default function SkillsScreen() {
   );
 }
 
-/** A skill on ListRow's two-line metrics, with its source as a Tag and its file path under the description. */
 function SkillRow({ skill, hidden, onPress }: { skill: SkillOption; hidden: number; onPress: () => void }) {
   const { colors } = useTheme();
   const styles = useStyles();

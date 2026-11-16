@@ -9,11 +9,6 @@ import Tooltip from "../primitives/Tooltip";
 import { PillMorph } from "../motion/PillMorph";
 import { opensInPanel } from "../../lib/link-target";
 
-/**
- * The ports the chat's commands listen on: a "Ports n" pill that grows in place into their list (see PillMorph).
- * A row opens the port in the browser; its stop button ends the command behind it.
- */
-/** `onOpen`, when set, opens this Mac's ports in the Chat's Browser panel when Settings › Browser says so; ⌘-click opens the other one. */
 export function PortTrack({
   ports: listed,
   onStop,
@@ -24,9 +19,7 @@ export function PortTrack({
   onOpen?: (url: string) => void;
 }) {
   const [opened, setOpened] = useState(false);
-  // Pids being stopped, each with a spinner until its stop call returns.
   const [stopping, setStopping] = useState<Set<number>>(new Set());
-  // A server Stop ended leaves the list at once; the next list from the main process has the last word.
   const [ended, setEnded] = useState<{ list?: AgentPort[]; pids: number[] }>({ pids: [] });
   const ports = ended.list === listed && ended.pids.length ? listed?.filter((port) => !ended.pids.includes(port.pid)) : listed;
   const stop = (pids: number[]) => {
@@ -46,7 +39,6 @@ export function PortTrack({
         );
   };
   const empty = !ports?.length;
-  // The last server stopping closes the list; a later one starts closed.
   useEffect(() => {
     if (empty) setOpened(false);
   }, [empty]);
@@ -90,12 +82,8 @@ export function PortTrack({
                 {(() => {
                   const computer = portComputer(port);
                   const url = portUrl(port);
-                  // In the Browser panel another computer's port opens at its own localhost: the Chat's pages reach the
-                  // web from that computer (#832), so a server on its loopback alone opens too.
                   const panelUrl = computer ? `http://localhost:${port.port}` : url;
                   const rowClass = "flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-13 text-ink no-underline focus-visible:outline-2";
-                  // Outside the panel another computer's port opens at its LAN or tailnet IP; one this Mac can't reach
-                  // that way is shown, not linked, unless the panel can open it.
                   if (computer && !url && !onOpen)
                     return (
                       <span data-port-remote title={unreachablePortReason(port, computer)} className={rowClass}>
@@ -113,7 +101,6 @@ export function PortTrack({
                       rel="noopener noreferrer"
                       title={url ? `Open ${url}` : `Open in the Browser panel, through ${computer}. ${unreachablePortReason(port, computer ?? "")}`}
                       onClick={(event) => {
-                        // With no address this Mac reaches, the row opens only in the panel.
                         if (!onOpen || !panelUrl || (url && !opensInPanel(event))) return;
                         event.preventDefault();
                         setOpened(false);

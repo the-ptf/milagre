@@ -1,5 +1,4 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import { Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { resolveCodeLanguage } from "../../lib/code-languages";
 import { diffRows } from "../../lib/message-fences";
@@ -11,9 +10,7 @@ const ROW_TINT = { add: "bg-[var(--diff-add)]", remove: "bg-[var(--diff-remove)]
 const ROW_MARKER = { add: "+", remove: "−", context: " " } as const;
 const MARKER_COLOR = { add: "text-diff-add", remove: "text-diff-remove", context: "" } as const;
 
-// A block highlights once it is within this distance of the viewport; far ones stay plain text of the same size.
 const NEAR_MARGIN = 800;
-// A block still being streamed highlights again once its text has stopped changing for this long.
 const STREAM_SETTLE_MS = 120;
 
 function scrollParent(node: HTMLElement): HTMLElement | null {
@@ -23,11 +20,6 @@ function scrollParent(node: HTMLElement): HTMLElement | null {
   return null;
 }
 
-/**
- * A fenced block with its language's colours. With `diff`, a block whose lines all start with `+`, `-` or a space
- * (a diff snippet, as diff comments send) shows tinted rows and highlights the code without the markers.
- * With `streaming`, the block is still being written: it highlights after each pause rather than on every batch.
- */
 export function CodeBlock({
   code,
   fence,
@@ -50,14 +42,11 @@ export function CodeBlock({
   const { copied, copy } = useCopied(copyCode ?? code);
   const languageReady = language !== undefined && isLanguageReady(language);
 
-  // Highlighting a whole long chat on open is the cost; only blocks that come near the viewport pay it, and
-  // they stay highlighted afterwards. The layout effect checks the first position so a visible block never flashes plain.
   const frame = useRef<HTMLDivElement>(null);
   const [near, setNear] = useState(false);
   useLayoutEffect(() => {
     const node = frame.current;
     if (!node || near) return;
-    // The chat scrolls inside its own viewport, whose edge clips what an observer on the window would see.
     const root = scrollParent(node);
     const area = root?.getBoundingClientRect() ?? { top: 0, bottom: window.innerHeight };
     const rect = node.getBoundingClientRect();
@@ -93,8 +82,6 @@ export function CodeBlock({
     };
   }, [near, language, languageReady]);
 
-  // Highlighting the whole block again on every streamed batch is what stalls a long fence; while it streams, the
-  // text highlighted is the one it had at its last pause, and what arrived since shows plain after it.
   const [settled, setSettled] = useState(source);
   useEffect(() => {
     if (!streaming || settled === source) return;
@@ -104,8 +91,6 @@ export function CodeBlock({
   const target = streaming ? settled : source;
 
   const highlighted = useMemo(() => (near && language && languageReady ? highlight(target, language) : undefined), [near, target, language, languageReady]);
-  // The settled text's complete lines keep their colours while the rest streams in: the grammar only reads forward,
-  // so their tokens stay right. Its last line may still grow, so it joins the plain tail.
   let lines = highlighted;
   let tail: string | undefined;
   if (highlighted && target !== source) {
@@ -134,7 +119,7 @@ export function CodeBlock({
                 <span className="whitespace-pre">
                   {lines?.[index]
                     ? lines[index].map((token, tokenIndex) => (
-                        <span key={tokenIndex} className="code-token" style={token.htmlStyle as CSSProperties}>
+                        <span key={tokenIndex} className={token.className}>
                           {token.content}
                         </span>
                       ))
@@ -148,13 +133,12 @@ export function CodeBlock({
       ) : (
         <pre className="overflow-x-auto px-3 py-2 font-mono text-[length:var(--code-size)] leading-[1.6]">
           <code>
-            {/* Lines stay joined by real newlines so a hand selection copies blank lines too. */}
             {lines
               ? lines.map((line, index) => (
                   <Fragment key={index}>
                     {index > 0 && "\n"}
                     {line.map((token, tokenIndex) => (
-                      <span key={tokenIndex} className="code-token" style={token.htmlStyle as CSSProperties}>
+                      <span key={tokenIndex} className={token.className}>
                         {token.content}
                       </span>
                     ))}

@@ -7,7 +7,6 @@ import { lineHeight, type } from "./design-tokens";
 import { TranscriptDivider } from "./primitives/transcript-divider";
 import { useTheme } from "./theme";
 
-/** Where a Chat continued on another account after the usage limit, as on desktop. */
 export function AccountSwitchDivider({ context }: { context: AccountSwitchContext }) {
   const { colors } = useTheme();
   const caption = { fontSize: type.caption1, lineHeight: lineHeight.caption1 };

@@ -10,16 +10,13 @@ import { SettingCheckbox } from "../primitives/Checkbox";
 import { Group, Row } from "./SettingsGroup";
 
 const AGENT_DESKTOP_URL = "https://github.com/vercel-labs/agent-desktop";
-// While a permission is missing, re-read it: the user grants it in System Settings, outside Milagre.
 const RECHECK_MS = 3000;
 
 const Icon = ({ icon, size = 16 }: { icon: IconSvgElement; size?: number }) => (
   <HugeiconsIcon icon={icon} size={size} strokeWidth={1.75} color="currentColor" />
 );
 
-/** The host's computer use status, kept fresh while a permission is missing. Null on a bridge without computer use. */
 function useComputerUse() {
-  // A test bridge or an older paired host may not offer it.
   const api = useBridge().computerUse as ComputerUseApi | undefined;
   const [status, setStatus] = useState<ComputerUseStatus | null>(null);
   const [error, setError] = useState("");
@@ -64,7 +61,6 @@ function useComputerUse() {
   return api ? { status, error, save, grant } : null;
 }
 
-/** Settings › This Mac: the row that opens the Computer use page. */
 export function ComputerUseRow({ onOpen }: { onOpen: () => void }) {
   const computerUse = useComputerUse();
   if (!computerUse?.status) return null;
@@ -89,7 +85,6 @@ export function ComputerUseRow({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-/** Settings › This Mac › Computer use: agents operate desktop apps through agent-desktop. Kept by the host. */
 export function ComputerUseSettings({ parent = "This computer", onBack }: { parent?: string; onBack: () => void }) {
   const computerUse = useComputerUse();
   const status = computerUse?.status;

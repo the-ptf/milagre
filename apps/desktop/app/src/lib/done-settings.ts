@@ -2,10 +2,6 @@ import { useEffect, useState } from "react";
 import { DONE_DEFAULTS, normalizeDoneSettings, type DoneSettings } from "@milagre/shared/done";
 import type { MilagreBridge } from "../electron.d.ts";
 
-/**
- * How long a Chat stays in the sidebar's Done list before this Mac archives it (Settings › Chats). The daemon keeps it;
- * every view follows a change from any device. An older daemon without it reads as the default.
- */
 export function useDoneSettings(bridge: MilagreBridge = window.milagre) {
   const [settings, setSettings] = useState<DoneSettings>(DONE_DEFAULTS);
   useEffect(() => {

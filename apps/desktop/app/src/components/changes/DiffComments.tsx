@@ -8,7 +8,6 @@ import type { CommentView } from "./useDiffComments";
 import { Button, IconButton } from "../primitives/Button";
 import { ShortcutKeys } from "../primitives/ShortcutKeys";
 
-/** A quick fade and rise, so a comment doesn't pop into the rows around it. */
 function Rise({ children, className, ...rest }: { children: ReactNode; className: string } & Record<`data-${string}`, string | undefined>) {
   const reduced = useReducedMotion();
   return (
@@ -24,10 +23,6 @@ function Rise({ children, className, ...rest }: { children: ReactNode; className
   );
 }
 
-/**
- * Sits between diff rows. The code body scrolls sideways, so the slot pins to its left edge and is as wide as the
- * body's visible width (a container query unit) instead of as wide as the longest line.
- */
 export function CommentSlot({ children }: { children: ReactNode }) {
   return (
     <div data-diff-comment-slot className="sticky left-0 flex w-[100cqw] flex-col gap-2 bg-surface px-3 py-2 font-sans text-12 whitespace-normal">
@@ -73,7 +68,6 @@ export function CommentCard({ comment, onEdit, onDelete }: { comment: CommentVie
   );
 }
 
-/** `onAddToReview` is a PR's diff: the comment can join the GitHub review, or (Send to Chat) wait for the Chat like any other. */
 export function CommentEditor({
   text,
   onSave,
@@ -92,10 +86,8 @@ export function CommentEditor({
   useEffect(() => {
     field.current?.focus({ preventScroll: true });
     field.current?.setSelectionRange(value.length, value.length);
-    // Only on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // Grows with the text instead of scrolling inside three rows.
   useEffect(() => {
     const node = field.current;
     if (!node) return;
@@ -117,7 +109,6 @@ export function CommentEditor({
           setValue(event.target.value);
         }}
         onKeyDown={(event) => {
-          // Stopped here so the app's own Esc (stop the turn) and Enter handling never see it.
           if (event.key === "Escape") {
             event.preventDefault();
             event.stopPropagation();

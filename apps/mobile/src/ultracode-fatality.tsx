@@ -17,7 +17,6 @@ import { useTheme } from "./theme";
 import { useUltracodeAudio } from "./ultracode-audio";
 
 const DURATION = 2600;
-// Sparks that burst out of the word in jittery hops and flicker as they fade: a fixed scatter so every run looks the same.
 const DOTS = Array.from({ length: 70 }, (_, index) => {
   const angle = index * 2.399963;
   const reach = 70 + ((index * 53) % 150);
@@ -31,11 +30,8 @@ const DOTS = Array.from({ length: 70 }, (_, index) => {
   };
 });
 const FALLBACK = Platform.select({ ios: "Futura-CondensedExtraBold", default: "sans-serif-condensed" });
-// Creepster (Font Diner, SIL OFL 1.1, see assets/fonts/Creepster-OFL.txt), loaded at runtime so it ships over the air.
 const CREEPSTER = { Creepster: require("../assets/fonts/Creepster-Regular.ttf") };
 
-/** Turning Ultracode on, Mortal Kombat style in Milagre purple: the sheet darkens and shakes, ULTRACODE slams in, dots float out of it, and the
- * announcer and the model sheet's Ultra rumble play under it. Reduced motion keeps the word and voice, not the slam. */
 export function UltracodeFatality({ onDone }: { onDone: () => void }) {
   useUltracodeAudio();
   const { colors } = useTheme();
@@ -68,7 +64,6 @@ export function UltracodeFatality({ onDone }: { onDone: () => void }) {
       scale.value = withDelay(80, withSequence(withTiming(0.94, { duration: 240, easing: Easing.bezier(0.2, 0.9, 0.3, 1) }), withTiming(1, { duration: 90 })));
       shake.value = withDelay(260, withSequence(...[-14, 12, -9, 7, -4, 2, 0].map((offset) => withTiming(offset, { duration: 55 }))));
     }
-    // Plays once per mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -135,7 +130,6 @@ function Dot({
   }, [delay, duration, t]);
   const style = useAnimatedStyle(() => {
     const p = t.get();
-    // Four hops sideways and a flicker on the way out, so the spark jitters instead of gliding.
     const hop = Math.sin(p * Math.PI * 4) * wobble;
     const flicker = Math.abs(Math.sin(p * Math.PI * 3));
     return {

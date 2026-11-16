@@ -1,7 +1,3 @@
-// Launch time of the desktop app: from spawning it to its window, first paint and first sidebar row. See scripts/perf/README.md.
-//   node scripts/perf/launch.cjs [--app /path/Milagre.app] [--runs 6] [--out file]
-//   node scripts/perf/launch.cjs compare before.json after.json
-// The first run starts the background host as a first launch does; later runs find it running, as most launches do.
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -83,16 +79,13 @@ async function launchOnce(work, repo, launcher, binDir) {
       sidebarMs: Math.round(shown.now - started),
     };
   } finally {
-    // Quit the app only: the host keeps running for the next launch, as it does after a real quit.
     void browser?.call("Browser.close").catch(() => {});
     if (app.exitCode === null) await Promise.race([once(app, "exit"), delay(8000)]);
     for (const row of processes(work)) {
       if (row.kind === "host") continue;
       try {
         process.kill(row.pid, "SIGKILL");
-      } catch {
-        // Already gone.
-      }
+      } catch {}
     }
     browser?.close();
     await delay(1000);

@@ -8,17 +8,8 @@ import { useBookmarkReserve } from "../../lib/bookmark-reserve";
 import { useWindowChrome } from "../../lib/window-chrome";
 import { routineIcon } from "./routine-icon";
 
-/**
- * How far from the window's right edge its corner buttons reach (the changes toggle, the side panels' toggles and the grid
- * toggle, 40px apart): the strip's chip keeps clear of them.
- */
 const CORNER_BUTTONS = 300;
 
-/**
- * The open Chat's Routine as a chip that opens the Routine's page: the Routine whose Run opened the Chat (`run`, hidden or
- * kept), else an enabled Heartbeat that checks back on it; nothing for any other Chat. `place` is where it sits: "strip",
- * over the single open Chat in the window's top strip, or "tile", in a grid tile's header.
- */
 export function RoutineChip({
   chatKey,
   run,
@@ -36,7 +27,6 @@ export function RoutineChip({
   if (place === "tile") return <Pill routine={routine} onOpen={onOpen} wrapper="min-w-0 max-w-[45%] shrink" />;
   return (
     <Strip>
-      {/* Over the top strip the chip floats: a surface under it, which the translucent hover darkens. */}
       <Pill routine={routine} onOpen={onOpen} wrapper="pointer-events-auto min-w-0 max-w-[320px] rounded-full bg-surface shadow-card" />
     </Strip>
   );
@@ -49,7 +39,6 @@ function Pill({ routine, onOpen, wrapper }: { routine: Routine; onOpen: (routine
         data-routine-chip={routine.id}
         icon={routineIcon(routine)}
         onClick={(event) => {
-          // A grid tile focuses its Chat on a click; this click goes to the Routine instead.
           event.stopPropagation();
           onOpen(routine.id);
         }}
@@ -61,11 +50,6 @@ function Pill({ routine, onOpen, wrapper }: { routine: Routine; onOpen: (routine
   );
 }
 
-/**
- * The window's top strip over <main>, where the diff's bar sits too: above the drag strip (z-55), with only the chip opting
- * out of dragging. Its padding (chipStripInsets) centers the chip and keeps it clear of the corner's buttons, which are
- * fixed to the window's edge while <main> narrows with the sidebar, a side panel or the window.
- */
 function Strip({ children }: { children: ReactNode }) {
   const strip = useRef<HTMLDivElement>(null);
   const { rightInset } = useWindowChrome();
@@ -80,7 +64,6 @@ function Strip({ children }: { children: ReactNode }) {
       setInsets((current) => (current.left === next.left && current.right === next.right ? current : next));
     };
     update();
-    // <main> resizes with the window, the sidebar and the docked panels, which is what moves it under the corner.
     const observer = new ResizeObserver(update);
     observer.observe(host);
     window.addEventListener("resize", update);

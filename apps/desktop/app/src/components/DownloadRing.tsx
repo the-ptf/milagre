@@ -1,9 +1,5 @@
 import type { ReactNode } from "react";
 
-/**
- * A ring that fills clockwise from the top with a download's progress (0..1), around whatever sits inside it: the dropping
- * arrow on the mic, a cancel cross in Settings.
- */
 export function DownloadRing({ size, stroke = 2, progress, children }: { size: number; stroke?: number; progress: number; children?: ReactNode }) {
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -23,7 +19,6 @@ export function DownloadRing({ size, stroke = 2, progress, children }: { size: n
           strokeDasharray={circumference}
           strokeDashoffset={circumference * (1 - filled)}
           className="transition-[stroke-dashoffset] duration-200 ease-linear"
-          // A round cap draws a dot at zero; hide the arc until something has arrived.
           opacity={filled > 0 ? 1 : 0}
         />
       </svg>
@@ -32,7 +27,6 @@ export function DownloadRing({ size, stroke = 2, progress, children }: { size: n
   );
 }
 
-/** The arrow that keeps dropping through the ring while the speech model downloads. */
 export function DroppingArrow({ size, well }: { size: number; well: number }) {
   return (
     <span className="relative flex items-center justify-center overflow-hidden rounded-full" style={{ width: well, height: well }}>

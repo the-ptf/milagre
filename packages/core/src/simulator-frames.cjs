@@ -1,7 +1,5 @@
-// Media stays behind viewer capabilities. Retain one frame, never a replay queue.
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
 const MAX_HEADER_BYTES = 8192;
-/** Large, detailed Android PNGs are valid captures. Bound the relay payload by encoding them on the Mac. */
 async function normalizeAndroidSnapshot(data, { execFile, signal }) {
   if (data.length <= MAX_FRAME_BYTES) return { data, mimeType: "image/png" };
   const fs = require("node:fs/promises"),
@@ -79,7 +77,6 @@ function latestFrames() {
   };
 }
 
-/** The helper sends Content-Length per JPEG. Consume the frame immediately, including on an idle screen. */
 function createMjpegFrames(open) {
   const frames = latestFrames();
   let started = false;
@@ -97,7 +94,6 @@ function createMjpegFrames(open) {
       length = null;
     for await (const chunk of response.body) {
       if (frames.signal.aborted) return;
-      // A fetch reader's chunks are bounded; a corrupt part cannot accumulate indefinitely.
       if (buffer.length + chunk.byteLength > MAX_FRAME_BYTES * 2 + MAX_HEADER_BYTES) throw new Error("Oversized simulator frame.");
       buffer = Buffer.concat([buffer, chunk]);
       for (;;) {
@@ -137,7 +133,6 @@ function createMjpegFrames(open) {
   };
 }
 
-/** Snapshot-only sources share one bounded capture across viewers and run only on demand. */
 function createSnapshotFrames(capture, { intervalMs = 250 } = {}) {
   const frames = latestFrames();
   let pending = null,

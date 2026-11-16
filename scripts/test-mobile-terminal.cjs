@@ -1,7 +1,4 @@
-// Run with node scripts/test-mobile-terminal.cjs. Loads the phone's Terminal page (apps/mobile/src/terminal-receiver.ts)
 // in Chromium, standing in for the WebView: its messages go to a real shell through the same follower the phone uses,
-// and the host's output comes back through the page's window functions, each read waiting for the page's `wrote` as the
-// phone's does. Checks typing, the held Ctrl, a flood read in limited pieces and the theme.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -27,7 +24,6 @@ async function electronChecks() {
   await app.whenReady();
   const window = new BrowserWindow({ width: 390, height: 640, useContentSize: true, show: false, webPreferences: { preload: preloadFile, sandbox: false } });
   const selectedShell = process.platform === "linux" ? terminalShell() : { file: "/bin/sh", args: [] };
-  // The disposable home has no profile yet; skip zsh's first-run configuration wizard.
   fs.writeFileSync(path.join(scratch, ".zshrc"), "# Terminal fixture\n");
   const terminals = createTerminals({
     resolveChat: async () => [{ path: scratch, label: "phone" }],
@@ -38,7 +34,6 @@ async function electronChecks() {
   const messages = [];
   let follower = null;
   const call = (script) => void window.webContents.executeJavaScript(`${script};true;`);
-  // As the phone does it (apps/mobile/src/terminal.tsx): each write settles when the page answers `wrote` with its id.
   const unwritten = new Map();
   let writeId = 0;
   let reads = 0;
@@ -119,7 +114,6 @@ async function electronChecks() {
       await waitFor(async () => /shell-name:[^\s]*zsh/.test(await shown()), "the selected shell is running zsh");
     }
 
-    // A held Ctrl turns the next letter into its control character: Ctrl+C stops a running command.
     await type("sleep 30\r");
     await waitFor(async () => (await terminals.list({ chatId: "/phone#1" })).terminals[0].busy, "sleep running");
     await evaluate("window.terminalCtrl(true)");
@@ -128,7 +122,6 @@ async function electronChecks() {
     await waitFor(async () => !(await terminals.list({ chatId: "/phone#1" })).terminals[0].busy, "sleep stopped by Ctrl+C");
     await type("echo after-ctrl\r");
     await waitFor(async () => (await shown()).includes("after-ctrl"), "typing works after Ctrl");
-    // A flood comes in limited reads, each after the page parsed the last, and the Terminal answers again after it.
     reads = 0;
     await type("seq 1 100000; echo flood-$((1+1))\r");
     await waitFor(async () => (await shown()).includes("flood-2"), "the end of a 600 KB flood");
@@ -160,7 +153,6 @@ async function main() {
     const receiver = await server.ssrLoadModule(path.join(root, "apps/mobile/src/terminal-receiver.ts"));
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-mobile-terminal-page-"));
     const page = path.join(scratch, "terminal.html");
-    // The phone's Gray palettes, from the shared theme registry like apps/mobile/src/theme.ts.
     const { resolvePalette } = await server.ssrLoadModule(path.join(root, "packages/shared/src/themes/index.ts"));
     const terminalTheme = (scheme) => {
       const p = resolvePalette("gray", scheme);

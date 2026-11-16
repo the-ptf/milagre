@@ -6,14 +6,8 @@ const { createInterface } = require("node:readline");
 const { killTree } = require("./process-tree.cjs");
 
 // Client for an Agent Client Protocol agent: JSON-RPC 2.0, one message per line over stdio, with
-// "jsonrpc":"2.0" on every message.
-//   request       { jsonrpc, id, method, params }    sent by either side
-//   response      { jsonrpc, id, result } | { jsonrpc, id, error: { code, message, data? } }
-//   notification  { jsonrpc, method, params }
 // Agents log to stderr, and some print plain lines on stdout too (Antigravity's sign-in URL). Lines that
 // aren't JSON-RPC are passed to `onLine` and emitted as "line" so a sign-in flow can read them.
-// Events: "request" { id, method, params }, "notification" { method, params }, "line" { stream, line },
-// "exit" { code, signal, detail, error }.
 class AcpRpc extends EventEmitter {
   constructor({ command, args = [], cwd, env = process.env, spawnImpl = spawn, name = "The agent", onLine = null } = {}) {
     super();
@@ -100,7 +94,6 @@ class AcpRpc extends EventEmitter {
     this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
   }
 
-  // timeoutMs 0 waits for as long as the agent runs (a prompt lasts the whole turn).
   request(method, params = {}, { timeoutMs = 30_000 } = {}) {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
@@ -134,7 +127,6 @@ class AcpRpc extends EventEmitter {
     this.write({ id, error: { code, message } });
   }
 
-  // `descendants` also stops the commands the agent started in process groups of their own (see killTree).
   close({ descendants = false } = {}) {
     return killTree(this.child, { descendants });
   }

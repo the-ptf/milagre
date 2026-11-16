@@ -6,11 +6,11 @@ import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "./primitives/Icon";
 import { useStepTitleSweep } from "../lib/step-sweep";
 import { SweepText } from "./primitives/SweepText";
+import { lockToBeat } from "../lib/beat";
 
-/** The Milagre mark running: the legs take turns striding while the sparkle bobs and turns a quarter on each step. */
 function RunningLogo() {
   return (
-    <span aria-hidden className="running-logo relative inline-block size-4 shrink-0">
+    <span ref={lockToBeat} data-beat aria-hidden className="running-logo relative inline-block size-4 shrink-0">
       <span className="running-logo-leg running-logo-leg-left">
         <svg viewBox="-4 -4 154 154" width="16" height="16">
           <path d="M49.6983 66.5562L21.6836 116.174C19.802 119.507 22.2098 123.632 26.0372 123.632H39.9727L54.9727 100.132L66.9727 119.632L51.9727 144.132H26.0372C6.24066 144.132 -6.29344 122.89 3.27837 105.561L30.9405 55.4819L49.6983 66.5562Z" />
@@ -35,13 +35,11 @@ function useElapsed(startedAt?: number) {
   return useDisplayValue(250, (now) => formatElapsed(now - (startedAt ?? mountedAt)));
 }
 
-/** The turn running and how long it has run. The label is only announced to screen readers, unless `showLabel` writes it out beside the mark. */
 export function ThinkingIndicator({ label, showLabel = false, startedAt }: { label: string; showLabel?: boolean; startedAt?: number }) {
   const elapsed = useElapsed(startedAt);
   const sweep = useStepTitleSweep(showLabel);
 
   return (
-    // Starts where the step rows' icons do (StepRow's row inset), so the mark lines up with the tool calls above it.
     <div role="status" aria-label={label} className="flex w-fit items-center gap-2 py-1 pr-1 pl-[var(--row-inset,0px)]">
       <RunningLogo />
       {showLabel && (
@@ -56,10 +54,6 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
   );
 }
 
-/**
- * The Chat's turn ended, but background work goes on (chat-activity.mjs): how many tasks, and for how long the oldest
- * has run. Their results come back to the Chat by themselves; no turn runs, so there is no running mark.
- */
 export function BackgroundIndicator({
   count,
   startedAt,

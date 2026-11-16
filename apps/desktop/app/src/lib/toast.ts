@@ -1,20 +1,10 @@
 const TOAST_MS = 2600;
 
-/**
- * Every toast's look, matching the phone's ToastPill: an ink pill with its icon, text and Undo in the label colour.
- * Status colours and the accent fall under 3:1 on ink in some themes, so an icon says what happened by its shape alone.
- * No display here: on the popover below, one would override the browser's `display: none` for a closed popover.
- */
 export const TOAST = "rounded-full bg-ink px-4 py-2 text-13 font-medium text-on-ink shadow-overlay";
 const TOAST_CLASS = "fixed z-[80] min-h-10 max-w-[min(520px,calc(100vw-2rem))] rounded-full bg-ink px-4 py-2 text-13 font-medium text-on-ink shadow-overlay";
 let element: HTMLDivElement | null = null;
 let timer: number | undefined;
 
-/**
- * Shows a short confirmation at the bottom of the window. The toast is a manual popover in the top layer, and showing it
- * again moves it to the top, so a toast from a modal dialog (also in the top layer) appears over the dialog, not under
- * its backdrop.
- */
 export function showToast(text: string) {
   if (!element?.isConnected) {
     element = document.createElement("div");

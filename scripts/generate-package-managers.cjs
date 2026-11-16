@@ -1,5 +1,3 @@
-// Generate package-manager metadata from the final installer bytes, after signing/notarization.
-// This script never uploads installers, changes a tap, or submits a WinGet package.
 const fs = require("node:fs");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
@@ -36,7 +34,6 @@ async function main() {
     linux: [`Milagre-${version}-x86_64.AppImage`, `Milagre-${version}-amd64.deb`, `Milagre-${version}-x86_64.rpm`],
   };
   const hashes = new Map();
-  // Validate everything before creating output. Never substitute an unchecked hash or a missing architecture.
   for (const platform of platforms) {
     for (const name of artifacts[platform]) {
       const file = path.resolve(options.artifacts, name);

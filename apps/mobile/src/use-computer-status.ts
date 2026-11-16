@@ -4,10 +4,8 @@ import { lanRoutes } from "./routes-native";
 import { pingComputer, type Reachability } from "./computer-actions";
 import type { SavedHost } from "./hosts-store";
 
-// The last answer per computer, so reopening a page shows it at once instead of "Checking…" for every row.
 const last = new Map<string, Reachability>();
 
-/** Whether each saved computer answers, asked again every time the page comes into focus. */
 export function useComputerStatus(hosts: SavedHost[]): Record<string, Reachability> {
   const [status, setStatus] = useState<Record<string, Reachability>>({});
   useFocusEffect(
@@ -27,7 +25,6 @@ export function useComputerStatus(hosts: SavedHost[]): Record<string, Reachabili
   return Object.fromEntries(hosts.map((host) => [host.id, status[host.id] ?? last.get(host.id) ?? "checking"]));
 }
 
-/** Renders again whenever one of these computers switches between the local network and the relay. */
 export function useRouteChanges(hosts: SavedHost[]) {
   const [, setTick] = useState(0);
   useEffect(() => {

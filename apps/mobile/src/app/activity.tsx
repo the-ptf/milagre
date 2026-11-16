@@ -12,7 +12,6 @@ import { CircleButton, PageScroll, PillButton, SheetHeader, useStyles } from "..
 import { useChatPage } from "../chat-pages";
 import { useVisibleRunChatKeys } from "../visible-run-chats";
 
-/** A reply's tools and notes, like desktop's expanded ActivityBlock; live while the turn runs. Each tool expands to its output. */
 export default function ActivitySheet() {
   const styles = useStyles();
   const { id, message, stepId } = useLocalSearchParams<{ id: string; message: string; stepId?: string }>();
@@ -21,21 +20,17 @@ export default function ActivitySheet() {
   const chatId = `${project?.path}#${id}`;
   const run = message === "run" ? session.snapshot?.runs.runs[chatId] : undefined;
   useVisibleRunChatKeys(session.client, message === "run" && project?.path ? [chatId] : []);
-  // A host that keeps messages by Chat sends the snapshot without them: the sheet reads its Chat's as a page.
   const page = useChatPage(project?.state.messagesInChats ? session.client : null, project?.path, Number(id), session.snapshot, session.reconnects);
   const chatMessages = project?.state.messagesInChats ? page.messages : (project?.state.messages ?? []);
-  // When the live turn ends while the sheet is open, its saved reply takes over.
   const saved =
     message === "run"
       ? run
         ? undefined
         : chatMessages.findLast((entry) => entry.session_id === Number(id) && entry.role !== "user")
       : chatMessages.find((entry) => entry.id === Number(message));
-  // The snapshot leaves tool output out; the sheet fetches this message whole so each tool can expand.
   const [full, setFull] = useState<{ id: number; steps: ChatStep[]; body: string } | null>(null);
   const [readFailure, setReadFailure] = useState<{ id: number; attempt: number; connection?: number } | null>(null);
   const [retry, setRetry] = useState(0);
-  // A reply before the page held here is read by id.
   const outside = !saved && message !== "run" && !!project?.state.messagesInChats && !page.loading;
   const client = session.client,
     projectPath = project?.path,
@@ -98,7 +93,6 @@ export default function ActivitySheet() {
             {images.map((step) => (
               <ToolRow key={step.id} step={step} live={!!run} waiting={waiting.includes(step.id)} />
             ))}
-            {/* Computer use steps show as a card in the reply; their calls and outputs are listed here. */}
             {desktop.map((step) => (
               <ToolRow key={step.id} step={step} live={!!run} waiting={waiting.includes(step.id)} />
             ))}

@@ -1,4 +1,3 @@
-// Explicitly modifies the final RPM. Run this BEFORE checksums and release upload.
 const path = require("node:path");
 const { signRPM } = require("./generate-linux-repository.cjs");
 

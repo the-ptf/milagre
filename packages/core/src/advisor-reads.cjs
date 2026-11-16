@@ -87,7 +87,6 @@ function createAdvisorReads({ roots, referenceRoots = [], git = createGit({ anal
       },
       async ({ root, query, glob }) => {
         const matches = [];
-        // Glob is a filename filter, never a filesystem or shell argument.
         const pattern =
           glob &&
           new RegExp(

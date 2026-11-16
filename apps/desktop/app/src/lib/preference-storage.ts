@@ -36,7 +36,6 @@ export function createPreferenceStorage(
       cache.set(key, legacy);
       return legacy;
     },
-    /** Reads `key` (every key for null) from the main process again next time. */
     forget(key) {
       if (key === null) cache.clear();
       else cache.delete(key);
@@ -77,7 +76,6 @@ export const preferenceStorage = createPreferenceStorage(
   () => (typeof window === "undefined" ? undefined : window.milagrePreferences),
 );
 
-// Copy even preferences belonging to screens that are not opened during this launch.
 if (typeof window !== "undefined" && window.milagrePreferences) {
   try {
     const legacy = window.localStorage;
@@ -92,8 +90,6 @@ if (typeof window !== "undefined" && window.milagrePreferences) {
 
 // Native changes also reach windows whose Chromium storage is empty or unavailable.
 if (typeof window !== "undefined") {
-  // Any storage event means the key may have changed behind this window's back: it is read again on its next use.
-  // Registered first, so the listeners that read it again on the event already see the new value.
   window.addEventListener("storage", (event) => preferenceStorage.forget(event.key));
   window.milagrePreferences?.onChanged?.(({ key, value }) => {
     window.dispatchEvent(new StorageEvent("storage", { key, newValue: value }));

@@ -13,14 +13,6 @@ import { pickedProjectKey, projectPickerRows, useNamedLinks, type ProjectGroup }
 import { newChatLook } from "../lib/new-chat-look";
 import { useProjectImages } from "../lib/project-images";
 
-/**
- * "Start building in [Computer / Project ▾]" over a new Chat. The Project is a dropdown listing every Project this window
- * can start a Chat in, the sidebar's other computers included, one row per repository; picking one moves the new Chat
- * there. The composer's computer chip names the computer, so the heading drops it; only a Project not yet found in the
- * lists (no chip yet) keeps "Computer /" here.
- * No project, first in the list, moves it to a Chats home: "Just chat [No project ▾]", the computer left to the chip too.
- * This Mac's Links follow the Projects; picking one opens a new Chat in that Link, as its sidebar header's + does.
- */
 export function NewChatHeading({
   projectKey,
   projectName,
@@ -35,19 +27,14 @@ export function NewChatHeading({
   projectName: string;
   projectKind?: ProjectKind;
   groups: ProjectGroup[];
-  /** The No project row: each computer's Chats home. */
   noProject?: ProjectGroup;
-  /** `home`: the key is a Chats home, and whether that computer has made it yet. */
   onProjectChange?: (key: string, home?: Pick<ChatsHome, "exists">) => void;
-  /** A Link picked by id: the new Chat starts there instead. Without it the picker lists no Links. */
   onLinkPick?: (id: string) => void;
-  /** The picker opened or closed, so the caller can raise the heading above the composer only while it is open. */
   onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     onOpenChange?.(open);
-    // Unmounting with the picker open must not leave the caller believing it still is.
     return () => onOpenChange?.(false);
   }, [open, onOpenChange]);
   const { thisMac, computers } = useComputers();
@@ -91,7 +78,6 @@ export function NewChatHeading({
                 setOpen(true);
               }
             }}
-            // A field-filled trigger: hover-2 on hover and while open, so both show on the field fill.
             className={`flex h-8 max-w-[480px] items-center gap-1 rounded-control px-2 transition-colors ${open ? "bg-hover-2" : "bg-field hover:bg-hover-2"}`}
           >
             {place}
@@ -176,7 +162,6 @@ function ProjectPicker({
                 }
                 label={group.name}
                 selected={current}
-                // The Chats home of the computer the chip shows: This Mac's unless the draft is already on another's.
                 onClick={() => {
                   const key = pickedProjectKey(group, currentKey);
                   onPick(key, { exists: group.copies.find((copy) => copy.key === key)?.exists ?? false });

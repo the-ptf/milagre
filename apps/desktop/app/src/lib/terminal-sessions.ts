@@ -13,9 +13,7 @@ import { removeTerminal, updateTerminal } from "./terminal-store";
 import { bridgeForKey } from "./computer-bridge";
 
 // One xterm per Terminal, kept while the Terminal runs. Switching Chats or tabs moves its element between panels
-// instead of building it again, so scrollback and selection survive and nothing is read twice.
 
-// Browsers keep a handful of WebGL contexts; only the shown Terminals draw on the GPU, so a few stay well under it.
 let webglBroken = false;
 
 const ANSI_NAMES = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"] as const;
@@ -44,13 +42,11 @@ function fontFamily() {
   return mono || 'ui-monospace, "SF Mono", Menlo, monospace';
 }
 
-/** The Code size setting plus half a pixel, as the terminal always ran half a pixel above the code blocks. */
 function codeFontSize() {
   const size = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--code-size"));
   return (Number.isFinite(size) ? size : 12) + 0.5;
 }
 
-// Open terminals follow the Code size and Code font settings live: set the options, then refit (which resizes the PTY).
 function reapplyAppearance() {
   const fontSize = codeFontSize();
   const family = fontFamily();
@@ -67,7 +63,6 @@ function reapplyTheme() {
   for (const session of sessions.values()) session.term.options.theme = theme;
 }
 
-// THEME_EVENT fires after applyPalette changes the theme's colors.
 let themeWatched = false;
 function watchTheme() {
   if (themeWatched) return;

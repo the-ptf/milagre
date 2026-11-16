@@ -41,7 +41,6 @@ async function browserChecks() {
     }
     throw Error(`Timed out: ${source}`);
   }
-  // Real input events, so focus moves the way a mouse click and a key press move it.
   async function click(selector) {
     const { x, y } = await evaluate(
       `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`,
@@ -59,13 +58,11 @@ async function browserChecks() {
   }
   const shot = async (name) => {
     if (!shots) return;
-    // Let the menu finish its pop-in and paint before reading the frame.
     await evaluate("new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))");
     await delay(250);
     await require("node:fs/promises").mkdir(shots, { recursive: true });
     await require("node:fs/promises").writeFile(path.join(shots, name), (await win.webContents.capturePage()).toPNG());
   };
-  // `div >` skips the Reload row, which sits alone inside its Tooltip wrapper.
   const archiveRow = '[data-chat-menu] div > [role="menuitem"]:last-of-type';
   const openMenu = async () => {
     await click('[aria-label="Chat actions"]');
@@ -76,7 +73,6 @@ async function browserChecks() {
     await waitFor('document.querySelector("[aria-label=\\"Chat actions\\"]")');
     win.focus();
 
-    // A pending Worktree check cannot hold Delete up or add a second step.
     await openMenu();
     assert.equal(await evaluate("window.checks"), 1);
     assert.equal(await evaluate(`document.querySelector('${archiveRow}').textContent`), "Delete");
@@ -92,7 +88,6 @@ async function browserChecks() {
     await evaluate("window.finishArchive()");
     await waitFor('!document.querySelector("[role=status]")');
 
-    // A checked Worktree uses its cleanup mode on the same single click.
     await evaluate("window.calls = []");
     await openMenu();
     await evaluate("window.releaseCheck()");
@@ -107,7 +102,6 @@ async function browserChecks() {
     await evaluate("window.finishArchive()");
     await waitFor('!document.querySelector("[role=status]")');
 
-    // Keyboard navigation still runs the focused action rather than Delete.
     await evaluate("window.calls = []");
     await openMenu();
     await evaluate(`document.querySelector('${archiveRow}').focus()`);

@@ -1,7 +1,6 @@
 /** What a keyboard shortcut asks of the Chats list on screen; one opened for it picks the request up when it shows. */
 export type NavigationCommand = { kind: "new" } | { kind: "search" } | { kind: "chat"; index: number };
 
-// A request nothing picks up soon (no computer open, say) is dropped rather than acted on later by surprise.
 const TTL_MS = 3000;
 let pending: { command: NavigationCommand; at: number } | null = null;
 const listeners = new Set<() => void>();
@@ -24,10 +23,8 @@ export function subscribeNavigation(listener: () => void) {
   };
 }
 
-/** The Chat a screen shows, by its computer, Project and id. */
 export type OpenChat = { hostId?: string; projectPath?: string; chatId?: number };
 
-/** Whether `href` goes to the Chat already open, so following it would only remount that Chat. */
 export function isOpenChat(href: unknown, open: OpenChat) {
   if (!href || typeof href !== "object" || open.chatId === undefined) return false;
   const { pathname, params } = href as { pathname?: string; params?: Record<string, unknown> };

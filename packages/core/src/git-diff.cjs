@@ -4,19 +4,13 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { PATHSPEC } = require("./diffstat.cjs");
 
-// What a chat's folder changed, file by file, for the Changes panel and the diff view. Read-only: git
-// runs without a shell, every argument an array element, and nothing here writes to the repository.
-
 const NOT_REPO = "This chat's folder isn't a git repository.";
 const FILE_LIMIT = 1000;
 const PATCH_LIMIT = 1024 * 1024;
-// Untracked files are counted one git call each; a few at a time, so a fresh node_modules can't fork hundreds of processes.
 const UNTRACKED_CONCURRENCY = 8;
-// The tree of an empty repository, to diff against before the first commit.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const STATUSES = { A: "added", D: "deleted", R: "renamed" };
 
-/** Paths come from git's own list, so anything absolute or climbing out of the folder is not one of ours. */
 function checkPath(file) {
   if (typeof file !== "string" || !file || file.includes("\0") || path.isAbsolute(file) || file.split(/[\\/]/).includes("..")) {
     throw new Error("The file must be a path inside the chat's folder.");
@@ -32,7 +26,6 @@ function createGitDiff(options = {}) {
   const now = options.now ?? Date.now;
   const cacheTime = 30000;
 
-  // One shared read per folder/branch, bounded in size and age, including concurrent polls.
   async function catalog(cwd, branch) {
     const key = JSON.stringify([cwd, branch]);
     const saved = catalogs.get(key);
@@ -56,10 +49,6 @@ function createGitDiff(options = {}) {
     return entry.read;
   }
 
-  /**
-   * The refs `git diff` compares for a mode, or null when there is nothing to compare: uncommitted work
-   * is against HEAD (the empty tree before the first commit); committed work is merge-base..HEAD.
-   */
   async function refsFor(cwd, base, mode, range, commit) {
     if (commit != null) {
       if (mode !== "committed" || typeof commit !== "string" || !/^[0-9a-f]{40}$/.test(commit)) throw new Error("A full commit SHA is required.");
@@ -67,7 +56,6 @@ function createGitDiff(options = {}) {
       const parents = (await checked(cwd, ["rev-list", "--parents", "-n", "1", commit, "--"])).stdout.trim().split(/\s+/);
       return { name: commit, parent: parents[1] || null, refs: [parents[1] || EMPTY_TREE, commit] };
     }
-    // A PR's commits, as GitHub diffs them: merge-base(base, head)..head. The caller checked both are commit ids.
     if (mode === "range") {
       if (!/^[0-9a-f]{40}$/.test(range?.base ?? "") || !/^[0-9a-f]{40}$/.test(range?.head ?? "")) return { name: null, refs: null };
       const mergeBase = await gitOut(cwd, ["merge-base", range.base, range.head]);
@@ -81,7 +69,6 @@ function createGitDiff(options = {}) {
     return { name: resolved.name, refs: mergeBase ? [mergeBase, "HEAD"] : null };
   }
 
-  /** `--name-status -z` and `--numstat -z` both list a rename as old then new; walk their tokens. */
   function parseNameStatus(output) {
     const tokens = output.split("\0");
     const entries = [];
@@ -92,7 +79,6 @@ function createGitDiff(options = {}) {
         const oldPath = tokens[i++];
         entries.push({ status: "renamed", oldPath, path: tokens[i++] });
       } else if (code[0] === "C") {
-        // A copy is a new file here; its source is untouched.
         i++;
         entries.push({ status: "added", path: tokens[i++] });
       } else {
@@ -111,7 +97,6 @@ function createGitDiff(options = {}) {
       const [added, removed, file] = record.split("\t");
       const binary = added === "-" && removed === "-";
       const entry = { added: binary ? 0 : Number(added) || 0, removed: binary ? 0 : Number(removed) || 0, binary };
-      // A rename has an empty path here, then the old and the new path as separate tokens.
       if (file === "") {
         i++;
         counts.set(tokens[i++], entry);
@@ -123,7 +108,6 @@ function createGitDiff(options = {}) {
   }
 
   async function untrackedFile(cwd, file) {
-    // --no-index exits 1 when the files differ, which is the usual case here.
     const result = await run(cwd, ["diff", "--no-index", "--numstat", "--", "/dev/null", file]);
     const [added, removed] = result.stdout.split("\t");
     const binary = added === "-" && removed === "-";
@@ -134,7 +118,6 @@ function createGitDiff(options = {}) {
     if (!(await run(cwd, ["rev-parse", "--is-inside-work-tree"])).ok) return { isRepo: false, message: NOT_REPO };
     const { name, refs, parent } = await refsFor(cwd, base, mode, range, commit);
     if (!refs) {
-      // A base that resolves but meets HEAD nowhere is not the same as having no base.
       return name ? { isRepo: true, base: name, files: [], message: `This branch shares no history with ${name}.` } : { isRepo: true, base: null, files: [] };
     }
     const [status, numstat] = await Promise.all([
@@ -163,7 +146,6 @@ function createGitDiff(options = {}) {
     };
   }
 
-  /** The file is one git lists as untracked (not ignored, not under .milagre) and really lives inside the folder, not behind a symlink. */
   async function isUntrackedInside(cwd, file) {
     const listed = await run(cwd, ["ls-files", "--others", "--exclude-standard", "-z", "--", `:(literal)${file}`, ...PATHSPEC]);
     if (!listed.ok || !listed.stdout.split("\0").includes(file)) return false;
@@ -198,12 +180,10 @@ function createGitDiff(options = {}) {
     return { patch: binary ? "" : result.stdout, binary, tooLarge: false };
   }
 
-  /** Bounded, read-only history for the same comparison the file tree uses. */
   async function history({ cwd, base, recordedBase, branchesVersion, limit = 30 } = {}) {
     if (!(await run(cwd, ["rev-parse", "--is-inside-work-tree"])).ok) return { isRepo: false, message: NOT_REPO };
     const [branch, head] = await Promise.all([gitOut(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]), gitOut(cwd, ["rev-parse", "--verify", "HEAD"])]);
     const { branches, source, version } = await catalog(cwd, branch);
-    // Resolve the creation source once, rather than walking its reflog for each base.
     const [automatic, projectDefault, baseExists] = await Promise.all([
       resolveBase(cwd, recordedBase || source),
       resolveBase(cwd),
@@ -255,7 +235,6 @@ function createGitDiff(options = {}) {
             const key = `${cwd}\0${commit.sha}`;
             const cached = commitStats.get(key);
             if (cached && (!cached.retryAt || cached.retryAt > now())) return { ...commit, ...cached.totals };
-            // Compare the first parent explicitly, including merges, without requiring Git 2.31 --diff-merges.
             let stat;
             try {
               stat = await checked(cwd, [

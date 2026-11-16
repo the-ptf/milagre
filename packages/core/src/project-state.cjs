@@ -1,8 +1,6 @@
 const { isDeepStrictEqual } = require("node:util");
 const path = require("node:path");
 const fs = require("node:fs");
-// Coordination state persisted in <project>/.milagre/coordination.json, reconciled with the
-// worktrees git reports each time a project is read.
 
 function emptyState(projectName) {
   return {
@@ -15,7 +13,6 @@ function emptyState(projectName) {
   };
 }
 
-/** The state matched with the worktrees git lists now; a state that already matches is returned as is. */
 function reconcileState(rawState, projectName, discoveredWorktrees, options = {}) {
   const ownedWorktrees = options instanceof Map ? options : (options.ownedWorktrees ?? new Map());
   const { platform = process.platform, realpathSync = fs.realpathSync.native } = options;
@@ -25,7 +22,6 @@ function reconcileState(rawState, projectName, discoveredWorktrees, options = {}
   let nextId = Math.max(state.next_id ?? 1, ...existingWorktrees.map((item) => item.id), ...existingSessions.map((item) => item.id)) || 1;
   const allocateId = () => nextId++;
   // Resolve older Windows spellings using filesystem identity. Case-sensitive
-  // directories stay distinct; a removed worktree still has its lexical path.
   const paths = new Map();
   const nativePath = (folder) => {
     if (platform !== "win32" || typeof folder !== "string") return folder;
@@ -47,18 +43,15 @@ function reconcileState(rawState, projectName, discoveredWorktrees, options = {}
   for (const discovered of discoveredWorktrees) {
     const folder = nativePath(discovered.path);
     const previous = existingByPath.get(folder);
-    // A Worktree a shared Chat owned last time and no longer does (its Link was deleted) is the Project's again.
     const { sharedChat: _owner, ...worktree } = previous ?? { id: allocateId(), project_id: 1, path: folder, name: discovered.name };
     worktrees[worktree.id] = { ...worktree, project_id: 1, path: folder, name: discovered.name };
     const sharedChat = ownedWorktrees.get(discovered.path) ?? ownedWorktrees.get(folder);
     if (sharedChat) {
       worktrees[worktree.id].sharedChat = sharedChat;
-      // Adopting an existing Worktree never discards its conversations or their messages.
       for (const session of existingSessions.filter((item) => sharedChat.adopted && item.worktree_id === worktree.id))
         sessions[session.id] = { ...session, readOnlyReason: session.readOnlyReason ?? "This Chat is read-only. Choose a current Chat from the canvas." };
       continue;
     }
-    // A worktree can hold several chats; keep them all and make sure it has at least one.
     const worktreeSessions = existingSessions.filter((session) => session.worktree_id === worktree.id);
     if (!worktreeSessions.some((session) => !session.readOnlyReason))
       worktreeSessions.push({ id: allocateId(), worktree_id: worktree.id, agent_name: discovered.name, status: "Created" });
@@ -96,8 +89,6 @@ function reconcileState(rawState, projectName, discoveredWorktrees, options = {}
   return rawState && isDeepStrictEqual(next, rawState) ? rawState : next;
 }
 
-// A saved running flag is not proof of a live provider after an app restart, and a background task lives only as long as
-// its agent process (chat-activity.mjs). A state with nothing to mark is returned as is.
 function markDisconnectedSubagents(state, liveSessionIds) {
   const running = (agent) => agent.source !== "milagre-advisor" && ["running", "initializing", "waiting"].includes(agent.status);
   const stale = Object.entries(state.sessions).filter(
@@ -122,7 +113,6 @@ function markDisconnectedSubagents(state, liveSessionIds) {
   return { ...state, sessions };
 }
 
-/** The state with `bases` (Worktree path -> base ref) given to the Worktrees that have none; unchanged when none take one. */
 function withWorktreeBases(state, bases) {
   const worktrees = { ...state.worktrees };
   let changed = false;

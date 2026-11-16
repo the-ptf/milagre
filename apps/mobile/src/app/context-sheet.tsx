@@ -11,10 +11,6 @@ import { PillButton, useStyles } from "../ui";
 import { useTheme } from "../theme";
 import { type } from "../design-tokens";
 
-/**
- * Desktop's context card as a sheet: how full the Chat's context window is. Reads the live numbers, so it fills while
- * a turn runs. On a Claude chat it offers Compact now, which the chat screen sends as `/compact` once the sheet closes.
- */
 export default function ContextSheet() {
   const { colors } = useTheme();
   const { settings } = useContextSettings();
@@ -29,7 +25,6 @@ export default function ContextSheet() {
   const run = chatId ? session.snapshot?.runs.runs[chatId] : undefined;
   const usage = (project && chat ? run?.contextUsage : undefined) ?? chat?.contextUsage;
   const missing = !usage || usage.size <= 0;
-  // The Chat went away (another host, a reset session): nothing to show.
   useEffect(() => {
     if (missing) router.back();
   }, [missing]);

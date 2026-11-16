@@ -5,7 +5,6 @@ const { Readable } = require("node:stream");
 const { pathToFileURL } = require("node:url");
 const EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif", ".bmp", ".svg", ".mp4", ".mov", ".webm", ".m4v", ".ogv"]);
 
-// Only media is exposed to the renderer. Check the resolved target too, so a .png symlink
 // cannot expose another kind of file. Electron file fetch ignores Range, so stream those ranges here.
 function createMediaHandler(fetch) {
   return async (request) => {

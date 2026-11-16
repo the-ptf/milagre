@@ -1,16 +1,5 @@
-// The phone design system (apps/mobile/DESIGN.md) as an Oxlint JS plugin. .oxlintrc.json turns every rule on as an
-// error for apps/mobile/src, except the files that define the tokens (design-tokens.ts, theme.ts, press-style.ts),
-// tests and generated files. There is no baseline: a real exception is one line,
 //   // oxlint-disable-next-line milagre-design/<rule> -- <why>
-// and `disable-reason` refuses a disable without the reason, a file-wide disable and a blanket disable.
-//
-// The rules read the AST, not text: a value counts when it is a literal written as the value of a style property, or
-// a branch of one (`a ? 12 : 16`, `a && 12`, `a ?? 12`, `12 as const`). Arithmetic on tokens (`type.body * scale`,
-// `space.lg - 2`) and values read from variables are not checked.
 
-/** Strips TypeScript wrappers and yields every value an expression can take: both branches of a ternary, the right of
- * `&&`, both sides of `||` and `??`, and with `deep` each element of an array or value of an object, one level down
- * (`colors={[a, b]}`, `trackColor={{ true: a }}`). */
 function* leaves(node, deep = false) {
   if (!node) return;
   switch (node.type) {
@@ -41,7 +30,6 @@ function* leaves(node, deep = false) {
   yield node;
 }
 
-/** The number a literal leaf is (`12`, `-4`), or undefined. */
 function numberOf(node) {
   if (node.type === "Literal" && typeof node.value === "number") return node.value;
   if (node.type === "UnaryExpression" && (node.operator === "-" || node.operator === "+")) {
@@ -51,15 +39,12 @@ function numberOf(node) {
   return undefined;
 }
 
-/** The text a literal leaf is (a string, or a template literal with no `${}`), or undefined. */
 function stringOf(node) {
   if (node.type === "Literal" && typeof node.value === "string") return node.value;
   if (node.type === "TemplateLiteral" && node.expressions.length === 0) return node.quasis.map((quasi) => quasi.value.cooked ?? quasi.value.raw).join("");
   return undefined;
 }
 
-/** The name of a property in an object literal (`{ fontSize: … }`, `{ "fontSize": … }`), or undefined for a
- * destructuring pattern, a computed key or a method. */
 function propertyName(node) {
   if (node.type !== "Property" || node.computed || node.method || node.kind !== "init") return undefined;
   if (node.parent && node.parent.type !== "ObjectExpression") return undefined;
@@ -96,7 +81,6 @@ function styleValues(match, { jsx = false } = {}) {
 
 const rule = (description, message, create) => ({ meta: { type: "problem", docs: { description }, messages: { default: message } }, create });
 
-// 1. Type: { fontSize: type.body, lineHeight: lineHeight.body }.
 const fontSizeToken = rule(
   "fontSize and lineHeight come from the type and lineHeight tokens",
   "{{name}}: {{value}} is a literal. Use `{{token}}.*` from design-tokens.ts (DESIGN.md, Type).",
@@ -110,8 +94,6 @@ const fontSizeToken = rule(
     }),
 );
 
-// 2. Radius: radius.chip/control/card/sheet/composer/full; 0 is no corner. Also a primitive's `radius` prop
-// (`<GlassSurface radius={20} />`).
 const RADIUS_PROPERTY =
   /^(?:border(?:Top|Bottom|Start|End)?(?:Left|Right|Start|End)?Radius|border(?:Start|End)(?:Start|End)Radius|sheetCornerRadius|radius|cornerRadius)$/;
 const radiusToken = rule(
@@ -126,7 +108,6 @@ const radiusToken = rule(
     }),
 );
 
-// 3. Spacing: the 4 pt grid, plus 2 and 6 inside dense rows.
 const SPACING_PROPERTY =
   /^(?:(?:padding|margin)(?:Top|Bottom|Left|Right|Horizontal|Vertical|Start|End|Block|BlockStart|BlockEnd|Inline|InlineStart|InlineEnd)?|gap|rowGap|columnGap)$/;
 const onGrid = (n) => Number.isInteger(n) && (n % 4 === 0 || Math.abs(n) === 2 || Math.abs(n) === 6);
@@ -142,7 +123,6 @@ const spacingGrid = rule(
     }),
 );
 
-// 4. Colour: useTheme().colors, never a literal.
 const NAMED_COLORS = new Set(
   "aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen".split(
     " ",
@@ -171,7 +151,6 @@ const noRawColor = rule(
           if (text !== undefined && isRawColor(text)) report(leaf, text);
         }
       }),
-      // A hex or rgb()/hsl() string anywhere (`const SCRIM = "#00000066"`): unambiguous outside a colour prop too.
       Literal(node) {
         if (typeof node.value === "string" && (HEX.test(node.value) || COLOR_FUNCTION.test(node.value)) && node.parent?.type !== "ImportDeclaration")
           report(node, node.value);
@@ -184,7 +163,6 @@ const noRawColor = rule(
   },
 );
 
-// 5. Elevation: boxShadow tokens from theme.ts.
 const shadowToken = rule(
   "Elevation is colors.shadowCard / shadowRaised / shadowOverlay",
   "{{name}}: {{value}} is a hand-made shadow. Use `boxShadow: colors.shadowCard | shadowRaised | shadowOverlay` from theme.ts (DESIGN.md, Elevation).",
@@ -207,7 +185,6 @@ const shadowToken = rule(
     }),
 );
 
-// 6. Opacity: pressStyle's PRESSED_OPACITY and DISABLED_OPACITY.
 const opacityToken = rule(
   "Press and disabled opacity come from pressStyle",
   "opacity: {{value}} is a literal. Use `pressStyle` / `PRESSED_OPACITY` (0.6) / `DISABLED_OPACITY.control|row` (0.4, 0.6) from primitives/press-style.ts; a colour's alpha belongs in the palette.",
@@ -220,7 +197,6 @@ const opacityToken = rule(
     }),
 );
 
-// 7. Weight: regular (400) for body text, 500 and 600; 700 only on the large title.
 const fontWeight = rule(
   "Font weights are 400, 500 and 600; 700 only on largeTitle",
   "fontWeight: {{value}} is off the scale. Use 500 or 600 (400/normal for regular text); 700 is only for `type.largeTitle` (DESIGN.md, Type).",
@@ -285,7 +261,6 @@ const accessibilityRole = rule(
 
 // 10. Words: the other machine is "your computer", never "your Mac" (the desktop runs on macOS, Windows and Linux).
 // Every string the phone can show is a literal somewhere: JSX text, props, errors thrown to a notice, hints built in a
-// hook. So every string and template literal is read, except module paths and object keys, which no one sees.
 const MAC = /\bMac\b/;
 const copyComputer = rule(
   'Copy says "your computer", never "Mac"',

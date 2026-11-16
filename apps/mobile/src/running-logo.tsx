@@ -56,9 +56,7 @@ export function useKeyframes(segments: Segment[], delay = 0) {
 export const hold = (duration: number): Segment => ({ to: -1, duration });
 const easeInOut = Easing.bezier(0.42, 0, 0.58, 1);
 export const twinkleCurve = Easing.bezier(0.65, 0, 0.35, 1);
-// running-logo-glow: 0%, 40%, 100% { opacity: 0.15 } 12%, 22% { opacity: 0.55 }, ease-in-out, 2400ms.
 const GLOW: Segment[] = [{ to: 1, duration: 288, easing: easeInOut }, hold(240), { to: 2, duration: 432, easing: easeInOut }, hold(1440)];
-// running-logo-twinkle: 0%, 50% rest; 70% swell and turn 45°; 85% 80°; 100% rest at 90°.
 const TWINKLE: Segment[] = [
   hold(1200),
   { to: 1, duration: 480, easing: twinkleCurve },
@@ -67,12 +65,9 @@ const TWINKLE: Segment[] = [
 ];
 
 const CYCLE_MS = 2400;
-// running-logo-twinkle's per-segment curves become this many straight steps each: ~12 ms apiece, under a frame.
 const EASED_STEPS = 24;
-// Where the twinkle resets to rest, just after its last keyframe, as the zero-length reset step did.
 const WRAP = 1e-6;
 
-/** The keyframe index (as in useKeyframes) `ms` into one cycle; at `CYCLE_MS` itself, the last keyframe before the reset. */
 function keyframeAt(segments: Segment[], ms: number) {
   let start = 0;
   let index = 0;
@@ -84,7 +79,6 @@ function keyframeAt(segments: Segment[], ms: number) {
   return index;
 }
 
-/** The times in a cycle where the index bends: every keyframe, and EASED_STEPS points along each eased segment. */
 function bendsOf(segments: Segment[]) {
   const bends = [0];
   let start = 0;
@@ -96,11 +90,6 @@ function bendsOf(segments: Segment[]) {
   return bends;
 }
 
-/**
- * One layer's keyframes over a progress that runs 0..2 (two cycles, so a loop may start anywhere in the first): the
- * input times in cycles and the keyframe index at each, `delayMs` behind the cycle. Holds are flat stretches, eased
- * segments straight steps along their curve; an output range over [0, 1, 2, ...] keyframes reads the index, as before.
- */
 function keyframeTrack(segments: Segment[], delayMs = 0) {
   const points: [number, number][] = [];
   const at = (cycles: number) => {
@@ -110,7 +99,6 @@ function keyframeTrack(segments: Segment[], delayMs = 0) {
   points.push([0, at(0)], [2, at(2 - WRAP)]);
   for (let cycle = -1; cycle <= 2; cycle += 1)
     for (const ms of bendsOf(segments)) {
-      // A cycle's end is the last keyframe; the next cycle's start (the same instant) is the reset.
       const x = (cycle * CYCLE_MS + delayMs + ms) / CYCLE_MS - (ms === CYCLE_MS ? WRAP : 0);
       if (x > 0 && x < 2) points.push([x, keyframeAt(segments, ms)]);
     }
@@ -168,7 +156,6 @@ function useLogoProgress() {
   return clock.progress;
 }
 
-/** Desktop's RunningLogo: the legs take turns lighting up while the sparkle swells and turns a quarter. */
 const RunningLogo = memo(function RunningLogo({ size = 16 }: { size?: number }) {
   const { colors } = useTheme();
   const ink = colors.ink;
@@ -178,7 +165,6 @@ const RunningLogo = memo(function RunningLogo({ size = 16 }: { size?: number }) 
     const { left, right, star } = tracks();
     const read = (track: ReturnType<typeof keyframeTrack>, values: number[]) =>
       progress.interpolate({ inputRange: track.inputRange, outputRange: track.index.map((index) => valueAt(values, index)) });
-    // running-logo-glow: 0%, 40%, 100% { opacity: 0.15 } 12%, 22% { opacity: 0.55 }.
     const glow = [0.15, 0.55, 0.15];
     return {
       left: { opacity: read(left, glow) },
@@ -222,7 +208,6 @@ const RunningLogo = memo(function RunningLogo({ size = 16 }: { size?: number }) 
 });
 
 function useElapsed(startedAt?: number) {
-  // Measured from the clock, so the time is still right after the ticks pause under another screen.
   const [start] = useState(() => Date.now());
   return useDisplayValue(250, (now) => formatElapsed(now - (startedAt ?? start)));
 }
@@ -247,7 +232,6 @@ function RunningLabel({ label }: { label: string }) {
   );
 }
 
-/** Desktop's ThinkingIndicator: the running mark and the elapsed time; the label is for screen readers unless shown. */
 export function ThinkingIndicator({ label, showLabel = false, startedAt }: { label: string; showLabel?: boolean; startedAt?: number }) {
   return (
     <View
@@ -263,10 +247,6 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
   );
 }
 
-/**
- * Desktop's BackgroundIndicator: the Chat's turn ended, but background work goes on (chat-activity.mjs). How many
- * tasks, and for how long the oldest has run; no running mark, since no turn runs.
- */
 export function BackgroundIndicator({ count, startedAt, mark, onPress }: { count: number; startedAt?: number; mark: ReactNode; onPress: () => void }) {
   const { colors } = useTheme();
   const label = `${backgroundLabel(count)} running`;
@@ -299,7 +279,6 @@ export function BackgroundIndicator({ count, startedAt, mark, onPress }: { count
   );
 }
 
-/** Only this Text re-renders on each tick. */
 function Elapsed({ startedAt, color }: { startedAt?: number; color?: string }) {
   const { colors } = useTheme();
   return (
@@ -311,11 +290,9 @@ function Elapsed({ startedAt, color }: { startedAt?: number; color?: string }) {
   );
 }
 
-// step-shimmer: a 320px tile (ink-3 to 110px, ink at 160px, ink-3 from 210px) slides one tile right every 1.2s.
 const TILE = 320;
 const SWEEP_PERIOD_MS = 1200;
 const TILES = 4;
-// The TILES tiles as one gradient: one view to draw and move, the same bands at the same places.
 const BAND_STOPS = [
   0,
   ...Array.from({ length: TILES }, (_, tile) => [110, 160, 210].map((at) => (tile * TILE + at) / (TILE * TILES))).flat(),
@@ -344,14 +321,12 @@ export function useShimmerReducedMotion(active: boolean) {
     return () => {
       live = false;
       subscription.remove();
-      // Permission learned on a previous screen visit cannot authorize motion on the next one.
       setReduced(true);
     };
   }, [active]);
   return reduced || motionScale === 0;
 }
 
-/** Sweeps while mounted; ActivityTitle mounts it only while its step runs, the screen is active and motion is allowed. */
 export function ShimmerText({
   children,
   settledChildren,

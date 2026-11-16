@@ -62,7 +62,6 @@ import { ZoomBar } from "../primitives/ZoomBar";
 import { COMMENT_KEY, useCommentKey } from "./comment-key";
 import { useDesignWorkActive, useDesignWorkStarted, useLiveDesignFeed } from "./design-live";
 
-/** Whether the element is laid out: false while an ancestor hides it (the diff, settings or canvas in place of the chat). */
 function useShown() {
   const [element, setElement] = useState<HTMLElement | null>(null);
   const [shown, setShown] = useState(true);
@@ -77,18 +76,12 @@ function useShown() {
 
 type ArtifactsValue = {
   enabled: boolean;
-  /** The Chat's key, or null where designs can't be read (a new Chat, a shared Link Chat). */
   chatId: string | null;
-  /** The newest version of each design the Chat's replies showed, by id, in the order they were first shown. */
   latest: Map<string, ArtifactRef>;
   open: (ref: ArtifactRef) => void;
-  /** Opens the canvas framing these designs together; `kind` when there may be none yet. */
   openAll: (refs: ArtifactRef[], kind?: "designs" | "artifacts") => void;
-  /** Opens the canvas on a sent comment, its bubble open: `key` is "<message id>:<comment index>". */
   openComment: (key: string) => void;
-  /** The agent's notes on the comments it resolved, by comment id. */
   resolutions: Map<string, string>;
-  /** Where on an Artifact page each sent comment was left (its anchor), by comment id. */
   anchors: Map<string, string>;
 };
 const Artifacts = createContext<ArtifactsValue>({
@@ -102,31 +95,24 @@ const Artifacts = createContext<ArtifactsValue>({
   anchors: new Map(),
 });
 
-/** The Chat key of the replies inside the provider (null outside one or for a Chat not saved yet). */
 export function useReplyChatId(): string | null {
   return useContext(Artifacts).chatId;
 }
 
-// What each Chat had when it was last shown (its comments, its saved designs, which unmarked design ids are HTML pages),
-// so a Chat shown again has them at once while they are read again; the most recently shown Chats, a bounded few.
 type HostComments = { comments: ArtifactComment[]; resolutions: Map<string, string> };
 const NO_COMMENTS: HostComments = { comments: [], resolutions: new Map() };
 const KEPT_CHATS = 64;
 const lastComments = new Map<string, HostComments>();
-/** A Chat's saved designs as last read (see ArtifactsProvider). */
 type SavedDesigns = {
   chatId: string | null;
   refs: ArtifactRef[];
   htmlAliases?: string[];
-  /** The replies' designs when `refs` was read: a design they showed then and `refs` lacks was deleted. */
   revisionKey?: string;
-  /** Designs deleted here, hidden before the catalog is read again. */
   deleted?: string[];
 };
 const NO_SAVED_DESIGNS: SavedDesigns = { chatId: null, refs: [] };
 const lastSavedDesigns = new Map<string, SavedDesigns>();
 const hostCommentsOf = (chatId: string | null) => (chatId ? lastComments.get(chatId) : undefined) ?? NO_COMMENTS;
-// An unmarked design id's format never changes: it is asked once per Chat and id.
 const htmlAliasOf = new Map<string, boolean>();
 function remember<T>(kept: Map<string, T>, key: string, value: T, limit = KEPT_CHATS) {
   kept.delete(key);
@@ -137,11 +123,6 @@ function remember<T>(kept: Map<string, T>, key: string, value: T, limit = KEPT_C
   }
 }
 
-/**
- * The comments the host kept for the Chat and the agent's notes on the ones it resolved, by comment id, read again
- * when `moved` (designActivity) changes: the agent resolves comments with a tool call, which the transcript shows as a
- * step. `reread` reads them again, once the host has recorded comments just sent.
- */
 function useHostComments(chatId: string | null, moved: number) {
   const [state, setState] = useState<HostComments & { chatId: string | null }>(() => ({ chatId, ...hostCommentsOf(chatId) }));
   const [reads, setReads] = useState(0);
@@ -155,19 +136,16 @@ function useHostComments(chatId: string | null, moved: number) {
         remember(lastComments, chatId, read);
         if (live) setState({ chatId, ...read });
       })
-      // A host from before comments were kept has none to resolve.
       .catch(() => {});
     return () => {
       live = false;
     };
   }, [chatId, moved, reads]);
   const reread = useCallback(() => setReads((count) => count + 1), []);
-  // Another Chat's comments never show: until its read answers, the ones it had when it was last shown.
   const shown = state.chatId === chatId ? state : hostCommentsOf(chatId);
   return { comments: shown.comments, resolutions: shown.resolutions, reread };
 }
 
-/** The newest version of each design among a Chat's steps, in the order they were first shown. */
 function latestArtifacts(steps: ChatStep[]): Map<string, ArtifactRef> {
   const latest = new Map<string, ArtifactRef>();
   for (const step of steps)
@@ -176,16 +154,10 @@ function latestArtifacts(steps: ChatStep[]): Map<string, ArtifactRef> {
   return latest;
 }
 
-/**
- * A design at the screen size it was made for, scaled to fit its box whole and centered: a laptop screen fills the
- * card's width, a phone screen its height. A host from before screen sizes sends none; it gets the default.
- */
-/** The theme's pin colours (waiting, resolved, label), read again when the theme changes: the page draws them itself. */
 function usePinColors() {
   const read = () => {
     const style = getComputedStyle(document.documentElement);
     return {
-      // A number on a coloured fill sits on the -ink fill, so it reaches 4.5:1.
       accent: style.getPropertyValue("--accent-ink").trim(),
       green: style.getPropertyValue("--green-ink").trim(),
       onAccent: style.getPropertyValue("--on-accent").trim(),
@@ -214,14 +186,10 @@ function ScaledPreview({
   html: string;
   title: string;
   format?: "design" | "html";
-  /** An interactive design, run under its own policy. */
   code?: boolean;
-  /** An Artifact page's files, which its preview loads. */
   files?: PageFiles;
   width?: number;
   height?: number;
-  /** A comment's spot on the design, as fractions of its screen, marked over the preview. On an Artifact page the
-   * page draws it, at its anchor, scrolled into view. */
   pin?: { x: number; y: number; label: string; resolved?: boolean; anchor?: string };
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -234,8 +202,6 @@ function ScaledPreview({
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  // A design runs only once its preview scrolls near the view: a long Chat's earlier designs don't all run at once.
-  // Seen once, it stays.
   const [seen, setSeen] = useState(false);
   useEffect(() => {
     const element = box.current;
@@ -287,7 +253,6 @@ function ScaledPreview({
           {pin && format !== "html" && (
             <span
               aria-hidden
-              // The canvas's pin shape: its point, the top-left corner, on the spot.
               className={`absolute grid size-5 place-items-center rounded-full rounded-tl-none text-10 font-semibold shadow-pin ${pin.resolved ? "bg-green-ink text-on-green" : "bg-accent-ink text-on-accent"}`}
               style={{
                 left: `${pin.x * 100}%`,
@@ -305,7 +270,6 @@ function ScaledPreview({
   );
 }
 
-/** A design the agent showed: its first screen, and a button that opens it on the canvas beside the chat. */
 const ArtifactCard = memo(function ArtifactCard({ step }: { step: ChatStep & { artifact: ArtifactRef } }) {
   const { chatId, latest, open, enabled } = useContext(Artifacts);
   const { id, version, title } = step.artifact;
@@ -350,10 +314,6 @@ const ArtifactCard = memo(function ArtifactCard({ step }: { step: ChatStep & { a
   );
 });
 
-/**
- * Feedback the user sent from the canvas, shown as what it was instead of the text the agent reads: the design they
- * chose, and each comment beside the spot it was pinned on. A pinned comment opens the canvas on it.
- */
 export function DesignFeedbackCard({
   feedback,
   messageId,
@@ -390,7 +350,6 @@ export function DesignFeedbackCard({
             key={feedback.comments.indexOf(comment)}
             comment={comment}
             number={feedback.comments.indexOf(comment) + 1}
-            // A pinned comment opens on the canvas, where it was left; one without a spot has nowhere to go.
             onOpen={chatId && comment.x !== undefined ? () => openComment(`${messageId}:${feedback.comments.indexOf(comment)}`) : undefined}
           />
         ))}
@@ -467,7 +426,6 @@ function FeedbackComment({ comment, number, onOpen }: { comment: DesignComment; 
   );
 }
 
-/** The designs one reply showed: a card for one, a strip of thumbnails for several. */
 export function ArtifactCards({ steps }: { steps: (ChatStep & { artifact: ArtifactRef })[] }) {
   const { chatId, openAll, enabled, latest } = useContext(Artifacts);
   const inline = steps.filter((step) => step.artifact.inline);
@@ -548,10 +506,6 @@ function GroupThumb({ design }: { design: ArtifactRef }) {
   );
 }
 
-/**
- * Feedback on a Chat's designs not sent yet: closing the Designs keeps it, as the comments pinned and the design
- * chosen, until it is sent or deleted. In memory, for the window's life.
- */
 const unsent = new Map<string, { pins: DesignPin[]; choice: ArtifactRef | null }>();
 
 type Opened = {
@@ -559,14 +513,9 @@ type Opened = {
   chatId: string | null;
   focus: { id: string | null; nonce: number };
   versions: Record<string, number | null>;
-  /** A sent comment to open on the canvas. */
   comment?: string;
 };
 
-/**
- * The designs of one Chat: cards in its replies and the canvas docked beside it. `userMessages` are the Chat's user
- * messages, where the last design the user chose and the comments already sent are read back; `onSend` sends feedback.
- */
 export function ArtifactsProvider({
   chatId,
   steps,
@@ -581,29 +530,21 @@ export function ArtifactsProvider({
   steps: ChatStep[];
   userMessages: { id: number | string; body: string }[];
   onSend?: (text: string) => Promise<boolean>;
-  /** The Chat's agent, by name, for its cursor on the canvas. */
   agent?: string;
-  /** The Chat this window shows (not a grid tile): its Designs open each time the agent starts designing. */
   followAgent?: boolean;
-  /** The Chat's subagents, in the Subagents view's order: their cursors carry the names and colours it gives them. */
   subagents?: readonly Subagent[];
   children: React.ReactNode;
 }) {
   const { enabled } = useDesignsEnabled(chatId);
-  // The agent's design drafts, while its replies are on screen: the canvas shows them being written.
   useLiveDesignFeed(enabled ? chatId : null, agent, subagents);
-  // Before the Chat has a design, the canvas opens for the one the agent is writing.
   const designing = useDesignWorkActive(enabled ? chatId : null);
   const fromSteps = useMemo(() => latestArtifacts(steps), [steps]);
-  // The catalog is read again when the replies show a new version, or the agent deleted a design.
   const deletes = steps.filter((step) => step.status === "done" && /\bdesign_delete\b/.test(step.title)).length;
   const revisionKey = `${[...fromSteps.values()].map((design) => `${design.id}:${design.version}`).join("|")}#${deletes}`;
   const [savedDesigns, setSavedDesigns] = useState<SavedDesigns>(() => (chatId ? lastSavedDesigns.get(chatId) : undefined) ?? NO_SAVED_DESIGNS);
-  // The catalog this Chat had when it was last shown stands in until its read answers (the read still goes out).
   useEffect(() => {
     if (savedDesigns.chatId) remember(lastSavedDesigns, savedDesigns.chatId, savedDesigns);
   }, [savedDesigns]);
-  // Read the catalog on open and when agent versions change.
   useEffect(() => {
     if (!chatId || !window.milagre) return;
     const list = bridgeForKey(chatId).artifacts?.list;
@@ -611,8 +552,6 @@ export function ArtifactsProvider({
     let live = true;
     list({ chatId })
       .then(async (refs) => {
-        // An unmarked historical id may be a retired HTML page or a structured design
-        // omitted while Designs is off. Ask the host instead of guessing its format.
         const known = new Set(refs.map((ref) => ref.id));
         const unknown = [...fromSteps.values()].filter((ref) => !ref.format && !known.has(ref.id));
         const aliases = await Promise.all(
@@ -658,12 +597,10 @@ export function ArtifactsProvider({
       window.removeEventListener(DESIGN_DELETED, deleted);
     };
   }, [chatId, enabled]);
-  // Another Chat's catalog never shows: until this one's read answers, the one it had when it was last shown.
   const shownDesigns = savedDesigns.chatId === chatId ? savedDesigns : ((chatId ? lastSavedDesigns.get(chatId) : undefined) ?? NO_SAVED_DESIGNS);
   const latest = useMemo(() => {
     const saved = shownDesigns.chatId === chatId ? shownDesigns : null;
     const deleted = new Set(saved?.deleted);
-    // Read for the replies as they are now, the catalog has every design they showed that wasn't deleted.
     const current = saved?.revisionKey === revisionKey ? new Set(saved.refs.map((ref) => ref.id)) : null;
     const refs = new Map(
       [...fromSteps].filter(([id, ref]) => ref.format === "html" || (ref.format === "design" && enabled && !deleted.has(id) && (!current || current.has(id)))),
@@ -671,8 +608,6 @@ export function ArtifactsProvider({
     for (const ref of saved?.refs ?? []) {
       if ((ref.format !== "design" || enabled) && (refs.get(ref.id)?.version ?? 0) <= ref.version) refs.set(ref.id, ref);
     }
-    // Unmarked historical refs are resolved only after the saved catalog has answered.
-    // A previous HTML id still opens the Chat's current artifact page.
     const catalog = saved?.refs ?? [];
     const currentHtml = catalog.find((ref) => ref.format === "html");
     const aliases = new Set(saved?.htmlAliases ?? []);
@@ -693,7 +628,6 @@ export function ArtifactsProvider({
   );
   const { resolutions, comments: hostComments, reread } = useHostComments(chatId, moved);
   const anchors = useMemo(() => new Map(hostComments.flatMap((comment) => (comment.anchor ? [[comment.id, comment.anchor] as const] : []))), [hostComments]);
-  // Comments already sent stay on the canvas, where the user left them, resolved once the agent has addressed them.
   const sent = useMemo<DesignPin[]>(
     () =>
       userMessages.flatMap((message) =>
@@ -716,13 +650,11 @@ export function ArtifactsProvider({
       ),
     [userMessages, resolutions],
   );
-  // What is open belongs to the Chat it opened in: switching Chats closes it.
   const [openedIn, setOpenedIn] = useState<Opened | null>(null);
   const opened = openedIn?.chatId === chatId && (enabled || openedIn.kind === "artifacts") ? openedIn : null;
   useEffect(() => {
     if (!enabled) setOpenedIn((current) => (current?.kind === "designs" ? null : current));
   }, [enabled]);
-  // A card opens the version it shows; when that is the newest, its frame follows the agent's next revisions.
   const value = useMemo<ArtifactsValue>(
     () => ({
       enabled: true,
@@ -770,11 +702,9 @@ export function ArtifactsProvider({
   );
   const designRefs = [...latest.values()].filter((ref) => ref.format === "design");
   const artifactRefs = [...latest.values()].filter((ref) => ref.format === "html");
-  // Deleting the last design leaves nothing to show, unless the agent is writing one.
   useEffect(() => {
     if (opened?.kind === "designs" && !designRefs.length && !designing) setOpenedIn(null);
   }, [opened?.kind, designRefs.length, designing]);
-  // The saved catalog owns the one current HTML page; older transcript refs still open it.
   const currentHtml = (shownDesigns.chatId === chatId ? shownDesigns.refs : []).find((ref) => ref.format === "html") ?? artifactRefs.at(-1);
   const togglePanel = (kind: "designs" | "artifacts") => {
     if (document.querySelector("[data-slot=design-editor]")) return;
@@ -797,10 +727,7 @@ export function ArtifactsProvider({
       ),
     [],
   );
-  // The canvas belongs to the chat: while something else takes the chat's place, it steps aside and comes back with it.
   const [anchor, chatShown] = useShown();
-  // Each time the agent starts designing, the Designs open beside the Chat this window shows, even after the user
-  // closed them, so they watch it build. Not over the design editor, and the composer keeps the focus.
   const shownRef = useRef(chatShown);
   shownRef.current = chatShown;
   useDesignWorkStarted(followAgent && enabled ? chatId : null, () => {
@@ -819,7 +746,6 @@ export function ArtifactsProvider({
   const closeDesigns = useCallback(() => {
     if (!document.querySelector("[data-slot=design-editor]")) setOpenedIn(null);
   }, []);
-  // Its width plus the 12px gap to the chat. The chat panes reserve it through --artifact-dock.
   const dockWidth = usePanelWidth(opened?.kind ?? "designs").width;
   useSidePanelRoom(opened?.kind ?? "designs", !!opened && !!chatId && chatShown, dockWidth + 12, closeDesigns);
   return (
@@ -877,9 +803,7 @@ function ArtifactDock({
   onVersion: (id: string, version: number | null) => void;
   chosen: { id: string; version: number } | null;
   sent: DesignPin[];
-  /** The comments the host kept for the Chat: an Artifact page shows the ones sent on what it shows now. */
   hostComments: ArtifactComment[];
-  /** The host recorded comments just sent: read them again. */
   onCommentsAdded: () => void;
   openComment?: string;
   openNonce: number;
@@ -894,11 +818,8 @@ function ArtifactDock({
   const label = kind === "artifacts" ? "Artifacts" : "Designs";
   const area = useDockArea();
   const reduced = useReducedMotion();
-  // Image previews prepare while the panel slides in; full live frames wait until its motion finishes.
   const [entered, setEntered] = useState(!!reduced);
-  // Dragged wider than the window now leaves room for, it narrows to keep the chat usable, down to its default width;
   // with no room for that (or for the narrower width it was dragged to) beside the chat and a docked simulator, it
-  // fills the workspace instead.
   const resize = usePanelWidth(kind);
   const fits = area ? Math.min(resize.width, area.width - area.simulator - area.browser - 12 - MIN_CHAT_WIDTH) : resize.width;
   const cramped = !!area && fits < Math.min(resize.width, resize.reset);
@@ -908,16 +829,12 @@ function ArtifactDock({
   const pageView = useRef<PageHandle>(null);
   const [view, setView] = useState<CanvasView | null>(null);
   const [pageScale, setPageScale] = useState<number | null>(null);
-  // The tab of the Artifact page shown, chosen in the title's menu.
   const [pageTab, setPageTab] = useState<string | null>(null);
   const [commenting, setCommenting] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
-  // Feedback waits here until Send: comments pinned on designs or on the page, and the design the user chose. Closed
-  // meanwhile, the dock opens again with it (an empty comment was never written).
   const unsentKey = kind === "designs" ? chatId : `${chatId}#artifacts`;
   const [kept] = useState(() => unsent.get(unsentKey));
   const [pins, setPins] = useState<DesignPin[]>(() => kept?.pins.filter((pin) => pin.text.trim()) ?? []);
-  // On the Artifact page, a sent comment opened from the chat is the host's comment of that id.
   const pinFor = useCallback(
     (key: string | null | undefined) => {
       if (!key || kind !== "artifacts") return key ?? null;
@@ -931,7 +848,6 @@ function ArtifactDock({
     const key = pinFor(openComment);
     return key ? { key, nonce: openNonce } : null;
   });
-  // A sent comment opened from the chat opens its bubble, also when the canvas is open already.
   useEffect(() => {
     if (!openComment) return;
     const key = pinFor(openComment);
@@ -945,7 +861,6 @@ function ArtifactDock({
     if (pins.length || choice) unsent.set(unsentKey, { pins, choice });
     else unsent.delete(unsentKey);
   }, [unsentKey, pins, choice]);
-  // Kept feedback on an earlier version opens that version, where its pins and choice show, unless a version was asked for.
   useEffect(() => {
     if (!kept || kind !== "designs") return;
     for (const item of [...(kept.choice ? [kept.choice] : []), ...kept.pins.filter((pin) => pin.text.trim()).map((pin) => pin.design)]) {
@@ -954,7 +869,6 @@ function ArtifactDock({
     }
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- once, as the Designs open with the kept feedback.
   }, []);
-  // Feedback on a design deleted meanwhile has nothing left to send to.
   const designIds = designs.map((design) => design.id).join("|");
   useEffect(() => {
     if (kind !== "designs") return;
@@ -963,7 +877,6 @@ function ArtifactDock({
     setChoice((current) => (current && !ids.has(current.id) ? null : current));
   }, [kind, designIds]);
   const [error, setError] = useState("");
-  // Escape leaves comment mode first, then closes the canvas.
   const escape = useCallback(() => {
     if (document.querySelector("[data-slot=design-editor], [data-slot=design-page-share]")) return;
     if (commenting) setCommenting(false);
@@ -977,7 +890,6 @@ function ArtifactDock({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [escape]);
-  // C turns comment mode on and off, as the comment button does.
   const toggleComment = useCallback(() => setCommenting((value) => !value), []);
   useCommentKey(!!onSend, toggleComment);
   const written = pins.filter((pin) => pin.text.trim());
@@ -987,8 +899,6 @@ function ArtifactDock({
     setSending(true);
     setError("");
     try {
-      // Each pin's key is its comment's id, which the agent resolves it by. The host records the comments once the
-      // message went, so a send that fails records none.
       const comments: DesignComment[] = written.map(({ key, design, x, y, text, nodeId, anchor, near, tab }) => ({
         id: key,
         design,
@@ -1009,8 +919,6 @@ function ArtifactDock({
         setOpenPin(null);
         setChoice(null);
         setCommenting(false);
-        // The chat comes back into view to follow the reply: the canvas steps back beside it, or closes when the
-        // window is too narrow for both.
         if (cramped) onClose();
         else setExpanded(false);
       } else setError("The feedback didn't send. Try again.");
@@ -1025,7 +933,6 @@ function ArtifactDock({
     open: openPin,
     onPin: (design, x, y, nodeId, onPage) => {
       const key = newCommentId();
-      // A new pin closes the open bubble, dropping it if it was left empty.
       setPins((current) => [
         ...current.filter((pin) => pin.key !== openPin || pin.text.trim()),
         {
@@ -1055,9 +962,6 @@ function ArtifactDock({
     const byId = sentNumbers(hostComments);
     return new Map([...byId].map(([id, number]) => [`sent:${id}`, number] as const));
   }, [hostComments]);
-  // ⌘Enter sends the comments and the choice waiting, as Send does: anywhere in the dock, and anywhere else while
-  // feedback waits, unless the focus is in another dock or in a field with text of its own (a draft in the composer
-  // keeps the key). A design or artifact with the focus keeps its keys, so it forwards the press.
   const sendFromDock = useEffectEvent(() => void send());
   const waiting = useEffectEvent(() => feedback > 0);
   useEffect(() => {
@@ -1091,8 +995,6 @@ function ArtifactDock({
   const commentLabel = commenting ? "Stop commenting" : kind === "artifacts" ? "Comment on the page" : "Comment on a design";
   return createPortal(
     <ResizableDockSlide
-      // Opens like the git changes panel. Beside the chat, the chat makes room (--artifact-dock); filling the
-      // workspace, the canvas covers it and reserves nothing. A drag on its edge doesn't render the canvas again.
       panel={kind}
       label={`Resize ${label}`}
       width={full ? null : dockWidth}
@@ -1124,9 +1026,7 @@ function ArtifactDock({
       <header className="flex shrink-0 items-center gap-1 border-b border-line px-3 py-2">
         <Icon icon={kind === "artifacts" ? File01Icon : PaintBoardIcon} size={14} />
         <div className="ml-1 flex min-w-0 flex-1 items-center gap-2">
-          {/* The page names itself; the Designs keep their name. */}
           {kind === "artifacts" && page?.format === "html" && page.tabs && page.tabs.length > 1 ? (
-            // A page split into tabs: its title opens the menu of its tabs, and names the one shown.
             <Select
               label={`${page.title}, ${artifactTab(page, pageTab).title} tab. Choose a tab`}
               variant="text"
@@ -1162,7 +1062,6 @@ function ArtifactDock({
         {kind === "artifacts" && (
           <CommentOptions shown={showResolved} onChange={setShowResolved}>
             <Tooltip label={`${commentLabel}. Right-click or hold for comment options`} keyHint={COMMENT_KEY}>
-              {/* Comment mode is armed: it changes what a click on the design does, so it's the accent pressed look. */}
               <IconButton
                 label={commentLabel}
                 icon={Comment01Icon}
@@ -1182,7 +1081,6 @@ function ArtifactDock({
             size={24}
             aria-pressed={expanded}
             onClick={() => {
-              // Filling the workspace, the designs take the room of the other side panels: they close.
               if (!expanded) window.dispatchEvent(new Event(DESIGNS_EXPANDED));
               setExpanded(!expanded);
             }}
@@ -1249,7 +1147,6 @@ function ArtifactDock({
             }}
             onView={setView}
           />
-          {/* The Designs canvas's one floating bar: what a click on a design does (View or Comment), then the zoom. */}
           <ZoomBar
             data-slot="artifact-zoom-bar"
             className="absolute bottom-4 left-1/2 -translate-x-1/2"
@@ -1269,7 +1166,6 @@ function ArtifactDock({
                 </Tooltip>
                 <CommentOptions shown={showResolved} onChange={setShowResolved}>
                   <Tooltip label={`${commentLabel}. Right-click or hold for comment options`} keyHint={COMMENT_KEY} asChild>
-                    {/* Comment mode is armed: it changes what a click on a design does, so it's the accent pressed look. */}
                     <button
                       type="button"
                       data-slot="artifact-mode-comment"
@@ -1304,7 +1200,6 @@ function ArtifactDock({
   );
 }
 
-/** The comments the host kept on the Artifact page as it is now, as pins: each sent on this version of it, where it was left. */
 function htmlSentPins(comments: ArtifactComment[], page: { id: string; version: number; title: string } | null): DesignPin[] {
   if (!page) return [];
   return comments.flatMap((comment) =>

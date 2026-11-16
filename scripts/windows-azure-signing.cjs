@@ -1,4 +1,3 @@
-// electron-builder v26 reads Azure CLI authentication established by azure/login in GitHub Actions.
 const { build } = require("../package.json");
 
 module.exports = function windowsAzureSigning(_context, env = process.env) {

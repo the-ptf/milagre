@@ -1,4 +1,3 @@
-// Compatibility entry point. Primitives import their siblings directly.
 export type { Styles } from "./primitives/styles";
 export { useStyles } from "./primitives/styles";
 export { tap } from "./primitives/tap";

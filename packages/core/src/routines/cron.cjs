@@ -1,9 +1,7 @@
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
-// A leap day can be 8 years away (2096 to 2104 skips one), so the search looks that far ahead.
 const SEARCH_YEARS = 8;
-// Fixed cadences that fire at even gaps all day: minutes that divide an hour, hours that divide a day.
 const EVERY_MINUTES = [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30];
 const EVERY_HOURS = [1, 2, 3, 4, 6, 8, 12, 24];
 const MINUTES_RULE = `Every N minutes must divide 60 (${EVERY_MINUTES.join(", ")})`;
@@ -14,7 +12,6 @@ const FIELDS = [
   { name: "hour", min: 0, max: 23 },
   { name: "dayOfMonth", min: 1, max: 31 },
   { name: "month", min: 1, max: 12 },
-  // 7 is Sunday as well; it folds into 0 after parsing.
   { name: "dayOfWeek", min: 0, max: 7 },
 ];
 
@@ -80,8 +77,6 @@ function everyToCron(every) {
   if (!match) throw new Error(`Invalid every: ${JSON.stringify(every)} (use e.g. 15m or 2h)`);
   let amount = Number(match[1]);
   let unit = match[2];
-  // Whole hours given in minutes are hours. Anything else uneven would fire at :00 and again at :59 (59m), or leave
-  // a short gap at midnight (23h).
   if (unit === "m" && amount >= 60 && amount % 60 === 0) {
     amount /= 60;
     unit = "h";
@@ -122,7 +117,6 @@ function wallClock(timeZone) {
       dayOfMonth: fields.day,
       month: fields.month,
       dayOfWeek: new Date(asUtc).getUTCDay(),
-      // The wall clock read as if it were UTC: equal for two instants showing the same time.
       asUtc,
       offset: asUtc - Math.floor(epoch / MINUTE_MS) * MINUTE_MS,
     };
@@ -133,16 +127,12 @@ function dayMatches(cron, wall) {
   if (!cron.month.has(wall.month)) return false;
   const dom = cron.dayOfMonth.has(wall.dayOfMonth);
   const dow = cron.dayOfWeek.has(wall.dayOfWeek);
-  // Like Vixie cron: when both day fields are restricted, either one is enough.
   const domRestricted = cron.dayOfMonth.size < 31;
   const dowRestricted = cron.dayOfWeek.size < 7;
   return domRestricted && dowRestricted ? dom || dow : dom && dow;
 }
 
-// The first instant the zone's clock shows `wallUtc` (a wall-clock time read as if it were UTC), or null when the clock
-// skips it (the spring gap). A time shown twice after clocks go back gives the first of the two.
 function firstInstant(read, wallUtc) {
-  // Within 6 hours either side of a rough guess lie both offsets of any change near that time.
   const guess = wallUtc - read(wallUtc).offset;
   const offsets = new Set([read(guess - 6 * HOUR_MS).offset, read(guess + 6 * HOUR_MS).offset]);
   const instants = [...offsets].map((offset) => wallUtc - offset).sort((a, b) => a - b);
@@ -158,8 +148,6 @@ function nextRun(expr, timeZone, after) {
   const from = read(start);
   const hours = ascending(cron.hour);
   const minutes = ascending(cron.minute);
-  // Walks the calendar day by day (a month at a time through months that can't match) with plain date arithmetic, and
-  // asks the zone only about the times a matching day lists.
   let day = Date.UTC(from.year, from.month - 1, from.dayOfMonth);
   const lastDay = Date.UTC(from.year + SEARCH_YEARS, from.month - 1, from.dayOfMonth);
   while (day <= lastDay) {
@@ -173,10 +161,8 @@ function nextRun(expr, timeZone, after) {
       for (const hour of hours) {
         for (const minute of minutes) {
           const wallUtc = day + hour * HOUR_MS + minute * MINUTE_MS;
-          // A wall time before the start's was shown before it (or skipped), so it can't come next.
           if (wallUtc < from.asUtc) continue;
           const instant = firstInstant(read, wallUtc);
-          // A time first shown before the start doesn't fire again when the clock repeats it.
           if (instant !== null && instant >= start) return instant;
         }
       }

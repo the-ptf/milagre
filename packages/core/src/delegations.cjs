@@ -10,27 +10,11 @@ const { clip } = require("./linked-summary.cjs");
 const { callerMode, raisesMode } = require("./agents/permissions.cjs");
 const { thisComputer } = require("@milagre/shared/host-computer");
 
-// Delegations and Negotiations (docs/links.md). A Delegation is a message from a Chat to another Chat, across a
-// Link or in its own Project, carried out by that Chat's own agent; the reply of the turn that took it comes
-// back as the Delegation report, which the requesting agent also gets with its next turn (`reportsForTurn`). A Negotiation is a run of Delegations between two Chats: the
-// receiving side answers in its report, which starts the requesting side's next move (another round or
-// `conclude_negotiation`), until it concludes, the user stops it, or it reaches NEGOTIATION_ROUNDS.
-//
-// Delivery follows the receiving Chat: a message steers a turn that is working, waits while the Chat waits
-// on the user (that pauses a Negotiation too), and starts a turn when the Chat is idle. A delivered message
-// belongs to the turn the agent took it in, by turn id. A steer can miss the end of its turn, so a steered
-// message's turn is settled a moment after it ends: a turn the agent starts by itself to run it (`continues`)
-// takes it over. Records live in the global store; ones still open when Milagre starts again are cancelled,
-// with a notice, as their turns are gone. The exception is a message waiting in its Chat's queue (a provider that
-// can't steer, see chat-host.cjs): the queue outlives a restart, so its Delegation (and Negotiation) stays open and is
-// followed again when the message starts its turn (`adopt`), or reported cancelled if it is removed (`unqueued`).
-
 const OPEN = new Set(["queued", "running"]);
 const OUTCOMES = { "turn-completed": "done", "turn-cancelled": "cancelled", "turn-failed": "failed" };
 const KEEP = 200;
 const RECENT_TURNS = 10;
 const STEER_GRACE_MS = 1500;
-// How much of each Delegation report the requesting agent gets with its next turn; the whole reply stays in the Chat.
 const REPORT_CHARS = 4000;
 const REMOVED = "it was removed from the Chat's queue before its turn started";
 const ENDINGS = new Set(["done", "cancelled", "failed"]);
@@ -38,8 +22,6 @@ const REMOTE_OFF = "Delegating to another computer is off. Turn it on in Setting
 const HANDLING = "This turn is handling a Delegation, so it can't make one. Finish the request; your final reply goes back as the Delegation report.";
 
 function delegationPrompt(delegation) {
-  // The label starts with the sender's Project name; say it only when the sender is in another Project.
-  // A Delegation from another computer (`hosted`) names that computer instead.
   const source = delegation.hosted
     ? `another Chat, on the computer ${delegation.from_computer} (not the user)`
     : projectOfKey(delegation.from_chat) !== projectOfKey(delegation.to_chat)
@@ -68,7 +50,6 @@ function reportBody(outcome, reply) {
   return reply ? `${reply}\n\nThe turn that handled this Delegation ${ended}.` : `The turn that handled this Delegation ${ended}.`;
 }
 
-/** The global store's Delegations, Negotiations and "always allow" grants, as one JSON file written atomically. */
 function jsonFileStore(file) {
   let queue = Promise.resolve();
   let counter = 0;
@@ -98,7 +79,6 @@ function jsonFileStore(file) {
         });
       return queue;
     },
-    /** Resolves once every save requested so far is on disk; a quit waits on it before the next start can load. */
     idle() {
       return queue.catch(() => {});
     },
@@ -106,43 +86,12 @@ function jsonFileStore(file) {
 }
 
 class Delegations {
-  /**
-   * Ports, all supplied by the runtime:
-   *   target(fromChat, worktreePath) -> { link_id, link_ids, projectPath, projectName, branch } | null, when the Chat can see that
-   *     Worktree; link_ids are every Link that reaches it, link_id the one it routes along, and both empty (null, [])
-   *     for a Worktree of the Chat's own Project, which needs no Link
-   *   chat(chatKey) -> { label, worktreePath, archived } | null; openChat(projectPath, worktreePath) -> a new Chat's key
-   *   adoptSubchat(toChat, fromChat) -> nests a Chat of the requester's own Project under it (ChatHost.adoptSubchat)
-   *   detachSubchat(chat, parent?) -> undoes it, only from `parent` when given; resolves whether it did (ChatHost.detachSubchat)
-   *   status(chatKey) -> "idle" | "working" | "waiting"
-   *   pendingResults(chatKey) -> whether advisor results still need a turn, including saved queued results
-   *   deliver(chatKey, { body, prompt, context }) -> { started }, once the message is saved; `started` resolves with
-   *     { turnId, steered, cancelled? } (turnId null when no turn started), or null
-   *   reply(chatKey, delegationId) -> what the Chat replied after that Delegation's message
-   *   note(chatKey, { body, context }) posts a line that starts no turn
-   *   permissionMode(chatKey); approve(chatKey, request) -> "allow" | "allow-for-chat" | "deny" | "cancelled"
-   *   deliveryMode(chatKey, fromChat) -> the permission mode a message delivered to that Chat would run in
-   *   changed(snapshot) tells the windows
-   * and, for Delegations between computers (spec 2026-10-23), both optional:
-   *   remote: the paired computers, on the Mac whose Chat delegates: enabled() (the Experimental switch), list() and
-   *     computer(name or id) -> { id, name, online }, invoke(computerId, method, args) -> that computer's daemon answer,
-   *     thisMac() -> this Mac's name
-   *   hostTarget(worktreePath) -> { projectPath, projectName, branch } | null, on the Mac that runs the turn: an active
-   *     Worktree of any of its Projects; remoteReport({ id, status, report, chat }) tells the computers listening;
-   *     hostProject(projectPath) -> { projectPath, projectName } | null and newWorktree(projectPath, prompt) ->
-   *     { path, branch }, for a Delegation that starts in a new Worktree
-   */
   constructor({ store, ports, id = randomUUID, now = () => new Date() }) {
     Object.assign(this, { store, ports, id, now });
     this.data = { delegations: [], negotiations: [], grants: [] };
-    // Items waiting for their Chat to stop waiting on the user. One array per Chat, only ever edited in place.
     this.queues = new Map();
-    // Items delivered to a Chat, until the turn that took them ends: { item, turnId, steered }. turnId is
-    // undefined until the turn starts, and null for "the next turn". One array per Chat, edited in place.
     this.delivered = new Map();
-    // Steered items whose turn just ended, for STEER_GRACE_MS: { entry, from, outcome, timer }.
     this.settling = new Map();
-    // Reports wait for all background work, including commands, and for the reply that consumes its result.
     this.activity = createActivityTracker({ holdsTask: () => true });
     this.background = new Map();
     this.backgroundTimers = new Map();
@@ -153,9 +102,6 @@ class Delegations {
     this.endedTurns = new Map();
     this.pumping = new Set();
     this.ready = store.load().then((data) => {
-      // `waiting`: its message still waits in the receiving Chat's queue, which a restart keeps. One another computer
-      // took (`remote` with its Chat) still runs there: its report is collected once that computer answers (`catchUp`). So
-      // may one whose answer was lost (`unconfirmed`).
       const delegations = data.delegations.filter((item) => OPEN.has(item.status) && !item.waiting && !(item.remote && (item.to_chat || item.unconfirmed)));
       const negotiations = data.negotiations.filter((item) => item.status === "running" && !item.waiting);
       for (const delegation of delegations) delegation.status = "cancelled";
@@ -188,7 +134,6 @@ class Delegations {
     };
   }
 
-  /** Lines for the linked summary: open work between the two Worktrees. */
   openBetween(worktreeA, worktreeB) {
     const between = (a, b) => (a === worktreeA && b === worktreeB) || (a === worktreeB && b === worktreeA);
     return [
@@ -202,7 +147,6 @@ class Delegations {
   }
 
   persist() {
-    // Closed records beyond the latest KEEP are dropped; open ones always stay.
     const trim = (items, open) => items.filter((item, index) => open(item) || index >= items.length - KEEP);
     this.data.delegations = trim(this.data.delegations, (item) => OPEN.has(item.status));
     this.data.negotiations = trim(this.data.negotiations, (item) => item.status === "running");
@@ -210,19 +154,12 @@ class Delegations {
     return this.store.save(this.data).catch((error) => console.warn("Milagre couldn't save Delegations:", error.message));
   }
 
-  /**
-   * Resolves once pending saves are on disk. A `delegate` call records that its message waits in the receiving Chat's
-   * queue only after that Chat saved the message, so a quit in between must wait here, or the next start loads the
-   * record without the flag and reports the Delegation cancelled.
-   */
   idle() {
     return this.store.idle?.() ?? Promise.resolve();
   }
 
-  /** The `delegate` tool. Resolves to what the requesting agent is told; refusals throw. */
   async delegate(fromChat, { worktree, chat, message, negotiation = false, computer, newWorktree = false }) {
     await this.ready;
-    // A Worktree or Chat ref another computer's (`${computerId}|…`) names that computer, as `computer` does.
     const named = [worktree, chat].map(computerOfKey).find((id) => id !== LOCAL_COMPUTER);
     if (computer || named) return this.delegateRemote(fromChat, { computer: computer || named, worktree, chat, message, negotiation, newWorktree });
     if (newWorktree) throw new Error("newWorktree is for another computer. On this one, make the Worktree with worktree_create, then delegate to it.");
@@ -246,9 +183,6 @@ class Delegations {
       );
     const toLabel = chat === "new" ? `${target.projectName} / ${target.branch} / a new Chat` : await this.chatLabel(chat, worktree);
     const from = await this.ports.chat(fromChat);
-    // A Link reaches another Project's Chats, so the user approves it in Ask mode. The Chat's own Project needs no card:
-    // its agent can already start Chats there (chat_start). Either way, a Chat that would run the message in more than
-    // the caller's mode asks first, every time (a new Chat takes the caller's mode).
     const linkIds = target.link_id ? [target.link_id, ...(target.link_ids ?? []).filter((id) => id !== target.link_id)] : [];
     const raised = chat === "new" ? null : this.raisedMode(fromChat, chat);
     const card = { target: toLabel, message, negotiation };
@@ -257,7 +191,6 @@ class Delegations {
     if (decision === "cancelled") throw new Error("The approval card closed before the user answered, so nothing was sent.");
     const toChat = chat === "new" ? await this.ports.openChat(target.projectPath, worktree) : chat;
     if (toChat === fromChat) throw new Error('A Chat can\'t delegate to itself. Pick another Chat, or "new".');
-    // Inside one Project the receiving Chat becomes the requester's subchat; across a Link it stays a Chat of its own.
     if (!target.link_id) await this.ports.adoptSubchat?.(toChat, fromChat).catch((error) => console.warn("Milagre couldn't nest a subchat:", error.message));
     const record = negotiation
       ? {
@@ -290,7 +223,6 @@ class Delegations {
       : `Delegation sent to ${toLabel} (Chat ${toChat}). Its agent carries it out; the Delegation report appears in this Chat when it finishes, so don't wait for it.`;
   }
 
-  /** The label of an existing Chat a Delegation can go to, in `worktree`; refusals throw. */
   async chatLabel(chat, worktree) {
     const info = await this.ports.chat(chat);
     if (!info || info.worktreePath !== worktree) throw new Error('That Chat isn\'t in the Worktree you named. Pick a Chat ref from linked_overview, or "new".');
@@ -299,11 +231,6 @@ class Delegations {
     return info.label;
   }
 
-  /**
-   * A Delegation to a Worktree on another paired computer (spec 2026-10-23). That computer's daemon runs the turn in its
-   * own Chat, so it stays the only writer of its Projects (docs/host.md); this Mac keeps the record, and the report comes
-   * back through that computer (`remoteFinished`). Nothing queues here: a computer that is away fails the call at once.
-   */
   async delegateRemote(fromChat, { computer, worktree, chat, message, negotiation, newWorktree = false }) {
     const remote = this.ports.remote;
     if (!remote?.enabled()) throw new Error(REMOTE_OFF);
@@ -318,13 +245,11 @@ class Delegations {
           : "No other computer is reachable. Pair one and turn on Drive other computers in Settings > Phone & sharing.",
       );
     if (!target.online) throw new Error(`${target.name} is offline, so nothing was sent. Try again once it is back.`);
-    // Refs come back from that computer bare and reach this Chat qualified (to_chat); either form names the same place.
     const bare = (value) => {
       const owner = computerOfKey(value);
       if (owner !== LOCAL_COMPUTER && owner !== target.id) throw new Error(`That ref belongs to another computer than ${target.name}.`);
       return unqualifyKey(value);
     };
-    // Only sent when set, so a computer on an older version, which doesn't know it, still takes the rest.
     const place = { worktree: bare(worktree), chat: chat === "new" ? "new" : bare(chat), ...(newWorktree ? { newWorktree: true } : {}) };
     const mode = callerMode(this.ports.permissionMode(fromChat));
     const from = await this.ports.chat(fromChat);
@@ -336,8 +261,6 @@ class Delegations {
     }
     const toLabel = `${prepared.label} on ${target.name}`;
     const card = { target: toLabel, message, negotiation: false, computer: target.name };
-    // Follows the Chat's own mode, as a Delegation in its own Project does: a card only when that Chat would run the
-    // message in more than this Chat's mode (`raisedMode`).
     const decision = prepared.raisedMode ? await this.raiseApproval(fromChat, prepared.raisedMode, card) : "allow";
     if (decision === "deny") throw new Error("The user denied this Delegation. Don't send it again unless they ask.");
     if (decision === "cancelled") throw new Error("The approval card closed before the user answered, so nothing was sent.");
@@ -348,7 +271,6 @@ class Delegations {
       from_worktree: from.worktreePath,
       to_chat: null,
       to_label: toLabel,
-      // A new Worktree's path is learned from that computer's answer.
       to_worktree: newWorktree ? null : qualifyKey(target.id, place.worktree),
       message,
       remote: { computerId: target.id, computerName: target.name },
@@ -360,7 +282,6 @@ class Delegations {
         { id: delegation.id, ...place, message, mode, from: { label: from.label, computer: remote.thisMac() } },
       ]);
     } catch (error) {
-      // The answer can be lost after that computer took it (a dropped link, a timeout): ask it once whether it did.
       const known = await remote
         .invoke(target.id, "delegation:reports", [{ ids: [delegation.id] }])
         .then((reports) => (Array.isArray(reports) ? reports.find((item) => item?.id === delegation.id) : null))
@@ -371,7 +292,6 @@ class Delegations {
         throw new Error(`Couldn't send the Delegation to ${target.name}: ${error.message}`, { cause: error });
       }
       if (!known) {
-        // No answer either way: the record stays open, and `catchUp` learns its fate once that computer answers again.
         delegation.unconfirmed = true;
         await this.persist();
         return `${target.name} didn't confirm it got this Delegation (${error.message}), so it may be running there or not at all. Don't send it again: this Chat gets its Delegation report if it ran, or a notice that it never arrived, once ${target.name} answers again.`;
@@ -387,16 +307,11 @@ class Delegations {
       delegation.to_worktree = qualifyKey(target.id, received.worktree);
       if (typeof received.label === "string" && received.label) delegation.to_label = `${received.label} on ${target.name}`;
     }
-    // Its report may already be here (a turn that ended at once): it settled the record, which stays settled.
     if (delegation.status === "queued") delegation.status = "running";
     await this.persist();
     return `Delegation sent to ${toLabel} (Chat ${delegation.to_chat}). Its agent carries it out on ${target.name}, and this Chat shows its turn while it runs; the Delegation report appears here when it finishes, so don't wait for it.`;
   }
 
-  /**
-   * A Delegation report from the computer that ran it, as an event or collected by `catchUp`. The first one settles the
-   * record; later copies are ignored. That computer is then told it was collected. Resolves whether it settled one.
-   */
   async remoteFinished(computerId, { id, status, report, chat } = {}) {
     await this.ready;
     const delegation = this.data.delegations.find((item) => item.id === id && item.remote?.computerId === computerId);
@@ -415,10 +330,8 @@ class Delegations {
     return true;
   }
 
-  /** A paired computer is back: the reports of its Delegations that finished while it was away come in now. */
   async catchUp(computerId) {
     await this.ready;
-    // `unconfirmed`: sent, but that computer's answer was lost, so whether it took it is learned here.
     const open = this.data.delegations.filter((item) => item.remote?.computerId === computerId && (item.to_chat || item.unconfirmed) && OPEN.has(item.status));
     if (!open.length || !this.ports.remote) return;
     const reports = await this.ports.remote.invoke(computerId, "delegation:reports", [{ ids: open.map((item) => item.id) }]);
@@ -435,7 +348,6 @@ class Delegations {
         });
       } else if (ENDINGS.has(report.status)) await this.remoteFinished(computerId, report);
       else if (delegation.unconfirmed && OPEN.has(delegation.status) && typeof report.chat === "string") {
-        // It did take it: this Chat follows its turn from now on.
         delete delegation.unconfirmed;
         delegation.to_chat = qualifyKey(computerId, report.chat);
         delegation.status = "running";
@@ -444,10 +356,6 @@ class Delegations {
     }
   }
 
-  /**
-   * A paired computer was removed from this Mac: its open Delegations can't report back any more, so each is cancelled
-   * here, with a notice in the Chat that asked. The turn may still run on that computer.
-   */
   async computerRemoved(computerId) {
     await this.ready;
     const open = this.data.delegations.filter((item) => item.remote?.computerId === computerId && OPEN.has(item.status));
@@ -469,10 +377,6 @@ class Delegations {
     for (const result of results) if (result.status === "rejected") console.warn("Milagre couldn't post a Delegation notice:", result.reason?.message);
   }
 
-  /**
-   * On the computer that runs it: where a Delegation from another computer would go, without sending it. `label` names
-   * the Chat as the asking Mac shows it; `raisedMode` is the Chat's mode when it is more than the caller's `mode`.
-   */
   async prepareHosted({ worktree, chat, mode, newWorktree = false } = {}) {
     await this.ready;
     if (typeof worktree !== "string" || typeof chat !== "string") throw new Error("Name a Worktree and a Chat.");
@@ -490,11 +394,6 @@ class Delegations {
     return { label, raisedMode: raisesMode(own, mode) ? own : null, target };
   }
 
-  /**
-   * On the computer that runs it: a Delegation another computer sent (`id` is that computer's record). Its Chat's own
-   * agent carries it out as any Delegation; the report goes back with `remoteReport` and waits for `collectedHosted`.
-   * The same id again starts nothing more.
-   */
   async receiveHosted({ id, worktree, chat, message, mode, from, newWorktree = false } = {}) {
     await this.ready;
     if (typeof id !== "string" || !id || typeof message !== "string" || !message.trim()) throw new Error("A Delegation needs an id and a message.");
@@ -502,7 +401,6 @@ class Delegations {
     if (existing) return { chat: existing.to_chat, label: existing.to_label, worktree: existing.to_worktree };
     let { label, target } = await this.prepareHosted({ worktree, chat, mode, newWorktree });
     if (target.newWorktree) {
-      // Made before anything is recorded: a failed creation fails the call, and the asking computer says so.
       const made = await this.ports.newWorktree(target.projectPath, message);
       worktree = made.path;
       label = `${target.projectName} / ${made.branch} / a new Chat`;
@@ -527,7 +425,6 @@ class Delegations {
     return { chat: toChat, label, worktree };
   }
 
-  /** On the computer that ran them: where the asking computer's Delegations are; "unknown" for an id it never took. */
   async hostedReports({ ids } = {}) {
     await this.ready;
     return (Array.isArray(ids) ? ids : []).slice(0, KEEP).map((id) => {
@@ -537,7 +434,6 @@ class Delegations {
     });
   }
 
-  /** The asking computer has these reports: they need not be kept for it any more. */
   async collectedHosted({ ids } = {}) {
     await this.ready;
     const taken = this.data.delegations.filter((item) => item.hosted && Array.isArray(ids) && ids.includes(item.remote_id) && !OPEN.has(item.status));
@@ -548,7 +444,6 @@ class Delegations {
     if (taken.length) await this.persist();
   }
 
-  /** A Delegation another computer sent ended here: it is told, and the report stays until it collects it. */
   tellRemote(delegation) {
     try {
       this.ports.remoteReport?.({ id: delegation.remote_id, status: delegation.status, report: delegation.report, chat: delegation.to_chat });
@@ -557,7 +452,6 @@ class Delegations {
     }
   }
 
-  // Only the side whose move it is (the requesting side, once a report came back) sends the next round.
   async nextRound(fromChat, negotiation, message) {
     const mine = negotiation.chats.indexOf(fromChat);
     if (negotiation.awaiting !== fromChat || !negotiation.move) {
@@ -589,7 +483,6 @@ class Delegations {
     return `Round ${delegation.round} sent to ${delegation.to_label}. Their report starts your next move; end your turn now.`;
   }
 
-  /** The `conclude_negotiation` tool: a turn that took one of the Negotiation's rounds or reports may conclude it. */
   async conclude(fromChat, summary) {
     await this.ready;
     const negotiation = this.data.negotiations.find(
@@ -600,7 +493,6 @@ class Delegations {
     return "Negotiation concluded. The agreement is posted in both Chats.";
   }
 
-  // Whether this Chat's current (or next) turn holds a delivered item that matches.
   holding(chatKey, match) {
     return [...this.entries(chatKey), ...(this.background.get(chatKey) ?? []), ...(this.settling.get(chatKey) ?? []).map(({ entry }) => entry)].some(match);
   }
@@ -610,11 +502,6 @@ class Delegations {
     return this.delivered.get(chatKey);
   }
 
-  /**
-   * `linkIds`: every Link that reaches the destination, the routed one first. A grant on any of them covers it, so
-   * Always allow set on a newer, wider Link still holds where an older one is the route. The card's grant goes on the
-   * routed Link.
-   */
   async approval(fromChat, linkIds, delegation) {
     const grant = `${fromChat}\0${linkIds[0]}`;
     if (callerMode(this.ports.permissionMode(fromChat)) !== "ask" || linkIds.some((id) => this.data.grants.includes(`${fromChat}\0${id}`))) return "allow";
@@ -633,13 +520,11 @@ class Delegations {
     return decision === "allow-for-chat" ? "allow" : decision;
   }
 
-  /** The receiving Chat's mode when it is more than the caller's, else null. */
   raisedMode(fromChat, toChat) {
     const mode = this.ports.deliveryMode(toChat, fromChat);
     return raisesMode(mode, this.ports.permissionMode(fromChat)) ? mode : null;
   }
 
-  // No grant covers it and the card offers none: the receiving Chat's mode can change between Delegations.
   raiseApproval(fromChat, mode, delegation) {
     const modeName = mode === "full" ? "Full permission" : "Auto mode";
     return this.ports.approve(fromChat, {
@@ -655,10 +540,6 @@ class Delegations {
     });
   }
 
-  /**
-   * "Always allow for this Link in this chat", set before the agent asks: the sidebar's Link popover offers it for
-   * the Chat that was dropped. The same grant the approval card saves.
-   */
   async grant(chatKey, linkId) {
     await this.ready;
     if (typeof chatKey !== "string" || typeof linkId !== "string" || !chatKey || !linkId) throw new Error("Choose a Chat and a Link.");
@@ -679,7 +560,6 @@ class Delegations {
       kind: "delegation",
       delegationId: delegation.id,
       negotiationId: delegation.negotiation_id,
-      // From another computer: a new Chat runs in the mode its caller had there, as a local caller's would.
       ...(delegation.hosted ? { mode: delegation.mode } : {}),
       body: delegation.message,
       prompt: delegationPrompt(delegation),
@@ -710,7 +590,6 @@ class Delegations {
     await this.pump(chatKey);
   }
 
-  // Delivers a Chat's waiting items in order, unless it waits on the user.
   async pump(chatKey) {
     if (this.pumping.has(chatKey)) return;
     this.pumping.add(chatKey);
@@ -725,7 +604,6 @@ class Delegations {
   async start(chatKey, item) {
     const delegation = item.kind === "delegation" ? this.data.delegations.find((entry) => entry.id === item.delegationId) : null;
     const negotiation = item.negotiationId ? this.data.negotiations.find((entry) => entry.id === item.negotiationId) : null;
-    // Detached before delivery: the message still goes, but nothing follows it back.
     if (delegation?.status === "detached") {
       await Promise.resolve(this.ports.deliver(chatKey, item)).catch((error) => console.warn("Milagre couldn't deliver a detached Delegation:", error.message));
       return;
@@ -744,12 +622,10 @@ class Delegations {
       await this.undelivered(item, "failed", error.message);
       return;
     }
-    // A message for a turn its provider can't steer waits in the Chat's queue, which outlives a restart.
     if (queued) await this.markWaiting(item, true);
     void this.follow(chatKey, item, started);
   }
 
-  // The turn that takes it may start long after (a new Worktree's setup runs first, or it waits in the Chat's queue).
   follow(chatKey, item, started) {
     const entry = { item, turnId: undefined, steered: false };
     this.entries(chatKey).push(entry);
@@ -761,7 +637,6 @@ class Delegations {
       .catch((error) => console.warn("Milagre couldn't follow a Delegation:", error.message));
   }
 
-  /** Marks the item's Delegation and Negotiation as waiting in the receiving Chat's queue, or no longer. */
   async markWaiting(item, waiting) {
     const records = [
       item.kind === "delegation" ? this.data.delegations.find((entry) => entry.id === item.delegationId) : null,
@@ -775,7 +650,6 @@ class Delegations {
     await this.persist();
   }
 
-  /** The item of a message that waited in `chatKey`'s queue across a restart, found from the message's context; null when none. */
   waitingItem(chatKey, context) {
     if (context?.kind === "delegation") {
       const delegation = this.data.delegations.find(
@@ -792,11 +666,6 @@ class Delegations {
     return null;
   }
 
-  /**
-   * A message that waited in its Chat's queue while Milagre restarted starts its turn (`started` as from deliver): it is
-   * followed from here as one delivered this run, so its report still reaches the delegating Chat. Resolves whether it
-   * belonged to an open Delegation or Negotiation.
-   */
   async adopt(chatKey, context, started) {
     await this.ready;
     const item = this.waitingItem(chatKey, context);
@@ -805,7 +674,6 @@ class Delegations {
     return true;
   }
 
-  /** Such a message was removed from its Chat's queue unsent: its Delegation is cancelled, with a notice. */
   async unqueued(chatKey, context) {
     await this.ready;
     const item = this.waitingItem(chatKey, context);
@@ -829,7 +697,6 @@ class Delegations {
     entry.steered = Boolean(result.steered);
     const ended = this.endedTurns.get(chatKey)?.find((turn) => turn.turnId === result.turnId);
     if (!ended) entry.turnId = result.turnId;
-    // A steer into a turn that already ended runs in the next one; a turn started for it that already ended handled it.
     else if (entry.steered && ended.outcome === "done") entry.turnId = null;
     else {
       this.remove(chatKey, entry);
@@ -860,7 +727,6 @@ class Delegations {
     if (negotiation) await this.end(negotiation, "stopped", { reason: "a message couldn't be delivered" });
   }
 
-  /** Every agent event of every Chat, after the Chat's state took it in. */
   observe(chatKey, event) {
     return this.serialize(chatKey, () => this.observeEvent(chatKey, event));
   }
@@ -911,7 +777,6 @@ class Delegations {
 
   settleBackground(chatKey) {
     if (this.suspended || !this.background.has(chatKey) || this.backgroundTimers.has(chatKey) || activityBusy(this.activity.activity(chatKey))) return;
-    // A provider can announce the last child's completion just before starting the turn that reads its result.
     const timer = setTimeout(() => {
       void this.serialize(chatKey, async () => {
         this.backgroundTimers.delete(chatKey);
@@ -938,7 +803,6 @@ class Delegations {
     const handled = turnId ? entries.filter((entry) => entry.turnId === turnId) : [];
     for (const entry of handled) entries.splice(entries.indexOf(entry), 1);
     handled.push(...this.takeBackground(chatKey));
-    // Background follow-ups are explicit sends too, so they need not carry the provider's `continues` hint.
     if (outcome === "done" && handled.length && (await this.waitingForResults(chatKey))) {
       this.background.set(chatKey, handled);
       await this.pump(chatKey);
@@ -967,7 +831,6 @@ class Delegations {
     await this.pump(chatKey);
   }
 
-  // The turn that took these items ended: Delegations report, and a requesting side that let its move go ends its Negotiation.
   async handle(chatKey, entries, outcome) {
     if (this.suspended) return;
     if (outcome === "done" && entries.length && (await this.waitingForResults(chatKey))) {
@@ -994,7 +857,6 @@ class Delegations {
     if (this.suspended || delegation?.status !== "running") return;
     delegation.status = outcome;
     const reply = await this.ports.reply(delegation.to_chat, delegation.id);
-    // A Delegation to "new" was labelled before that Chat had a title; by now its agent has named it.
     const label = await Promise.resolve(this.ports.chat(delegation.to_chat))
       .then((info) => info?.label)
       .catch(() => undefined);
@@ -1026,10 +888,6 @@ class Delegations {
     await this.ports.note(delegation.from_chat, { body, context });
   }
 
-  /**
-   * Reports for the next turn, or null. Reading leaves them pending until the provider accepts the turn.
-   * Acknowledgement removes only this snapshot, so reports arriving during startup remain for the next turn.
-   */
   async reportsForTurn(chatKey) {
     await this.ready;
     while (this.reportClaims.has(chatKey)) await this.reportClaims.get(chatKey);
@@ -1041,8 +899,6 @@ class Delegations {
       if (this.reportClaims.get(chatKey) === claim.promise) this.reportClaims.delete(chatKey);
       claim.resolve();
     };
-    // The Chat ref tells apart several "new" Chats, and is what chat_read and the next delegate take.
-    // What the other Chat's agent wrote can't close the block: its tags are neutralized, and its line breaks stay.
     const lines = waiting.map(
       ({ item, report }) =>
         `Delegation report from ${neutralizeTags(item.to_label)} (${item.to_chat}, ${item.status}):\n${neutralizeTags(truncateText(report, REPORT_CHARS))}`,
@@ -1067,11 +923,6 @@ class Delegations {
     };
   }
 
-  /**
-   * `delegation_detach` and the sidebar's "Detach from parent": `chatKey` stops being a subchat, and its open
-   * Delegations stop reporting back (status "detached"); its work goes on. `by` is the Chat asking: itself, its parent
-   * or a Chat that delegated to it, and only that Chat's Delegations end. Null is the user, who detaches all of them.
-   */
   async detach(chatKey, by = null) {
     await this.ready;
     const self = by === null || by === chatKey;
@@ -1082,7 +933,6 @@ class Delegations {
     await this.persist();
     for (const negotiation of this.data.negotiations.filter((item) => open.some((delegation) => delegation.negotiation_id === item.id)))
       await this.end(negotiation, "stopped", { reason: "the Chat was detached" });
-    // A Delegation to "new" was labelled before that Chat had a title.
     const label = (await Promise.resolve(this.ports.chat(chatKey)).catch(() => null))?.label ?? open[0]?.to_label ?? "the Chat";
     for (const from of new Set(open.map((item) => item.from_chat)))
       await this.ports.note(from, {
@@ -1094,7 +944,6 @@ class Delegations {
       : "Detached. It lists as a Chat of its own now.";
   }
 
-  /** Ends a running Negotiation, drops its waiting messages and tells both Chats. */
   async end(negotiation, status, { summary, by, reason } = {}) {
     if (negotiation.status !== "running") return;
     Object.assign(negotiation, { status, ...(summary ? { summary } : {}) });
@@ -1135,7 +984,6 @@ class Delegations {
       return { delegation, body };
     });
     await this.persist();
-    // Another computer's Delegation has no Chat here to tell: it collects the report (hostedReports).
     for (const { delegation } of reports) if (delegation.hosted) this.tellRemote(delegation);
     const notes = reports
       .filter(({ delegation }) => !delegation.hosted)
@@ -1152,7 +1000,6 @@ class Delegations {
     for (const result of results) if (result.status === "rejected") console.warn("Milagre couldn't post a Delegation notice:", result.reason?.message);
   }
 
-  /** Quit preserves open records for the restart notice, without reporting advisor teardown as success. */
   suspend() {
     this.suspended = true;
     for (const timer of this.backgroundTimers.values()) clearTimeout(timer);
@@ -1160,12 +1007,10 @@ class Delegations {
     for (const items of this.settling.values()) for (const item of items) clearTimeout(item.timer);
   }
 
-  /** Stop pressed in a Chat or on the canvas: its running Negotiations and held reports stop. */
   async stop({ chatKey, negotiationId }) {
     await this.ready;
     if (chatKey) {
       await this.serialize(chatKey, async () => {
-        // The parent can finish naturally while its advisors are still stopping. Stop owns that turn's outcome.
         const turnId = this.currentTurn.get(chatKey);
         if (turnId) this.stoppedTurns.set(chatKey, turnId);
         const held = this.settling.get(chatKey) ?? [];
@@ -1181,10 +1026,6 @@ class Delegations {
     }
   }
 
-  /**
-   * A removed Link: running turns finish. What travelled along it moves to another Link that still joins
-   * the two Chats; otherwise its Negotiations stop and its queued Delegations are cancelled, with a notice.
-   */
   async linkRemoved(linkId) {
     await this.ready;
     const relink = async (record, fromChat, toWorktree) => {

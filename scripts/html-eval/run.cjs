@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// node scripts/html-eval/run.cjs --out /tmp/html-eval-baseline --repeat 2 --concurrency 3
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
@@ -89,7 +88,7 @@ async function main() {
     console.log(JSON.stringify(manifest, null, 2));
     return;
   }
-  fs.mkdirSync(root); // Fail on existing output, even empty: no accidental overwrite or mixed runs.
+  fs.mkdirSync(root);
   for (const dir of ["sessions", "private", "snapshot"]) fs.mkdirSync(path.join(root, dir), { mode: dir === "private" ? 0o700 : 0o755 });
   fs.writeFileSync(path.join(root, "snapshot", "system.txt"), systemPrompt);
   writeJson(path.join(root, "snapshot", "cases.json"), { version: 1, cases });

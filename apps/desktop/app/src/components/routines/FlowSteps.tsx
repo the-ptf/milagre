@@ -8,7 +8,6 @@ import { MenuRow, Popover, usePopover } from "./FlowPopover";
 
 type Where = { parentId: string | null; branch: "yes" | "otherwise" | null; index: number };
 
-/** A step type's tile: its icon on its color. */
 export function StepTile({ kind, dim = false }: { kind: FlowStepKind | "trigger"; dim?: boolean }) {
   const look = STEP_LOOK[kind];
   return (
@@ -18,7 +17,6 @@ export function StepTile({ kind, dim = false }: { kind: FlowStepKind | "trigger"
   );
 }
 
-/** A field a step gives, as a small chip on its card: its type's glyph and its name. */
 export function FieldChip({ icon, label }: { icon: HugeIconData; label: string }) {
   return (
     <span
@@ -31,17 +29,12 @@ export function FieldChip({ icon, label }: { icon: HugeIconData; label: string }
   );
 }
 
-/** The chips a step's card shows: an agent step's output fields, a pull request's link. */
 function stepChips(step: FlowStep): Array<{ icon: HugeIconData; label: string }> {
   if (step.kind === "agent") return step.output.map((field) => ({ icon: FIELD_ICON[field.type] ?? FIELD_ICON.text, label: field.name || "field" }));
   if (step.kind === "pull-request") return [{ icon: Link01Icon, label: "url" }];
   return [];
 }
 
-/**
- * A card in the flow: tile, title and subtitle, then `trailing` (chips, state). The card's body selects it; `menu` sits
- * beside it, outside the button.
- */
 export function FlowCard({
   kind,
   title,
@@ -60,7 +53,6 @@ export function FlowCard({
   subtitle: string;
   subtitleTone?: string;
   selected?: boolean;
-  /** A ring that says the card's state (waiting, failed), over the selected one's. */
   ring?: string;
   dim?: boolean;
   trailing?: ReactNode;
@@ -92,7 +84,6 @@ export function FlowCard({
   );
 }
 
-/** The ⋯ on a step's card and in its inspector: Move up, Move down, Delete. */
 export function StepMenu({
   name,
   canUp,
@@ -106,7 +97,6 @@ export function StepMenu({
   canDown: boolean;
   onMove: (by: -1 | 1) => void;
   onDelete: () => void;
-  /** In the inspector's header: always shown, not only on hover. */
   inline?: boolean;
 }) {
   const popover = usePopover(180, "end");
@@ -139,7 +129,6 @@ export function StepMenu({
   );
 }
 
-/** The Add step menu: every step type with its tile and what it does. */
 function AddStepMenu({ heading, onPick, state }: { heading: string; onPick: (kind: FlowStepKind) => void; state: ReturnType<typeof usePopover> }) {
   return (
     <Popover state={state} label={heading} width={360} role="menu" className="p-1.5" data-flow-add-menu>
@@ -164,7 +153,6 @@ function AddStepMenu({ heading, onPick, state }: { heading: string; onPick: (kin
 
 const pathHeading = (where: Where) => (where.parentId === null ? "Add a step here" : `Add to the ${where.branch === "yes" ? "Yes" : "Otherwise"} path`);
 
-/** The rail between two cards, with its + that opens the Add step menu for that place. */
 function Connector({ where, onAdd, tall = false }: { where: Where; onAdd: (kind: FlowStepKind, where: Where) => void; tall?: boolean }) {
   const popover = usePopover(360);
   return (
@@ -193,7 +181,6 @@ function Connector({ where, onAdd, tall = false }: { where: Where; onAdd: (kind:
   );
 }
 
-/** An empty path's dashed row: it opens the Add step menu for the path. */
 function EmptyPath({ where, onAdd }: { where: Where; onAdd: (kind: FlowStepKind, where: Where) => void }) {
   const popover = usePopover(360);
   return (
@@ -217,7 +204,6 @@ function EmptyPath({ where, onAdd }: { where: Where; onAdd: (kind: FlowStepKind,
   );
 }
 
-/** A path's label on the rail under its If: "Yes", "Otherwise", or in the Run view "Yes, taken". */
 export function PathLabel({ text, tone = "bg-field text-ink-2" }: { text: string; tone?: string }) {
   return (
     <div className="relative flex h-8 items-center pl-9" data-flow-path-label={text}>
@@ -227,7 +213,6 @@ export function PathLabel({ text, tone = "bg-field text-ink-2" }: { text: string
   );
 }
 
-/** Under an If: its two paths, indented on a rail that runs down from the If. */
 function PathsBlock({ children }: { children: ReactNode }) {
   return (
     <div className="relative">
@@ -237,10 +222,6 @@ function PathsBlock({ children }: { children: ReactNode }) {
   );
 }
 
-/**
- * The draft as a list: the trigger's card, then each step's card with a + on the rail between them, an If's paths
- * indented under it. A card selects its step; its ⋯ moves or deletes it. Adding a step selects it.
- */
 export function FlowStepList({
   steps,
   selectedId,
@@ -252,9 +233,7 @@ export function FlowStepList({
 }: {
   steps: FlowStep[];
   selectedId: string | null;
-  /** The first problem of each step that has one, by step id. */
   problems: ReadonlyMap<string, string>;
-  /** The trigger's card, first in the list. */
   trigger: ReactNode;
   modelName: (provider: ModelProvider | undefined, model: string) => string;
   onSelect: (id: string) => void;
@@ -338,7 +317,6 @@ export function FlowStepList({
   );
 }
 
-/** A flow with no steps yet: under the trigger, a tile for each step type. */
 export function NextStepTiles({ onAdd }: { onAdd: (kind: FlowStepKind) => void }) {
   return (
     <section data-flow-empty className="rounded-card bg-accent-tint p-4">

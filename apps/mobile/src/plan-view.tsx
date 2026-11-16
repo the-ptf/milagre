@@ -115,7 +115,6 @@ function Rows({ tasks, depth, folded, toggle }: { tasks: ChatTask[]; depth: numb
   });
 }
 
-/** Desktop's Tasks list: the Chat's nested tasks with per-level numbers; parents fold, the working leaf is highlighted. */
 export function PlanTree({ plan }: { plan: ChatPlan }) {
   const [folded, setFolded] = useState<Set<string>>(() => new Set());
   const toggle = (id: string) =>
@@ -132,15 +131,11 @@ export function PlanTree({ plan }: { plan: ChatPlan }) {
 }
 
 const HEIGHT = 168;
-// One legend row per phase: its centre is rowY(row, HEIGHT), so every dot sits on its label.
 const ROW = HEIGHT / PHASES.length;
 
-/** The Chat's phase history on a time axis that ends at Now; long idle stretches fold into a labelled gap. */
 export function PlanPhaseGraph({ plan }: { plan: ChatPlan }) {
   const { colors } = useTheme();
-  // Now is taken when the graph opens, so rerenders do not move the axis.
   const [opened] = useState(() => Date.now());
-  // The SVG is drawn in real pixels at the cell's width, so its rows line up with the legend beside it.
   const [width, setWidth] = useState(0);
   const graph = phaseGraph(plan.phases, opened);
   if (!graph.points.length || !graph.current) return null;

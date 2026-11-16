@@ -99,6 +99,22 @@ test("the commit-msg hook and the branch range both fail, and --amend-head fixes
   assert.equal(spawnSync(process.execPath, [SCRIPT, "main~1..main"], { cwd: dir, env }).status, 0);
 });
 
+test("the commit-msg hook reads a message file whose path lefthook split at a space", (t) => {
+  // lefthook passes {1} unquoted on Windows: a checkout under "C:\Users\me\Projetos Pessoais" arrives as two arguments.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre attribution "));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const msg = path.join(dir, "COMMIT EDITMSG");
+  const pieces = msg.split(" ");
+  assert.ok(pieces.length >= 3, "the path has spaces to split at");
+  fs.writeFileSync(msg, "fix: thing\n\nBody.\n");
+  const clean = spawnSync(process.execPath, [SCRIPT, "--commit-msg", ...pieces], { encoding: "utf8" });
+  assert.equal(clean.status, 0, clean.stderr);
+  fs.writeFileSync(msg, `fix: thing\n\n${trailer("Claude Opus 5.5 <noreply@anthropic.com>")}\n`);
+  const credited = spawnSync(process.execPath, [SCRIPT, "--commit-msg", ...pieces], { encoding: "utf8" });
+  assert.equal(credited.status, 1);
+  assert.match(credited.stderr, /commit message: Co-authored-by: Claude Opus 5\.5/);
+});
+
 test("--amend-head makes you the author of a commit an AI tool authored (#1025's commits were Codex's)", (t) => {
   const { dir, env, run } = repo(t);
   const as = (name, email) => ({ GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.test" });

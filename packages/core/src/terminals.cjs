@@ -1,7 +1,3 @@
-// A Terminal is an interactive shell the user opened in a Chat (see GLOSSARY.md and docs/host.md). The host owns its
-// PTY, so it outlives the desktop window and a paired phone can use it too. Output stays in memory only: the newest
-// lines, enough for a viewer that opens it later. Every viewer may type; the PTY takes the size of whichever viewer
-// typed or resized last.
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
@@ -13,7 +9,6 @@ const MAX_BUFFER_CHARS = 1024 * 1024;
 const MAX_BUFFER_LINES = 10_000;
 const MAX_INPUT = 64 * 1024;
 const READ_WAIT_MS = 8000;
-// The smallest read limit a viewer may ask for: below it a flood would take a round trip per screenful.
 const MIN_READ_LIMIT = 4096;
 const TITLE_POLL_MS = 1500;
 const MAX_PER_CHAT = 12;
@@ -53,14 +48,12 @@ function terminalShell({ platform = process.platform, env = process.env, exists 
     zsh = [account, env.SHELL, ...onPath, "/usr/local/bin/zsh", "/usr/bin/zsh", "/bin/zsh"].find((file) => usable(file) && path.basename(file) === "zsh");
   }
   const file = zsh || [account, env.SHELL].find(usable) || (platform === "darwin" ? "/bin/zsh" : "/bin/sh");
-  // A login shell reads the same profile files as a new window of the user's terminal app.
   return { file, args: ["-l"] };
 }
 
 const TERMINAL_TYPE = "xterm-256color";
 
 function terminalEnvironment(env = process.env) {
-  // A Terminal is the user's shell, not the host's: see host-env.cjs.
   const result = withoutHostVariables(env);
   result.TERM = TERMINAL_TYPE;
   result.COLORTERM = "truecolor";
@@ -78,7 +71,6 @@ function executableFile(file) {
   }
 }
 
-/** Discover installed shells without running them. Symlink aliases are listed once. */
 function terminalShells({
   platform = process.platform,
   env = process.env,
@@ -106,9 +98,7 @@ function terminalShells({
           .split(/\r?\n/)
           .map((line) => line.split("#")[0].trim()),
       );
-    } catch {
-      // Some installations have no /etc/shells. Known shells on PATH still work.
-    }
+    } catch {}
     candidates.push(env.SHELL);
     const folders = [...(env.PATH || "").split(":"), "/usr/local/bin", "/usr/bin", "/bin"];
     candidates.push(...folders.filter((folder) => path.isAbsolute(folder)).flatMap((folder) => [...UNIX_SHELLS].map((name) => path.join(folder, name))));
@@ -121,9 +111,7 @@ function terminalShells({
       let canonical = file;
       try {
         canonical = realpath(file);
-      } catch {
-        /* Tests or unavailable realpath. */
-      }
+      } catch {}
       if (platform === "win32") canonical = canonical.toLowerCase();
       if (seen.has(canonical)) return false;
       seen.add(canonical);
@@ -132,7 +120,6 @@ function terminalShells({
     .map((file) => ({ file, label: paths.basename(file).replace(/\.exe$/i, "") }));
 }
 
-// A cut never splits a surrogate pair: the head stops before a lone high half, the tail starts after a lone low half.
 function headEnd(data, limit) {
   const code = data.charCodeAt(limit - 1);
   return code >= 0xd800 && code <= 0xdbff ? limit - 1 : limit;
@@ -148,11 +135,6 @@ const lineCount = (text) => {
   return count;
 };
 
-/**
- * `resolveChat(chatId)` resolves with the Chat's Worktrees as [{ path, label }], or rejects when the Chat can't
- * have Terminals (it doesn't exist or is archived). `onChange(chatId)` fires when a Chat's Terminals open, close or
- * change title; `onShellsChanged()` when the set of running shells changed.
- */
 function createTerminals(options = {}) {
   const {
     resolveChat,
@@ -192,7 +174,6 @@ function createTerminals(options = {}) {
       .replace(/\.exe$/i, "")
       .toLowerCase();
   // A shell waiting at its prompt is in front of its own Terminal. It may report another shell's name (macOS's /bin/sh
-  // runs bash), and a shell started inside the Terminal is a prompt too, not a command to warn about.
   const idle = (terminal, name) => {
     const plain = name.replace(/\.exe$/i, "").toLowerCase();
     return plain === shellName(terminal) || UNIX_SHELLS.has(plain) || ["pwsh", "powershell", "cmd"].includes(plain);
@@ -212,7 +193,6 @@ function createTerminals(options = {}) {
   }
   function info(terminal) {
     const title = terminal.exited ? terminal.title : foreground(terminal);
-    // Unknown counts as busy: closing a Terminal asks first rather than end a command nobody can see.
     const busy = !terminal.exited && (foregroundUnknown(terminal) || !idle(terminal, title));
     return {
       id: terminal.id,
@@ -253,7 +233,6 @@ function createTerminals(options = {}) {
       terminal.chars -= first.text.length;
       terminal.lines -= first.lines;
     }
-    // One chunk larger than the whole buffer keeps only its tail.
     const only = terminal.chunks[0];
     if (terminal.chunks.length === 1 && only.text.length > maxBufferChars) {
       const cut = only.text.length - maxBufferChars;
@@ -308,9 +287,7 @@ function createTerminals(options = {}) {
     terminal.exited = true;
     try {
       terminal.pty.kill();
-    } catch {
-      /* Already gone. */
-    }
+    } catch {}
     finish(terminal);
   }
 
@@ -346,7 +323,6 @@ function createTerminals(options = {}) {
       if (closed) throw new Error("Terminals are closed.");
       return { terminals: [...terminals.values()].filter((terminal) => terminal.chatId === chatId).map(info) };
     },
-    /** Opens a Terminal in one of the Chat's Worktrees: `cwd` when given and it is one of them, otherwise the first. */
     async open(request) {
       const chatId = requireChatId(request);
       if (closed) throw new Error("Terminals are closed.");
@@ -397,11 +373,6 @@ function createTerminals(options = {}) {
       onShellsChanged();
       return info(terminal);
     },
-    /**
-     * Long-polls for output after `after`, the offset a viewer already has. `reset` means the viewer fell behind the
-     * kept output (or is new) and gets all of it; it replaces what the viewer shows. `ended` means the shell exited.
-     * `limit` caps the characters one read returns: the oldest part of what follows `after`, or the newest of a reset.
-     */
     async read(request) {
       const after = request?.after;
       if (!Number.isSafeInteger(after) || after < 0) throw new Error("Invalid Terminal read.");
@@ -427,7 +398,6 @@ function createTerminals(options = {}) {
       if (limit && data.length > limit) {
         if (reset) return { offset: terminal.end, data: data.slice(tailStart(data, limit)), reset, ended, terminal: info(terminal) };
         const cut = headEnd(data, limit);
-        // More is waiting, so the shell hasn't ended for this viewer yet.
         return { offset: after + cut, data: data.slice(0, cut), reset, ended: false, terminal: info(terminal) };
       }
       return { offset: terminal.end, data, reset, ended, terminal: info(terminal) };
@@ -449,20 +419,16 @@ function createTerminals(options = {}) {
       terminal.rows = rows;
       try {
         terminal.pty.resize(cols, rows);
-      } catch {
-        /* The shell is exiting. */
-      }
+      } catch {}
       return null;
     },
     async close(request) {
       kill(find(request));
       return null;
     },
-    /** Ends every Terminal of a Chat, when it is archived. */
     closeChat(chatId) {
       for (const terminal of Array.from(terminals.values())) if (terminal.chatId === chatId) kill(terminal);
     },
-    /** Each Chat's running shell pids, so ports their commands open count as the Chat's. */
     shells() {
       const result = new Map();
       for (const terminal of terminals.values()) {

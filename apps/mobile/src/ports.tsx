@@ -18,12 +18,10 @@ import { useInternalBrowser } from "./browser-setting";
 import { openBrowserLink } from "./browser-link";
 import { useChatPanelTabs } from "./side-panels";
 
-/** Whether two answers of the ports poll list the same ports, in the same order. */
 function samePorts(a: readonly AgentPort[], b: readonly AgentPort[]) {
   return a === b || (a.length === b.length && JSON.stringify(a) === JSON.stringify(b));
 }
 
-/** The host returns only this Chat's proven processes. A Worktree is never an owner. */
 export function useChatPorts(client: Client | null, chatId?: string) {
   const [ports, setPorts] = useState<AgentPort[]>([]);
   const [error, setError] = useState("");
@@ -44,7 +42,6 @@ export function useChatPorts(client: Client | null, chatId?: string) {
           const result = await client.call<{ chatId: string; ports: AgentPort[] }>("chat:ports", [chatId]);
           if (result.chatId !== chatId) throw new Error("Update Milagre on your computer to view this Chat's ports.");
           if (!disposed && sequence === request) {
-            // The poll answers every 5 s; an unchanged list keeps its array, so the Chat screen reading it doesn't render again.
             setPorts((current) => (samePorts(current, result.ports) ? current : result.ports));
             setError("");
           }
@@ -69,12 +66,10 @@ export function useChatPorts(client: Client | null, chatId?: string) {
       };
     }, [client, chatId]),
   );
-  // A server Stop ended leaves the list at once; the refresh after it has the host's word.
   const drop = useCallback((pids: number[]) => setPorts((current) => current.filter((port) => !pids.includes(port.pid))), []);
   return { ports, error, refresh: () => reload.current?.(), drop };
 }
 
-/** `ports` come from the Chat screen's useChatPorts, which its background line reads too. */
 export function PortsChip({ chatId, ports }: { chatId: string; ports: AgentPort[] }) {
   const { client } = useSession();
   if (!client || !chatId || !ports.length) return null;
@@ -101,7 +96,6 @@ export function PortsSheet({ hostId, chatId }: { hostId?: string; chatId?: strin
   const [stopping, setStopping] = useState<number[]>([]);
   const [actionError, setActionError] = useState("");
   const [copied, setCopied] = useState<number | null>(null);
-  // The computer's IP on the phone's LAN route: a server that listens beyond loopback opens there from the phone.
   const reachableHost = useReachableHost(source?.url);
   const linkOf = (port: AgentPort) =>
     reachableHost && listensBeyondLoopback(port.address) ? reachableUrl(`http://localhost:${port.port}`, reachableHost) : null;
@@ -197,7 +191,6 @@ export function PortsSheet({ hostId, chatId }: { hostId?: string; chatId?: strin
                     </Text>
                     <Text style={styles.muted}>
                       {port.command}
-                      {/* Bound to the computer's loopback: only the computer itself opens it. */}
                       {reachableHost && !listensBeyondLoopback(port.address) ? " · localhost only" : ""}
                     </Text>
                   </Pressable>

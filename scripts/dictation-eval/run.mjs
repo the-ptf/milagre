@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// Dictation eval: how well each recognizer gets the technical words of a message to a coding agent right, and what the
-// project vocabulary, term snapping and the AI fix-up each add. See README.md.
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -13,7 +11,6 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../..");
 const require = createRequire(import.meta.url);
 
-// ---- options ----
 const argv = process.argv.slice(2);
 const option = (name, fallback) => {
   const at = argv.indexOf(`--${name}`);
@@ -65,7 +62,6 @@ const corpus = JSON.parse(fs.readFileSync(path.join(here, "corpus.json"), "utf8"
 const PORTUGUESE_VOICE = "Luciana";
 const CHAT_TITLE = "Dictation accuracy";
 
-// ---- vocabulary: the same project context the app builds, from main and from this checkout ----
 async function loadBaseModule() {
   const source = execFileSync("git", ["show", `${baseRef}:packages/shared/src/dictation.mjs`], { cwd: repo, encoding: "utf8" });
   const file = path.join(out, `dictation-${baseRef.replace(/\W+/g, "_")}.mjs`);
@@ -76,8 +72,6 @@ const working = await import(pathToFileURL(path.join(repo, "packages/shared/src/
 const base = await loadBaseModule();
 const lsFiles = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd: repo, encoding: "utf8" }).split("\n").filter(Boolean);
 const baseTerms = base.dictationTerms({ projectName: path.basename(repo), branch: "main", chatTitle: CHAT_TITLE, files: lsFiles });
-// This checkout's context, built the way core's dictationContext builds it but read at the base commit, so the files
-// this branch changes don't count as the ones being worked on.
 const { polishDictation, polishRequest, plausible } = require(path.join(repo, "packages/core/src/dictation.cjs"));
 const gitAt = (...args) => execFileSync("git", args, { cwd: repo, encoding: "utf8", maxBuffer: 1 << 26 });
 const present = new Set(lsFiles);
@@ -104,7 +98,6 @@ const newTerms = working.dictationTerms({
   recent,
   names,
 });
-// The same vocabulary inside a Chat that has already talked about the code.
 const chatMessages = JSON.parse(fs.readFileSync(path.join(here, "chat.json"), "utf8")).messages;
 const chatVocabulary = working.chatTerms
   ? working.dictationTerms({
@@ -120,7 +113,6 @@ const chatVocabulary = working.chatTerms
 const snap = typeof working.snapTerms === "function" ? working.snapTerms : (text) => text;
 fs.writeFileSync(path.join(out, "vocabulary.json"), JSON.stringify({ base: baseTerms, new: newTerms, chat: chatVocabulary }, null, 2));
 
-/** What a variant feeds the recognizer, and what it does to the text after. */
 function variantOf(name, language) {
   switch (name) {
     case "raw":
@@ -141,7 +133,6 @@ function variantOf(name, language) {
   }
 }
 
-// ---- audio ----
 function wavPcm(file) {
   const buffer = fs.readFileSync(file);
   let offset = 12;
@@ -157,7 +148,6 @@ function wavPcm(file) {
 const say = (voice, text, file) => execFileSync("say", ["-v", voice, "-o", file, "--data-format=LEI16@16000", text]);
 const toPcm16k = (input, file) => execFileSync("afconvert", ["-f", "WAVE", "-d", "LEI16@16000", "-c", "1", input, file]);
 
-/** Every clip to score: synthesized speech per voice, and the user's own recordings. */
 function buildClips() {
   const items = [];
   for (const item of corpus) {
@@ -184,7 +174,6 @@ function buildClips() {
   return items;
 }
 
-// ---- recognizers ----
 function swiftTool(name) {
   const binary = path.join(cache, "bin", name);
   const source = path.join(here, `${name}.swift`);
@@ -199,7 +188,6 @@ function swiftTool(name) {
 }
 const appleCli = () => swiftTool("apple-transcribe");
 
-/** The fix-up on Apple's on-device model, for a batch of texts in one process; a reply that isn't a correction is dropped. */
 function localPolish(texts, terms) {
   const input = texts.map((text) => JSON.stringify(polishRequest({ text, terms, chatTitle: CHAT_TITLE }))).join("\n");
   const result = spawnSync(swiftTool("apple-polish"), [], { input, encoding: "utf8", maxBuffer: 1 << 26 });
@@ -210,14 +198,12 @@ function localPolish(texts, terms) {
     .map((line) => JSON.parse(line));
   return texts.map((text, index) => {
     const reply = replies[index] ?? {};
-    // A small model sometimes echoes the prompt's tags around a name.
     const answer = typeof reply.text === "string" ? reply.text.replace(/<\/?[A-Za-z_]+>/g, "").trim() : "";
     const fixed = answer && text.trim() && plausible(text, answer) ? answer : text;
     return { text: fixed, extra: reply.ms ?? 0 };
   });
 }
 
-/** Apple's dictation: one process per (language, variant) so the words are set once, as the phone sets them per take. */
 function runApple(batch, terms, language) {
   const binary = appleCli();
   const words = path.join(out, `words-${createHash("sha1").update(terms.join("\n")).digest("hex").slice(0, 8)}.txt`);
@@ -280,8 +266,6 @@ async function runWhisper(model, batch, prompt, language) {
   return rows;
 }
 
-// Paseo's local recognizer: NVIDIA Parakeet TDT 0.6B through sherpa-onnx, greedy decoding as Paseo runs it. It takes no
-// prompt, so the project's words reach it only through snapping and the fix-up.
 const PARAKEET = {
   v2: { dir: "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8", languages: ["en"] },
   v3: { dir: "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8", languages: ["en", "pt"] },
@@ -337,7 +321,6 @@ function runParakeet(model, batch) {
   });
 }
 
-// ---- the AI fix-up, as the app calls it ----
 const claudeBin = (() => {
   for (const candidate of [path.join(os.homedir(), ".local/bin/claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"])
     if (fs.existsSync(candidate)) return candidate;
@@ -370,7 +353,6 @@ async function mapLimit(items, limit, work) {
   return results;
 }
 
-// ---- scoring ----
 const words = (text) =>
   text
     .toLowerCase()
@@ -390,10 +372,8 @@ function wordErrors(reference, hypothesis) {
   return { errors: previous[b.length], length: a.length };
 }
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-/** The term spelled exactly, not as part of a longer name. */
 const hasTerm = (text, term) => new RegExp(`(?<![\\p{L}\\p{N}_-])${escape(term)}(?![\\p{L}\\p{N}_-])`, "u").test(text);
 
-// ---- run ----
 const items = buildClips();
 console.error(`${items.length} clips, engines ${engines.join(", ")}, variants ${variants.join(", ")}`);
 const rows = [];
@@ -420,7 +400,6 @@ for (const { engine, model } of recognizers) {
       if (engine === "apple" && language !== "en") continue;
       if (engine === "parakeet" && !PARAKEET[model].languages.includes(language)) continue;
       const setup = variantOf(variant, language);
-      // Parakeet hears the same with any vocabulary: one recognition serves every variant.
       const recognizeKey =
         engine === "parakeet"
           ? `any:${language}`
@@ -477,7 +456,6 @@ for (const { engine, model } of recognizers) {
 }
 for (const context of whisperContexts.values()) await (await context).release?.();
 
-// ---- report ----
 const percent = (value) => `${(100 * value).toFixed(1)}%`;
 function summarize(filter) {
   const picked = rows.filter(filter);

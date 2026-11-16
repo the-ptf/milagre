@@ -1,17 +1,14 @@
 const { z } = require("zod");
 
-/** The JSON Schema of a definition's input, for MCP's tools/list. */
 function inputSchema(definition) {
   const { $schema: _schema, ...schema } = z.toJSONSchema(z.object(definition.input));
   return schema;
 }
 
-/** Runs a definition with arguments checked against its input; failures come back as the tool's error text. */
 async function runTool(definition, args) {
   try {
     const parsed = (definition.strict ? z.strictObject(definition.input) : z.object(definition.input)).parse(args ?? {});
     const result = await definition.run(parsed);
-    // Only a design-style result ({ text, images }) carries images; an array or any other value is plain text.
     if (result && typeof result === "object" && !Array.isArray(result) && "text" in result)
       return { text: String(result.text ?? ""), images: Array.isArray(result.images) ? result.images : [], isError: false };
     return { text: String(result), images: [], isError: false };
@@ -24,7 +21,6 @@ async function runTool(definition, args) {
   }
 }
 
-/** Resolve definitions on every operation: grants, feature switches and Bot ownership can change between calls. */
 function createCommandDispatcher({ definitions }) {
   const find = (caller, name) => {
     const definition = definitions(caller).find((item) => item.name === name);
@@ -50,7 +46,6 @@ function createCommandDispatcher({ definitions }) {
   };
 }
 
-/** The owner RPC registry. Registration is also discovery; an adapter cannot omit a newly registered operation. */
 function createRuntimeCommands() {
   const definitions = new Map();
   return {
@@ -58,7 +53,6 @@ function createRuntimeCommands() {
       if (definitions.has(name)) throw new Error(`Duplicate command: ${name}`);
       definitions.set(name, { name, run, ...metadata });
     },
-    // Internal orchestration can reuse a handler while preserving its explicit context.
     get: (name) => definitions.get(name)?.run,
     methods: () => Object.freeze([...definitions.keys()]),
     list: () =>

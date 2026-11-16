@@ -45,7 +45,6 @@ import { useLiveDesign } from "./design-live";
 import { designPreviews, designPreviewKey, designLiveZoom, designPreviewScale } from "./design-preview-cache";
 import { createDesignVisibility, designDensity, subscribeDesignDensity } from "./design-visibility";
 
-/** A comment the user pinned on a design and hasn't sent yet. */
 export type DesignPin = {
   key: string;
   design: ArtifactRef;
@@ -53,23 +52,17 @@ export type DesignPin = {
   y: number;
   text: string;
   nodeId?: string;
-  /** On an Artifact page: the element it was pinned on (ARTIFACT_PAGE_SCRIPT's anchor) and the text near it. */
   anchor?: string;
   near?: string;
-  /** On an Artifact page split into tabs: the tab it was pinned on. */
   tab?: { id: string; title: string };
   resolved?: string;
-  /** A sent comment's id, as the host and the agent know it. */
   commentId?: string;
 };
-/** The comments pinned on the canvas, the one whose bubble is open, and what changes them. */
 export type PinControls = {
   showResolved?: boolean;
   pins: DesignPin[];
-  /** Comments already sent: shown where they were left, to read, not to change. */
   sent: DesignPin[];
   open: string | null;
-  /** Pins a new comment, its bubble open; returns its key. */
   onPin: (
     design: ArtifactRef,
     x: number,
@@ -80,10 +73,8 @@ export type PinControls = {
   onOpen: (key: string | null) => void;
   onText: (key: string, text: string) => void;
   onRemove: (key: string) => void;
-  /** Sends every comment waiting and the chosen design, as the Send button does. */
   onSend: () => void;
 };
-/** The design the user chose and sent, the one chosen but not sent yet, and what toggles it. */
 export type ChoiceControls = {
   sent: { id: string; version: number } | null;
   pending: ArtifactRef | null;
@@ -91,7 +82,6 @@ export type ChoiceControls = {
 };
 export type CanvasView = { x: number; y: number; scale: number };
 
-/** Screen spacing of the canvas dot grid: 24 canvas px, doubled as you zoom out so the dots never pack closer than 12 px into noise. */
 function dotStep(scale: number) {
   let step = 24 * scale;
   while (step < 12) step *= 2;
@@ -100,26 +90,19 @@ function dotStep(scale: number) {
 
 export type CanvasHandle = {
   zoomBy: (factor: number) => void;
-  /** Zooms to this scale (1 is 100%) about the middle of the view. */
   zoomTo: (scale: number) => void;
   fitAll: () => void;
 };
 
 const GAP = 80;
-// The title row above each frame, in screen pixels.
 const HEADER = 32;
-// A group's name above its block, in screen pixels, and the block's padding around its frames, in canvas pixels.
 const GROUP_LABEL = 30;
 const MIN_SCALE = 0.05;
-// Fit leaves this much room around the designs, in screen pixels; at the bottom, room for the zoom bar floating there
-// (ArtifactDock: 16px from the edge, 32px tall), so neither a frame nor the agent's cursor on it goes under the bar.
 const FIT_MARGIN = 24;
 const FIT_BOTTOM = 56;
 const MAX_SCALE = 2;
 const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
 
-// A version of a design never changes, so each is read from the host once and shared by every card, thumbnail and frame
-// showing it. The newest (no version asked) can change, so it is read each time. Kept for the last few dozen.
 const versionsRead = new Map<string, Promise<Artifact>>();
 const versionsKept = new Map<string, Artifact>();
 const fontReaders = new WeakMap<object, ReturnType<typeof createDesignFontReader<Artifact>>>();
@@ -153,7 +136,6 @@ export function readArtifact(chatId: string, id: string, version: number | null)
           versionsRead.delete(old);
         }
       },
-      // A read that failed is tried again next time.
       () => versionsRead.delete(key),
     );
   }
@@ -188,36 +170,23 @@ export function useArtifact(chatId: string | null, id: string, version: number |
   return chatId && (enabled || state.artifact?.format === "html") ? state : { artifact: null, error: null };
 }
 
-/** What an Artifact page's viewer keeps its helper told (ARTIFACT_PAGE_SCRIPT): sent again each time the page loads. */
 export type PageState = {
   mode?: { input: "mouse"; comment: boolean; cursor?: string };
   pins?: PagePin[];
-  /** The pin whose screen position the page reports as it scrolls. */
   watch?: string | null;
-  /** The zoom the page is shown at, so its pins keep their size on screen. */
   scale?: number;
-  /** A pin to scroll into view once the page has it; a new nonce asks again. */
   reveal?: { key: string; nonce: number };
 };
 
-/** An Artifact page's files, which its preview loads from the computer `chatId` is on (artifact:asset). */
 export type PageFiles = { chatId: string; assets: ArtifactAsset[] };
-/** The files an artifact shows, when it is an HTML page that has any. */
 export const pageFiles = (chatId: string | null | undefined, artifact: Artifact | null | undefined): PageFiles | undefined =>
   chatId && artifact?.format === "html" && artifact.assets?.length ? { chatId, assets: artifact.assets } : undefined;
-// The policy an isolated preview runs under (artifact-preview.cjs): its files load from the preview scheme.
 const PREVIEW_CSP = artifactCsp("milagre-artifact:");
 
-/** Sends a command to an Artifact page's helper. */
 export function tellPage(frame: HTMLIFrameElement | null, command: Record<string, unknown> & { t: string }) {
   frame?.contentWindow?.postMessage({ ...command, milagre: ARTIFACT_PAGE }, "*");
 }
 
-/**
- * A design runs in a sandbox with no same origin and a policy that blocks its own requests: it can't reach Milagre,
- * the Chat or the network. A preview also takes no input, so the card scrolls with the chat. An HTML artifact carries
- * the page helper: `page` is what it is told each time it loads, and `onPage` hears it.
- */
 export function ArtifactFrame({
   html,
   title,
@@ -234,9 +203,7 @@ export function ArtifactFrame({
   title: string;
   preview?: boolean;
   format?: "design" | "html";
-  /** An interactive design: the agent's HTML, run under DESIGN_CODE_CSP with its libraries from the pinned CDNs. */
   code?: boolean;
-  /** An Artifact page's files, which its `assets/<name>` references load. */
   files?: PageFiles;
   page?: PageState;
   onPage?: (message: ArtifactPageMessage) => void;
@@ -251,7 +218,6 @@ export function ArtifactFrame({
   pageRef.current = page;
   const onPageRef = useRef(onPage);
   onPageRef.current = onPage;
-  // Each part of the state goes to the page when it changes, and all of it again when the page says it is (again) ready.
   const tell = useCallback((all: boolean) => {
     const state = pageRef.current;
     if (!ready.current || !state) return;
@@ -295,13 +261,10 @@ export function ArtifactFrame({
   );
   const [registered, setRegistered] = useState<{ html: string; files: string; url: string } | null>(null);
   const [previewError, setPreviewError] = useState("");
-  // The same files keep the same preview; a file the page swaps registers it again.
   const filesKey = files ? `${files.chatId}\n${files.assets.map((asset) => `${asset.name}:${asset.hash}`).join("\n")}` : "";
   const filesRef = useRef(files);
   filesRef.current = files;
   useEffect(() => {
-    // An interactive design loads from the preview scheme too: a srcdoc frame would inherit the renderer's policy,
-    // which runs no script but the app's own.
     if ((format !== "html" && !code) || !window.milagre?.createArtifactPreview) return;
     let live = true;
     let url: string | undefined;
@@ -346,21 +309,14 @@ export function ArtifactFrame({
   );
 }
 
-/**
- * Every design of a Chat side by side, at the screen size each was made for. Drag the background or a frame's title
- * to pan, scroll to pan, and pinch or ⌘-scroll to zoom; scrolling over a design scrolls the design. In comment mode a
- * click on a design pins a comment there, written in a bubble beside the pin.
- */
 export const ArtifactCanvas = forwardRef<
   CanvasHandle,
   {
     chatId: string;
-    /** Images prepare during panel entry; full live frames wait for its animation. */
     allowLive?: boolean;
     designs: ArtifactRef[];
     versions: Record<string, number | null>;
     onVersion: (id: string, version: number | null) => void;
-    /** The design to bring into view, and a count that changes each time it is asked again. */
     focus: { id: string | null; nonce: number } | null;
     commenting: boolean;
     comments: PinControls;
@@ -376,21 +332,15 @@ export const ArtifactCanvas = forwardRef<
     if (viewport.current) return visibility.connect(viewport.current);
   }, [visibility]);
   const [view, setView] = useState<CanvasView>({ x: 40, y: 40, scale: 0.4 });
-  // One block per group once any design has one; until then the frames stay in one row, numbered across the blocks.
   const rows = useMemo(() => designGroups(designs), [designs]);
   const grouped = rows.some((row) => row.group);
-  // Until the user pans or zooms, the canvas keeps the asked-for design in view as frames load and change size.
   const moved = useRef(false);
   const viewRef = useRef(view);
   viewRef.current = view;
-  // The dock shows only the zoom: panning doesn't re-render it.
   useEffect(() => onView({ x: viewRef.current.x, y: viewRef.current.y, scale: view.scale }), [view.scale, onView]);
 
-  // Names and title rows keep their screen size, so they take more of the canvas at a smaller zoom: a fit that zooms
-  // out measures the designs a little short, and fits again once they are laid out at the new zoom.
   const refits = useRef(0);
   const refit = useRef(0);
-  // The user zooming or panning cancels a fit still settling: it would take the view back from them.
   const stopRefit = useCallback(() => {
     cancelAnimationFrame(refit.current);
     refits.current = 0;
@@ -401,7 +351,6 @@ export const ArtifactCanvas = forwardRef<
     const port = viewport.current,
       content = board.current;
     if (!port || !content) return;
-    // Fitting everything keeps the groups' blocks and names in view too.
     const frames = [
       ...content.querySelectorAll<HTMLElement>(
         id ? "[data-slot=artifact-frame]" : "[data-slot=artifact-frame], [data-slot=artifact-canvas-group], [data-slot=artifact-draft-frame]",
@@ -461,12 +410,10 @@ export const ArtifactCanvas = forwardRef<
     [fit, zoomAt],
   );
 
-  // A new focus (a card's Open) brings that design into view.
   useLayoutEffect(() => {
     moved.current = false;
     fit(focus?.id ?? undefined);
   }, [focus?.id, focus?.nonce, fit]);
-  // A panel edge being dragged resizes the canvas on every frame: it fits once, when the drag ends.
   const fitAfterDrag = useRef(false);
   const settled = useCallback(() => {
     if (moved.current) return;
@@ -489,7 +436,6 @@ export const ArtifactCanvas = forwardRef<
     };
   }, [settled]);
 
-  // A design an agent starts writing joins the view, until the user pans or zooms.
   const showDraft = useCallback(() => {
     if (!moved.current && !panelResizing()) fit();
   }, [fit]);
@@ -516,31 +462,22 @@ export const ArtifactCanvas = forwardRef<
     return () => port.removeEventListener("wheel", onWheel);
   }, [zoomAt, stopRefit]);
 
-  // The design taking the mouse, Figma-like: designs let wheel and drag pan the canvas until one is clicked, and a
-  // click elsewhere or Escape hands the mouse back to the canvas.
   const [active, setActive] = useState<string | null>(null);
   useEffect(() => {
     if (!active) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      // Leaves the design, not the canvas.
       event.preventDefault();
       setActive(null);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [active]);
-  // Escape pressed in a design (its frame has the focus, so the window never sees the key) arrives as a message: the
-  // focus comes back to the canvas and the key goes on as if pressed here, leaving the design, then comment mode,
-  // then the canvas. Only this canvas's own frames are listened to.
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.data !== ARTIFACT_ESCAPE || !event.source) return;
       const frames = board.current?.querySelectorAll("iframe") ?? [];
       if (![...frames].some((frame) => frame.contentWindow === event.source)) return;
-      // Blurring the frame leaves the focus inside it; focusing the canvas takes it out. The key starts from the canvas,
-      // as a real one would: dispatched on the window itself, its listeners would run in the order they were added,
-      // the canvas's capturing one no longer first.
       const port = viewport.current;
       if (!port) return;
       port.focus({ preventScroll: true });
@@ -556,7 +493,6 @@ export const ArtifactCanvas = forwardRef<
     return () => window.removeEventListener("message", onMessage);
   }, []);
   // `design` is the design a press started on: released without dragging, it hands that design the mouse. (The pointer
-  // capture that keeps a drag going sends the click to the canvas, so a click handler on the design never fires.)
   const drag = useRef<{
     pointer: number;
     x: number;
@@ -565,7 +501,6 @@ export const ArtifactCanvas = forwardRef<
     startY: number;
     design: string | null;
   } | null>(null);
-  // Whether the last press moved the canvas: a drag that starts on a design pans, and doesn't then select it.
   const dragged = useRef(false);
   const onPointerDown = (event: React.PointerEvent) => {
     const target = event.target as HTMLElement;
@@ -635,7 +570,6 @@ export const ArtifactCanvas = forwardRef<
             className={grouped ? "flex flex-col items-start" : "contents"}
           >
             {grouped && (
-              // The group's name and count, then a hairline across the row: a label, not a box around the designs.
               <div className="relative shrink-0 self-stretch" style={{ height: GROUP_LABEL / view.scale }}>
                 <div
                   className="absolute bottom-0 left-0 flex origin-bottom-left items-center gap-2 pb-2 text-13 whitespace-nowrap"
@@ -687,18 +621,15 @@ export const ArtifactCanvas = forwardRef<
   );
 });
 
-/** An option's letter within its row: A to Z, then AA, AB… */
 function optionLabel(index: number): string {
   return index < 26 ? String.fromCharCode(65 + index) : optionLabel(Math.floor(index / 26) - 1) + optionLabel(index % 26);
 }
 
-/** Whether a design steps back because another design in its row is chosen (waiting for Send, or sent). */
 function dimmedInRow(row: ArtifactRef[], id: string, choice: ChoiceControls): boolean {
   const chosen = choice.pending ?? choice.sent;
   return !!chosen && chosen.id !== id && row.some((design) => design.id === chosen.id);
 }
 
-// Memoized: panning re-renders the canvas, not its frames.
 const DesignFrame = memo(function DesignFrame({
   chatId,
   design,
@@ -718,7 +649,6 @@ const DesignFrame = memo(function DesignFrame({
 }: {
   chatId: string;
   design: ArtifactRef;
-  /** The option's letter within its group (A, B, C), as the agent's message and the Chat's cards name it. */
   label: string;
   /** Another option in the same group is chosen: this one steps back until the pointer is on it. */
   dimmed: boolean;
@@ -728,9 +658,7 @@ const DesignFrame = memo(function DesignFrame({
   comments: PinControls;
   choice: ChoiceControls;
   onSized: () => void;
-  /** Whether this design takes the mouse; until it does, wheel and drag over it move the canvas. */
   active: boolean;
-  /** The canvas zoom: a frame's title row stays this size on screen however far the canvas zooms. */
   scale: number;
   visibility: ReturnType<typeof createDesignVisibility>;
   allowLive: boolean;
@@ -747,17 +675,13 @@ const DesignFrame = memo(function DesignFrame({
     return () => clearTimeout(timer);
   }, [scale]);
   const [painted, setPainted] = useState<Artifact | null>(null);
-  // Following the newest unless the user stepped back; a revision the agent shows replaces what is in the frame, after
-  // the change plays back over it (`hold`, design-live.ts).
   const { live, hold } = useLiveDesign(chatId, design, version === null);
   const { artifact, error } = useArtifact(chatId, design.id, design.format === "html" ? null : (hold ?? version ?? design.version));
   const markPainted = useCallback((ready: boolean) => setPainted(ready ? artifact : null), [artifact]);
   const [editError, setEditError] = useState("");
-  // The shown version's export: the dialog renders it as JSON, SVG or PNG.
   const moreAnchor = useRef<HTMLSpanElement>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
-  // Delete asks once more in place: the first press arms it, the second deletes every version.
   const [deleting, setDeleting] = useState<"confirm" | "busy" | null>(null);
   const remove = async () => {
     setDeleting("busy");
@@ -780,7 +704,6 @@ const DesignFrame = memo(function DesignFrame({
     format: artifact?.format ?? design.format,
   };
   const last = Math.max(artifact?.latest ?? 1, design.version);
-  // Chosen and sent, or chosen here and waiting for Send; a pending choice of another design outranks a sent one.
   const pendingHere = choice.pending?.id === design.id && choice.pending.version === shown.version;
   const sentHere = !choice.pending && choice.sent?.id === design.id && choice.sent.version === shown.version;
   const isChosen = pendingHere || sentHere;
@@ -790,11 +713,9 @@ const DesignFrame = memo(function DesignFrame({
   const layerBounds = useMemo(() => (followsLayer && pinDocument ? designLayout(pinDocument) : null), [pinDocument, followsLayer]);
   const sentPins = comments.sent.flatMap((pin) => {
     if (pin.design.id !== design.id) return [];
-    // History can reveal one resolved comment; closing its bubble clears it from the canvas again.
     if (!comments.showResolved && pin.resolved !== undefined && pin.key !== comments.open) return [];
     if (pin.nodeId && layerBounds && shown.version >= pin.design.version) {
       const bounds = layerBounds.get(pin.nodeId);
-      // A layer's comments move with its current bounds; removed or hidden layers have no visible pin.
       return bounds
         ? [
             {
@@ -809,9 +730,7 @@ const DesignFrame = memo(function DesignFrame({
   });
   const go = (next: number) => onVersion(design.id, next >= last ? null : next);
   // The actions float over the frame's top edge while the pointer or focus is on it. Zoomed out too far for the chips,
-  // the row keeps the letter, the title and a chosen tick.
   const compact = width * scale < 200;
-  // Narrow on screen, the interactive chip keeps only its dot so the title has the room.
   const tight = width * scale < 320;
   const controls = (
     <>
@@ -866,7 +785,6 @@ const DesignFrame = memo(function DesignFrame({
                 title={isInteractiveDesign(artifact) ? "Download HTML" : "Export…"}
                 onClick={() => {
                   setMoreOpen(false);
-                  // An interactive design is its own page: it downloads as it is, with nothing to choose.
                   if (isInteractiveDesign(artifact)) downloadHtml(artifact.html, `${artifact.id}-v${artifact.version}.html`);
                   else setExporting(true);
                 }}
@@ -919,7 +837,6 @@ const DesignFrame = memo(function DesignFrame({
       )}
     </>
   );
-  // What the frame is, at a glance and always shown: interactive (live while it has the mouse), its version when it
   // has more than one, and chosen. The actions stay out of the way until the pointer or focus is on the frame.
   const chips = (
     <>
@@ -986,7 +903,6 @@ const DesignFrame = memo(function DesignFrame({
           </div>
         </div>
       </div>
-      {/* On the canvas colour, so a dimmed design steps back instead of letting the dot grid through. */}
       <div className="relative rounded-card bg-canvas" style={{ width, height }}>
         <div
           data-design-body
@@ -1022,12 +938,8 @@ const DesignFrame = memo(function DesignFrame({
           height={height}
           scale={scale}
         />
-        {!active && !commenting && (
-          // Over a design that doesn't have the mouse: wheel and drag reach the canvas, and a click (see endDrag) hands it the mouse.
-          <div data-slot="artifact-shield" aria-label={`Interact with ${shown.title}`} className="absolute inset-0 cursor-grab" />
-        )}
+        {!active && !commenting && <div data-slot="artifact-shield" aria-label={`Interact with ${shown.title}`} className="absolute inset-0 cursor-grab" />}
         {(commenting || framePins.length > 0 || sentPins.length > 0) && (
-          // Over the design, so a click pins a comment instead of reaching the design.
           <CommentLayer
             commenting={commenting}
             title={shown.title}
@@ -1068,7 +980,6 @@ const DesignFrame = memo(function DesignFrame({
   );
 });
 
-/** Saves an interactive design's HTML as a file, through the browser's download. */
 function downloadHtml(html: string, filename: string) {
   const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
   const link = window.document.createElement("a");
@@ -1078,7 +989,6 @@ function downloadHtml(html: string, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** Keyed by the artifact actually shown, including a live edit's held version. Readiness never crosses versions. */
 function CanvasDesignBody({
   artifact,
   files,
@@ -1104,8 +1014,6 @@ function CanvasDesignBody({
   const [preview, setPreview] = useState<Preview | null>(null);
   const [readyPreview, setReadyPreview] = useState<{ key: string; src: string } | null>(null);
   const [settledScale, setSettledScale] = useState<number | null>(null);
-  // Initial Fit runs in a parent layout effect. Follow it before the first paint; later gestures keep the painted
-  // image while their resolution settles, rather than rasterizing every bucket crossed along the way.
   const previewScale = readyPreview && settledScale !== null ? settledScale : designPreviewScale(scale);
   useEffect(() => {
     const timer = setTimeout(() => setSettledScale(designPreviewScale(scale)), 150);
@@ -1155,7 +1063,6 @@ function CanvasDesignBody({
   );
 }
 
-/** Request decode when src commits, so PNG loading and decoding overlap instead of waiting for load first. */
 const DecodedPreviewImage = memo(function DecodedPreviewImage({
   resourceKey,
   src,

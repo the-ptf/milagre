@@ -8,10 +8,6 @@ import { IconButton } from "./primitives/icon-button";
 import { PageScroll } from "./primitives/page-scroll";
 import { useTheme } from "./theme";
 
-/**
- * The passages quoted into the next message, in the order they were added, over the prompt: a pill each like an
- * attachment's tile, reading “the passage's start… on one line (as desktop). A row of them scrolls sideways.
- */
 export function QuoteChips({ quotes, onRemove, disabled = false }: { quotes: readonly ComposerQuote[]; onRemove: (id: string) => void; disabled?: boolean }) {
   const { colors } = useTheme();
   if (!quotes.length) return null;
@@ -50,10 +46,8 @@ export function QuoteChips({ quotes, onRemove, disabled = false }: { quotes: rea
   );
 }
 
-// A quote this long may run past three lines in a bubble: it opens on a tap.
 const LONG_QUOTE = 120;
 
-/** A quote at the head of a sent message: a bar and quieter text, three lines until tapped open. */
 export function SentQuote({ text, textPx }: { text: string; textPx: number }) {
   const { colors } = useTheme();
   const [open, setOpen] = useState(false);

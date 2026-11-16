@@ -1,4 +1,3 @@
-// Global switches are parsed locally. Command switches are checked against the selected owner's/scoped schema.
 function parseCommandArgs(args) {
   const values = {},
     positionals = [],

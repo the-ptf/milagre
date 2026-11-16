@@ -15,6 +15,8 @@ import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import { formatElapsed } from "@milagre/shared/display-clock";
 import { startRun } from "@milagre/shared/agent-runs";
 import "/src/styles.css";
+import { createDraftStore } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 window.milagre = Object.freeze({ listEditors: async () => [] });
 const noop = () => {};
 window.clock = 100000;
@@ -41,7 +43,7 @@ function Fixture() {
     <div data-rings style={{ display: "flex", alignItems: "center", gap: 4 }}>{[10, 12, 16].map(size => <SpinnerRing key={size} size={size} color="rgb(255, 0, 0)" />)}</div>
     <ChatComposer messages={[{ id: 1, session_id: chat === "a" ? 1 : 2, context: null, role: "user", body: "Check the chat timer" }]}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={true} sendBlocked={false}
+      projectPath="/fixture" store={draftStore} onSend={noop} isSending={true} sendBlocked={false}
       runStartedAt={runs[chat].startedAt} asking={asking}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={MODEL_CATALOG[0]} onModelChange={noop}
       capability={capabilityFor(MODEL_CATALOG[0], null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
@@ -112,7 +114,8 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector('.spinner-ring circle:last-child').getAttribute('stroke')`), "rgb(255, 0, 0)");
     const targets = `document.getAnimations().filter(a => ['spin', 'running-logo-glow', 'running-logo-twinkle'].includes(a.animationName))`;
     assert.equal(await evaluate(`${targets}.length >= 6 && ${targets}.every(a => a.effect.target instanceof HTMLSpanElement)`), true);
-    assert.equal(await evaluate(`getComputedStyle(document.querySelector('.spinner-ring')).animationTimingFunction`), "steps(15)");
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector('.spinner-ring')).animationTimingFunction`), "steps(30)");
+    assert.equal(await evaluate(`${targets}.every(a => a.startTime === 0)`), true, "spinners and the running logo step on one shared beat");
     assert.equal(await evaluate(`getComputedStyle(document.querySelector(".spinner-ring")).animationDuration`), "1.2s");
     assert.equal(await evaluate(`document.querySelector('.running-logo').getAttribute('aria-hidden')`), "true");
     assert.equal(await evaluate(`document.querySelectorAll('.running-logo > span > svg > path').length`), 3);

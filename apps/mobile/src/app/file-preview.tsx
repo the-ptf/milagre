@@ -13,7 +13,6 @@ import { Markdown } from "../markdown";
 import { ErrorNotice, HeaderButton, PageScroll, PillButton, useStyles } from "../ui";
 import { fileLinkFolder } from "@milagre/shared/file-link";
 
-/** The path to read, then `fallbacks` (a JSON list): files the Chat worked on that end with a path a reply named. */
 function previewPaths(path: string | undefined, fallbacks: string | undefined): string[] {
   if (!path) return [];
   try {
@@ -28,17 +27,12 @@ export default function FilePreview() {
   const styles = useStyles();
   const { path: named, uri, name: localName, fallbacks } = useLocalSearchParams<{ path?: string; uri?: string; name?: string; fallbacks?: string }>();
   const { client } = useSession();
-  // A path a reply named from the agent's subfolder misses under the Chat's folder: each file the Chat worked on that
-  // ends with it is read next. When none reads, the named path's own error shows.
   const paths = useMemo(() => previewPaths(named, fallbacks), [named, fallbacks]);
-  // Which of `paths` is read, and the named path's error once it missed; other paths start over.
   const [tried, setTried] = useState({ paths, attempt: 0, namedError: "" });
   const { attempt, namedError } = tried.paths === paths ? tried : { attempt: 0, namedError: "" };
   const path = paths[Math.min(attempt, Math.max(paths.length - 1, 0))];
   const read = useRpc<{ text: string; binary: boolean; truncated: boolean }>(path ? client : null, "attachment:preview", [path]);
   const tryNext = !!read.error && attempt < paths.length - 1;
-  // Adjusted while rendering, as React does for state that follows a value: the next read starts at once, and the miss
-  // that moved it on is no longer this path's.
   if (tryNext) setTried({ paths, attempt: attempt + 1, namedError: attempt === 0 ? read.error : namedError });
   const remote = {
     data: read.data,
@@ -66,7 +60,6 @@ export default function FilePreview() {
   }, [uri]);
   const { data, error } = uri ? local : remote;
   const name = localName || path?.split(/[\\/]/).pop() || "File preview";
-  // Markdown opens formatted, with the source a tap away. Relative links in it resolve against its own folder.
   const markdown = isMarkdownFile(name) && !!data?.text;
   const [formatted, setFormatted] = useState(true);
   const [downloading, setDownloading] = useState(false);
@@ -116,7 +109,6 @@ export default function FilePreview() {
       )}
       <PageScroll contentContainerStyle={{ padding: 16, gap: 12 }}>
         {!error && data?.binary && <Text style={styles.muted}>This file does not have a text preview.</Text>}
-        {/* With an icon the ring takes its place, so the percentage stays readable. */}
         <PillButton
           icon={Download04Icon}
           title={downloading ? `Downloading… ${downloadProgress}%` : "Download"}

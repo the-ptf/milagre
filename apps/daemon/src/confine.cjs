@@ -6,9 +6,7 @@ const REFUSED = "This demo computer only opens its demo project.";
 const MCP_REFUSED = "MCP servers are not shown on this demo computer.";
 const NOTIFICATIONS_OFF = "Notifications are off on the demo computer.";
 const TOO_LONG = "Messages to the demo computer are limited to 64 KB.";
-// A message body, in UTF-8 bytes.
 const MAX_BODY = 64 * 1024;
-// What daemon:status says about the Mac itself, left out for a confined phone.
 const HIDDEN_STATUS = ["dataDir", "socketPath", "pid", "uid", "methods", "commandDefinitions", "desktopCommands"];
 const failure = (status, message) => Object.assign(new Error(message), { status });
 const refused = () => failure(403, REFUSED);
@@ -22,14 +20,12 @@ const realOrNull = async (file) => {
 };
 
 const chatProject = (chatId) => (typeof chatId === "string" ? projectOfKey(chatId) : null);
-// The Project a Routine runs in, or null when its target names none.
 const routineProject = (routine) => {
   const target = routine?.target;
   if (target?.kind === "new-chat") return target.projectPath;
   if (target?.kind === "chat") return chatProject(target.chatId);
   return null;
 };
-// A file the phone attached: inside the folder, or one it uploaded itself.
 const attached = (file) => ({ file });
 const none = () => [];
 const denySimulator = () => {
@@ -39,12 +35,7 @@ const denied = () => {
   throw refused();
 };
 
-/**
- * The paths in each command the phone may call, by argument shape (see core's runtime). A command missing here is
- * refused while the bridge is confined, so a command added to the bridge later stays closed until it is listed.
- */
 const PATHS = Object.freeze({
-  // Simulators are machine-wide. A demo Project never grants access to the host's devices.
   "simulator:list": denySimulator,
   "simulator:attach": denySimulator,
   "simulator:detach": denySimulator,
@@ -56,23 +47,19 @@ const PATHS = Object.freeze({
   "simulator:input": denySimulator,
   "simulator:repair": denySimulator,
   "simulator:close": denySimulator,
-  // The owner's Experimental switch for device notes.
   "device-notes:read": denied,
   "device-notes:save": denied,
-  // Computer use drives the owner's own desktop apps. A demo Project never reaches it.
   "computer-use:settings:read": denied,
   "computer-use:settings:save": denied,
   "computer-use:status": denied,
   "computer-use:guide": denied,
   "computer-use:frame": denied,
-  // Simlock leases run on the owner's machines with the owner's token. A demo Project never reaches them.
   "simlock:settings:read": denySimulator,
   "simlock:settings:save": denySimulator,
   "simlock:identity": denySimulator,
   "simlock:models": denySimulator,
   "simlock:lease": denySimulator,
   "simlock:release": denySimulator,
-  // Browsers on the host can hold the owner's signed-in sessions. A demo Project never reaches them.
   "browser:list": denied,
   "browser:attach": denied,
   "browser:open": denied,
@@ -85,7 +72,6 @@ const PATHS = Object.freeze({
   "browser:control": denied,
   "browser:input": denied,
   "browser:close": denied,
-  // A Terminal runs any command as the owner of this computer. A demo Project never opens one.
   "terminal:list": denied,
   "terminal:profiles": denied,
   "terminal:setShell": denied,
@@ -94,7 +80,6 @@ const PATHS = Object.freeze({
   "terminal:input": denied,
   "terminal:resize": denied,
   "terminal:close": denied,
-  // A design is read through its Chat, which must be in the folder.
   "artifact:get": ([value]) => [chatProject(value?.chatId)],
   "artifact:asset": ([value]) => [chatProject(value?.chatId)],
   "artifact:delete": denied,
@@ -107,11 +92,8 @@ const PATHS = Object.freeze({
   "artifact:revoke-saved-page-share": denied,
   "artifact:add-comments": ([value]) => [chatProject(value?.chatId)],
   "artifact:comments": ([value]) => [chatProject(value?.chatId)],
-  // Page comments are read through their Chat, which must be in the folder. Sending one reads the page under the
-  // pin, a desktop browser page, and a confined phone sees no browser pages.
   "browser-comments:list": ([value]) => [chatProject(value?.chatId)],
   "browser-comments:send-from-page": denied,
-  // Live Activities summarize every open Project and Link, beyond a confined demo folder.
   "live-activity:state": denied,
   "live-activity:open": denied,
   "live-activity:answer": denied,
@@ -122,9 +104,7 @@ const PATHS = Object.freeze({
   "daemon:status": none,
   "project:recent": none,
   "project:known": none,
-  // Named Links span Projects. The single-folder demo must never expose them.
   "project:registry": denied,
-  // Canvas Links reach other Projects too, so the demo has none.
   "canvas:links": denied,
   "canvas:link-add": denied,
   "canvas:link-remove": denied,
@@ -138,18 +118,12 @@ const PATHS = Object.freeze({
   "link:open": denied,
   "link:send": denied,
   "project:open": ([projectPath]) => [projectPath],
-  // A clone makes a folder wherever the phone names, so a phone confined to one folder never starts one.
   "onboarding:clone": denied,
-  // The Chats home is the Mac's own folder, outside any demo folder.
   "chats:home": denied,
   "chats:ensure": denied,
-  // Takes a Project off the recent list; its folder is never touched.
   "project:forget": ([projectPath]) => [projectPath],
-  // The search names no path; its results are cut down to the folder (filterResult).
   "project:find": none,
-  // A folder's children are read: inside the folder.
   "project:scan-children": ([folder]) => [folder],
-  // The switch reaches every folder added on the Mac, so a confined phone only reads it.
   "folder-repos:detect:read": none,
   "folder-repos:detect:save": denied,
   "project:image": ([projectPath]) => [projectPath],
@@ -158,60 +132,42 @@ const PATHS = Object.freeze({
   "project-git:save": ([projectPath]) => [projectPath],
   "main-sync:read": ([projectPath]) => [projectPath],
   "main-sync:save": ([projectPath]) => [projectPath],
-  // The global default names no folder. Changing it reaches every Project on the Mac, so a confined phone only reads it.
   "main-sync:default:read": none,
   "main-sync:default:save": denied,
-  // The Mac's Linear connection names no folder. A confined phone reads it; the switches reach every Project, so it can't flip them.
   "linear:status": none,
-  // A triage session names the host's profile and every agent CLI, beyond a confined demo folder.
   "triage:prepare": denied,
   "linear:enabled:read": none,
   "linear:enabled:save": denied,
   "designs:enabled:read": none,
   "designs:enabled:save": denied,
   "linear:move-to-started:save": denied,
-  // Auto-switch after a usage limit names no folder and reaches every Project's accounts: a confined phone only reads it.
   "limits:auto-switch:read": none,
   "limits:auto-switch:save": denied,
   "limits:resume-at-reset:read": none,
   "limits:resume-at-reset:save": denied,
-  // Auto update restarts the whole Mac's Milagre: a confined phone only reads the switch.
   "app-update:auto:read": none,
-  // Memory and disk totals name no folder.
   "computer:resources:read": none,
-  // The cleanup lists and removes worktrees of every Project on the Mac: a demo phone does neither.
   "storage:worktrees": denied,
   "storage:remove-worktree": denied,
   "app-update:auto:save": denied,
-  // The desktop app's update names no folder. A confined phone sees it; a check or an install restarts the whole Mac's
-  // Milagre, so it starts neither.
   "app-update:state": none,
   "app-update:check": denied,
   "app-update:install": denied,
-  // The Browser panel's sign-ins name no folder. A confined phone sees whose there are; signing out reaches every
-  // Chat's pages on the Mac, so it can't.
   "browser:sign-ins": none,
   "browser:sign-ins:clear": denied,
-  // Keybindings name no folder: a confined phone reads the rules of the Mac it is paired with and can't change them.
   "keybindings:read": none,
   "keybindings:set-command": denied,
   "keybindings:reset-command": denied,
   "keybindings:reset": denied,
-  // Babysit PRs settings name no folder, but their level and instructions go into every future babysit Run in every Chat
-  // on the Mac: a confined phone only reads them.
   "context:settings:read": none,
   "context:settings:save": denied,
   "babysit:settings:read": none,
   "babysit:settings:save": denied,
-  // How long Done Chats wait before archiving applies to every Project on the Mac: a confined phone only reads it.
   "done:settings:read": none,
   "done:settings:save": denied,
-  // Routines send prompts into any Chat on the Mac: a confined phone sees its own Project's (filterResult) and the switch,
-  // and changes nothing.
   "routines:enabled:read": none,
   "routines:list": none,
   "routines:targets": none,
-  // The owner's Linear workspaces, teams, labels and states feed only the form a confined phone can't save.
   "routines:linear-options": denied,
   "routines:enabled:save": denied,
   "routines:update": denied,
@@ -220,10 +176,8 @@ const PATHS = Object.freeze({
   "routines:flow-act": denied,
   "routines:flow-test": denied,
   "routines:create": denied,
-  // A webhook URL reaches this Mac from anywhere: a confined phone neither reads nor makes one.
   "routines:hook": denied,
   "routines:rotate-hook": denied,
-  // Issues name no folder. A Project's worktree issues name the Project's folder, like its other reads.
   "linear:issues": none,
   "linear:worktree-issues": ([projectPath]) => [projectPath],
   "chat:runs": none,
@@ -240,7 +194,6 @@ const PATHS = Object.freeze({
     ...(Array.isArray(request?.files) ? request.files.map(attached) : []),
   ],
   "chat:resume": ([projectPath]) => [projectPath],
-  // Moves the Chat's Project to another account, like accounts:assign, then continues the Chat.
   "chat:limit-switch": ([projectPath]) => [projectPath],
   "chat:limit-resume": ([projectPath]) => [projectPath],
   "chat:limit-resume:cancel": ([projectPath]) => [projectPath],
@@ -266,7 +219,6 @@ const PATHS = Object.freeze({
   "mcp:saveUrl": none,
   "mcp:remove": none,
   "mcp:toggle": none,
-  // Local connection grants are computer-wide and must never be issued by a confined demo.
   "local-mcp:status": denied,
   "local-mcp:create": denied,
   "local-mcp:update": denied,
@@ -275,7 +227,6 @@ const PATHS = Object.freeze({
   "local-mcp:enableClient": denied,
   "local-mcp:disableClient": denied,
   "usage:read": (args) => (args[0] == null ? [] : [args[0]]),
-  // Token usage names every Project and folder an agent ran in on the Mac.
   "token-usage:read": denied,
   "usage:cached": (args) => (args[0] == null ? [] : [args[0]]),
   "usage:accounts:read": denied,
@@ -301,9 +252,7 @@ const PATHS = Object.freeze({
   "project:branches": ([projectPath]) => [projectPath],
   "attachment:preview": ([file]) => [attached(file)],
   "attachment:read": ([file]) => [attached(file)],
-  // A null Project (user skills only) is refused: confined, the phone sees no user skills.
   "skills:list": ([projectPath]) => [projectPath],
-  // The file search for the phone's @ menu: the root must be inside the folder; it names no other path.
   "project:files": ([root]) => [root],
   "skills:read": ([projectPath, file]) => [projectPath, file],
   "dictation:context": ([value]) => (value?.scope == null ? [value?.cwd] : [value?.cwd, value.scope]),
@@ -329,18 +278,11 @@ const PATHS = Object.freeze({
   "pr:set-labels": ([value]) => [value?.cwd],
   "pr:reviewer-candidates": ([value]) => [value?.cwd],
   "pr:request-reviewers": ([value]) => [value?.cwd],
-  // The roots name no path the phone sent; the answer is cut down to the folder (filterResult).
   "worktree:roots": none,
   "worktree:status": ([worktreePath]) => [worktreePath],
-  // The worktree, its project, and the Chat whose agent the daemon closes before it looks again.
   "worktree:remove": ([worktreePath, options]) => [worktreePath, options?.projectPath, ...(options?.chatId === undefined ? [] : [chatProject(options.chatId)])],
 });
 
-/**
- * Keeps a paired phone inside one folder: every project path, worktree path, cwd and file path it sends must already
- * be canonical (equal to its realpath, so no `..`, `.` or symlink in it) and inside `allowedRoot`. Files the phone
- * uploaded itself (`uploadsDir`) may also be attached and shown. Anything else is a 403.
- */
 function createConfinement({ allowedRoot, uploadsDir }) {
   if (typeof allowedRoot !== "string" || !path.isAbsolute(allowedRoot)) throw new Error("allowedRoot must be an absolute path");
   let root;
@@ -351,7 +293,6 @@ function createConfinement({ allowedRoot, uploadsDir }) {
     return root;
   };
 
-  /** Whether `target` resolves inside the folder (or, with `uploads`, inside the phone's own uploads). */
   async function allows(target, { uploads = false } = {}) {
     if (typeof target !== "string" || !path.isAbsolute(target) || target.includes("\0")) return false;
     const real = await realOrNull(target);
@@ -366,14 +307,9 @@ function createConfinement({ allowedRoot, uploadsDir }) {
     if (!(await allows(target, options))) throw refused();
   }
 
-  /**
-   * Checks a command before it reaches the daemon. Resolves to `{ args }` to forward (possibly cleaned), or to
-   * `{ result }` when the bridge answers it itself; throws a 403 (or 400, 413) otherwise.
-   */
   async function checkCall(method, args) {
     const paths = PATHS[method];
     if (!paths || !Array.isArray(args)) throw refused();
-    // No push device is ever registered, so there is nothing to unregister or focus, and no daemon state to grow.
     if (method === "accounts:list") return { result: { providers: [] } };
     if (method === "usage:accounts:read" || method === "usage:accounts:cached") return { result: { providers: [] } };
     if (method === "accounts:scopes") return { result: [] };
@@ -384,7 +320,6 @@ function createConfinement({ allowedRoot, uploadsDir }) {
     if (method === "push:unregister") return { result: { registered: false } };
     if (method === "push:focus") return { result: null };
     if (method === "chat:send") args = [sendRequest(args[0])];
-    // The daemon reads only the Projects inside the folder for it, so the phone never makes it read another one.
     if (method === "routines:targets") args = [{ within: await realRoot() }];
     for (const item of paths(args)) {
       if (item && typeof item === "object" && "file" in item) await check(item.file, { uploads: true });
@@ -393,10 +328,6 @@ function createConfinement({ allowedRoot, uploadsDir }) {
     return { args };
   }
 
-  /**
-   * What a command answers, cut down to the folder: the recent list, the turns running elsewhere, the worktree roots
-   * outside it and what the daemon says about the Mac. A project:open that landed outside the folder (a subfolder of a bigger repository) is refused.
-   */
   async function filterResult(method, result) {
     if (method === "skills:list" && result && Array.isArray(result.skills)) {
       const kept = await Promise.all(result.skills.map((skill) => skill.scope === "bundled" || (skill.scope === "workspace" && allows(skill.path))));
@@ -425,8 +356,6 @@ function createConfinement({ allowedRoot, uploadsDir }) {
       const kept = await Promise.all(entries.map(([chatId]) => allows(chatProject(chatId))));
       return { ...result, runs: Object.fromEntries(entries.filter((_entry, index) => kept[index])) };
     }
-    // A Routine shows only when the Project it runs in (a new Chat's, or its Chat's) is inside the folder. One whose Project
-    // can't be told (a Link's Chat, a folder that's gone, a target it doesn't know) stays hidden.
     if (method === "routines:list" && result && Array.isArray(result.routines)) {
       const kept = await Promise.all(result.routines.map((routine) => allows(routineProject(routine))));
       return { ...result, routines: result.routines.filter((_routine, index) => kept[index]) };
@@ -448,7 +377,6 @@ function createConfinement({ allowedRoot, uploadsDir }) {
   return { allows, check, checkCall, filterResult, root: realRoot };
 }
 
-/** A chat:send request with a bounded body, a list of files, and images that carry their bytes but no Mac path. */
 function sendRequest(request) {
   if (!request || typeof request !== "object" || Array.isArray(request)) throw refused();
   if (typeof request.body === "string" && Buffer.byteLength(request.body) > MAX_BODY) throw failure(413, TOO_LONG);

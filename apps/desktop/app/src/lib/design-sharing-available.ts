@@ -75,13 +75,11 @@ function storeFor(bridge: MilagreBridge, kind: PageKind): Store {
   return store;
 }
 
-/** One health check per host, shared by the review canvas and editor. Unknown or older hosts keep Share hidden. */
 export function useDesignSharingAvailable(chatId: string, kind: PageKind = "designs") {
   const store = storeFor(bridgeForKey(chatId), kind);
   return useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
 }
 
-/** A newer dialog check also updates the page entry points, including a service failure after opening. */
 export function confirmDesignSharingAvailability(chatId: string, available: boolean, kind: PageKind = "designs") {
   storeFor(bridgeForKey(chatId), kind).confirm(available);
 }

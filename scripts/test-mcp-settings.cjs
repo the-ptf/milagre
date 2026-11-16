@@ -101,7 +101,6 @@ async function browserChecks() {
   };
   const text = () => evaluate("document.body.textContent");
   const click = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
-  // React tracks input values itself; set through the native setter, then fire input.
   const type = (selector, value) =>
     evaluate(`(() => {
       const input = document.querySelector(${JSON.stringify(selector)});
@@ -124,7 +123,6 @@ async function browserChecks() {
     await win.loadURL(process.argv[2]);
     await waitFor(`!!window.releaseAccounts`);
     await evaluate("window.releaseAccounts()");
-    // linear needs a sign-in: Needs sign-in offers the sign-in, and Your servers still lists it (switches, Edit, Remove).
     await waitFor(`!!document.querySelector('[data-mcp-attention="linear"]')`);
     await waitFor(`!document.body.textContent.includes('Checking')`);
     assert.equal(await evaluate(`!!document.querySelector('[data-mcp-row="linear"]')`), true);
@@ -140,7 +138,6 @@ async function browserChecks() {
     await shot("mcp-page-dark");
     await evaluate("document.documentElement.classList.remove('dark')");
 
-    // A row opens in place and lists each account with a switch.
     assert.ok(await evaluate(`!!document.querySelector('[data-mcp-row="pencil"]')`));
     await click('[data-mcp-row="pencil"] button');
     await waitFor(`document.querySelector('[data-mcp-row="pencil"]').dataset.open === 'true'`);
@@ -148,7 +145,6 @@ async function browserChecks() {
       `(() => { const el = document.querySelector('[data-mcp-switch="claude:default:pencil"]'); return !!el && el.getBoundingClientRect().height > 0; })()`,
     );
     await shot("mcp-open-row");
-    // A toggle re-checks only its account, and the rows stay on screen while it does.
     const accountsBefore = await evaluate("window.accountsCalls");
     await evaluate("window.checkDelay = 300");
     assert.equal(
@@ -164,7 +160,6 @@ async function browserChecks() {
     }
     await waitFor(`!document.body.textContent.includes('Checking')`);
     assert.equal(await evaluate("window.accountsCalls"), accountsBefore);
-    // Refresh keeps the old rows until the new answers replace them.
     assert.equal(
       await evaluate(`(() => { document.querySelector('[aria-label="Refresh"]').click(); return !!document.querySelector('[data-mcp-row="pencil"]'); })()`),
       true,
@@ -174,7 +169,6 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('[aria-label="Refresh"]').disabled`);
     await evaluate("window.checkDelay = 0");
 
-    // Edit with a masked header: focusing and leaving the value keeps the stored secret.
     await click('[data-mcp-row="pencil"] [data-mcp-edit]');
     await waitFor(`!!document.querySelector('[data-mcp-sheet]')`);
     const value = `document.querySelector('[data-mcp-sheet] input[aria-label="Value"]')`;
@@ -192,13 +186,11 @@ async function browserChecks() {
     await delay(200);
     assert.equal(await evaluate("window.signedIn"), null, "an edit never starts a sign-in");
     await evaluate("window.saved = undefined");
-    // A server whose settings can't be read says so instead of doing nothing.
     await evaluate("window.noDefinition = true");
     await click('[data-mcp-row="pencil"] [data-mcp-edit]');
     await waitFor(`document.body.textContent.includes("Couldn’t read this server’s settings. Edit it in its CLI config.")`);
     await evaluate("window.noDefinition = false");
 
-    // An SSE server stays SSE through an edit.
     await openRow("supabase");
     // Off in Codex's own config: the line says so and Milagre's switch can't turn it on.
     assert.ok(await evaluate(`document.querySelector('[data-mcp-row="supabase"]').textContent.includes('Off in Codex’s config')`));
@@ -213,7 +205,6 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('[data-mcp-sheet]')`);
     await evaluate("window.saved = undefined");
 
-    // A command server: an argument with a space survives an env-only edit, and the masked env value is replaced.
     await openRow("argent");
     await click('[data-mcp-row="argent"] [data-mcp-edit]');
     await waitFor(`!!document.querySelector('[data-mcp-sheet] textarea[aria-label="Arguments"]')`);
@@ -235,7 +226,6 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('[data-mcp-sheet]')`);
     await evaluate("window.saved = undefined");
 
-    // A failed account: the summary counts it and a red alert sits next to it.
     assert.ok(
       await evaluate(
         `(() => { const row = document.querySelector('[data-mcp-row="argent"]'); return row.textContent.includes('2 of 3 connected') || !!row.querySelector('[data-mcp-failed]'); })()`,
@@ -243,7 +233,6 @@ async function browserChecks() {
     );
     assert.ok(await evaluate(`!!document.querySelector('[data-mcp-row="argent"] [data-mcp-failed]')`));
 
-    // Sign in: the row waits for the browser, and comes back when the last account finishes.
     await click('[data-mcp-sign-in="linear"]');
     await waitFor(`window.signedIn && window.signedIn[0] === 'linear'`);
     await waitFor(`document.querySelector('[data-mcp-attention="linear"]').textContent.includes('Finish in your browser, then come back.')`);
@@ -251,7 +240,6 @@ async function browserChecks() {
     await evaluate(`window.mcpChanged({ name: 'linear', provider: 'claude', accountId: 'default', signIn: 'done', last: true })`);
     await waitFor(`!!document.querySelector('[data-mcp-sign-in="linear"]')`);
 
-    // Projects, plugins and claude.ai open in place.
     const url = await evaluate("location.href");
     await click("[data-mcp-other]");
     await waitFor(`document.body.textContent.includes('Plugin · engineering') && document.body.textContent.includes('claude.ai connectors')`);
@@ -259,7 +247,6 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-mcp-other]').scrollIntoView()`);
     await shot("mcp-other");
 
-    // The catalog hides raw configuration, filters by service, and isolates credentials between selections.
     await click("[data-mcp-add]");
     await waitFor(`!!document.querySelector('[data-mcp-catalog]')`);
     await waitFor(`document.activeElement?.getAttribute('aria-label') === 'Search services'`);
@@ -311,13 +298,11 @@ async function browserChecks() {
     ]);
     await evaluate("window.saved = undefined");
 
-    // Add: Everywhere by default; a bad name is refused before any save.
     await click("[data-mcp-add]");
     await waitFor(`!!document.querySelector('[data-mcp-sheet]')`);
     await click("[data-mcp-custom]");
     assert.match(await evaluate(`document.querySelector('[data-mcp-sheet] input[type="radio"]:checked').closest('label').textContent`), /Everywhere/);
     await waitFor(`document.activeElement && document.activeElement.getAttribute('aria-label') === 'Name'`);
-    // Switching URL and Command drops the headers typed for the other kind.
     await type('[data-mcp-sheet] input[aria-label="Header"]', "X-Team");
     await click('[data-mcp-sheet] [data-mcp-kind="command"]');
     await waitFor(`document.querySelector('[data-mcp-sheet] input[aria-label="Variable"]').value === ''`);
@@ -340,9 +325,7 @@ async function browserChecks() {
     );
     assert.equal(await evaluate("window.saved.length === 3 && window.saved[2] === undefined"), true);
     await waitFor(`!document.querySelector('[data-mcp-sheet]')`);
-    // "Add and sign in": the new server needs a sign-in, so it starts one.
     await waitFor(`window.signedIn && window.signedIn[0] === 'docs'`);
-    // Remove asks first, naming every place, then reaches Everywhere and every provider config that holds the server.
     await openRow("pencil");
     await click('[data-mcp-row="pencil"] [data-mcp-remove]');
     await waitFor(`!!document.querySelector('[data-mcp-row="pencil"] [data-mcp-remove-question]')`);
@@ -363,7 +346,6 @@ async function browserChecks() {
         ["pencil", "codex"],
       ]),
     );
-    // One config failing doesn't stop the rest, and the failure is reported once, by place.
     await evaluate("window.failRemove = 'claude'; window.removeAttempts = []");
     await openRow("argent");
     await click('[data-mcp-row="argent"] [data-mcp-remove]');

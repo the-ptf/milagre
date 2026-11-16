@@ -1,7 +1,6 @@
 const BASE = "https://exp.host/--/api/v2/push/";
 const RETRYABLE = new Set(["MessageRateExceeded"]);
 
-/** One outgoing request at a time, a bounded queue, and receipt checks independent of agent turns. */
 function createExpoPush({
   fetcher = fetch,
   accessToken = process.env.EXPO_PUSH_ACCESS_TOKEN,

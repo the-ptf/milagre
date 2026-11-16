@@ -9,20 +9,11 @@ import { Counts, STATUS_CELL, StatusBox } from "./DiffIndicators";
 
 export type TreeProps = { onSelectFile: (path: string) => void; activePath?: string; commentCounts?: Record<string, number> };
 
-/** Up to this many files a section lists them flat (name, then folder); more get the folder tree. */
 export const FLAT_LIST_MAX = 10;
 
-/**
- * A small change set as one flat list in a grid, so every row's folder starts at one x. The folder is shortened by whole
- * segments (fitFolder) to its room and the full path is the row's tooltip. At the panel's usual width an inline folder
- * column would get about 60px, too little for even "apps/mobile/…/hooks", so the folder sits under the name; from 440px
- * it takes its own column after the names.
- */
 export function FlatList({ files, onSelectFile, activePath, commentCounts }: { files: DiffFileEntry[] } & TreeProps) {
   return (
     <div className="@container">
-      {/* The outer 6px columns (plus the 6px gaps) are the rows' 12px insets: a subgrid row can't take padding of its own
-          without its cells overrunning the shared tracks. */}
       <div
         data-diff-flat-list
         className="grid grid-cols-[6px_16px_minmax(0,1fr)_auto_auto_16px_6px] gap-x-1.5 @[440px]:grid-cols-[6px_16px_fit-content(45%)_minmax(0,1fr)_auto_auto_16px_6px]"
@@ -37,7 +28,6 @@ export function FlatList({ files, onSelectFile, activePath, commentCounts }: { f
               data-diff-tree-file={file.path}
               aria-current={activePath === file.path}
               onClick={() => onSelectFile(file.path)}
-              // Two lines when narrow: the glyph, counts and badge sit on the name's 18px line, the folder runs alone below.
               className={`col-span-full grid h-10 grid-cols-subgrid items-start py-[3px] text-left text-13 transition-colors hover:bg-hover @[440px]:h-7 @[440px]:items-center @[440px]:py-0 ${activePath === file.path ? "bg-hover" : ""}`}
             >
               <span className="col-start-2 flex h-[18px] w-4 items-center text-ink-3">
@@ -78,7 +68,6 @@ export function FlatList({ files, onSelectFile, activePath, commentCounts }: { f
   );
 }
 
-/** A folder at the width its grid cell leaves it, measured with the cell's own font whenever the cell resizes. */
 function FolderPath({ path }: { path: string }) {
   const cell = useRef<HTMLSpanElement>(null);
   const [text, setText] = useState(path);
@@ -110,7 +99,6 @@ export function Tree({ nodes, depth, ...rest }: { nodes: DiffTreeNode<DiffFileEn
   return (
     <>
       {nodes.map((node) => (
-        // A lone top folder's totals are the section's own, shown once in its header.
         <TreeRow key={node.path} node={node} depth={depth} hideTotals={depth === 0 && nodes.length === 1} {...rest} />
       ))}
     </>

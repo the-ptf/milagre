@@ -43,14 +43,12 @@ import { EmptyState, ErrorNotice, HeaderButton, InlineError, PageScroll, RowChec
 
 type Targets = { projects: { path: string; chats: { chatId: string; title: string }[] }[] };
 
-/** The Projects a Routine's Run Chats live in: where it opens them (a Heartbeat's own Chat's), and where its Runs' Chats are. */
 function routineProjects(routine: RoutineWithRuns | undefined) {
   if (!routine) return [];
   const own = routine.target.kind === "chat" ? projectOfKey(routine.target.chatId) : routine.target.projectPath;
   return [own, ...(routine.runs ?? []).flatMap((run) => (run.chatId ? [projectOfKey(run.chatId)] : []))];
 }
 
-/** Leaves the page, once however many ask: back, or to the Routines list when it was opened with nothing behind it. */
 function leave(left: { current: boolean }) {
   if (left.current) return;
   left.current = true;
@@ -58,23 +56,14 @@ function leave(left: { current: boolean }) {
   else router.replace("/routines");
 }
 
-/** A Routine's setting as a static Tag, as desktop's chips: its icon and words. */
 function SettingChip({ icon, text }: { icon: IconData; text: string }) {
   return <Tag icon={icon} label={text} />;
 }
 
-/** "On" in green, or "Paused" in grey, under the Routine's name. */
 function StatePill({ on }: { on: boolean }) {
   return <Tag tone={on ? "green" : "neutral"} dot label={on ? "On" : "Paused"} />;
 }
 
-/**
- * One Routine, as desktop's Routine page: On or Paused with its switch, its settings as chips, when it runs next and last
- * ran, then its Runs by day, filtered by All, Acted, Failed or Unread, with the stretches that did nothing folded. Run now
- * and Edit sit in the header; Delete is in Edit. A babysit Heartbeat has no Edit (no form edits it): the Routines list's
- * menu deletes it.
- */
-/** This phone's time zone: a schedule chip in another one names its zone. */
 const deviceZone = () => new Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export default function RoutineScreen() {
@@ -84,21 +73,14 @@ export default function RoutineScreen() {
   const { client } = session;
   const routines = useRoutines(client);
   const routine = routines.routines.find((item) => item.id === id);
-  // An older Mac may list a Routine without its Runs.
   const runs = routine?.runs ?? [];
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
   const [filter, setFilter] = useState<RunFilter>("all");
-  // "Today 10:15" becomes "Yesterday 10:15" with the app's shared half-minute clock.
   const now = useActivityClock(true);
-  // Each new Run or status reads its Projects again, so its Chat opens and its dot shows.
   const states = useProjectStates(routineProjects(routine), runs.map((run) => `${run.id}:${run.status}`).join(","));
   const unreadChats = useMemo(() => unreadRunChats(states), [states]);
-  // A Heartbeat's Where chip names its Chat.
   const targets = useRpc<Targets>(routine?.target.kind === "chat" ? client : null, "routines:targets", []).data;
-  // A Routine deleted (from this page, or anywhere else) takes its page with it, as on desktop: once the Mac's list has been
-  // read and no longer holds it, go back. Not while the list is still loading, or after a read that failed, or when the
-  // Mac's Routines are off. A page with another screen on top (the Edit form) goes when it is back in view.
   const left = useRef(false);
   const gone = !routine && routines.enabled !== null && !routines.loading && !routines.error;
   useFocusEffect(
@@ -122,11 +104,9 @@ export default function RoutineScreen() {
       setStarting(false);
     }
   };
-  // Linear and webhook Routines run only on their event; the scheduler refuses Run now for them.
   const runnable = Boolean(routine && client && canRunNow(routine));
   const canStart = runnable && Boolean(routine?.enabled) && !starting;
   const editable = !routine || canEditRoutine(routine);
-  // Stack.Toolbar takes its buttons as direct children (a Fragment is refused), so each slot picks its own element.
   const toolbar = (
     <Stack.Toolbar placement="right">
       {runnable ? (
@@ -161,7 +141,6 @@ export default function RoutineScreen() {
       </>
     );
 
-  // A flow has a page of its own: its steps, its Runs step by step, and its settings (flow-routine.tsx).
   if (routine.flow) return <FlowRoutineScreen routine={routine} initialTab={tab === "runs" || tab === "settings" ? tab : "steps"} />;
 
   const openChat = (key: string) =>
@@ -174,7 +153,6 @@ export default function RoutineScreen() {
   const canOpen = (key: string) => canOpenRunChat(states, key);
   const unread = (run: RoutineRun) => Boolean(run.chatId && unreadChats.has(run.chatId) && canOpen(run.chatId));
   const counts = runFilterCounts(runs, unread);
-  // A filter whose Runs are all gone (the last unread one read) falls back to All.
   const shownFilter = filter !== "all" && counts[filter] === 0 ? "all" : filter;
   const filters = (
     [
@@ -206,7 +184,6 @@ export default function RoutineScreen() {
           </View>
           <RowCheckbox label={`${routine.name} on`} selected={routine.enabled} onPress={flip} />
         </View>
-        {/* The chips scroll sideways when they don't fit, edge to edge. */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}

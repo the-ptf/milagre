@@ -1,22 +1,17 @@
 // Token usage read from the agent CLIs' own transcripts: Claude Code's projects/**/*.jsonl and Codex's
-// sessions/**/*.jsonl. Each file is read once and then only from where the last scan stopped, so a scan after the first
-// costs a stat per file. What a file held stays in the cache after the CLI deletes it (Claude keeps 30 days by default).
 const fs = require("node:fs");
 const path = require("node:path");
 
 const CACHE_VERSION = 3;
 const HOUR = 3_600_000;
-// Rows older than this leave the cache; the page shows at most 90 days.
 const KEEP_MS = 400 * 24 * HOUR;
 const CHUNK = 4 * 1024 * 1024;
 const NEWLINE = 10;
-// Lines worth parsing. Everything else (tool output, prompts, file snapshots) is skipped without JSON.parse.
 // Claude Code's ai-title and custom-title lines name its sessions too. (Codex writes no title of its own.)
 const CLAUDE_MARKERS = [Buffer.from('"type":"assistant"'), Buffer.from('"type":"ai-title"'), Buffer.from('"type":"custom-title"')];
 const CODEX_MARKERS = [Buffer.from('"token_count"'), Buffer.from('"type":"turn_context"'), Buffer.from('"type":"session_meta"')];
 const TITLE_LENGTH = 80;
 
-/** A title on one line: tags and their blocks dropped, whitespace folded, cut short. */
 function promptTitle(text) {
   if (typeof text !== "string") return "";
   const line = text
@@ -32,7 +27,6 @@ const hourOf = (timestamp) => {
   return Number.isNaN(at) ? null : Math.floor(at / HOUR);
 };
 
-/** One request's tokens, split the way prices are: uncached input, cache reads, cache writes, output (reasoning is part of output). */
 function addRow(entry, hour, model, session, counts) {
   const key = `${hour}\t${model}\t${session}`;
   const row = (entry.rows[key] ??= [0, 0, 0, 0, 0, 0]);
@@ -45,7 +39,6 @@ function addRow(entry, hour, model, session, counts) {
 }
 
 // Claude Code writes one line per content block, each repeating the message's usage: a message counts once, by its id
-// and request id. A forked session copies earlier lines into a new file; those few repeats are left in.
 function claudeLine(entry, line) {
   let parsed;
   try {
@@ -58,7 +51,6 @@ function claudeLine(entry, line) {
     const session = typeof parsed.sessionId === "string" ? parsed.sessionId : "";
     if (!title || !session) return;
     const known = (entry.sessions[session] ??= { cwd: "" });
-    // A title the user gave wins over the generated one.
     if (parsed.type === "custom-title" || !known.custom) known.title = title;
     if (parsed.type === "custom-title") known.custom = true;
     return;
@@ -92,8 +84,6 @@ function claudeLine(entry, line) {
 }
 
 // Codex reports each request as a token_count event: `last_token_usage` is that request, `total_token_usage` the thread's
-// running total. Input includes cached input. A forked or subagent thread starts with its parent's session_meta, and an
-// event whose total doesn't move is a repeat.
 function codexLine(entry, line) {
   let parsed;
   try {
@@ -105,7 +95,6 @@ function codexLine(entry, line) {
   if (!payload) return;
   const carry = entry.carry;
   if (parsed.type === "session_meta") {
-    // The file's own thread is the first session_meta; later ones describe the thread it forked from.
     if (carry.thread) return;
     carry.thread = typeof payload.id === "string" ? payload.id : "";
     const parent = payload.source?.subagent?.thread_spawn?.parent_thread_id;
@@ -142,10 +131,6 @@ function codexLine(entry, line) {
 
 const PARSERS = { claude: { markers: CLAUDE_MARKERS, line: claudeLine }, codex: { markers: CODEX_MARKERS, line: codexLine } };
 
-/**
- * Feeds each complete line of `buffer` that holds a marker to the provider's parser. Finding markers is native; each
- * marker's next position is kept until passed, so a rare marker isn't searched for again across the whole buffer.
- */
 function readLines(buffer, provider, entry) {
   const { markers, line } = PARSERS[provider];
   const next = markers.map((marker) => buffer.indexOf(marker));
@@ -165,7 +150,6 @@ function readLines(buffer, provider, entry) {
   }
 }
 
-/** Reads `entry.file` from `entry.offset` to its last complete line, yielding to the event loop between chunks. */
 async function readFrom(entry, provider, size) {
   const handle = await fs.promises.open(entry.file, "r");
   try {
@@ -176,7 +160,6 @@ async function readFrom(entry, provider, size) {
       const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
       if (bytesRead === 0) break;
       position += bytesRead;
-      // `buffer` starts at entry.offset: the unread tail of the last chunk, then this one.
       const buffer = pending.length ? Buffer.concat([pending, chunk.subarray(0, bytesRead)]) : chunk.subarray(0, bytesRead);
       const last = buffer.lastIndexOf(NEWLINE);
       if (last === -1) {
@@ -256,10 +239,6 @@ function pruneRows(entry, now) {
   }
 }
 
-/**
- * The scan over the CLIs' transcripts and its cache file. `scan()` reads what changed since the last one (one runs at a
- * time; callers share it). `rows()` flattens the cache for a report.
- */
 function createTokenUsageScan({ cacheFile, roots, now = Date.now }) {
   let cache = null;
   let running = null;
@@ -294,7 +273,6 @@ function createTokenUsageScan({ cacheFile, roots, now = Date.now }) {
         continue;
       }
       let entry = cache.files[id];
-      // A file that shrank was rewritten: read it again from the start.
       if (entry && stats.size < entry.offset) entry = null;
       if (entry && entry.file === file && entry.offset === stats.size) continue;
       entry ??= { provider, offset: 0, carry: {}, sessions: {}, rows: {} };
@@ -318,7 +296,6 @@ function createTokenUsageScan({ cacheFile, roots, now = Date.now }) {
   }
 
   return {
-    /** Reads what changed. Resolves to whether anything did. */
     scan() {
       running ??= run().finally(() => {
         running = null;
@@ -327,7 +304,6 @@ function createTokenUsageScan({ cacheFile, roots, now = Date.now }) {
     },
     scanning: () => running !== null,
     scannedAt: () => scannedAt,
-    /** Whether a scan ever finished, here or in an earlier run of the app (its cache file). */
     finished: () => Boolean(ensure().finishedAt),
     /**
      * Every row: { provider, hour, model, session, cwd, title, milagre, input, cacheRead, cacheWrite, output, reasoning,
@@ -335,7 +311,6 @@ function createTokenUsageScan({ cacheFile, roots, now = Date.now }) {
      */
     rows() {
       const out = [];
-      // A session's title can sit in another file than its usage (a Claude subagent's file has none).
       const titles = new Map();
       const fromMilagre = new Set();
       for (const entry of Object.values(ensure().files)) {

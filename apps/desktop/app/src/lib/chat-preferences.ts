@@ -35,7 +35,5 @@ export function saveChatPreferences(storage: Storage, projectPath: string, patch
         projects: { ...saved.projects, [projectPath]: { ...previousChoice, ...choice } },
       }),
     );
-  } catch {
-    // The current selection still works when storage is unavailable.
-  }
+  } catch {}
 }

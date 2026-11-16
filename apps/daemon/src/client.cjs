@@ -4,18 +4,13 @@ const { once, EventEmitter } = require("node:events");
 const { socketPath } = require("./paths.cjs");
 const { VERSION, MAX_PENDING, wire, isEventFrame } = require("./protocol.cjs");
 
-// Room for a Link with several Chats' Worktrees to go one after another; the phone waits as long (mobile client.ts).
 const LINK_DELETE_MS = 30 * 60 * 1000;
 // Commands core lets run longer than the default deadline (git/client.cjs LIMITS, gh, the CLI installers), plus a
-// margin. A shorter client deadline reported a slow pre-commit hook or push as failed while it was still running.
 const SLOW_METHODS = Object.freeze({
-  // Scoped commands may wait on the same user approval cards as their MCP calls.
   "command:run": 30 * 60 * 1000,
   "desktop:invoke": 130000,
   "computers:add": 12 * 60 * 1000,
   "computers:invoke": 30 * 60 * 1000,
-  // Image preparation gets 30 s; an 8 MiB upload on a slow uplink can take up to 300 s; revoking the page's
-  // older links (in parallel) up to 45 s more.
   "artifact:share-page": 420000,
   "artifact:revoke-page-share": 120000,
   "artifact:revoke-saved-page-share": 120000,
@@ -26,15 +21,11 @@ const SLOW_METHODS = Object.freeze({
   "worktree:create": 330000,
   "worktree:remove": 330000,
   "storage:remove-worktree": 330000,
-  // Reads git status for each idle worktree, a few at a time.
   "storage:worktrees": 120000,
-  // Deleting a Link removes each of its untouched Worktrees in turn, each with worktree:remove's 300 s git limit.
   "link:delete": LINK_DELETE_MS,
   // Installing Antigravity downloads about 110 MB and unpacks it; a slow connection takes minutes.
   "agent:update-cli": 1200000,
-  // A Linear sign-in waits up to five minutes for the browser, plus two 15 s requests.
   "linear:connect": 330000,
-  // Settings › MCP: the server caps one check at 30 s (packages/core/src/mcp/index.cjs); wait a little longer for its answer.
   "mcp:accounts": 45000,
   "mcp:check": 45000,
   "mcp:save": 45000,
@@ -46,8 +37,6 @@ const SLOW_METHODS = Object.freeze({
 const deadlineFor = (method, fallback) => Math.max(fallback, SLOW_METHODS[method] ?? 0);
 
 /**
- * A connection to this Mac's daemon. `events: false`: the daemon's events, which it sends every connection, are dropped
- * unread (a connection kept for calls only).
  * @param {{ dataDir: string; timeoutMs?: number; requireAuthentication?: boolean; events?: boolean }} options
  */
 async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = process.platform === "win32", events = true }) {
@@ -62,8 +51,6 @@ async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = pro
   }
   const client = /** @type {EventEmitter & { call: (method: string, args?: unknown[]) => Promise<any>; close: () => void }} */ (new EventEmitter());
   const pending = new Map();
-  // Calls past MAX_PENDING wait here for a free slot (the daemon drops a connection that sends more); a burst of
-  // reads on a busy Mac used to reject the next send with "Too many pending daemon requests".
   const queued = [];
   let nextId = 0;
   function fail(error) {
@@ -103,7 +90,6 @@ async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = pro
       else request.resolve(message.result);
     },
   });
-  // A response too large for one frame (a big Project's state) arrives as pages, read one at a time in order.
   async function readPages({ pageId, pageCount }) {
     if (!Number.isSafeInteger(pageCount) || pageCount < 1) throw new Error("The daemon sent an invalid paged response");
     const parts = [];
@@ -133,7 +119,6 @@ async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = pro
         reject(new Error("Daemon connection closed"));
         return;
       }
-      // The deadline counts time spent queued, so a call never waits longer than it would have unqueued.
       /** @type {{ id: number; method: string; args: unknown[]; resolve: (value: any) => void; reject: (error: Error) => void; timeout?: ReturnType<typeof setTimeout> }} */
       const request = { id: 0, method, args, resolve, reject };
       request.timeout = setTimeout(

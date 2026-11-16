@@ -39,11 +39,9 @@ export function PlaceholderTextarea({
   const textarea = useRef<HTMLTextAreaElement>(null);
   const [open, setOpen] = useState<Open | null>(null);
   const [active, setActive] = useState(0);
-  // The `{{` the user dismissed with Escape; it stays closed until they start another.
   const [dismissed, setDismissed] = useState<number | null>(null);
   const [anchor, setAnchor] = useState<{ left: number; width: number; maxHeight: number; top?: number; bottom?: number } | null>(null);
   const pendingCaret = useRef<number | null>(null);
-  // The list goes into the open modal dialog (above the page, outside the form's scroll fade, whose mask would clip it).
   const [host, setHost] = useState<Element | null>(null);
 
   const look = (text: string, caret: number) => {

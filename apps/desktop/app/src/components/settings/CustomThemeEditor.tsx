@@ -28,10 +28,8 @@ function Segment({ value, onChange }: { value: Scheme; onChange: (scheme: Scheme
 }
 
 function ColorRow({ name, value, onCommit }: { name: string; value: string; onCommit: (hex: string) => void }) {
-  // The field keeps what is typed; it commits as soon as the text is a full hex color.
   const [draft, setDraft] = useState<{ source: string; text: string } | null>(null);
   const text = draft && draft.source === value ? draft.text : value;
-  // Dragging in the picker fires on every tick; the swatch follows each one, the settings write once per frame.
   const [picked, setPicked] = useState<{ source: string; hex: string } | null>(null);
   const swatch = picked && picked.source === value ? picked.hex : value;
   const frame = useRef<number | null>(null);
@@ -68,7 +66,6 @@ function ColorRow({ name, value, onCommit }: { name: string; value: string; onCo
           }}
           className="size-7 cursor-pointer rounded-control border-0 bg-transparent p-0"
         />
-        {/* The span sets the width: fieldClass is w-full, which a w-* beside it can't beat. */}
         <span className="w-20">
           <input
             type="text"

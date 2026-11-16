@@ -14,7 +14,6 @@ import Tooltip from "./primitives/Tooltip";
 
 const MB = 1024 * 1024;
 
-/** The Antigravity install row in its account group: Milagre downloads it itself, so Settings is where it is installed and updated. */
 function AntigravityRow({ onInstalled }: { onInstalled: () => void }) {
   const [status, setStatus] = useState<CliStatus | null>(null);
   const [progress, setProgress] = useState<CliProgress | null>(null);
@@ -82,10 +81,7 @@ function AntigravityRow({ onInstalled }: { onInstalled: () => void }) {
           </Button>
         )}
       </div>
-      {working && (
-        // Before the size is known it shows a sliver, so it reads as started.
-        <ProgressBar label="Antigravity download" value={(percent ?? 5) / 100} />
-      )}
+      {working && <ProgressBar label="Antigravity download" value={(percent ?? 5) / 100} />}
       <InlineError size={12}>{error}</InlineError>
     </div>
   );

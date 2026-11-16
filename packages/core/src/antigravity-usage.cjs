@@ -2,9 +2,6 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 
 // Antigravity plan usage (docs/providers.md). Google's Cloud Code backend reports the Gemini
-// quota for the signed-in account. The agent owns <GEMINI_HOME>/antigravity-acp/acp_token.json and rewrites it, so this
-// module only ever reads it: it exchanges the refresh token for an access token in memory and keeps that per profile.
-// No token or secret is written anywhere, logged, or put in an error message.
 
 const TOKEN_FILE = path.join("antigravity-acp", "acp_token.json");
 const DEFAULT_TOKEN_URI = "https://oauth2.googleapis.com/token";
@@ -20,7 +17,6 @@ const WEEKLY = { id: "gemini:weekly", label: "Gemini weekly", shortLabel: "wk" }
 const SIGNED_OUT = "Not signed in to Antigravity.";
 const EXPIRED = "Antigravity sign-in expired. Sign in again from Settings.";
 
-// Access tokens by profile (the token file's path), shared by every reader in this process.
 const sharedTokens = new Map();
 
 class UsageProblem extends Error {
@@ -35,7 +31,6 @@ function userAgent(platform, arch) {
   return `${USER_AGENT_PRODUCT} ${system}/${arch === "arm64" ? "arm64" : "x64"}`;
 }
 
-// The credentials only go to Google; a tampered token_uri elsewhere is ignored.
 function trustedTokenUri(uri) {
   try {
     const url = new URL(uri);
@@ -45,9 +40,7 @@ function trustedTokenUri(uri) {
     ) {
       return url.href;
     }
-  } catch {
-    // fall through
-  }
+  } catch {}
   return DEFAULT_TOKEN_URI;
 }
 
@@ -109,7 +102,6 @@ async function refresh(file, { fetchImpl, now, timeoutMs }) {
     timeoutMs,
   );
   if (!response.ok) {
-    // invalid_grant: the refresh token was revoked or replaced.
     if (response.status === 400 || response.status === 401) throw new UsageProblem("error", EXPIRED);
     throw new UsageProblem("error", `Antigravity sign-in refresh failed (HTTP ${response.status}).`);
   }
@@ -124,7 +116,6 @@ function headers(accessToken, agent) {
   return { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json", "User-Agent": agent };
 }
 
-// Without a project_id in the token file, Cloud Code says which project the account uses.
 async function discoverProject(session, { fetchImpl, agent, timeoutMs }) {
   const response = await post(
     fetchImpl,
@@ -152,10 +143,6 @@ function windowOf(bucket) {
   return null;
 }
 
-// Assumed response shape (observed 2026-10-08):
-//   { groups: [{ displayName: "Gemini Models", buckets: [{ bucketId: "gemini-5h", window: "5h" | "weekly",
-//     remainingFraction: 0..1, resetTime: ISO, disabled?: boolean }] }, { displayName: "Claude and GPT models", ... }] }
-// Only the Gemini group is shown. A bucket without a numeric remainingFraction, or a disabled one, has no window.
 function geminiWindows(body) {
   const groups = body?.groups ?? body?.quotaSummary?.groups ?? body?.summary?.groups;
   if (!Array.isArray(groups)) return [];
@@ -213,7 +200,6 @@ async function readAntigravityUsage(deps = {}) {
     return fresh;
   }
 
-  // One attempt with the cached token; a 401 drops it, re-reads the token file and refreshes once.
   async function attempt(force) {
     const current = await session(force);
     let projectId = current.projectId;
@@ -243,7 +229,6 @@ async function readAntigravityUsage(deps = {}) {
     const windows = geminiWindows(result.body);
     return windows.length ? done("ok", windows) : done("error", [], "Google returned no Gemini usage windows.");
   } catch (error) {
-    // Only messages written in this file reach the UI; anything else is generic.
     return error instanceof UsageProblem ? done(error.status, [], error.message) : done("error", [], "Couldn't read Antigravity usage.");
   }
 }

@@ -5,8 +5,6 @@ const { projectOfKey } = require("@milagre/shared/agent-runs");
 const { PROVIDERS } = require("@milagre/shared/providers");
 const { everyToCron } = require("./cron.cjs");
 
-// Milagre's routine tools, the same for every provider: an agent sets, lists, changes and stops heartbeats that
-// send a message into its own Chat on a schedule. The tool names live here only; permission code auto-approves them.
 const ROUTINE_TOOL_NAMES = Object.freeze(["routine_list", "heartbeat_create", "routine_create", "routine_update", "routine_delete", "routine_run_now"]);
 const [ROUTINE_LIST, HEARTBEAT_CREATE, ROUTINE_CREATE, ROUTINE_UPDATE, ROUTINE_DELETE, ROUTINE_RUN_NOW] = ROUTINE_TOOL_NAMES;
 
@@ -32,7 +30,6 @@ function expiresInMs(value) {
   return ms;
 }
 
-// Throws for a timezone the clock can't show times in, before anything is saved.
 function checkTimezone(timeZone) {
   Intl.DateTimeFormat("en-US", { timeZone }).format(0);
 }
@@ -63,8 +60,6 @@ const fallbackFields = (clearable) => ({
   fallbackEffort: z.string().min(1).max(40).optional().describe("The retry's effort, e.g. medium or high; the model's default when left out."),
 });
 
-// The fallback a tool call names: undefined when it names none, null when it clears it (routine_update), else
-// { provider, model, effort? }.
 function fallbackOf({ fallbackProvider, fallbackModel, fallbackEffort }) {
   if (fallbackProvider === null) {
     if (fallbackModel !== undefined || fallbackEffort !== undefined)
@@ -81,15 +76,12 @@ const fallbackText = (routine) =>
     ? `${routine.fallback.provider} ${routine.fallback.model}${routine.fallback.effort ? ` (${routine.fallback.effort})` : ""}`
     : "another installed provider's recommended model";
 
-// A Linear trigger with `changes` applied. What isn't given stays (its workspace, team, event and the event's filter); a
-// label belongs only to label-added and a state only to state, and each of those events needs its own.
 function linearTrigger(trigger, { linearEvent, team, label, state }) {
   if (trigger.kind !== "linear") throw new Error("Only a Linear trigger has linearEvent, team, label or state.");
   const event = linearEvent ?? trigger.event;
   if (label !== undefined && event !== "label-added") throw new Error("A label goes with linearEvent label-added.");
   if (state !== undefined && event !== "state") throw new Error("A state goes with linearEvent state.");
   const next = { kind: "linear", workspace: trigger.workspace, event };
-  // null or "" clears the team filter; left out, it stays.
   const keptTeam = team === undefined ? trigger.team : team || undefined;
   if (keptTeam !== undefined) next.team = keptTeam;
   if (event === "label-added") {
@@ -103,21 +95,14 @@ function linearTrigger(trigger, { linearEvent, team, label, state }) {
   return next;
 }
 
-/**
- * `chatSettings(chatId)` gives the Chat's provider, model and permission mode (or null) for a new heartbeat to reuse.
- * `defaultTimezone()` is the computer's IANA timezone. `linearWorkspaces()` lists the connected Linear workspace keys. `now` is injected so tests can pin "expiresIn" to a date.
- */
 function createRoutineTools({
   store,
   scheduler,
   chatSettings,
   defaultTimezone,
   linearWorkspaces = () => [],
-  // Where a Routine may run (runtime-adapter's routineTargets): resolves with the target to store, or throws.
   checkTarget = async (target) => target,
-  // Deletes a Routine with what lives outside the store (a webhook's secret): runtime-adapter's removeRoutine.
   remove = (routineId) => store.remove(routineId),
-  // Keeps a hidden Run Chat a Heartbeat was set on, once the Heartbeat is saved (runtime-adapter's keepRunChat).
   keepChat = async () => {},
   now = Date.now,
 }) {
@@ -162,7 +147,6 @@ function createRoutineTools({
         readOnly: false,
         run: async ({ name, prompt, cron, every, timezone, maxRuns, expiresIn }) => {
           if ((cron === undefined) === (every === undefined)) throw new Error("Give exactly one of cron or every, not both and not neither.");
-          // The reply below formats the heartbeat's times: check what it reads before the store saves anything.
           if (expiresIn !== undefined) expiresInMs(expiresIn);
           checkTimezone(timezone ?? defaultTimezone());
           const settings = chatSettings(chatId) ?? {};
@@ -294,7 +278,6 @@ function createRoutineTools({
         readOnly: false,
         run: async ({ id }) => {
           const routine = own(id);
-          // Who deleted it: a babysit Heartbeat's own Chat deleting it is its own stop rule holding.
           remove(id, { byChat: chatId });
           return `Deleted "${routine.name}".`;
         },

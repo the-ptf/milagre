@@ -44,7 +44,6 @@ import { bridgeForKey } from "../../lib/computer-bridge";
 import { localZone } from "./use-routine-form";
 import { thisComputer } from "../../lib/shortcut-hints";
 
-/** "On" in green, or "Paused" in grey, beside the Routine's name. */
 function RoutineStatusPill({ on }: { on: boolean }) {
   return (
     <span
@@ -57,11 +56,6 @@ function RoutineStatusPill({ on }: { on: boolean }) {
   );
 }
 
-/**
- * One Routine's page: back to the Routines page, its name with On or Paused and one toolbar (switch, Run now, Edit), its
- * settings as chips, when it runs next and last ran, then its Runs by day, filtered by All, Acted, Failed or Unread. With
- * `narrow`, it is the column beside an open Run Chat.
- */
 export function RoutinePage({
   routine,
   models,
@@ -78,16 +72,11 @@ export function RoutinePage({
 }: {
   routine: RoutineWithRuns;
   models: ModelOption[];
-  /** The keys of hidden Run Chats nobody opened: their Runs show a dot. */
   unreadChats: ReadonlySet<string>;
-  /** A Chat's title, for a Heartbeat's Where chip ("In Notification chimes"). */
   chatTitle?: (chatId: string) => string | undefined;
-  /** Whether a Run's row opens its Chat (canOpenRunChat); a Run whose Chat is gone opens nothing. */
   canOpen?: (chatKey: string) => boolean;
-  /** The Run Chat open beside the page. */
   selectedChat?: string | null;
   narrow?: boolean;
-  /** A webhook Routine just created here: its URL, shown once with Copy. */
   createdHookUrl?: string;
   onDismissHook?: () => void;
   onBack: () => void;
@@ -97,11 +86,9 @@ export function RoutinePage({
   const [now, setNow] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<RunFilter>("all");
-  // The Runs list starts again (folds and days closed) only when a filter is picked, not when one falls back to All.
   const [listKey, setListKey] = useState(0);
   const back = useRef<HTMLButtonElement>(null);
 
-  // "last Run 11:47" turns into "last Run yesterday 11:47", and Today into Yesterday, with the clock.
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
@@ -122,7 +109,6 @@ export function RoutinePage({
   const problem = routineProblem(routine);
   const unread = (run: RoutineRun) => Boolean(run.chatId && unreadChats.has(run.chatId) && (canOpen?.(run.chatId) ?? false));
   const counts = runFilterCounts(routine.runs, unread);
-  // A filter whose Runs are all gone (the last unread one read) falls back to All.
   const shownFilter = filter !== "all" && counts[filter] === 0 ? "all" : filter;
   const runs = filterRuns(routine.runs, shownFilter, unread);
   const { target } = routine;
@@ -172,7 +158,6 @@ export function RoutinePage({
                 />
               </Tooltip>
             )}
-            {/* A babysit Heartbeat follows the Babysit PRs settings: no form edits it (the list's menu still deletes it). */}
             {canEditRoutine(routine) && (
               <Tooltip label="Edit" side="bottom">
                 <IconButton label="Edit" icon={PencilEdit02Icon} data-routine-edit onClick={onEdit} />

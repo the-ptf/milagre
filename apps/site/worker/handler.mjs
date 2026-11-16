@@ -5,18 +5,15 @@ export const RELEASES_PAGE = `${repositoryUrl}/releases/latest`;
 export const REPO_API = `https://api.github.com/repos/${owner}/${repositoryName}`;
 export const RECENT_RELEASES_API = `https://api.github.com/repos/${owner}/${repositoryName}/releases?per_page=10`;
 
-// Release assets carry the version in their names, so match by pattern.
 const TARGETS = {
   "mac-arm64": /^Milagre-.+-arm64\.dmg$/,
   "mac-x64": /^Milagre-.+-x64\.dmg$/,
   "linux-appimage": /^Milagre-.+-x86_64\.AppImage$/,
   "linux-deb": /^Milagre-.+-amd64\.deb$/,
   "linux-rpm": /^Milagre-.+-x86_64\.rpm$/,
-  // No Windows build is published yet; until one is, this falls back to the latest release page.
   windows: /^Milagre-.+\.exe$/,
   android: /^Milagre-.*android.*\.apk$/,
 };
-// The Android APK is attached by hand, not by every release, so it's looked up in the recent releases too.
 const SEARCH_RECENT = new Set(["android"]);
 
 function githubInit(token, timeoutMs) {
@@ -44,7 +41,6 @@ export async function latestDownload(target, fetchImpl, { token, timeoutMs = 300
   }
 }
 
-// The star count for the nav pill, or null when GitHub can't be reached.
 export async function repoStars(fetchImpl, { token, timeoutMs = 3000 } = {}) {
   try {
     const response = await fetchImpl(REPO_API, githubInit(token, timeoutMs));
@@ -90,7 +86,6 @@ async function markdownHome(request, assets) {
   return new Response(text, {
     headers: {
       "content-type": "text/markdown; charset=utf-8",
-      // About four characters to a token: an estimate, which is all the header promises.
       "x-markdown-tokens": String(Math.ceil(text.length / 4)),
       "cache-control": page.headers.get("cache-control") || "public, max-age=0, must-revalidate",
       vary: "Accept",
@@ -98,7 +93,6 @@ async function markdownHome(request, assets) {
   });
 }
 
-// The same URL answers HTML or Markdown, so caches keep the two apart.
 function varyOnAccept(response) {
   const headers = new Headers(response.headers);
   headers.set("vary", headers.has("vary") ? `${headers.get("vary")}, Accept` : "Accept");

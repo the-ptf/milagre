@@ -1,21 +1,16 @@
 const { defaultExec, ghMessage, ghOptions } = require("../pull-request-review.cjs");
 
 // Babysit PRs: read a watched PR's state through gh and compare two readings to decide what is new and whether
-// babysitting should stop. The poller calls readPullRequestSnapshot on an interval and feeds the last two readings
-// to diffSnapshots, which is pure.
 
-/** The agent's own PR comments carry this, so a babysat PR never wakes itself. */
 const BABYSIT_MARKER = "<!-- milagre-babysit -->";
 
 const VIEW_FIELDS = "state,isDraft,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,headRefName,headRefOid,baseRefName,comments,reviews";
-// Not paginated: the first 100 threads and each thread's first 50 comments are what a babysat PR is read from.
 const THREADS_QUERY = `query($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){pullRequest(number:$number){
     reviewThreads(first:100){nodes{id isResolved comments(first:50){nodes{id body author{login}}}}}
   }}
 }`;
 
-// The check-run conclusions and commit-status states GitHub counts against the PR, as its merge box does.
 const FAILED = new Set(["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"]);
 const FAILED_STATUS = new Set(["FAILURE", "ERROR"]);
 const PENDING_STATUS = new Set(["PENDING", "EXPECTED"]);
@@ -24,7 +19,6 @@ const COMMENT_PREVIEW = 200;
 const text = (value) => (typeof value === "string" ? value : "");
 const login = (actor) => text(actor?.login) || "ghost";
 
-/** `https://github.com/o/r/pull/12` -> `{ repo: "github.com/o/r", number: 12 }`; GHE hosts are kept. */
 function parsePullRequestUrl(value) {
   let url;
   try {
@@ -43,7 +37,6 @@ function splitRepo(repo) {
   return { host, owner, name };
 }
 
-/** Names of the checks that failed, how many have yet to finish, and how many distinct checks the PR has. */
 function classifyChecks(rollup) {
   const failing = new Set();
   const names = new Set();
@@ -81,7 +74,6 @@ async function readPullRequestSnapshot({ repo, number }, { exec = defaultExec, e
   if (threadsReply?.errors?.length) throw new Error(text(threadsReply.errors[0]?.message) || "GitHub didn't answer.");
 
   const comments = new Map();
-  // A review's own body is marked `review`; a thread's comments carry their thread; the rest are top-level comments.
   const add = (id, body, author, threadId, review = false) => {
     if (id && !comments.has(id)) comments.set(id, { id, body, author, threadId, ...(review ? { review: true } : {}) });
   };
@@ -98,14 +90,11 @@ async function readPullRequestSnapshot({ repo, number }, { exec = defaultExec, e
   const headRef = text(view.headRefName);
   const baseRef = text(view.baseRefName);
   let behindBy = 0;
-  // GitHub already says BEHIND when it is; otherwise count the commits only when behind is something to wake on.
   if (mergeState !== "BEHIND" && settings?.wake?.includes("behind") && headRef && baseRef) {
     try {
       const out = await gh(["api", `repos/${owner}/${name}/compare/${baseRef}...${headRef}`, "--hostname", host, "--jq", ".behind_by"]);
       behindBy = Number.parseInt(out.trim(), 10) || 0;
-    } catch {
-      // A fork's branch can't be compared by name: leave behind to the merge state.
-    }
+    } catch {}
   }
 
   return {
@@ -115,7 +104,6 @@ async function readPullRequestSnapshot({ repo, number }, { exec = defaultExec, e
     mergeable: text(view.mergeable),
     mergeState,
     headRef,
-    // The head commit: the poller hands a problem over again only once something was pushed since.
     headOid: text(view.headRefOid),
     baseRef,
     behindBy,
@@ -127,10 +115,6 @@ async function readPullRequestSnapshot({ repo, number }, { exec = defaultExec, e
 
 const isBehind = (snapshot) => snapshot?.mergeState === "BEHIND" || snapshot?.behindBy > 0;
 
-/**
- * What is new between two readings, and whether babysitting should stop. The first reading is a baseline: it
- * reports only the failing checks and conflicts already there, never old comments or a branch already behind.
- */
 function diffSnapshots(prev, next, settings) {
   const wake = new Set(settings?.wake ?? []);
   const base = next.baseRef || "the base branch";
@@ -155,8 +139,6 @@ function diffSnapshots(prev, next, settings) {
     changes.push({ id: "behind", text: `Branch is behind ${base}` });
   }
 
-  // Green needs a settled PR, not a young one: never on the baseline reading, never a draft, never with conflicts, and a
-  // PR with no checks registered yet counts only once a review has approved it.
   let stop = null;
   if (next.state !== "OPEN") stop = "closed";
   else if (

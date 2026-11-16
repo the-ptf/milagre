@@ -16,24 +16,16 @@ import { useTheme } from "./theme";
 
 type Where = { parentId: string | null; branch: "yes" | "otherwise" | null; index: number };
 
-/** Opens the step editor on step `stepId` of Routine `routineId`. */
 export const openStep = (routineId: string, stepId: string) => router.push({ pathname: "/flow-step", params: { id: routineId, step: stepId } });
 
-/** Opens the Add step sheet for a place in the flow. */
 const openAdd = (routineId: string, where: Where) =>
   router.push({ pathname: "/flow-add-step", params: { id: routineId, parent: where.parentId ?? "", branch: where.branch ?? "", index: String(where.index) } });
 
-/** The kinds a flow under this trigger can't use: a Linear comment needs a Linear trigger. */
 export const unavailableKinds = (triggerKind: string): Set<FlowStepKind> => new Set(triggerKind === "linear" ? [] : (["linear-comment"] as const));
 
 const deviceZone = () => new Intl.DateTimeFormat().resolvedOptions().timeZone;
 const AGENT_MODES = new Set(["ask", "auto", "full"]);
 
-/**
- * A flow's Steps tab: the trigger, then its steps as cards joined by a line with a "+" between them, an If's paths indented
- * under it with their labels. A step the draft changed carries a blue dot; a step with a problem says it in red. With no
- * steps yet, the step types are tiles to start from, and other Routines can be copied in.
- */
 export function FlowSteps({
   routine,
   routines,
@@ -111,8 +103,6 @@ export function FlowSteps({
     );
   };
 
-  /** The line between two cards, with the "+" that adds a step there: both centred under the cards' tiles (60 wide). Its
-   * target is 44 wide and as tall as the connector, so it never takes a tap meant for the card above or below. */
   const connector = (where: Where, key: string) => (
     <View key={key} style={{ height: 32, width: 60, alignItems: "center", justifyContent: "center" }}>
       <View style={{ position: "absolute", left: 29.5, top: 0, bottom: 0, width: 1, backgroundColor: colors.lineStrong }} />
@@ -154,7 +144,6 @@ export function FlowSteps({
       </Fragment>
     ));
 
-  /** An If's two paths, under it and indented, each with its label; an empty one offers to add a step or go straight on. */
   const paths = (step: FlowIfStep, depth: number) => (
     <View style={{ flexDirection: "row" }}>
       <View style={{ width: 40 }}>
@@ -342,7 +331,6 @@ export function FlowSteps({
   );
 }
 
-/** "Or start from" row: an icon, its words and a chevron. Without `onPress` the row sits inside a picker that opens on tap. */
 function StartRow({ icon, title, onPress }: { icon: typeof Copy01Icon; title: string; onPress?: () => void }) {
   const { colors } = useTheme();
   const body = (

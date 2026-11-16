@@ -1,6 +1,5 @@
 const { setTimeout: delay } = require("node:timers/promises");
 
-/** Ask the desktop to open a page, then return that Chat's registered target for the phone viewer. */
 async function openBrowserPage(browsers, openInPanel, { chatId, url }, timeout = 10000) {
   if (typeof chatId !== "string" || !chatId.trim()) throw new Error("Open a Chat before opening a browser page.");
   if (typeof url !== "string" || url.length > 2000 || !/^https?:\/\//i.test(url)) throw new Error("Only http and https pages open in the Browser panel.");

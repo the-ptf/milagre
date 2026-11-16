@@ -12,9 +12,5 @@ export function attachmentPrompt(body: string, files: string[]): string {
   return `${body || "Please review the attached files."}\n\nAttached files:\n${files.join("\n")}`;
 }
 
-/**
- * Whether main can copy, save or menu this image: a file path always, a data URL (what media:read serves from another
- * Mac) only in the types main's decoder takes. A HEIC or AVIF data URL has no Copy or Save rather than one that fails silently.
- */
 export const canCopyImage = (file: string | undefined): file is string =>
   !!file && (!file.startsWith("data:") || /^data:image\/(png|jpeg|webp|gif);base64,/.test(file));

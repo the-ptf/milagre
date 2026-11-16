@@ -182,7 +182,6 @@ async function checks() {
     assert.equal(await evaluate("window.delivered.length"), 1, "leaving the Chat discards late recognition");
     assert.equal(await evaluate("window.dictation.partial.text"), "");
 
-    // A missing model downloads before the microphone opens; Escape cancels the download, and a finished one starts the take.
     await evaluate(
       "window.hold = false; window.modelMissing = true; window.streamCountBeforeDownload = window.pendingStreams.length; void window.dictation.start({selection:{start:0,end:0}})",
     );
@@ -208,7 +207,6 @@ async function checks() {
     await evaluate(
       "window.baselinePolish = window.polishRequests.length; window.baselineCorrections = window.corrections.length; window.baselineDelivered = window.delivered.length",
     );
-    // The selected model travels with the take, and disabling correction skips the Mac entirely.
     await evaluate("window.updateSettings({dictationFixModel:'codex'});");
     await delay(50);
     await evaluate("void window.dictation.start({selection:{start:0,end:0}})");

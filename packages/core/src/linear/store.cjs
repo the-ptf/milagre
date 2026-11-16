@@ -13,12 +13,9 @@ function read(file) {
 
 const validToken = (token) =>
   Boolean(token && typeof token.accessToken === "string" && typeof token.refreshToken === "string" && Number.isFinite(token.expiresAt));
-// A workspace is named by its Linear URL key; only that shape becomes a file name.
 const WORKSPACE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/i;
 const isWorkspaceId = (id) => typeof id === "string" && WORKSPACE_ID.test(id);
 
-// The Mac's Linear sign-ins, one file per workspace, and its switches; owner-only like the provider accounts
-// (accounts.cjs). A sign-in saved before workspaces (linear/token.json) moves into the list the first time it is read.
 function createLinearStore({ dataDir }) {
   const root = path.join(dataDir, "linear");
   const workspacesDir = path.join(root, "workspaces");
@@ -45,7 +42,6 @@ function createLinearStore({ dataDir }) {
     return validToken(token) ? token : null;
   }
   return {
-    /** Every saved sign-in, oldest first, each with its workspace `id`. */
     listWorkspaces() {
       if (fs.existsSync(legacyFile)) migrate();
       let names = [];
@@ -63,7 +59,6 @@ function createLinearStore({ dataDir }) {
         .filter(Boolean)
         .sort((a, b) => (a.connectedAt ?? 0) - (b.connectedAt ?? 0) || a.id.localeCompare(b.id));
     },
-    /** One workspace's token, as the client reads and rotates it. */
     workspace(id) {
       if (!isWorkspaceId(id)) throw new Error(`${JSON.stringify(String(id))} isn't a Linear workspace.`);
       return {
@@ -77,7 +72,6 @@ function createLinearStore({ dataDir }) {
       write(settingsFile, { ...read(settingsFile), enabled: value === true });
       return value === true;
     },
-    // On unless turned off: a Chat started from an issue moves it to In Progress.
     readMoveToStarted: () => read(settingsFile)?.moveToStarted !== false,
     saveMoveToStarted(value) {
       write(settingsFile, { ...read(settingsFile), moveToStarted: value === true });

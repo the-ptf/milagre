@@ -10,12 +10,10 @@ import { tap } from "./primitives/tap";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { pressStyle } from "./primitives/press-style";
 
-// The same rounding as a new Chat's tray in app/chat.tsx, so the two trays match.
 const startTrayRadius = radius.composer + space.xs;
 
 export type OfflineTrayTarget = { computerId: string; owner: string; sessionId: number | null; computerName: string; offline: boolean };
 
-/** The Chat a message lives in: the one it was written in, or the one its New Chat became; null until that Chat exists. */
 const outboxChat = (item: OutboxItem) => item.sessionId ?? item.request.sessionId ?? null;
 const ofChat = (item: OutboxItem, target: OfflineTrayTarget) =>
   item.computerId === target.computerId && item.owner === target.owner && outboxChat(item) === target.sessionId;
@@ -26,11 +24,6 @@ function useTray(target: OfflineTrayTarget) {
   return { snapshot, items, shown: target.offline || items.length > 0 || Boolean(snapshot.error) };
 }
 
-/**
- * The composer's tray while its computer can't take messages (design offline-inline-phone v9), like a new Chat's: the
- * messages waiting on this device for this Chat, then the computer's chip, then the composer. With `start`, the new
- * Chat's own tray, whose header already names the computer.
- */
 export function ComposerTray({ start, target, children }: { start: boolean; target: OfflineTrayTarget; children: ReactNode }) {
   const { colors } = useTheme();
   const { shown } = useTray(target);
@@ -40,7 +33,6 @@ export function ComposerTray({ start, target, children }: { start: boolean; targ
       style={{
         backgroundColor: colors.inset,
         borderWidth: 1,
-        // The raised shadow carries its own hairline ring; the edge stays transparent so the padding keeps its place.
         borderColor: "transparent",
         borderRadius: startTrayRadius,
         borderCurve: "continuous",
@@ -55,7 +47,6 @@ export function ComposerTray({ start, target, children }: { start: boolean; targ
   );
 }
 
-/** The rows of the tray, oldest first; inside ComposerTray, just above the composer. */
 export function OfflineTray({ target, chip }: { target: OfflineTrayTarget; chip: boolean }) {
   const { colors } = useTheme();
   const { snapshot, items } = useTray(target);
@@ -64,7 +55,6 @@ export function OfflineTray({ target, chip }: { target: OfflineTrayTarget; chip:
     setError("");
     void work.catch((failure: Error) => setError(failure.message));
   };
-  // A message the computer saved is in the transcript now: its copy here goes.
   const delivered = snapshot.items.filter((item) => ofChat(item, target) && item.status === "sent").map((item) => item.id);
   useEffect(() => {
     for (const id of delivered) void outbox.remove(id).catch(() => {});
@@ -125,9 +115,7 @@ function Row({ item, onAct }: { item: OutboxItem; onAct: (work: Promise<unknown>
         ? files[0]!.name
         : `${files.length} files`
       : "";
-  // Waiting needs no word: the clock says it. Only sending and failures do.
   const status = failed ? item.error : item.status === "sending" ? "Sending…" : "";
-  // A send that may have reached the computer is checked before it goes again; a Worktree that may exist can't be redone.
   const retry = failed && item.phase !== "creating" ? (item.phase === "dispatching" ? "Check delivery" : "Retry") : null;
   return (
     <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, paddingLeft: space.md, paddingTop: 8, paddingBottom: 6 }}>
@@ -191,7 +179,6 @@ function TextAction({ label, onPress }: { label: string; onPress: () => void }) 
   );
 }
 
-/** "2 waiting" on a Chat's row in the list: messages on this device its computer hasn't taken yet. */
 export function WaitingLabel({ computerId, owner, sessionId, style }: { computerId: string; owner: string; sessionId: number; style: StyleProp<TextStyle> }) {
   const { colors } = useTheme();
   const count = useOutbox().items.filter(

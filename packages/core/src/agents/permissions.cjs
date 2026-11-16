@@ -4,13 +4,6 @@ const { ROUTINE_TOOL_NAMES } = require("../routines/tools.cjs");
 const { babysitDenial } = require("../babysit-guard.cjs");
 const { BUNDLED_SKILLS_DIRECTORY } = require("../bundled-skills.cjs");
 
-// Approval requests from both agents, in the shape of the `permission-request` event, and the
-// replies each agent expects for the user's answer. A request is
-//   { requestId, kind: "command"|"edit"|"other", tool, title, description?, command?, cwd?,
-//     diff?, files?, detail?, reason?, allowForChat, stepId? }
-// where stepId names the tool step (see steps.cjs) the request is about,
-// and a decision is "allow" | "allow-for-chat" | "deny", or "cancelled" when the turn stops first.
-
 const DENIED_MESSAGE = "Denied in Milagre";
 const CANCELLED_MESSAGE = "The turn was cancelled in Milagre.";
 const USER_DECISIONS = new Set(["allow", "allow-for-chat", "deny"]);
@@ -21,7 +14,6 @@ function capText(text) {
   return text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}\n… truncated` : text;
 }
 
-// Drops undefined fields so requests stay plain and compare cleanly.
 function compact(object) {
   return Object.fromEntries(Object.entries(object).filter(([, value]) => value !== undefined));
 }
@@ -33,7 +25,6 @@ const prefixLines = (text, prefix) =>
     .join("\n");
 const replaced = (oldText, newText) => `${prefixLines(oldText, "-")}\n${prefixLines(newText, "+")}`;
 
-// Claude's edit tools carry the whole change in their input; show it as a minimal diff.
 function claudeEditDiff(toolName, input) {
   if (toolName === "Edit") return capText(replaced(input.old_string, input.new_string));
   if (toolName === "MultiEdit") return capText((input.edits ?? []).map((edit) => replaced(edit.old_string, edit.new_string)).join("\n@@\n"));
@@ -63,14 +54,11 @@ function claudeRequest(toolName, input, options = {}) {
       diff: claudeEditDiff(toolName, input),
     });
   }
-  // An MCP tool reads as its step row does: `mcp__milagre__chat_stop` -> "chat_stop from milagre".
   const mcp = /^mcp__(.+?)__(.+)$/.exec(toolName);
   const name = mcp ? `${mcp[2]} from ${mcp[1]}` : toolName;
   return compact({ ...base, kind: "other", title: options.title || `Use ${name}?`, detail: capText(JSON.stringify(input, null, 2)) });
 }
 
-// What a Claude tool call reaches, for WorkspaceAccess: a read tool's path (Grep and Glob without one search the cwd),
-// else the permission card's own request.
 const READ_TOOLS = new Set(["Read", "Grep", "Glob"]);
 function claudeAccessRequest(toolName, input, request) {
   const file = READ_TOOLS.has(toolName) ? (input?.file_path ?? input?.path) : undefined;
@@ -78,7 +66,6 @@ function claudeAccessRequest(toolName, input, request) {
 }
 
 // The user's answer -> the SDK's PermissionResult. Chat-wide rules are kept in the session only,
-// so they never reach the user's settings files.
 function claudeResult(decision, input, suggestions = []) {
   if (decision === "allow") return { behavior: "allow", updatedInput: input };
   if (decision === "allow-for-chat")
@@ -99,12 +86,8 @@ function unwrapShell(command) {
   return command;
 }
 
-// Whether a shell command writes to GitHub (pushes, replies, merges…): what the lowest babysit level refuses. Such a
-// command is only ever allowed once. An agent that cached "allow for this Chat" would run it again without asking, so
-// a later babysit Run's guard would never see it.
 const writesRemote = (command) => babysitDenial(command, { level: 1, resolveThreads: false }) !== null;
 
-// item/commandExecution/requestApproval params -> request.
 function codexCommandRequest(id, params) {
   const host = params.networkApprovalContext?.host;
   const command = unwrapShell(String(params.command ?? ""));
@@ -122,7 +105,6 @@ function codexCommandRequest(id, params) {
 }
 
 // Codex sends an added file's content (and a deleted file's old content) as the diff, with no
-// markers. Mark each line so the card shows it as added or removed; real unified diffs pass through.
 function markedDiff(change) {
   const diff = change.diff ?? "";
   const mark = change.kind?.type === "add" ? "+" : change.kind?.type === "delete" ? "-" : null;
@@ -133,13 +115,10 @@ function markedDiff(change) {
 }
 
 // The changes of a Codex fileChange as diff text, each under a `--- path` header. Used by the
-// approval card and the step rows, so both show the same thing.
 function codexChangesDiff(changes) {
   return capText(changes.map((change) => `--- ${change.path}\n${markedDiff(change)}`).join("\n"));
 }
 
-// item/fileChange/requestApproval params -> request. The request has no diff of its own; `changes`
-// are the ones the matching fileChange item reported in item/started.
 function codexFileRequest(id, params, changes = []) {
   const files = changes.map((change) => change.path);
   const title = params.grantRoot
@@ -163,7 +142,6 @@ function codexFileRequest(id, params, changes = []) {
 }
 
 // Codex 0.160 asks about MCP calls through elicitation, with an empty form and tool details
-// in _meta. Other elicitation forms need user input that a permission card cannot collect.
 function isCodexMcpApproval(params) {
   const { _meta: meta, requestedSchema: schema } = params;
   return (
@@ -186,21 +164,13 @@ function codexMcpRequest(id, params) {
     title: params.message || `Use ${params.serverName}?`,
     description: typeof meta.tool_description === "string" ? capText(meta.tool_description) : undefined,
     detail: meta.tool_params === undefined ? undefined : capText(JSON.stringify(meta.tool_params, null, 2)),
-    // Approve this call only. Never send the provider's "always" persistence choice.
     allowForChat: false,
   });
 }
 
-// Milagre's own task and phase tools only write the Chat's own plan, so every permission mode lets them run without a
-// card. Of the routine tools only routine_list does: a Routine's writes (setting, changing, deleting or running one)
-// follow the Chat's permission mode like any other change (ruling 2026-10-17). The self-gated tools ask on Milagre's own card
-// when they widen access (local-mcp-host.cjs), with what they would do; the provider's bare "run tool?" card in front
-// of it would make the user approve twice.
 // Codex names the tool only in the message: `Allow the milagre MCP server to run tool "tasks_set"?`.
-// Computer use asks once per app per Chat itself (computer-use.cjs), so its acting tools skip the mode's per-call card.
 const SELF_GATED_TOOLS = [
   "request_secret",
-  // Its own card shows the exact report and posts nothing without the user's yes (bug-reports.cjs).
   "report_milagre_bug",
   "project_add",
   "worktree_link",
@@ -212,8 +182,6 @@ const SELF_GATED_TOOLS = [
   "desktop_press",
   "desktop_launch",
 ];
-// Like the plan tools, these only write the Chat's own canvas, page, Browser panel or Negotiation (design_delete stays
-// gated; so do the browser tools that act on a page, a click or a typed value).
 const OWN_CHAT_TOOLS = [
   "design_show",
   "design_apply",
@@ -224,7 +192,6 @@ const OWN_CHAT_TOOLS = [
   "browser_close",
   "browser_resolve_comment",
   "conclude_negotiation",
-  // Hands a Routine flow step's fields back to the Run that asked for them.
   "flow_step_output",
 ];
 const ROUTINE_READS = ROUTINE_TOOL_NAMES.filter((name) => name === "routine_list");
@@ -263,24 +230,13 @@ function codexDecision(decision) {
   return CODEX_DECISIONS[decision] ?? "decline";
 }
 
-// Milagre permission modes a running turn can switch to.
 const PERMISSION_MODES = new Set(["ask", "auto", "full"]);
-// How much a permission mode allows, least first. A tool never gives a Chat more than its caller has without the user's say.
 const MODE_RANK = Object.freeze({ ask: 0, auto: 1, full: 2 });
-// So that every comparison fails closed, a caller in a mode Milagre doesn't know counts as Ask, and a Chat that would
-// run something in one counts as more than Full, so a tool always asks before sending it anything.
 const callerMode = (mode) => (Object.hasOwn(MODE_RANK, mode ?? "") ? mode : "ask");
 const modeRank = (mode) => (Object.hasOwn(MODE_RANK, mode ?? "") ? MODE_RANK[mode] : Infinity);
-/** Whether running in `mode` is more than a caller in `caller` may give a Chat without the user's say. */
 const raisesMode = (mode, caller) => modeRank(mode) > MODE_RANK[callerMode(caller)];
-/** A turn's mode as a provider gets it: one Milagre doesn't know runs in Ask; none leaves the session's as it is. */
 const turnMode = (mode) => (mode == null || PERMISSION_MODES.has(mode) ? mode : "ask");
 
-/**
- * A saved Chat in a mode Milagre no longer knows (the bots' Bot rules, removed) asks from now on: its own mode, and
- * every turn it starts again (a resume, a continue after a usage limit, the messages queued behind its turn). The same
- * state comes back when no Chat has one.
- */
 function askForUnknownModes(state) {
   const unknown = (turn) => turn?.permissionMode != null && !PERMISSION_MODES.has(turn.permissionMode);
   const asked = (turn) => (unknown(turn) ? { ...turn, permissionMode: "ask" } : turn);
@@ -300,7 +256,6 @@ function askForUnknownModes(state) {
   return sessions ? { ...state, sessions } : state;
 }
 
-// True when every path is inside root.
 function insideRoot(root, files) {
   return files.every((file) => {
     const relative = path.relative(root, path.resolve(root, file));
@@ -308,7 +263,6 @@ function insideRoot(root, files) {
   });
 }
 
-// Resolve existing ancestors as well as new files, so an alias cannot escape an owned root.
 function insideWorkspace(roots, files, cwd = roots[0]) {
   const { realpathSync } = require("node:fs");
   const resolve = (value) => {
@@ -341,18 +295,11 @@ function insideWorkspace(roots, files, cwd = roots[0]) {
 const PENDING_WORKTREE_MESSAGE =
   "This Project has no Worktree in this Chat yet, and its main checkout is read-only. Call the milagre link_worktree_create tool with the Project's name, then make the change in the Worktree it returns.";
 
-/**
- * The folders a Chat's agent session works in, shared by every provider. `roots` are the Chat's own: unset for a Project
- * Chat (its cwd alone), a shared Link Chat's Worktrees otherwise. `readOnlyRoots` are the main checkouts of the Link's
- * Projects the Chat has no Worktree in yet. A Worktree the Chat makes mid-session (`own`) is the Chat's at once, before
- * the provider's own sandbox has it (`known`, which the provider updates with `learned`).
- */
 class WorkspaceAccess {
   constructor({ cwd, workspaceRoots, readOnlyRoots = [], skillsDirectory = BUNDLED_SKILLS_DIRECTORY }) {
     Object.assign(this, { cwd, roots: workspaceRoots, readOnlyRoots, skillsDirectory, known: [...(workspaceRoots ?? [])] });
   }
 
-  /** Whether every file is in the Chat's own folders: what Auto edits without asking. */
   contains(files) {
     return files.length > 0 && (this.roots ? insideWorkspace([this.cwd, ...this.roots], files, this.cwd) : insideRoot(this.cwd, files));
   }
@@ -361,21 +308,13 @@ class WorkspaceAccess {
     Object.assign(this, { roots: workspaceRoots, readOnlyRoots });
   }
 
-  /** The provider's sandbox now has these roots (every owned one by default). */
   learned(roots = this.roots ?? []) {
     this.known = [...new Set([...this.known, ...roots])];
   }
 
-  /**
-   * A request decided before anyone is asked, or null: an edit in a main checkout is refused with the way to get a
-   * Worktree, a read there is allowed, and in Auto an edit in a Worktree made mid-session is allowed, with the roots
-   * (`learn`) the provider's sandbox should take.
-   */
   answer({ kind, files = [] }, mode) {
     if (!files.length) return null;
-    // Root by root: a missing folder only leaves its own requests to the usual cards.
     const inside = (roots) => roots.some((root) => insideWorkspace([root], files, this.cwd));
-    // Milagre's own skills: the tool descriptions and the system prompt tell agents to read them first.
     if (kind === "read" && inside([this.skillsDirectory])) return { decision: "allow", learn: [] };
     if (inside(this.readOnlyRoots)) {
       if (kind === "edit") return { decision: "deny", message: PENDING_WORKTREE_MESSAGE };
@@ -387,16 +326,10 @@ class WorkspaceAccess {
   }
 }
 
-// The approval requests a session is waiting on. Each is answered exactly once: by the user, or as
-// cancelled when its turn stops. `forget` drops one the agent withdrew without replying to it.
-// The mode follows the user's switch mid-turn. Full answers every request without a card. Switching
-// to Auto answers the waiting edits Auto wouldn't have asked about (`inWorkspace`); later ones are left
-// to the agent's own Auto rules, which still ask before anything leaves the worktree.
 class PendingPermissions {
   constructor(emit) {
     this.emit = emit;
     this.mode = "ask";
-    // requestId -> { answer, allowForChat, inWorkspace }
     this.answers = new Map();
   }
 
@@ -415,7 +348,6 @@ class PendingPermissions {
 
   setMode(mode) {
     this.mode = mode;
-    // A copy: resolving calls answers and emits events that can add requests.
     for (const [requestId, pending] of Array.from(this.answers)) {
       if (mode === "full" || (mode === "auto" && pending.inWorkspace)) this.resolve(requestId, "allow");
     }
@@ -425,7 +357,6 @@ class PendingPermissions {
     const pending = this.answers.get(requestId);
     if (!pending) return false;
     this.answers.delete(requestId);
-    // A card that didn't offer "always allow" can't grant it.
     const given = decision === "allow-for-chat" && !pending.allowForChat ? "allow" : decision;
     pending.answer(given);
     this.emit({ type: "permission-resolved", requestId, decision: given });
@@ -439,7 +370,6 @@ class PendingPermissions {
   }
 
   cancelAll() {
-    // A copy: cancellation callbacks can add requests for a later pass.
     for (const requestId of Array.from(this.answers.keys())) this.resolve(requestId, "cancelled");
   }
 }

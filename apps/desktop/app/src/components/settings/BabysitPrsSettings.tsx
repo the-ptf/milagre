@@ -55,7 +55,6 @@ const STEPS: Record<BabysitStep, { icon: IconSvgElement; name: string }> = {
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 const options = (values: readonly number[], one: string, many: string) => values.map((value) => ({ value: String(value), label: plural(value, one, many) }));
 
-/** The Integrations › Babysit PRs row: whether babysitting is on, and the way into its page. */
 export function BabysitPrsRow({ onOpen }: { onOpen: () => void }) {
   const { settings } = useBabysitSettings();
   return (
@@ -79,18 +78,11 @@ export function BabysitPrsRow({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-/**
- * A typed field that saves itself shortly after typing stops and when it loses focus or the page closes. `reset` (Reset
- * all to defaults) drops what was typed, leaves the field and shows the default.
- */
 function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: Save, input: RefObject<HTMLElement | null>) {
   const [value, setValue] = useState(saved);
-  // Text the host already holds counts as saved until it is edited.
   const [state, setState] = useState<SaveState>(saved ? "saved" : "idle");
   const focused = useRef(false);
-  // Typed but not yet saved: a value from the host does not replace it (a failed save keeps the text).
   const dirty = useRef(false);
-  // `save` is stable for the page's life, so one saver serves the field.
   const [saver] = useState(() => createDebouncedSave(save, 500, setState));
   useEffect(() => {
     if (state === "saved") dirty.current = false;
@@ -100,7 +92,6 @@ function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: S
     setValue(saved);
     setState((current) => (current === "saving" ? current : saved ? "saved" : "idle"));
   }, [saved]);
-  // Leaving the page saves what was typed last.
   useEffect(() => () => void saver.flush(), [saver]);
   return {
     value,
@@ -115,7 +106,6 @@ function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: S
     },
     onChange: (next: string) => {
       setValue(next);
-      // Typing takes the Saved mark away until this text has saved.
       setState("idle");
       dirty.current = true;
       saver.edit({ [key]: next });
@@ -130,7 +120,6 @@ function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: S
   };
 }
 
-/** A wake toggle: the phone Chip's look, an ink fill with an on-ink label while pressed (selection is ink). */
 const WAKE_CHIP =
   "flex h-7 items-center gap-1.5 rounded-full bg-surface pr-2.5 pl-2 text-12 font-medium text-ink-2 shadow-btn transition-colors hover:text-ink aria-pressed:bg-ink aria-pressed:font-semibold aria-pressed:text-on-ink aria-pressed:shadow-none";
 
@@ -158,7 +147,6 @@ function StepPill({ steps, selected }: { steps: readonly BabysitStep[]; selected
   );
 }
 
-/** A stop rule: its checkbox first, then what it says, then its number or note. */
 function StopRow({
   id,
   label,
@@ -211,8 +199,6 @@ function SaveMark({ state }: { state: SaveState }) {
 }
 
 function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save }) {
-  // Switches, menus and checkboxes save at once; a failure shows in the page's error line.
-  // Values that build on the current ones (chips, number rules) are worked out from the latest settings, changes still on their way included.
   const change = (patch: BabysitChange) => void save(patch).catch(() => {});
   const ownRuleInput = useRef<HTMLInputElement>(null);
   const instructionsInput = useRef<HTMLTextAreaElement>(null);
@@ -394,7 +380,6 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
   );
 }
 
-/** Settings › Integrations › Babysit PRs: the one configuration every Chat's babysitting follows. */
 export function BabysitPrsSettings({ onBack }: { onBack: () => void }) {
   const { settings, error, save } = useBabysitSettings();
   return (

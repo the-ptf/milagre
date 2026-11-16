@@ -14,11 +14,6 @@ import { lineHeight, radius, space, type } from "../design-tokens";
 import { DISABLED_OPACITY, tap, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
-/**
- * The Add step sheet: the step types, each with its icon and what it does. A pick adds the step at the place the "+" was
- * tapped and, once the sheet has gone, opens it in the step editor. An If that would nest deeper than a flow allows, and a
- * Linear comment under another trigger, can't be picked.
- */
 export default function FlowAddStepSheet() {
   const params = useLocalSearchParams<{ id: string; parent?: string; branch?: string; index?: string }>();
   const styles = useStyles();
@@ -31,11 +26,9 @@ export default function FlowAddStepSheet() {
   const parentId = params.parent || null;
   const branch = params.branch === "yes" || params.branch === "otherwise" ? params.branch : null;
   const index = Number(params.index ?? 0) || 0;
-  // How deep the new step would sit: one below the If it goes under.
   const parentDepth = parentId ? (flattenSteps(draft.steps).find((entry) => entry.step.id === parentId)?.depth ?? 0) : -1;
   const unavailable = unavailableKinds(routine?.trigger.kind ?? "");
   const tooDeep = parentDepth + 1 >= FLOW_LIMITS.depth;
-  // The step added; it opens once the sheet is gone, so the editor's sheet never fights this one's dismissal.
   const added = useRef("");
   const routineId = routine?.id ?? "";
   useEffect(
@@ -54,7 +47,6 @@ export default function FlowAddStepSheet() {
     try {
       draft.edit(insertStep(draft.steps, { parentId, branch, index }, step));
     } catch {
-      // The place is gone (its If was deleted elsewhere): add nothing.
       router.back();
       return;
     }

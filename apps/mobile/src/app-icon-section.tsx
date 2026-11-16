@@ -62,7 +62,6 @@ export function AppIconSection() {
                     borderRadius: radius.sheet,
                     borderCurve: "continuous",
                     borderWidth: 2,
-                    // The chosen icon is outlined in ink, like the chosen theme tile.
                     borderColor: selected ? colors.ink : "transparent",
                   }}
                 >

@@ -5,10 +5,6 @@ import { useSession } from "./session";
 import { Row } from "./settings-list";
 import { useStyles } from "./ui";
 
-/**
- * A feature the connected Mac keeps (Babysit PRs, Simlock devices, Computer use): a row with On or Off that opens its page.
- * Read on every focus, since its page or the Mac may have changed it; hidden with no Mac, and on a Mac too old to answer.
- */
 export function MacFeatureRow({ read, title, description, href }: { read: string; title: string; description: string; href: Href }) {
   const styles = useStyles();
   const client = useSession().client;

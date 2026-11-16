@@ -5,7 +5,6 @@ import { designCatalog, designDeleted, readDesignCatalog, subscribeDesignCatalog
 
 export { markDesignDeleted } from "./design-catalog";
 
-/** Historical refs lack a format. Resolve those against the host catalog. */
 export function useArtifactCatalog(client: Client | null, chatId: string | undefined, refs: ArtifactRef[], enabled: boolean) {
   const catalog = useSyncExternalStore(subscribeDesignCatalog, () => designCatalog(client, chatId));
   const refsRevision = refs

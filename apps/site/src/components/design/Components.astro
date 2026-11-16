@@ -1,6 +1,4 @@
 ---
-// The shared components as the apps draw them, in HTML from the app's tokens (the .scheme blocks and the ds- classes in
-// styles/design.css copy the desktop primitives). Each specimen shows the light and dark schemes side by side.
 import {
   ArrowDown01Icon,
   BubbleChatQuestionIcon,
@@ -26,7 +24,6 @@ interface Props {
 const { kind } = Astro.props;
 const glyph = (data: unknown, size: 12 | 14 | 16 | 18) => icon(data, size, { 12: 1.6, 14: 1.8, 16: 1.8, 18: 2 }[size]);
 
-// GitHub's default label colours.
 const LABELS: [string, string][] = [
   ["bug", "#d73a4a"],
   ["enhancement", "#a2eeef"],

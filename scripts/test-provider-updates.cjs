@@ -6,9 +6,8 @@ const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const fixture = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { ProviderUpdateNotice } from '/src/components/ProviderUpdateNotice';
+import { HostNotices } from '/src/app/StartupScreens';
 import { DotBackground } from '/src/components/DotBackground';
-import { PersistenceNotices } from '/src/components/PersistenceNotice';
 import '/src/styles.css';
 window.release = 'unavailable'; window.available = false; window.reads = 0; window.installed = false; window.calls = []; window.fail = true;
 window.milagre = {
@@ -18,7 +17,7 @@ window.milagre = {
 window.settings = 0;
 document.documentElement.classList.add('dark');
 const root=createRoot(document.getElementById('root'));
-window.mount=()=>root.render(<DotBackground><div data-update-fixture className="pointer-events-none absolute bottom-5 right-5 z-50 max-w-[calc(100%-40px)] [&>*]:pointer-events-auto no-drag"><ProviderUpdateNotice key={window.release} onSettings={()=>window.settings++} /></div><PersistenceNotices scopes={[]} /></DotBackground>);
+window.mount=()=>root.render(<div data-update-fixture><DotBackground><HostNotices key={window.release} scopes={[]} hostConnection={{connected:true,hostOutdated:false}} restartingHost={false} setRestartingHost={()=>{}} setNotice={()=>{}} onSettings={()=>window.settings++} onProvidersUpdated={()=>{}} /></DotBackground></div>);
 window.mount();
 `;
 

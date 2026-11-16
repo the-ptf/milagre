@@ -12,17 +12,14 @@ import { useTheme } from "./theme";
 import { lineHeight, radius, type } from "./design-tokens";
 import { narrowSettingsRoutes, selectedSettingsRow, wideSettingsRoutes, type SettingsStackRoute } from "./settings-split-routes";
 
-/** From this card width the list sits beside the page, as desktop's Settings modal; narrower, it is the Stack's first page. */
 const SETTINGS_SPLIT_MIN = 700;
 const SIDEBAR_WIDTH = 320;
-/** Desktop's Settings modal: at most 1120 × 800, kept 24 pt off the window's edges. */
 const CARD_MAX = { width: 1120, height: 800 };
 const CARD_MARGIN = 24;
 
 type StackState = { key: string; index: number; routeNames: string[]; routeKeySeq: number; routes: SettingsStackRoute[] };
 type Props = {
   state: StackState;
-  // The navigator's reset: a route without a key gets one when the state is complete (`stale: false`).
   navigation: { reset(state: never): void };
   children: React.ReactNode;
 };
@@ -45,7 +42,6 @@ export function SettingsSplit({ state, navigation, children }: Props) {
 function SettingsCard({ state, navigation, children }: Props) {
   const { colors } = useTheme();
   const root = useNavigation("/");
-  // Target the containing Stack: an untargeted Back/Pop is consumed by a nested Settings page.
   const close = () => {
     const target = root.getState()?.key;
     if (target) root.dispatch({ type: "POP", target, payload: { count: 1 } });
@@ -59,13 +55,11 @@ function SettingsCard({ state, navigation, children }: Props) {
   const height = Math.min(CARD_MAX.height, window.height - edge - Math.max(edge, insets.bottom, keyboard + CARD_MARGIN));
   const wide = width >= SETTINGS_SPLIT_MIN;
   const next = wide ? wideSettingsRoutes(state.routes) : narrowSettingsRoutes(state.routes);
-  // The router takes only a complete state: the Stack's own, with the new routes (a route without a key gets one).
   const reset = (routes: SettingsStackRoute[]) => navigation.reset({ ...state, index: routes.length - 1, routes, stale: false } as never);
   useEffect(() => {
     if (next) reset(next);
   });
   const open = (page: string, params?: object) => {
-    // Replace the containing modal in one action, keeping the Chat under Routines at any Settings depth.
     if (page === "routines") {
       const target = root.getState()?.key;
       if (target) root.dispatch({ type: "REPLACE", target, payload: { name: "routines" } });
@@ -99,7 +93,6 @@ function SettingsCard({ state, navigation, children }: Props) {
             <SettingsSidebar selected={selectedSettingsRow(state.routes)} onOpen={open} onClose={close} />
           </View>
         ) : null}
-        {/* Until the Stack drops the list, the page side would draw the list beside itself for a frame. */}
         <View style={{ flex: 1, opacity: next ? 0 : 1 }}>{children}</View>
       </View>
     </View>
@@ -115,7 +108,6 @@ function SettingsSidebar({ selected, onOpen, onClose }: { selected?: string; onO
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
     >
-      {/* The pages beside start without a Back, so the card's one way out besides the scrim sits here, as desktop's ×. */}
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600" }}>
           Settings

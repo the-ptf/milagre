@@ -31,12 +31,10 @@ import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 
 export type HookInfo = { url: string; signed: boolean; signingHeader?: string };
 
-/** What a save did: an edit saved, or a new Routine made (a webhook's with its new URL). */
 export type RoutineSaved = { kind: "saved" } | { kind: "created"; routine: Routine; hookUrl?: string };
 
 export const localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
-/** The time zones a schedule can pick: the current one and this computer's first, then every zone Intl knows. */
 export function timezones(current: string): string[] {
   let zones: string[] = [];
   try {
@@ -47,14 +45,12 @@ export function timezones(current: string): string[] {
   return [...new Set([current, localZone(), "UTC", ...zones])];
 }
 
-/** The trigger the placeholder list is for: the form's kind with what it has chosen so far. */
 function draftTrigger(state: RoutineFormState): RoutineTrigger {
   if (state.trigger === "linear") return { kind: "linear", workspace: state.linear.workspace, event: state.linear.event };
   if (state.trigger === "webhook") return { kind: "webhook", hookId: "", signed: false };
   return { kind: "schedule", cron: "", timezone: state.schedule.timezone };
 }
 
-/** The trigger chip's words for the form as it stands: the schedule it would save, else the Linear or webhook trigger. */
 function draftTriggerText(state: RoutineFormState): string {
   if (state.trigger === "schedule") {
     const made = scheduleCron(state.schedule);
@@ -79,11 +75,6 @@ const LINEAR_WHEN: SelectOption<RoutineFormState["linear"]["event"]>[] = [
   { value: "comment", label: "New comment" },
 ];
 
-/**
- * The Routine form's state and everything it reads and saves, shared by the New Routine and Edit surfaces: the targets
- * of every computer with Routines on (only the edited Routine's own computer when editing) and Linear choices, a webhook's URL with Copy and Rotate, field errors, and the submit that sends
- * `routines:create` or `routines:update` (packages/shared/routine-form validates both).
- */
 export function useRoutineForm({
   initial,
   models,
@@ -92,7 +83,6 @@ export function useRoutineForm({
 }: {
   initial?: RoutineWithRuns;
   models: ModelOption[];
-  /** What each reported model accepts: the fallback's efforts come from here. */
   capabilities?: ModelCapabilities | null;
   defaultProjectPath?: string;
 }) {
@@ -105,24 +95,18 @@ export function useRoutineForm({
   const [errors, setErrors] = useState<Partial<Record<RoutineFormField, string>>>({});
   const [topError, setTopError] = useState("");
   const [busy, setBusy] = useState(false);
-  // Whether the user changed anything: leaving then asks to discard. Reads the form fills in itself don't count.
   const [dirty, setDirty] = useState(false);
   const [targets, setTargets] = useState<RoutineTargets | null>(null);
   const [linear, setLinear] = useState<RoutineLinearOptions | null>(null);
   const [hook, setHook] = useState<HookInfo | null>(null);
   const [rotating, setRotating] = useState(false);
   const [copied, setCopied] = useState(false);
-  // The date picker's range starts from when the form opened.
   const [openedAt] = useState(() => Date.now());
-  // A flow: its steps carry the prompts, so the form has none, and its Runs always start a Chat of their own.
   const [flow, setFlowState] = useState(Boolean(initial?.flow));
   const editing = Boolean(initial);
-  // Comments go into the Chat linked to their issue: no Project or Each Run to pick.
   const comment = isCommentRoutine(state);
   const heartbeat = state.runIn === "chat" && !comment;
 
-  // Where a new Routine can run: this Mac and every computer whose Routines answered (creating one there lets it run
-  // them). An edit stays on its Routine's computer.
   const { byComputer } = useRoutines();
   const { thisMac, computers } = useComputers();
   const remotesOn = computers.filter((computer) => typeof byComputer[computer.id]?.enabled === "boolean").map((computer) => computer.id);
@@ -151,11 +135,8 @@ export function useRoutineForm({
       live = false;
     };
   }, [sourceKey]);
-  // Linear's choices: labels and states belong to the picked team, so they are read again when it changes.
-  // Linear is signed in per Mac: the choices come from the computer the Routine runs on.
   const { workspace, team } = state.linear;
   const linearComputer = initial ? computerOfRoutine(initial) : computerOfKey(state.projectPath);
-  // Another Mac's Linear has its own workspaces and teams: picking a Project there starts the choice over.
   const linearFrom = useRef(linearComputer);
   useEffect(() => {
     if (linearFrom.current === linearComputer) return;
@@ -208,10 +189,8 @@ export function useRoutineForm({
     setErrors({});
     setState((current) => withRunIn(current, runIn));
   };
-  /** A new Routine's trigger kind. Only a schedule can check back on a Chat; another trigger starts new Chats. */
   const setTrigger = (trigger: RoutineFormState["trigger"]) =>
     update({ trigger, runIn: trigger !== "schedule" && state.runIn === "chat" ? "worktree" : state.runIn });
-  /** A new Routine as a single prompt or a flow. A flow can't check back on an existing Chat. */
   const setFlow = (on: boolean) => {
     setDirty(true);
     setErrors({});
@@ -221,13 +200,10 @@ export function useRoutineForm({
   const placeholders = useMemo(() => placeholdersFor(draftTrigger(state)), [state]);
   const project = targets?.projects.find((entry) => entry.path === state.projectPath);
 
-  /** Saves the form; a problem shows under its field and resolves null. */
   const submit = async (): Promise<RoutineSaved | null> => {
-    // A flow has no prompt of its own (its steps have theirs): the checks get a stand-in, and the Mac gets none back.
     const checked = flow && !state.prompt.trim() ? { ...state, prompt: "flow" } : state;
     const result = initial ? formToUpdate(checked, initial) : formToInput(checked);
     if (result.field !== undefined) {
-      // A comment Routine shows no Project or Each Run, so their problems show under the Linear fields.
       setErrors({ [comment && ["project", "runIn", "chat"].includes(result.field) ? "workspace" : result.field]: result.error });
       return null;
     }
@@ -241,8 +217,6 @@ export function useRoutineForm({
         return { kind: "saved" };
       }
       if ("input" in result) {
-        // A webhook trigger goes without a hook id: the Mac mints the URL and answers with it. The target's computer runs it.
-        // A new flow starts as an empty draft and stays off until it is published.
         const input: RoutineCreate = flow
           ? { ...(result.input as RoutineCreate), prompt: state.prompt.trim(), flow: { steps: [], publish: false } }
           : (result.input as RoutineCreate);
@@ -287,7 +261,6 @@ export function useRoutineForm({
         .map((model) => ({ value: model.id, label: model.name, icon: <ProviderLogo provider={provider} size={14} />, group: providerName(provider) })),
     ),
   ];
-  // The model a failed Run retries on: automatic (another installed provider's recommended model) or one picked here.
   const fallbackOptions: SelectOption<string>[] = [
     { value: "", label: "Retry on another provider", description: "When a Run fails on its model, it retries once on another installed provider" },
     ...PROVIDERS.flatMap((provider) =>
@@ -315,7 +288,6 @@ export function useRoutineForm({
     { value: "", label: "Default mode" },
     ...PERMISSION_MODES.map((mode) => ({ value: mode.id, label: mode.name, description: mode.description })),
   ];
-  // With other computers, each Project is listed under the computer it is on.
   const computerName = (id: string) => (id === LOCAL_COMPUTER ? thisMac : (computers.find((computer) => computer.id === id)?.name ?? "Computer"));
   const projectOptions: SelectOption<string>[] = (targets?.projects ?? []).map((entry) => ({
     value: entry.path,
@@ -373,10 +345,8 @@ export function useRoutineForm({
     placeholders,
     whereText,
     triggerText: draftTriggerText(state),
-    // Only a Run in a Chat of its own retries; a Heartbeat's beat and a Linear comment run on their Chat's model.
     fallback: fallbackApplies(state),
     fallbackValue: state.fallbackModel ? `${state.fallbackProvider}:${state.fallbackModel}` : "",
-    // Picking another model drops an effort it doesn't take.
     setFallback: (value: string) => {
       const split = value.indexOf(":");
       const provider = (split > 0 ? value.slice(0, split) : "") as RoutineFormState["fallbackProvider"];

@@ -77,7 +77,6 @@ function createBackgroundMode({ enabled: requested, platform, app, BrowserWindow
     dialog: enabled
       ? {
           showErrorBox: (title, content) => console.error(`${title}: ${content}`),
-          // Every dialog answers as if cancelled.
           showMessageBox: /** @type {any} */ (
             async (/** @type {any} */ first, /** @type {any} */ second) => {
               const options = second ?? first;
@@ -90,18 +89,15 @@ function createBackgroundMode({ enabled: requested, platform, app, BrowserWindow
         }
       : dialog,
     /**
-     * An editor app comes to the front when it opens a file, so in background the request only gets logged.
      * @template {(request: any, options: any) => Promise<string | null>} T
      * @param {T} open
      * @returns {T}
      */
     editorOpener: (open) =>
       enabled ? /** @type {T} */ (/** @type {unknown} */ (async (request) => (skipped(`opening ${request?.path ?? request?.root} in an editor`), null))) : open,
-    /** Brings the app to the front; in background it stays behind. */
     focusApp() {
       if (!enabled && platform === "darwin") app.focus({ steal: true });
     },
-    /** Notifications, the Dock badge and context menus only outside background. */
     notifications: (supported) => !enabled && supported,
     setBadge(value) {
       if (!enabled) app.dock?.setBadge(value);

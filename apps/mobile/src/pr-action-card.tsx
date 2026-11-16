@@ -9,7 +9,6 @@ import { pressStyle } from "./ui";
 import { useContext } from "react";
 import { ChatLinkContext } from "./chat-link-context";
 
-/** A PR-blocker pill the user tapped, shown as what it asked for instead of the skill prompt the agent read. Tapping opens the PR. */
 export function PullRequestActionCard({ action }: { action: PullRequestActionContext }) {
   const { colors } = useTheme();
   const openChatLink = useContext(ChatLinkContext);

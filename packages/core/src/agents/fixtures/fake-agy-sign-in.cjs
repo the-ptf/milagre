@@ -1,9 +1,4 @@
 // A stand-in for Antigravity's sign-in: answers `initialize`, and `authenticate` at once when GEMINI_HOME
-// holds a token; otherwise prints the sign-in line on stderr, waits for a request on its loopback port (the
-// browser callback) and then writes the token and answers. FAKE_AGY_SCENARIO picks a failure instead:
-//   subscription   authenticate fails with SUBSCRIPTION_REQUIRED after the callback
-//   bad-url        prints a link that isn't Google's
-// Every start is recorded in $GEMINI_HOME/fake-agy-env.json (BROWSER, TMPDIR and the scrubbed variables).
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");

@@ -13,10 +13,6 @@ import { InlineError } from "./primitives/InlineError";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
 import { bridgeForKey } from "../lib/computer-bridge";
 type Project = { id: string; name: string; path: string };
-/**
- * Creates a Link, or edits `link`'s name and member Projects. Chats already started keep their Worktrees. Editing, it
- * offers Delete Link…, which `onDelete` takes to its confirmation.
- */
 export function LinkProjectDialog({
   link,
   onClose,
@@ -53,7 +49,6 @@ export function LinkProjectDialog({
       live = false;
     };
   }, []);
-  // A member whose folder is gone is still listed, so it can be removed.
   const missing = (link?.projectIds ?? [])
     .filter((id) => !projects.some((project) => project.id === id))
     .map((id) => ({ id, name: id.split("/").at(-2) ?? "Project", path: "Unavailable" }));
@@ -72,7 +67,6 @@ export function LinkProjectDialog({
       setSaving(false);
     }
   }
-  // While saving, nothing closes it: no ×, and Esc and the scrim do nothing.
   return (
     <Dialog
       as="form"
@@ -109,7 +103,6 @@ export function LinkProjectDialog({
         placeholder="e.g. RDFood"
         className={`${FIELD} mt-1`}
       />
-      {/* The aria-label keeps lower-case "projects": it's the field's name in test-project-links. */}
       <input
         aria-label="Search Projects"
         value={search}
@@ -121,7 +114,6 @@ export function LinkProjectDialog({
         {loading && (
           <div role="status">
             <span className="sr-only">Loading Projects</span>
-            {/* Skeleton's look (hover-2 main bar, hover under it), drawn inline: test-link-project-dialog counts these rows as the only aria-hidden nodes. */}
             {Array.from({ length: 4 }, (_, index) => (
               <div key={index} aria-hidden="true" className="flex h-[52px] items-center gap-2 p-2 motion-safe:animate-pulse">
                 <span className="size-4 shrink-0 rounded-inline bg-hover-2" />

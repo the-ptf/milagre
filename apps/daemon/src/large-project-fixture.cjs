@@ -1,12 +1,5 @@
-// A large Project made up at test time, shaped like the big one #300 and #321 measured (a copy of milagre-ade's own
-// state): 79 Chats, 881 messages (5.3 MB), 94 subagents of which 81 are archived, transcripts of up to 100 entries
-// (12 MB), and the communications (saved before the subagent canvas went), latest activity and prompts beside them.
-// The same seed gives the same Project, byte for byte, so sizes measured on it can be held to exact budgets
-// (perf-budget.test.cjs).
-
 const BASE_TIME = 1_790_000_000_000;
 
-/** A seeded generator of numbers in [0, 1) (mulberry32). */
 function random(seed) {
   let a = seed >>> 0;
   return () => {
@@ -24,14 +17,9 @@ const WORDS = (
   "review update read write open close save load index cache event stream turn tool shell output error result"
 ).split(" ");
 
-/**
- * Builds the Project. `seed` picks every size and word. Returns the state as coordination.json held it before chats.db
- * (messages inline): the daemon moves it on its first save.
- */
 function largeProject({ seed = 321, projectPath = "/fixture/project" } = {}) {
   const next = random(seed);
   const between = (low, high) => low + Math.floor(next() * (high - low + 1));
-  // One block of words, sliced at random places: text of any length without building it word by word.
   let block = "";
   while (block.length < 256 * 1024) block += `${WORDS[Math.floor(next() * WORDS.length)]}${next() < 0.08 ? "\n" : " "}`;
   const text = (length) => {
@@ -48,9 +36,7 @@ function largeProject({ seed = 321, projectPath = "/fixture/project" } = {}) {
   let id = 100;
   let time = BASE_TIME;
   const CHATS = 79;
-  // Chats 2..80, one Worktree. The first 27 have messages; one of them is long.
   const messageCounts = [404, ...Array.from({ length: 26 }, (_, index) => [3, 6, 10, 14, 18, 22, 26, 30][index % 8] + between(0, 6))];
-  // Subagents per Chat, as in the measured Project.
   const agentCounts = [10, 52, 18, 7, 1, 1, 1, 1, 1, 1, 1];
   let agentIndex = 0;
   for (let index = 0; index < CHATS; index++) {
@@ -106,7 +92,6 @@ function largeProject({ seed = 321, projectPath = "/fixture/project" } = {}) {
         const length = next() < 0.3 ? 100 : between(0, 99);
         const transcript = [];
         for (let e = 0; e < length; e++) {
-          // The last entries run longer: a child's final reads and its answer.
           const size = next() + (e >= length - 4 ? 0.2 : 0);
           const entryLength = size < 0.6 ? between(80, 300) : size < 0.88 ? between(1000, 3000) : between(3000, 13000);
           transcript.push({ id: `item-${agentId}-${e}`, kind: next() < 0.7 ? "tool" : "message", text: text(entryLength) });
@@ -126,7 +111,6 @@ function largeProject({ seed = 321, projectPath = "/fixture/project" } = {}) {
           startedAt,
           updatedAt,
           endedAt: updatedAt,
-          // About one in seven stays on the track, as in the measured Project (81 of 94 archived).
           ...(agentIndex % 7 !== 3 ? { archived: true } : {}),
           ...(a > 0 && next() < 0.3 ? { parentId: `agent-${sessionId}-0` } : {}),
           prompt: text(between(800, 3200)),

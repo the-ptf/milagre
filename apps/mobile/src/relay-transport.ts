@@ -26,32 +26,23 @@ export type RelayResponse = {
 type RelayLiveHandle = { close(): void };
 export type RelayTransport = {
   request(method: "GET" | "POST", path: string, headers: Record<string, string>, body?: Uint8Array | string): Promise<RelayResponse>;
-  /** Streams the bridge's live socket at `path`. `onStatus(true)` once subscribed, `onStatus(false)` when lost; it resubscribes by itself. */
   live(path: string, onData: (data: string) => void, onStatus: (up: boolean) => void): RelayLiveHandle;
-  /** Opens the socket and finishes the hello now, instead of on the first request. */
   ready(): Promise<void>;
-  /** Closes the socket, fails what is pending and forgets a refused pairing. The transport reconnects on its next use. */
   close(): void;
 };
 export type RelayTransportOptions = {
-  /** The relay's WebSocket base, e.g. wss://relay.milagre.cloud. */
   relay: string;
-  /** Private routes, in LAN then Tailscale order, tried before the fallback. */
   direct?: string[];
   probe?: (endpoint: string, hostId: string) => Promise<boolean>;
   hostId: string;
-  /** The Mac's box public key from the pairing code, base64url. Replies are accepted from this key only. */
   key: string;
   token: string;
   identity: KeyPair;
-  /** What this phone calls itself; the Mac shows it in Settings › Phone & sharing. */
   name?: string | null;
   create?: (url: string) => RelaySocket;
   random?: (n: number) => Uint8Array;
   timers?: RelayTimers;
-  /** A number in [0, 1) for the backoff jitter. */
   jitter?: () => number;
-  /** An open socket was lost (dropped, silent, refused mid-session). Not called when close() ends it. */
   onLost?: () => void;
 };
 
@@ -78,11 +69,9 @@ const ACCEPT = 0x02,
   REFUSED = 0x04;
 const CLOSE_HOST_OFFLINE = 4404;
 const BACKOFF = [1000, 2000, 5000, 10000, 30000];
-// Keepalive: the Mac answers a ping with a pong. Nothing heard for 45 s means the socket is dead (a network change leaves no close).
 const PING = 20_000;
 const SILENCE = 45_000;
 const HANDSHAKE = 15_000;
-// Asked for in the hello: the Mac then sends a window's messages as one frame, which dispatch takes apart.
 const BATCH_CAP = "batch";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -96,7 +85,7 @@ const platformRandom = (n: number) => {
 function toBytes(data: unknown): Uint8Array | null {
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
   if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-  return null; // a text frame: the relay only sends binary
+  return null;
 }
 
 type Pending = {
@@ -114,7 +103,6 @@ type LiveState = {
   conn: Conn | null;
   id: number;
 };
-/** An open, handshaken socket and what rides on it. */
 type Conn = {
   socket: RelaySocket;
   channel: Channel;
@@ -128,19 +116,13 @@ type Conn = {
   over: boolean;
 };
 
-/**
- * One relay socket per paired Mac, opened on first use. Requests and live streams ride it as sealed frames;
- * a drop fails the requests in flight, and live streams resubscribe themselves after a backoff.
- */
 export function createRelayTransport(options: RelayTransportOptions): RelayTransport {
   const { relay, hostId, token, identity, create = nativeSocket, random = platformRandom, timers = defaultTimers, jitter = Math.random } = options;
   const lives = new Set<LiveState>();
   let conn: Conn | null = null;
   let connecting: Promise<Conn> | null = null;
   let abortConnect: ((error: RelayTransportError) => void) | null = null;
-  /** Set when the Mac refused this phone for good; nothing reconnects until close(). */
   let refused: RelayTransportError | null = null;
-  /** True while close() ends the socket, so that is not reported as a loss. */
   let closing = false;
   let generation = 0;
 
@@ -178,7 +160,6 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
     timers.clearTimeout(c.silence);
     const pending = [...c.pending.values()];
     c.pending.clear();
-    // A copy: down notifies subscribers that may close or open live streams.
     for (const live of Array.from(c.lives.values())) down(live, c, true);
     for (const request of pending) request.reject(error);
   }
@@ -229,17 +210,15 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
         send(c, { t: "pong" });
         return;
       case "batch": {
-        // The messages of one window on the Mac, in order (it batches only because this phone's hello asked).
         const items: unknown = message.items;
         if (Array.isArray(items)) for (const item of items) dispatch(c, item as RelayMessage);
         return;
       }
       default:
-        return; // pong, and anything newer than this app
+        return;
     }
   }
 
-  /** Opens the socket and runs the handshake; resolves once the Mac's accept is verified against the pinned key. */
   function openAt(endpoint: string): Promise<Conn> {
     return new Promise<Conn>((resolve, reject) => {
       let socket: RelaySocket;
@@ -262,18 +241,14 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
         abortConnect = abortConnect === end ? null : abortConnect;
         try {
           socket.close();
-        } catch {
-          /* already closed */
-        }
+        } catch {}
         if (refusal) refused = error;
         if (c) {
           c.over = true;
           if (!closing) {
             try {
               options.onLost?.();
-            } catch {
-              /* the owner's bug must not leave the pending requests hanging */
-            }
+            } catch {}
           }
           teardown(c, error);
         } else reject(error);
@@ -289,7 +264,6 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
           }
         }
       });
-      // A failed socket always closes afterwards, with the code that says why.
       socket.addEventListener("error", () => {});
       socket.addEventListener("close", (event) => end(fail(event?.code === CLOSE_HOST_OFFLINE ? "host-offline" : "lost")));
       socket.addEventListener("message", (event) => {
@@ -310,10 +284,7 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
           let refusal: { code?: unknown; reason?: unknown } | null = null;
           try {
             refusal = JSON.parse(decoder.decode(bytes.subarray(1)));
-          } catch {
-            /* a bad hello is treated as a drop */
-          }
-          // A Mac that was reset keeps its old room for a while only to say so; it sends `reason` with its bad-token.
+          } catch {}
           const code = refusal?.code === "bad-token" && refusal.reason === "reset" ? "host-reset" : refusal?.code;
           const final = code === "bad-token" || code === "host-reset" || code === "unknown-phone";
           return end(final ? fail(code) : fail("lost"), final);
@@ -385,18 +356,15 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
   }
 
   function retryLater(live: LiveState) {
-    // A refused phone has nothing to gain from asking again.
     if (live.closed || refused) return;
     const wait = (BACKOFF[Math.min(live.failures, BACKOFF.length - 1)] ?? 30000) * (0.8 + 0.4 * jitter());
     live.failures++;
     live.retry = timers.setTimeout(() => subscribe(live), wait);
   }
 
-  /** A live stream lost its subscription: its socket went (`socketLost`) or the Mac closed just this stream. */
   function down(live: LiveState, c: Conn, socketLost: boolean) {
     c.lives.delete(live.id);
     live.conn = null;
-    // A stream that was up when its socket dropped starts the backoff over; one the Mac keeps refusing does not.
     if (live.up && socketLost) live.failures = 0;
     if (live.up) {
       live.up = false;
@@ -460,7 +428,6 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
         abortConnect?.(fail("lost"));
         current?.end(fail("lost"));
       } finally {
-        // A consumer callback that throws during teardown must not leave later losses unreported.
         closing = false;
       }
     },

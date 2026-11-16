@@ -7,11 +7,6 @@ import { createLinkTitle, linkSummary, linkWorktree, projectsScopeSubtitle, type
 import { currentLinkQuestion } from "../link-chat-store";
 import { CheckRow, CircleButton, Field, Group, PageScroll, PillButton, SheetHeader, Toggle, useStyles } from "../ui";
 
-/**
- * The "Create Link" confirmation, desktop's dialog on the phone: which ends to link, whether the source Chat may make
- * Delegations without asking, and what it should ask the other Chat. The choice runs once the sheet has gone, as the
- * confirmation sheet's does, so the notice it shows never fights the sheet's dismissal.
- */
 export default function LinkChat() {
   const styles = useStyles();
   const [entry] = useState(currentLinkQuestion);

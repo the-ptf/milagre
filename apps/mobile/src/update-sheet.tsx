@@ -72,8 +72,6 @@ export function UpdateShell({ children }: { children: ReactNode }) {
       const sheetIndex = navigation.routes.findIndex((route) => route.name === "update-sheet");
       if (sheetIndex >= 0) {
         pushed.current = false;
-        // An in-flight connection or notification can navigate after the prompt opens.
-        // Keep that destination underneath one prompt, preserving its page state.
         if (sheetIndex !== navigation.index) {
           const routes = [...navigation.routes.filter((_, index) => index !== sheetIndex), { name: "update-sheet" }];
           navigationRef.dispatch({ type: "RESET", target: navigation.key, payload: { ...navigation, routes, index: routes.length - 1 } });
@@ -121,7 +119,6 @@ export function useUpdatePresentation(state: UpdateState) {
   }
   const dismiss = useCallback(() => setPresentation((previous) => ({ ...previous, presented: false, dismissed: true })), []);
   useEffect(() => {
-    // Dismissal survives foreground checks; a different downloaded update can prompt again.
     const subscription = AppState.addEventListener("change", (next) => {
       if (next === "active") setPresentation((previous) => ({ ...previous, presented: previous.presented || (!previous.dismissed && actionable) }));
     });
@@ -170,7 +167,6 @@ export function UpdateSheet({ state, onUpdate, onRetry, onDismiss }: { state: Up
             ? "You can keep using Milagre while the update downloads."
             : "";
   const retry = state.status === "error" || state.status === "check-error";
-  // Status changes and errors, not the title the screen opens with (VoiceOver reads that as the screen appears).
   useAnnounce(state.error ? `${title}. ${state.error}` : title);
   return (
     <View style={{ flex: 1, paddingTop: insets.top + 48, paddingBottom: insets.bottom + 16, paddingHorizontal: 24 }}>

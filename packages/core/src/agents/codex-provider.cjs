@@ -36,15 +36,10 @@ const { codexMcpCall, turnGuards } = require("../escalation-guard.cjs");
 const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
 // Outside Plan mode, Codex offers its question tool (request_user_input) only behind this feature.
-// It is set per thread, where an unknown feature is ignored; `--enable` would refuse to start instead.
-// Async questions are emitted as agent messages, with no pending RPC to answer. Keep the supported question
-// tool exposed instead: it waits on item/tool/requestUserInput and both clients can answer its native card.
 const THREAD_CONFIG = { features: { default_mode_request_user_input: true, send_message_to_user_async: false } };
 
 // Milagre permission mode -> Codex policy. Ask asks before any command Codex doesn't already trust,
 // Auto only when Codex wants to go beyond the workspace sandbox, and Full never asks.
-// A babysit Run's turn (`guarded`) must show Milagre every command its level might refuse. Full keeps its sandbox but
-// asks about untrusted commands, which Milagre then allows itself (PendingPermissions); Ask already asks, and Auto's
 // sandbox has no network, so a push or a GitHub write can only run once Codex asks to leave it.
 // A wake's turn (`readOnly`) runs on Codex's strictest policy whatever the Chat's mode: its sandbox writes nothing and
 // reaches no network, and everything Codex doesn't trust as a read asks, which the turn then refuses (EscalationTurn).
@@ -89,8 +84,6 @@ function saveGeneratedImage(item, directory = path.join(os.tmpdir(), "milagre-ge
   }
 }
 
-// Tool image blocks are separate visible steps; their base64 never bloats the saved transcript. Milagre's design
-// renders and HTML previews are for the agent to inspect, not separate images to publish in the conversation.
 // Codex preserves this MCP provenance for nested calls from functions.exec too (their IDs start with "exec-").
 const isInternalRender = (item) =>
   item?.type === "mcpToolCall" && item.server === "milagre" && ["design_show", "design_apply", "html_preview"].includes(item.tool);
@@ -107,9 +100,7 @@ function toolImageEvents(item) {
       const file = saveToolImage(dataUrl);
       const id = `${item.id}:image:${index}`;
       events.push({ type: "step-started", step: { id, kind: "image", title: "Image from tool", file } }, { type: "step-completed", id, status: "done", file });
-    } catch {
-      /* Unsupported tool media must not interrupt its text result. */
-    }
+    } catch {}
   }
   return events;
 }
@@ -121,7 +112,6 @@ const turnInput = (prompt, files) =>
 
 // account/read answers in well under a second; a Codex that doesn't is not held up for the default RPC timeout.
 const ACCOUNT_TIMEOUT_MS = 8000;
-// The items that are tool calls, for what a wake's turn may spend.
 const TOOL_ITEMS = new Set(["commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "webSearch", "imageView", "collabAgentToolCall"]);
 // thread/start and thread/resume wait for Codex however long it takes (see requestThread).
 const THREAD_TIMEOUT_MS = null;
@@ -132,12 +122,10 @@ async function readLatestChildTurn(rpc, threadId) {
   const { thread } = await rpc.request("thread/read", { threadId }, { timeoutMs: 5000 });
   if (thread?.status?.type === "active") return thread;
   try {
-    // Outcome recovery needs no transcript or earlier turns.
     const page = await rpc.request("thread/turns/list", { threadId, limit: 1, sortDirection: "desc", itemsView: "notLoaded" }, { timeoutMs: 5000 });
     return { ...thread, turns: page.data.slice(0, 1) };
   } catch (error) {
     if (!error.rpcError) throw error;
-    // Older providers do not have the paginated endpoint.
     return (await rpc.request("thread/read", { threadId, includeTurns: true }, { timeoutMs: 5000 })).thread;
   }
 }
@@ -151,7 +139,6 @@ class CodexSession {
     emit,
     workspaceRoots,
     readOnlyRoots,
-    // The SessionManager's, which follows a shared Link Chat's Worktrees; a session made alone (an advisor) has its own.
     access = new WorkspaceAccess({ cwd, workspaceRoots, readOnlyRoots }),
     workspaceInstructions,
     tldrEnabled = true,
@@ -182,25 +169,19 @@ class CodexSession {
       interruptGraceMs,
       createRpc,
     });
-    // steps: ids of the tool steps started in this turn and not yet completed.
     this.state = { threadId: resumeId ?? null, turnId: null, lastItemId: null, hasText: false, steps: new Set() };
     this.rpc = null;
     this.starting = null;
     this.turnActive = false;
     this.cancelRequested = false;
-    // Image files written for this turn's messages; removed when the turn ends.
     this.imageSets = [];
-    // Settle once the running turn has its id (or failed to start), and once it has ended.
     this.turnReady = Promise.resolve();
     this.turnEnded = Promise.resolve();
     this.ready = false;
     this.closed = false;
     this.permissions = new PendingPermissions((event) => this.emit(event));
     this.questions = new PendingQuestions((event) => this.emit(event));
-    // fileChange items by id, from item/started: their approval requests carry no diff of their own.
     this.fileChanges = new Map();
-    // A babysit Run's level ({ level, resolveThreads }) while its turn runs, else null; and the commands it refused by
-    // item id ({ command, reason }), so their steps say why. A wake's EscalationTurn while its turn runs.
     this.guard = null;
     this.escalation = null;
     this.refused = new Map();
@@ -210,7 +191,6 @@ class CodexSession {
     return this.state.threadId;
   }
 
-  /** The app-server process, while it runs; the ports its commands open belong to the chat. */
   get pid() {
     const child = this.rpc?.child;
     return this.closed || child?.exitCode != null || child?.signalCode != null || child?.killed ? null : (child?.pid ?? null);
@@ -247,7 +227,6 @@ class CodexSession {
     const policy = this.analysisOnly
       ? advisorPolicy("codex", this.linked?.tools ?? [])
       : codexPolicy(permissionMode, this.cwd, this.access.roots, { guarded: Boolean(this.guard), readOnly: Boolean(this.escalation) });
-    // The turn's sandbox writes to every owned root; one made during the turn reaches it through approvals.
     this.access.learned();
     this.permissions.setMode(permissionMode);
     try {
@@ -273,8 +252,6 @@ class CodexSession {
           ...(effort ? { effort } : {}),
           // Codex only sends reasoning summaries when asked; they are the reply's thinking steps.
           summary: "auto",
-          // The composer's fast mode toggle decides each turn's speed tier, as it does for Claude; off means
-          // standard speed even where ~/.codex/config.toml sets service_tier. Per turn, so the thread keeps none.
           serviceTierForTurn: fastMode ? CODEX_FAST_TIER : "default",
           approvalPolicy: policy.approvalPolicy,
           sandboxPolicy: policy.sandboxPolicy,
@@ -296,7 +273,6 @@ class CodexSession {
               ? failedWith(error.message, { login: error.login === true })
               : { type: "turn-failed", message: error.message },
         ]);
-        // A session that never finished starting is unusable; closing it lets the manager start over.
         if (!this.ready) await this.close();
       }
       return { turnId: null, steered: false };
@@ -304,12 +280,10 @@ class CodexSession {
   }
 
   // A message for the running turn joins it through turn/steer, once the turn has an id. If Codex
-  // refuses because the turn already ended, the message starts the next turn instead.
   async steer(request) {
     await this.turnReady;
     const ended = this.turnEnded;
     if (!this.turnActive) return this.startTurn(request);
-    // A turn that was asked to stop takes no more messages; this one starts the next turn.
     if (this.cancelRequested) {
       await ended;
       if (this.closed) throw sessionClosedError();
@@ -322,11 +296,8 @@ class CodexSession {
       return this.startTurn(request);
     }
     if (request.permissionMode) this.setPermissionMode(request.permissionMode);
-    // A message steered into a babysit Run doesn't lift its guard. A babysit Run itself never steers into a running turn:
-    // its delivery waits while the Chat is busy, so it always starts a turn of its own with the guarded policy.
     if (request.guard) this.guard = request.guard;
     const turnId = this.state.turnId;
-    // An open question waits for its answer; the message is the user's reply, so the question is dismissed.
     this.questions.dismissAll();
     const files = request.images?.length ? await writeImages(request.images) : null;
     if (files) this.imageSets.push(files);
@@ -356,18 +327,13 @@ class CodexSession {
     await this.checkLogin(rpc);
     // The Chat's linked tools reach Codex as an MCP server in the thread's config (see linked-mcp-server.cjs).
     const url = this.linked ? await this.linked.url().catch(() => null) : null;
-    // A constrained session must discover and disable every inherited server. Failure cannot fall back
-    // to the ordinary Chat policy because that would expose the user's external tools to an advisor.
     const inherited = this.analysisOnly ? (await rpc.request("config/read", { cwd: this.cwd })).config : null;
-    // Settings › MCP: Everywhere servers join the thread, and servers switched off for this account are disabled.
     const extras = !this.analysisOnly && this.mcpExtras ? await readMcpExtras(this) : null;
     const extraServers = {
       ...Object.fromEntries((extras?.servers ?? []).map((def) => [def.name, toCodexConfig(def)])),
       // Merged into the user's own definition by Codex (Task 1, probe step 4).
       ...Object.fromEntries((extras?.off ?? []).map((name) => [name, { enabled: false }])),
     };
-    // The names a retry may drop: off servers are not in this list (they are only kept off), so Everywhere servers
-    // never share a name with an off entry.
     this.everywhereNames = new Set((extras?.servers ?? []).map((def) => def.name));
     const servers = { ...extraServers, ...(url ? { milagre: { url, tool_timeout_sec: 86400 } } : {}) };
     let config = this.analysisOnly
@@ -396,18 +362,13 @@ class CodexSession {
 
   // A logged-out Codex accepts a turn, retries for about 15 s and fails it with a raw 401. account/read
   // answers at once: no account while OpenAI auth is required means `codex login` is needed. A Codex that
-  // can't answer, or one on a provider that needs no OpenAI login, isn't held up.
   async checkLogin(rpc) {
     const status = await rpc.request("account/read", { refreshToken: false }, { timeoutMs: ACCOUNT_TIMEOUT_MS }).catch(() => null);
-    // Only where OpenAI auth is required does a 401 mid-session mean "log in" (see mapCodexNotification).
     this.state.requiresOpenaiAuth = status?.requiresOpenaiAuth === true;
     if (status && !status.account && status.requiresOpenaiAuth === true) throw Object.assign(new Error(loginMessage("codex")), { notice: true, login: true });
   }
 
   // Codex ignores a feature it doesn't know, but a Codex that rejects `config` outright would leave the
-  // chat unusable. On an RPC error the call is tried again with less: without the Everywhere servers (the
-  // switched-off entries and the linked tools stay), then with only the linked tools' MCP server, then without
-  // any MCP server (the Chat then only receives Delegations), then without any config (no question tool either).
   // Neither call has a time limit, as in T3 Code and Paseo: Codex answers only after watching every skill folder,
   // which a busy fseventsd stretched past a minute. A Codex that exits fails the call, and Stop kills a stuck start.
   async requestThread(method, params) {
@@ -458,15 +419,12 @@ class CodexSession {
       this.permissions.forget(String(params.requestId));
       this.questions.forget(String(params.requestId));
     }
-    // A turn this session isn't running (its start acknowledgement timed out) would open a run nothing ends.
     if (method === "turn/started" && !this.turnActive && !this.state.subagents?.has(params.threadId)) return;
     if (method === "turn/started" && params.threadId === this.state.threadId) this.state.turnId ??= params.turn?.id ?? null;
     if (method === "item/completed" && params.item?.type === "imageGeneration") params = { ...params, item: saveGeneratedImage(params.item) };
     const events = mapCodexNotification(method, params, this.state).map((event) => this.withRefusal(event));
-    // The mapper filters other threads and stale turns before any image is surfaced here.
     if (method === "item/completed" && events.some((event) => event.type === "step-completed" && event.id === String(params.item?.id)))
       events.push(...toolImageEvents(params.item));
-    // A message to a finished child changes nothing yet, but marks it for a recheck (subagents.cjs): poll it too.
     const recheck = [...(this.state.subagentRecheckUntil?.values() ?? [])].some((until) => until > Date.now());
     if (recheck || events.some((event) => event.type === "subagent-update")) this.scheduleSubagents();
     if (!events.some(isTerminal)) {
@@ -475,12 +433,10 @@ class CodexSession {
     }
     const loggedOut = !this.cancelRequested && events.some((event) => event.login);
     const finished = this.finishTurn(this.cancelRequested ? events.map((event) => (isTerminal(event) ? { type: "turn-cancelled" } : event)) : events);
-    // An app-server that answered 401 holds the old credentials; the next message starts a fresh one.
     if (loggedOut) void finished.then(() => this.close());
     else void finished;
   }
 
-  // A command a babysit Run's level refused ends as a step that says why, rather than "Declined.".
   withRefusal(event) {
     const refused = event.type === "step-completed" ? this.refused.get(event.id) : undefined;
     if (!refused) return event;
@@ -488,8 +444,6 @@ class CodexSession {
     return { ...event, detail: `$ ${refused.command}\n${refused.reason}` };
   }
 
-  // Native children need not be subscribed on the parent's connection. Read their history
-  // without resuming them, then route it through the same child-only event mapper.
   shouldPollSubagent(agent) {
     return activeSubagent(agent) || (this.state.subagentRecheckUntil?.get(agent.id) ?? 0) > Date.now();
   }
@@ -506,8 +460,6 @@ class CodexSession {
 
   async readSubagentThread(threadId, previous) {
     const { thread } = await this.rpc.request("thread/read", { threadId }, { timeoutMs: 5000 });
-    // The opposite-direction cursor includes its anchor turn, so an active item can
-    // grow without getting lost. A one-turn descending page gives the next anchor.
     const newest = await this.rpc.request(
       "thread/turns/list",
       {
@@ -542,7 +494,6 @@ class CodexSession {
   }
 
   refreshSubagents() {
-    // A timer and a final refresh may overlap. One cursor owner prevents stale results.
     if (this.refreshingChildren) return this.refreshingChildren;
     this.refreshingChildren = this.pollSubagents().finally(() => {
       this.refreshingChildren = null;
@@ -552,7 +503,6 @@ class CodexSession {
 
   async pollSubagents() {
     this.childHistory ??= new Map();
-    // A copy: subagent state can change while each history read awaits.
     for (const agent of Array.from(this.state.subagents?.values() ?? [])) {
       if (this.closed) return;
       const previous = this.childHistory.get(agent.id);
@@ -567,8 +517,6 @@ class CodexSession {
           for (const item of turn.items ?? []) {
             const itemKey = `${turn.id}:${item.id}`;
             const old = previous?.items.get(itemKey);
-            // Completed item ids are stable. Only the active turn's items need a
-            // content comparison; never serialize the thread history for a fingerprint.
             items.set(itemKey, completed ? null : item);
             if (old === null || (old !== undefined && isDeepStrictEqual(old, item))) continue;
             for (const event of mapCodexNotification("item/completed", { threadId: agent.id, item }, this.state)) this.emit(event);
@@ -587,9 +535,7 @@ class CodexSession {
         }
         const current = this.state.subagents.get(agent.id);
         this.childHistory.set(agent.id, { cursor: thread.cursor, items, outcome, agentStatus: current.status, finished: !activeSubagent(current) });
-      } catch {
-        // A live child may not have flushed its history yet. Retry from the last cursor.
-      }
+      } catch {}
     }
   }
 
@@ -599,7 +545,6 @@ class CodexSession {
       const answer = (decision) => this.reply(id, codexMcpResponse(decision));
       if (!this.turnActive || this.cancelRequested || this.closed) answer("cancelled");
       else if (this.analysisOnly || !request) answer("deny");
-      // Before the plan tools' shortcut, which would allow chat_respond on any request and every other tool on its list.
       else if (this.escalation) answer(this.escalation.denial(codexMcpCall(params, this.linked?.tools)) ? "deny" : "allow");
       else if (isCodexPlanToolApproval(params)) answer("allow");
       else this.permissions.add(request, answer);
@@ -607,10 +552,8 @@ class CodexSession {
     }
     const answer = (decision) => this.reply(id, { decision: codexDecision(decision) });
     const approval = method === "item/commandExecution/requestApproval" || method === "item/fileChange/requestApproval";
-    // A request that arrives once its turn has stopped has nobody to ask.
     if (approval && this.analysisOnly) answer("deny");
     else if (approval && (!this.turnActive || this.cancelRequested || this.closed)) answer("cancelled");
-    // A wake's turn runs nothing that has to ask, whatever the workspace or the Chat's mode would allow.
     else if (approval && this.escalation) answer("deny");
     else if (method === "item/commandExecution/requestApproval") {
       const request = codexCommandRequest(id, params);
@@ -628,7 +571,6 @@ class CodexSession {
     } else if (method === "item/tool/requestUserInput" && (this.analysisOnly || this.executionAdvisor || this.escalation))
       this.reply(id, codexQuestionResponse("dismissed"));
     else if (method === "item/tool/requestUserInput") this.askQuestion(id, params);
-    // Granting extra sandbox permissions is out of scope: grant none, for this turn only.
     else if (method === "item/permissions/requestApproval") this.reply(id, { permissions: {}, scope: "turn" });
     else {
       try {
@@ -649,7 +591,6 @@ class CodexSession {
   }
 
   // Codex waits on its question until the user answers or dismisses the card, a steering message
-  // dismisses it, or the turn stops. A question it can't show, or one asked once its turn has
   // stopped, gets no answers, which Codex reads as "carry on without them".
   askQuestion(id, params) {
     const request = codexQuestionRequest(id, params);
@@ -665,7 +606,6 @@ class CodexSession {
   }
 
   // Codex fixes its approval policy when a turn starts, so a switch mid-turn is applied here (see
-  // PendingPermissions); the next turn starts with the new policy.
   setPermissionMode(permissionMode) {
     if (this.analysisOnly) return;
     this.permissions.setMode(permissionMode);
@@ -682,7 +622,6 @@ class CodexSession {
     if (!this.turnActive) return;
     this.turnActive = false;
     this.escalation = null;
-    // Bind to this turn's own resolver: a new turn may start while image cleanup is awaited.
     const markEnded = this.markTurnEnded;
     this.markTurnEnded = null;
     clearTimeout(this.interruptTimer);
@@ -690,7 +629,6 @@ class CodexSession {
     this.questions.cancelAll();
     this.fileChanges.clear();
     this.refused.clear();
-    // A command still running when the turn stopped never completes; the renderer closes its step.
     this.state.steps.clear();
     this.state.thinkingStarts?.clear();
     const imageSets = this.imageSets;
@@ -716,7 +654,6 @@ class CodexSession {
   }
 
   // Fallback for an interrupt Codex doesn't honour: kill the process, and end the turn
-  // ourselves in case nothing was spawned yet (or the exit event never comes).
   async stopNow() {
     await this.close();
     await this.finishTurn([{ type: "turn-cancelled" }]);
@@ -733,8 +670,6 @@ class CodexSession {
   }
 }
 
-// Reopening an idle chat need not start or resume an agent. Only its saved unknown children
-// are checked, and history items are never replayed as new output.
 async function recoverCodexSubagents({ cwd, command, env, agents, clientVersion = "0.0.0", createRpc = (options) => new CodexRpc(options) }) {
   const unknown = (agents ?? []).filter((agent) => agent.status === "unknown" && !agent.archived);
   if (!command || !unknown.length) return [];
@@ -768,7 +703,6 @@ async function recoverCodexSubagents({ cwd, command, env, agents, clientVersion 
       ];
     });
   } catch {
-    // A missing provider or unreadable history supplies no new evidence about these children.
     return [];
   } finally {
     await rpc?.close().catch(() => {});

@@ -14,7 +14,6 @@ const CHECK_EVERY = 60_000;
 type Entry = { token: string; lan: LanRoute | undefined; supervisor: RouteSupervisor };
 const entries = new Map<string, Entry>();
 
-/** Whether this address still answers as the Mac we paired with. No credentials go out. */
 async function probe(endpoint: string, hostId: string): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT);
@@ -65,7 +64,6 @@ function entry(id: string, token: string): Entry {
   return created;
 }
 
-/** Each saved computer's LAN route: which transport carries it now, and when to look again. */
 export const lanRoutes = {
   view(host: { id: string; token: string }): RouteView {
     const { supervisor } = entry(host.id, host.token);
@@ -83,7 +81,6 @@ export const lanRoutes = {
     void found.supervisor.check();
   },
   kind: (id: string): "lan" | "remote" => (entries.get(id)?.supervisor.current().kind === "lan" ? "lan" : "remote"),
-  /** The IP the LAN route to this computer dialed, where its dev servers answer too; null off the LAN route. */
   address(id: string): string | null {
     const route = entries.get(id)?.supervisor.current();
     if (route?.kind !== "lan") return null;
@@ -105,10 +102,6 @@ export const lanRoutes = {
   },
 };
 
-/**
- * Asks the Mac for its LAN route over the route this client already uses, and saves it. An older Mac, or the review
- * demo, refuses `phone:routes`: the computer keeps its paired route only.
- */
 export async function learnRoutes(client: Client, host: { token: string; relay?: RelayLink }) {
   const identity = await phoneIdentity();
   let answer: unknown;
@@ -118,7 +111,6 @@ export async function learnRoutes(client: Client, host: { token: string; relay?:
     return;
   }
   let lan = lanRouteFromAnswer(answer, Date.now());
-  // A relay computer's LAN route must be the same Mac we pinned from its QR.
   if (lan && host.relay && (lan.key !== host.relay.key || lan.hostId !== host.relay.hostId)) lan = undefined;
   await savedHosts.learn(client.url, lan);
   lanRoutes.set(client.url, host.token, lan);
@@ -133,7 +125,6 @@ setInterval(() => {
   if (AppState.currentState === "active") lanRoutes.checkAll();
 }, CHECK_EVERY);
 
-/** The address the phone reaches a computer's own servers on (lanRoutes.address), following its route as it changes. */
 export function useReachableHost(id: string | null | undefined): string | null {
   return useSyncExternalStore(
     (listener) => (id ? lanRoutes.subscribe(id, listener) : () => {}),

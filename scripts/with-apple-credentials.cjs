@@ -1,5 +1,3 @@
-// Apple credentials copied from a form may contain surrounding whitespace.
-// Normalize only Apple's fields; certificate export passwords are exact values.
 const { spawnSync } = require("node:child_process");
 const env = { ...process.env };
 for (const name of ["APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID"]) {

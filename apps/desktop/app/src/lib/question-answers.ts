@@ -1,31 +1,20 @@
 import type { AgentQuestion, ImageAttachment, QuestionAnswers, QuestionImages } from "../model";
 
-/** What the user has picked and typed for one question on a question card, and the images attached to the answer. */
 export interface QuestionDraft {
   picked: string[];
   typed: string;
-  /**
-   * Whether the typed answer (the "Other" row) is chosen. Picking an option on a single-choice question moves the choice
-   * away but keeps the text; typing chooses it again. Absent on older drafts: a typed answer then counts.
-   */
   other?: boolean;
   images?: ImageAttachment[];
 }
 
-/** At most this many images go with all of a card's answers, as the host takes them. */
 export const MAX_ANSWER_IMAGES = 10;
 
-/** Drafts by question id. */
 export type QuestionDrafts = Record<string, QuestionDraft>;
 
 export function draftOf(drafts: QuestionDrafts, questionId: string): QuestionDraft {
   return drafts[questionId] ?? { picked: [], typed: "" };
 }
 
-/**
- * Picks an option. A single-choice question keeps only that option and moves the choice off the typed answer (its text
- * stays, so choosing Other again brings it back); a multi-select one toggles it.
- */
 export function pickOption(drafts: QuestionDrafts, question: AgentQuestion, label: string): QuestionDrafts {
   const draft = draftOf(drafts, question.id);
   if (!question.multiSelect) return { ...drafts, [question.id]: { ...draft, picked: [label], other: false } };
@@ -33,7 +22,6 @@ export function pickOption(drafts: QuestionDrafts, question: AgentQuestion, labe
   return { ...drafts, [question.id]: { ...draft, picked } };
 }
 
-/** Types an answer of the user's own, which chooses it. On a single-choice question it replaces the picked option. */
 export function typeAnswer(drafts: QuestionDrafts, question: AgentQuestion, typed: string): QuestionDrafts {
   const draft = draftOf(drafts, question.id);
   const wrote = Boolean(typed.trim());
@@ -41,29 +29,24 @@ export function typeAnswer(drafts: QuestionDrafts, question: AgentQuestion, type
   return { ...drafts, [question.id]: { ...draft, picked, typed, other: wrote || (draft.other ?? false) } };
 }
 
-/** Chooses the typed answer's row: the only choice on a single-choice question, toggled on a multi-select one. */
 export function chooseOther(drafts: QuestionDrafts, question: AgentQuestion): QuestionDrafts {
   const draft = draftOf(drafts, question.id);
   if (!question.multiSelect) return { ...drafts, [question.id]: { ...draft, picked: [], other: true } };
   return { ...drafts, [question.id]: { ...draft, other: !(draft.other ?? Boolean(draft.typed.trim())) } };
 }
 
-/** Whether the typed answer's row is chosen. */
 export function otherChosen(draft: QuestionDraft): boolean {
   return draft.other ?? Boolean(draft.typed.trim());
 }
 
-/** Attaches images to a question's answer, or removes one (`images` the question keeps). */
 export function setAnswerImages(drafts: QuestionDrafts, question: AgentQuestion, images: ImageAttachment[]): QuestionDrafts {
   return { ...drafts, [question.id]: { ...draftOf(drafts, question.id), images } };
 }
 
-/** How many images all the answers carry. */
 export function answerImageCount(drafts: QuestionDrafts): number {
   return Object.values(drafts).reduce((total, draft) => total + (draft.images?.length ?? 0), 0);
 }
 
-/** The images to send with the answers, by question id, or undefined when none were attached. */
 export function draftImages(questions: AgentQuestion[], drafts: QuestionDrafts): QuestionImages | undefined {
   const entries = questions.flatMap((question) => {
     const images = draftOf(drafts, question.id).images ?? [];
@@ -72,17 +55,14 @@ export function draftImages(questions: AgentQuestion[], drafts: QuestionDrafts):
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
-/** A typed answer with dictated words after it, a space between them. */
 export function withDictation(typed: string, words: string): string {
   const said = words.trim();
   if (!said) return typed;
   return typed && !/\s$/.test(typed) ? `${typed} ${said}` : `${typed}${said}`;
 }
 
-/** What the answer card says for a question's attached images. */
 const imagesLabel = (count: number) => (count === 1 ? "1 image" : `${count} images`);
 
-/** The answers to send: picks in the agent's option order, then the typed answer. Null while a question has none. */
 export function draftAnswers(questions: AgentQuestion[], drafts: QuestionDrafts): QuestionAnswers | null {
   const answers: QuestionAnswers = {};
   for (const question of questions) {
@@ -90,17 +70,12 @@ export function draftAnswers(questions: AgentQuestion[], drafts: QuestionDrafts)
     const picked = question.options.map((option) => option.label).filter((label) => draft.picked.includes(label));
     const typed = question.allowOther && otherChosen(draft) ? draft.typed.trim() : "";
     const values = typed ? [...picked, typed] : picked;
-    // Images alone answer a question too: the agent gets their paths.
     if (!values.length && !draft.images?.length) return null;
     answers[question.id] = values;
   }
   return answers;
 }
 
-/**
- * The answers as the chat shows them, in the user's message: one question's answers alone, several
- * one per line under their tab labels. A typed answer to a secret question is masked.
- */
 export function answerSummary(questions: AgentQuestion[], answers: QuestionAnswers, images?: QuestionImages): string {
   const shown = (question: AgentQuestion) =>
     [
@@ -111,44 +86,36 @@ export function answerSummary(questions: AgentQuestion[], answers: QuestionAnswe
   return questions.map((question, index) => `${tabLabel(question, index)}: ${shown(question)}`).join("\n");
 }
 
-/** A card with one single-choice question sends as soon as an option is picked. */
 export function sendsOnPick(questions: AgentQuestion[]): boolean {
   return questions.length === 1 && !!questions[0] && !questions[0].multiSelect;
 }
 
-/** On a card with several questions, a pick on a single-choice question moves on to the next one. The last question waits for Send, so the answers get a final look. */
 export function advancesOnPick(questions: AgentQuestion[], active: number): boolean {
   return questions.length > 1 && !questions[active]?.multiSelect && primaryAction(questions, active) === "next";
 }
 
-/** Whether one question has an answer: a pick, or a typed answer where the agent allows one. */
 export function questionAnswered(question: AgentQuestion, drafts: QuestionDrafts): boolean {
   return draftAnswers([question], drafts) !== null;
 }
 
-/** A tab's label: the question's header, or its position when it has none. */
 export function tabLabel(question: AgentQuestion, index: number): string {
   return question.header.trim() || `Question ${index + 1}`;
 }
 
-/** The card's primary button: Next on every question but the last, which sends the answers. */
 export function primaryAction(questions: AgentQuestion[], active: number): "next" | "send" {
   return active < questions.length - 1 ? "next" : "send";
 }
 
-/** Next needs the active question answered; Send needs every question answered. */
 export function primaryEnabled(questions: AgentQuestion[], drafts: QuestionDrafts, active: number): boolean {
   const question = questions[active];
   if (!question) return false;
   return primaryAction(questions, active) === "next" ? questionAnswered(question, drafts) : draftAnswers(questions, drafts) !== null;
 }
 
-/** Where Next goes: one question on, staying on the last. */
 export function nextTab(count: number, active: number): number {
   return Math.min(active + 1, count - 1);
 }
 
-/** Where a key moves between tabs (arrows wrap, Home and End jump), or null for any other key. */
 export function arrowTab(count: number, active: number, key: string): number | null {
   if (key === "ArrowRight") return (active + 1) % count;
   if (key === "ArrowLeft") return (active - 1 + count) % count;

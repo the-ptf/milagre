@@ -27,15 +27,6 @@ const ROWS = "[data-menu-row]:not(:disabled)";
 
 type Point = { x: number; y: number };
 
-/**
- * A floating panel anchored to a trigger (`anchor` ref: it opens under it, or over it when there's more room above,
- * and follows it on scroll) or to a point (`anchor={{ x, y }}`, a context menu: it closes on scroll). Mount it only
- * while open. `rounded-card bg-surface p-1.5 shadow-raised`, at least 192px wide, at most 420px tall (the rest
- * scrolls), portalled into an open dialog or `[data-popover-host]` around the trigger. A press outside, the window
- * losing focus, Esc and Tab call `onClose`; with `role="menu"` (the default) the arrow keys, Home and End move between
- * its `[data-menu-row]` rows (MenuRow) and the first row takes focus. Focus goes back to what had it when it closes
- * from inside.
- */
 export function Popover({
   anchor,
   align = "end",
@@ -50,9 +41,7 @@ export function Popover({
   ...data
 }: {
   anchor: RefObject<HTMLElement | null> | Point;
-  /** Which trigger edge it lines up with: `end` (right edges, the ⋯ menus) or `start`. A point always opens from it. */
   align?: "start" | "end";
-  /** A fixed width; otherwise it fits its rows, from 192px. */
   width?: number;
   role?: "menu" | "dialog" | "listbox";
   label?: string;
@@ -105,7 +94,6 @@ export function Popover({
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape" || event.key === "Tab") {
-      // Consumed here, so Escape doesn't also close the view behind it.
       event.preventDefault();
       event.stopPropagation();
       onClose();
@@ -135,7 +123,6 @@ export function Popover({
         top: position?.top,
         bottom: position?.bottom,
         width,
-        // Placed in a layout effect, so the first paint is already in place.
         maxHeight: position?.maxHeight ?? MAX_HEIGHT,
         animation: "pop-in var(--duration-base) var(--ease-enter) backwards",
         transformOrigin: `${position?.bottom !== undefined ? "bottom" : "top"} ${trigger && align === "end" ? "right" : "left"}`,
@@ -170,7 +157,6 @@ export function MenuRow({
   title: ReactNode;
   subtitle?: ReactNode;
   trailing?: ReactNode;
-  /** A checkable row: true shows the tick. */
   checked?: boolean;
   danger?: boolean;
   role?: "menuitem" | "menuitemcheckbox" | "menuitemradio" | "option";
@@ -203,18 +189,15 @@ export function MenuRow({
   );
 }
 
-/** A MenuRow's classes, for a row that must be another element (a link). `wrap` lets a one-line row grow for a long label. */
 export function menuRowClass({ tall = false, wrap = false, danger = false }: { tall?: boolean; wrap?: boolean; danger?: boolean } = {}) {
   const height = tall ? "min-h-12 py-1.5" : wrap ? "min-h-8 py-1.5" : "h-8";
   return `relative flex w-full shrink-0 items-center gap-2 rounded-inline px-2 text-left text-13 font-medium transition-colors hover:bg-hover-2 focus-visible:bg-hover-2 focus-visible:-outline-offset-2 active:bg-hover-2 disabled:pointer-events-none disabled:opacity-40 ${height} ${danger ? "text-red-ink" : "text-ink"}`;
 }
 
-/** A hairline between groups of menu rows. */
 export function MenuSeparator() {
   return <div role="separator" className="mx-2 my-1 h-px shrink-0 bg-line" />;
 }
 
-/** A group label inside a menu or picker: SectionLabel's menu size, inset to the rows' text. */
 export function MenuLabel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <SectionLabel variant="menu" as="div" className={`shrink-0 px-2 pt-2 pb-1 ${className}`}>
@@ -223,5 +206,4 @@ export function MenuLabel({ children, className = "" }: { children: ReactNode; c
   );
 }
 
-// A Hugeicons glyph is an array of [tag, attrs] pairs; anything else is a node to render as is.
 const isIcon = (icon: unknown): icon is IconSvgElement => Array.isArray(icon) && !isValidElement(icon);

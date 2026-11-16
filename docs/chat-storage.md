@@ -39,7 +39,14 @@ Rejected: a hidden Project per Chat (every list skips hidden homes, so the phone
 
 ## Deleting Chats
 
-Chat menus on desktop and phone offer Delete, not Archive. Delete acts at once, with no confirmation, and permanently removes the conversation, its rows and its local Designs. The daemon first stops the Chat's agent, Terminals, advisors and Heartbeats.
+Chat menus on desktop and phone offer Delete, not Archive. Delete acts at once, with no confirmation, and permanently removes the conversation, its rows, its local Designs and its page comments.
+
+Archive, delete, Worktree removal and Routine Run cleanup all retire a Chat through one ordered sequence, `createChatRetirement` in `packages/core/src/runtime/chat-lifecycle.cjs`: end its Heartbeats, cancel a pending usage-limit continuation, stop the running turn (which holds queued sends), cancel Worktree setup, close the agent session, stop Terminals and background commands, settle advisors and delegations, and cancel pending secret and bug-report questions. The Project state change is what notifies clients. The modes differ only around that sequence:
+
+- Archive saves at once and finishes the sequence in the background, so the row moves without waiting on the agent or advisors (#718, #734). Messages, page comments and Designs stay restorable.
+- Delete runs the sequence, removes the Chat from state, then removes its stored data: page comments, Designs and artifacts, the computer-use screen. Secret files are not per Chat; they expire on their own.
+- Worktree removal frees the Worktree with the sequence's process steps (turn, setup, agent, Terminals, advisors) before Git removes it, so a refused removal ends nothing else, then retires each Chat with its stored data once the Worktree is gone.
+- Run cleanup archives the Run's Chat, then runs the sequence; a Run Worktree's Chats are retired only after the Worktree is removed.
 
 - A Worktree the Chat owns alone goes through the checked cleanup flow. Dirty, unpushed, shared, external and unchecked Worktrees stay. Deleting one Chat never removes another Chat from a shared Worktree. A failed cleanup restores the Chat.
 - Delete stays available while the Worktree check is pending. Deleting before the check returns keeps the files, and a late check can't change that.

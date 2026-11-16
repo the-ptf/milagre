@@ -47,11 +47,9 @@ import { hitSlopFor, lineHeight as typeLineHeight, radius, space, type } from ".
 import { InlineError, pressStyle, useStyles } from "./ui";
 import { showImages, type MediaValue, type ViewerImage } from "./viewer-store";
 
-/** Resolves a saved file on the computer to an authenticated image source, or a cached file once it is fetched. */
 export type MediaSource = (path: string) => MediaValue;
 
 export { useMedia } from "./media-source";
-/** Measures every thumbnail first, so the viewer morphs out of the tapped one and back into whichever is showing. */
 function open(images: ViewerImage[], index: number, thumbs: (ViewInstance | null)[]) {
   void Promise.all(
     images.map(
@@ -78,7 +76,6 @@ function viewerPhotos(message: ChatMessage, media: MediaSource): ViewerImage[] {
   }));
 }
 
-/** Your photos above your bubble: one large, or tiles; tapping opens the full-screen viewer. */
 function Photos({ message, media }: { message: ChatMessage; media: MediaSource }) {
   const { colors } = useTheme();
   const photos = viewerPhotos(message, media);
@@ -119,14 +116,12 @@ function Photos({ message, media }: { message: ChatMessage; media: MediaSource }
     </View>
   );
 }
-/** One photo tile; a relay image shows the empty tile until its file is ready. */
 function Thumbnail({ source, size }: { source: MediaValue; size: number }) {
   const { colors } = useTheme();
   const ready = useMedia(source);
   const style = { width: size, height: size, borderRadius: radius.card, borderCurve: "continuous" as const, backgroundColor: colors.canvas };
   return ready ? <Image source={ready} resizeMode="cover" style={style} /> : <View style={style} />;
 }
-/** An image the agent generated, under its step, at most 240 wide; tap for full screen. */
 function GeneratedImage({ step, media }: { step: ChatStep; media: MediaSource }) {
   const { colors } = useTheme();
   const [ratio, setRatio] = useState(4 / 5);
@@ -177,7 +172,6 @@ function GeneratedImage({ step, media }: { step: ChatStep; media: MediaSource })
     </Pressable>
   );
 }
-/** Desktop's activity header, with the pending call ahead of other parallel work. */
 function ActivityRow({
   steps,
   live,
@@ -189,7 +183,6 @@ function ActivityRow({
   live: boolean;
   waitingIds: string[];
   onPress: () => void;
-  /** What the turn cost (Kiro's credits), shown at the end of the summary. */
   credits?: number;
 }) {
   const { colors } = useTheme();
@@ -241,7 +234,6 @@ function ActivityRow({
     </Pressable>
   );
 }
-/** The sender line over a message another Chat sent, as on desktop: who it's from, and a tap to open that Chat. */
 function LinkedHeader({ context, onOpenChat }: { context: LinkedContext; onOpenChat?: (chatKey: string) => void }) {
   const { colors } = useTheme();
   const { text, chat } = linkedHeading(context);
@@ -275,7 +267,6 @@ function openMention(path: string, attached: string[], root: string) {
   if (file) router.push({ pathname: "/file-preview", params: { path: file } });
 }
 
-/** What a sent message's @ chips read of a Chat: its name, and whether it still opens. */
 export type ReplyChat = Pick<MentionChat, "id" | "title" | "available">;
 const NO_MENTION_CHATS: readonly ReplyChat[] = [];
 export const ChatReply = memo(function ChatReply({
@@ -295,24 +286,17 @@ export const ChatReply = memo(function ChatReply({
   highlighted = false,
   onOpenChat,
 }: {
-  /** The Project's Chats a user message's @ chips name; only user messages read them. */
   chats?: readonly ReplyChat[];
   message?: ChatMessage;
-  /** Opens another Chat by its key, from the sender line of a message that Chat sent. */
   onOpenChat?: (chatKey: string) => void;
-  /** The task in Undo changes' view: its message is outlined, as on desktop. */
   highlighted?: boolean;
   run?: AgentRun;
   onActivity: (message: string, stepId?: string) => void;
   media: MediaSource;
   basePath?: string;
-  /** The Chat's key, to open the designs its replies showed. */
   chatId?: string;
-  /** The design the user last chose, as "id:version". */
   designChoice?: string;
-  /** How far the Chat has come (its message count), to read the agent's resolutions of comments again. */
   designsMoved?: number;
-  /** Set when a usage-limit reply is the Chat's last message with no turn running: its card then offers other accounts for this Project. */
   limitProjectPath?: string;
   limitPending?: LimitResume;
   limitResumeBlocked?: boolean;
@@ -321,7 +305,6 @@ export const ChatReply = memo(function ChatReply({
   const { colors, textPx } = useTheme();
   const styles = useStyles();
   const skillNames = useSkillNames(message?.role === "user" ? basePath : undefined);
-  // Passages quoted in the composer lead a user's message as blockquotes; they show as quotes over what was typed.
   const userQuoted = useMemo(() => splitQuotes(message?.role === "user" ? (run?.text ?? message.body ?? "") : ""), [message?.role, run?.text, message?.body]);
   const userText = userQuoted.text;
   const userFiles = message?.files;
@@ -333,7 +316,6 @@ export const ChatReply = memo(function ChatReply({
         files: isMentionOfFile(userFiles ?? [], basePath ?? ""),
         images: userImages,
         chats: (id) => chats.some((chat) => chat.id === id),
-        // A sent `@computer:` token was a chip when it was written: it stays one even once that computer is gone.
         computers: () => true,
       }),
     [userText, skillNames, userFiles, basePath, userImages, chats],
@@ -343,24 +325,16 @@ export const ChatReply = memo(function ChatReply({
   const openActivity = (stepId?: string) => onActivity(message ? String(message.id) : "run", stepId);
   const text = run?.text ?? message?.body ?? "";
   const allSteps = run?.steps ?? message?.steps ?? [];
-  // A heartbeat_create step that set a Heartbeat shows as its card, not as one more activity row.
   const reply = replyActivity(text, allSteps);
   const heartbeats = reply.heartbeats;
   const waitingIds = waitingStepIds(run?.approvals);
-  // Feedback sent from the design sheet or canvas shows as a card, not as the text the agent reads.
   const feedback = message?.role === "user" ? parseDesignFeedback(text) : null;
-  // And comments left on a Browser panel page.
   const pageComments = message?.role === "user" && !feedback ? parsePageComments(text) : null;
-  // So does a PR-blocker pill's action, instead of the skill prompt the agent read.
   const prAction = message?.role === "user" && isPullRequestAction(message.context) ? message.context : null;
-  // And a Chat's first message when it was started from a Linear issue.
   const issue = message?.role === "user" && isLinearIssueContext(message.context) ? message.context : null;
-  // What the agent concluded only in thinking, once the turn ends or stops on a question.
   const thought = !run || run.questions.length ? unspokenThought(text, allSteps) : "";
   const limit = !run && message?.role === "assistant" ? usageLimitOf(message) : null;
   const advisor = typeof message?.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
-  // A message another Chat sent (a Delegation, its report, a Negotiation's agreement) carries its sender, never reads as
-  // the user's own.
   const linked = linkedContext(message);
   if (advisor)
     return (
@@ -402,7 +376,6 @@ export const ChatReply = memo(function ChatReply({
   if (message?.role === "user") {
     const root = basePath ?? "";
     const attached = message.files ?? [];
-    // A file the text names with @ shows as a chip in the text, so it gets no tile of its own.
     const inline = mentionedFiles(text, attached, root);
     const parts = userParts;
     const lineHeight = Math.round(textPx * 1.4667);
@@ -425,7 +398,6 @@ export const ChatReply = memo(function ChatReply({
         ) : message.answered?.length ? (
           <AnswerCard answered={message.answered} />
         ) : (
-          // A send that is only its images shows them above, without an "Image #1" bubble.
           !!text &&
           !onlyImageMentions(text, userImages) && (
             <MessageActions text={userText} from="user">
@@ -485,7 +457,6 @@ export const ChatReply = memo(function ChatReply({
       </View>
     );
   }
-  // A Subchat's report is one grey line that opens the report where it stands; a Negotiation round keeps its full text.
   const marker = linked && message?.role === "assistant" && !run ? reportMarker(linked) : null;
   if (marker && linked)
     return <SubchatMarker marker={marker} chat={linkedHeading(linked).chat} body={text} onOpenChat={onOpenChat} media={savedMedia} basePath={basePath} />;
@@ -495,7 +466,6 @@ export const ChatReply = memo(function ChatReply({
       {reply.setup.map((step) => (
         <ToolRow key={step.id} step={step} live={!!run} waiting={waitingIds.includes(step.id)} onPress={() => openActivity(step.id)} />
       ))}
-      {/* Full detail (Settings › Chat › Tool call display): every tool call is its own row, with the notes between them. */}
       {toolCallDisplay === "full" ? (
         reply.activity.map((entry, index) =>
           entry.type === "step" ? (
@@ -558,14 +528,12 @@ export const ChatReply = memo(function ChatReply({
           }
         </MessageActions>
       )}
-      {/* The reply says what the Heartbeat is for; its card follows. */}
       {heartbeats.map((step) => (
         <HeartbeatCard key={step.id} step={step} />
       ))}
       {!!thought && (
         <MessageActions text={thought} markdown>
           {(openActions, swap) =>
-            // Thinking reads a step quieter, in ink2 at full strength: code, links and images keep their own colours.
             swap(
               <Markdown text={thought} tone="ink2" media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />,
             )

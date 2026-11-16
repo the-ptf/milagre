@@ -35,15 +35,10 @@ export type PrDiffProps = {
   path: string;
   chatKey?: string;
   onChat: () => void;
-  /** Another file of the PR: previous, next. */
   onNavigate: (path: string) => void;
   onReview: () => void;
 };
 
-/**
- * A PR file's diff as GitHub computes it, with the review threads under their lines. Long-press a line to comment on it:
- * the comment joins your draft review, or goes to the Chat instead. Side by side where the screen is wide.
- */
 export function PrDiff({ client, cwd, number, path, chatKey, onChat, onNavigate, onReview }: PrDiffProps) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -286,7 +281,6 @@ function Words({ text, words, kind }: { text: string; words: Range[]; kind: Diff
   );
 }
 
-/** VoiceOver and TalkBack reach a line's long-press comment through this action. */
 const COMMENT_ACTIONS = [{ name: "longpress", label: "Comment on this line" }];
 
 const UnifiedRow = memo(function UnifiedRow({ row, onComment }: { row: DiffRow; onComment: (line: DiffLine, key: string) => void }) {
@@ -347,7 +341,6 @@ const PairRow = memo(function PairRow({ row, onComment }: { row: SplitDiffRow; o
   );
 });
 
-/** A comment on one line: into your draft review on GitHub, or to the Chat instead. */
 function LineComposer({
   composer,
   onCancel,

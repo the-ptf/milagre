@@ -8,14 +8,12 @@ import { pressStyle } from "./primitives/press-style";
 import { lineHeight, radius, type } from "./design-tokens";
 
 // Desktop's OnboardingIntro ("Dawn", styles.css .onboarding-intro-*): the same scene and timings on the phone. Its night,
-// dawn and day colours are the scene's own and stay the same in every theme.
 const LOGO = 92;
 const SERIF = Platform.select({ ios: "Georgia", default: "serif" });
 const ease = Easing.bezier(0.22, 1, 0.36, 1);
 const inOut = Easing.bezier(0.65, 0, 0.35, 1);
 const fall = Easing.bezier(0.45, 0, 0.15, 1);
 const cloudEase = Easing.bezier(0.16, 1, 0.3, 1);
-// The scene's own beats in ms (desktop's keyframes), not UI motion, so they don't use the `duration` tokens.
 const BEAT = { dim: 432, light: 288, swell: 480, turn: 360, leave: 900, raysTurn: 90000 } as const;
 // oxlint-disable-next-line milagre-design/no-raw-color -- artwork: the Dawn scene's own palette, the same in every theme (desktop's .onboarding-intro-*)
 const WHITE = "#fff";
@@ -43,7 +41,6 @@ function seeded(seed: number) {
   };
 }
 
-/** One value of the scene that runs 0 → 1 after `delay` over `duration`. */
 function useStep(delay: number, duration: number, easing: (t: number) => number = ease) {
   const [step] = useState(() => ({ progress: new Animated.Value(0), delay, duration, easing }));
   return step;
@@ -51,7 +48,6 @@ function useStep(delay: number, duration: number, easing: (t: number) => number 
 
 type Step = ReturnType<typeof useStep>;
 
-/** The running logo's beat (running-logo.tsx), from the lit mark: each leg dims after its turn and lights again. */
 function runLoop(leg: Animated.Value, delay: number) {
   return Animated.sequence([
     Animated.delay(delay),
@@ -67,11 +63,6 @@ function runLoop(leg: Animated.Value, delay: number) {
   ]);
 }
 
-/**
- * The first-launch intro: a night sky, a falling star that lands where the logo's sparkle sits, the legs rising under it
- * with the loading mark's motion, dawn breaking into day around "Milagre", then the running logo's beat. Begin or Skip
- * fades it out and calls `onDone`. Reduced motion shows the last frame with Begin.
- */
 export function OnboardingIntro({ onDone }: { onDone: () => void }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -111,7 +102,6 @@ export function OnboardingIntro({ onDone }: { onDone: () => void }) {
         ...all.map((step) =>
           Animated.timing(step.progress, { toValue: 1, delay: step.delay, duration: step.duration, easing: step.easing, useNativeDriver: true }),
         ),
-        // After the landing the whole mark runs: legs in turn, the sparkle swells and turns a quarter.
         runLoop(runLeft, 3000),
         runLoop(runRight, 3240),
         Animated.sequence([

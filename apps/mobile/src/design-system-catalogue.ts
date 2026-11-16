@@ -13,16 +13,13 @@ export const PLATFORM_NAMES: Record<DesignPlatform, string> = { ios: "iOS", andr
 
 export type DesignSectionId = "colors" | "type" | "spacing" | "surfaces" | "buttons" | "rows" | "chips" | "menus" | "composer" | "platforms";
 
-/** How the index row previews its page: a value, five colour dots, or a tiny filled Send pill. */
 type DesignSectionPreview = { kind: "value"; value: string } | { kind: "dots" } | { kind: "send" } | { kind: "count" };
 
 export type DesignSection = {
   id: DesignSectionId;
   title: string;
-  /** One line under the page's title: what the page shows. */
   summary: string;
   preview?: DesignSectionPreview;
-  /** Other words Settings search finds the row by. */
   keywords: string;
 };
 
@@ -114,17 +111,14 @@ export function designSection(id: string | undefined): DesignSection | undefined
   return DESIGN_SECTIONS.find((section) => section.id === id);
 }
 
-/** The five dots on the Colors row. */
 export const COLOR_PREVIEW = ["ink", "accent", "green", "orange", "red"] as const satisfies readonly (keyof Palette)[];
 
-/** A palette key that holds a colour (not a shadow). */
 type ColorKey = { [K in keyof Palette]: Palette[K] extends string ? K : never }[keyof Palette];
 type ShadowKey = "shadowCard" | "shadowRaised" | "shadowOverlay";
 
 type ColorRole = { key: Exclude<ColorKey, ShadowKey>; use: string };
 export type ColorGroup = { title: string; colors: ColorRole[] };
 
-/** Every colour key of `Palette` (theme.ts), grouped by role. The shadows are on the Surfaces page. */
 export const COLOR_GROUPS: readonly ColorGroup[] = [
   {
     title: "Surfaces",
@@ -223,7 +217,6 @@ export const COLOR_GROUPS: readonly ColorGroup[] = [
   },
 ];
 
-/** What each step of the `type` scale (design-tokens.ts) is for. */
 export const TYPE_ROLES: Record<keyof typeof typeScale, string> = {
   largeTitle: "Large title, the one 700 weight",
   title1: "Title 1",
@@ -237,7 +230,6 @@ export const TYPE_ROLES: Record<keyof typeof typeScale, string> = {
   caption2: "Caption 2, badges and counts",
 };
 
-/** What each spacing token is for (design-tokens.ts `space`). */
 export const SPACE_ROLES = {
   xxs: "Inside dense rows only",
   xs: "Icon to label in a chip",
@@ -251,7 +243,6 @@ export const SPACE_ROLES = {
   section: "The gap between sections",
 } as const;
 
-/** What each corner token is for (design-tokens.ts `radius`). */
 export const RADIUS_ROLES = {
   chip: "Checkboxes, square tags",
   control: "Rows, fields, controls",
@@ -401,13 +392,11 @@ export const PLATFORM_RULES: readonly PlatformRule[] = [
   },
 ];
 
-/** The rules a section page shows as notes. */
 export function platformRulesFor(section: DesignSectionId): readonly PlatformRule[] {
   if (section === "platforms") return PLATFORM_RULES;
   return PLATFORM_RULES.filter((rule) => rule.sections.includes(section));
 }
 
-/** The platform a route param names, or the one the app runs on. */
 export function designPlatform(value: unknown, running: string): DesignPlatform {
   if (value === "ios" || value === "android") return value;
   return running === "android" ? "android" : "ios";

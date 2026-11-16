@@ -31,7 +31,6 @@ const icons: Record<StepKind, IconData> = {
   other: Wrench01Icon,
 };
 
-/** Tool data adapted to the shared activity presentation; Chat taps open the sheet. */
 export function ToolRow({
   step,
   live,
@@ -48,13 +47,10 @@ export function ToolRow({
   const [expandReasoning] = useExpandReasoning();
   const running = live && step.status === "running";
   const duration = useDisplayValue(1000, (now) => stepDuration(step, now), running && step.startedAt != null);
-  // The phone left this step's output out, and while its turn streams there is no saved message to fetch it from:
-  // say so instead of offering a row that never fills. A saved message's step loads from the daemon.
   const pending = live && !!step.hasDetail && !step.detail;
   return (
     <ActivityItem
       title={stepDisplayTitle(step, running && !waiting, running && waiting)}
-      // A step that set a Heartbeat (listed in the activity sheet) wears the Heartbeat's pulse.
       icon={step.routine ? Pulse01Icon : icons[step.kind]}
       leading={step.source || stepSource(step).linear ? <ActivityIcon source={stepSource(step)} /> : undefined}
       summary={step.summary}

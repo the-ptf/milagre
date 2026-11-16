@@ -7,12 +7,9 @@ import { MediaLightbox } from "../motion/LazyMediaLightbox";
 import { CodeBlock } from "./CodeBlock";
 import { IconButton } from "../primitives/Button";
 
-// Pele (pele.run) loads with the first diagram: a reply without one doesn't pay for it.
 let pele: Promise<typeof import("pele")> | null = null;
 const loadPele = () => (pele ??= import("pele"));
 
-// The diagram in the chat's colours: its surfaces mixed from the ink over the block's background, so light and dark
-// themes both read. Pele reads these on every redraw; a theme change repaints it without drawing it again.
 const THEME = {
   "--pele-bg": "var(--inset)",
   "--pele-fg": "var(--ink)",
@@ -33,7 +30,6 @@ function plainTheme(element: HTMLElement) {
   const resolved = Object.fromEntries(
     Object.keys(THEME).map((name) => {
       probe.style.color = `var(${name})`;
-      // A font list may quote its names; the SVG carries them inside double-quoted attributes.
       return [name, name === "--pele-font" ? style.getPropertyValue(name).trim().replace(/"/g, "'") : getComputedStyle(probe).color];
     }),
   );
@@ -41,11 +37,6 @@ function plainTheme(element: HTMLElement) {
   return resolved;
 }
 
-/**
- * A ```mermaid block in a reply, drawn by Pele: as wide as the reply, laid out again as it narrows (a wide flowchart
- * turns top-down), with its source a toggle away. The block being written stays code until its fence closes, and a
- * diagram that doesn't parse shows its code with the reason. Expand opens it in the lightbox, where it zooms.
- */
 export function MermaidBlock({ code }: { code: string }) {
   const streaming = useContext(MarkdownStreamingContext);
   const box = useRef<HTMLDivElement>(null);
@@ -67,7 +58,6 @@ export function MermaidBlock({ code }: { code: string }) {
         if (!live) return;
         setType(detectType(code));
         mounted = mount(element, code, {
-          // Expand opens the diagram to zoom; in the reply it just fits.
           zoom: false,
           onRender: () => setError(""),
           onError: (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
@@ -102,11 +92,9 @@ export function MermaidBlock({ code }: { code: string }) {
       const { svg, width, height } = render(code, {
         maxWidth: Math.max(640, window.innerWidth - 160),
         fontFamily: style.fontFamily,
-        // Larger than the reply's text: the lightbox has the room, and zooms from there.
         fontSize: 16,
       });
       const theme = plainTheme(element);
-      // On its own the SVG has no page behind it: a backdrop of the block's colour, with room around the drawing.
       const pad = 24;
       const framed = resolveDiagramSvg(svg, theme)
         .replace(/^<svg\b([^>]*?)\sviewBox="[^"]*"/, `<svg$1 viewBox="${-pad} ${-pad} ${width + pad * 2} ${height + pad * 2}"`)
@@ -114,13 +102,10 @@ export function MermaidBlock({ code }: { code: string }) {
         .replace(/\sheight="[\d.]+"/, ` height="${height + pad * 2}"`)
         .replace(/^(<svg\b[^>]*>)/, `$1<rect x="${-pad}" y="${-pad}" width="${width + pad * 2}" height="${height + pad * 2}" fill="${theme["--pele-bg"]}"/>`);
       setExpanded(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(framed)}`);
-    } catch {
-      // A diagram that doesn't draw has nothing to expand.
-    }
+    } catch {}
   };
 
   const label = diagramLabel(type);
-  // Segmented's look at the header's size: the picked one raised on the field track.
   const tab = (on: boolean) =>
     `rounded-chip px-2 py-0.5 text-11 font-medium transition-colors ${on ? "bg-surface text-ink shadow-card dark:bg-hover-2" : "text-ink-2 hover:text-ink"}`;
   return (

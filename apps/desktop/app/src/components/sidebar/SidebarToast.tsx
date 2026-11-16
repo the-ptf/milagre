@@ -9,10 +9,6 @@ import { undoHistory, undoKey, type ToastKind, type UndoToast } from "../../lib/
 const TOAST_MS = 6000;
 const SHORTCUTS = isMac ? { undo: "⌘Z", redo: "⇧⌘Z" } : { undo: "Ctrl+Z", redo: "Ctrl+Shift+Z" };
 
-/**
- * The sidebar's toast, just above the usage meters, and the ⌘Z / ⇧⌘Z that walk its undo history. Mounted where it
- * sits in the sidebar's column; with the sidebar collapsed to its rail it floats beside it instead.
- */
 export function SidebarToast({ collapsed }: { collapsed: boolean }) {
   const toast = useSyncExternalStore(undoHistory.subscribe, undoHistory.toast);
   const anchor = useRef<HTMLDivElement>(null);
@@ -79,7 +75,6 @@ function ToastPill({ toast }: { toast: UndoToast }) {
           className="relative flex shrink-0 items-center gap-2 transition-opacity before:absolute before:-inset-2 hover:opacity-80 active:scale-[0.97]"
         >
           {toast.button === "undo" ? "Undo" : "Redo"}
-          {/* The key hint gives way first in a narrow sidebar, so the label stays on one line. */}
           <span aria-hidden className="hidden font-medium tabular-nums opacity-60 @[15rem]:inline">
             {shortcut}
           </span>
@@ -89,7 +84,6 @@ function ToastPill({ toast }: { toast: UndoToast }) {
   );
 }
 
-/** Done's check sits in a solid badge so it reads at a glance; the rest are line icons in the label colour. */
 function ToastIcon({ kind }: { kind: ToastKind }) {
   if (kind === "done")
     return (

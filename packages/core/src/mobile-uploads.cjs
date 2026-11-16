@@ -15,7 +15,6 @@ const filename = (name) =>
     .replace(/[\x00-\x1f\x7f]/g, "_")
     .slice(0, 180);
 
-/** The runtime owns uploads, claims and expiration in one queue. Legacy uploads are never enrolled. */
 function createMobileUploads({ dataDir, now = Date.now }) {
   const root = path.join(realpathSync(dataDir), "mobile-attachments", "managed");
   const index = path.join(dataDir, "mobile-uploads.json");
@@ -67,7 +66,6 @@ function createMobileUploads({ dataDir, now = Date.now }) {
     });
     if (!(await fs.lstat(folder)).isDirectory()) throw new Error("Attachment storage must be a directory, not a symbolic link.");
   }
-  // No following symlinks, including the managed root and the per-upload directory.
   async function intact(entry) {
     try {
       for (const folder of [path.dirname(root), root, path.dirname(destination(entry))]) if (!(await fs.lstat(folder)).isDirectory()) return false;
@@ -86,7 +84,6 @@ function createMobileUploads({ dataDir, now = Date.now }) {
         const folder = path.dirname(destination(entry));
         const contents = await fs.readdir(folder);
         if (contents.length === 1 && contents[0] === entry.name) {
-          // Never recursively remove a directory: an unexpected file makes rmdir fail closed.
           await fs.unlink(destination(entry));
           await fs.rmdir(folder);
           continue;
@@ -138,7 +135,6 @@ function createMobileUploads({ dataDir, now = Date.now }) {
               entries.push(entry);
               await write(entries);
             } catch (error) {
-              // This operation alone created the UUID directory. Never recursively delete unexpected contents.
               await fs.unlink(destination(entry)).catch(() => {});
               await fs.rmdir(path.dirname(destination(entry))).catch(() => {});
               throw error;

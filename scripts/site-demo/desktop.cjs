@@ -1,6 +1,4 @@
 // Electron side of the landing page recording: the real renderer and preload, attached to the demo host like the
-// desktop app attaches to its own host (see apps/desktop/electron/main.cjs), drawn offscreen at 2x and captured at
-// 30 fps. Driven by record.cjs over stdin/stdout, one JSON command per line.
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -32,7 +30,6 @@ async function main() {
     },
   });
   for (const method of runtime.methods) ipcMain.handle(method, (_event, ...args) => runtime.invoke(method, args));
-  // The main process's own handlers, answered as a fresh install would.
   const local = {
     "runtime:connection": { connected: true },
     "app:version": VERSION,
@@ -49,10 +46,7 @@ async function main() {
     "computers:list": { computers: [] },
   };
   for (const [channel, value] of Object.entries(local)) if (!runtime.methods.includes(channel)) ipcMain.handle(channel, () => value);
-  // The preload holds every call until main says the host answered (main.cjs); this host already has.
   ipcMain.handle("app:host-ready", () => undefined);
-  // Preferences live in main's store, read synchronously (main.cjs). In memory here: each recording starts fresh, and a
-  // key not yet stored migrates from the page's localStorage, which main() seeds below.
   const preferences = new Map();
   ipcMain.on("preferences:storage", (event, operation, key, value) => {
     if (operation === "get") event.returnValue = preferences.has(key) ? { value: preferences.get(key) } : {};
@@ -63,11 +57,9 @@ async function main() {
     }
   });
 
-  // The Mac window's chrome, as main.cjs builds it: the renderer leaves room for the traffic lights the page draws.
   const chrome = require("../../apps/desktop/electron/window-chrome.cjs").windowChrome("darwin");
   window = new BrowserWindow({
     ...chrome.options,
-    // Offscreen windows paint at 1x, so the window is twice the size and the page zoomed 2x: 1280×800 of layout, sharp.
     width: WIDTH * SCALE,
     height: HEIGHT * SCALE,
     useContentSize: true,
@@ -100,8 +92,6 @@ async function main() {
   window.webContents.reload();
   await reloaded;
   await waitFor(window, `!!document.querySelector('[data-row]') && !document.querySelector('.startup-splash-screen')`);
-  // An offscreen window reports its title bar overlay as hidden, so the bar would start at the window edge, under the
-  // traffic lights the landing page draws. Without the overlay the renderer keeps the Mac's 92px (lib/window-chrome.ts).
   await window.webContents.executeJavaScript(
     `Object.defineProperty(navigator, "windowControlsOverlay", { get: () => undefined, configurable: true }); dispatchEvent(new Event("resize"));`,
   );
@@ -135,7 +125,6 @@ async function main() {
 }
 
 // Raw BGRA frames into ffmpeg at a steady 30 fps: each tick writes the newest paint, repeating it when nothing changed,
-// and catches up from the wall clock so the video's timing matches the run's.
 function record(file, frame) {
   const size = frame().getSize();
   const ffmpeg = spawn(

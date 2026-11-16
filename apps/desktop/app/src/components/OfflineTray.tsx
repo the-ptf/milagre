@@ -5,18 +5,12 @@ import { canCancelOutbox, type OutboxItem } from "@milagre/shared/outbox";
 import { outbox, outboxChat, useOutbox } from "../lib/outbox";
 import Tooltip from "./primitives/Tooltip";
 
-/** Whether the composer of this Chat (a New Chat when `sessionId` is null) has anything to show above it. */
 export function useOfflineTray(owner: string | undefined, sessionId: number | null, offline: boolean) {
   const snapshot = useOutbox();
   const items = owner ? snapshot.items.filter((item) => item.owner === owner && outboxChat(item) === sessionId && item.status !== "sent") : [];
   return { items, error: snapshot.error, loaded: snapshot.loaded, shown: offline || items.length > 0 || Boolean(snapshot.error && owner) };
 }
 
-/**
- * Messages saved on this Mac for a computer that can't take them yet, inside the composer's tray (design
- * offline-inline-desktop v7): one row each, oldest first, then the computer's chip while it is offline. They live in the
- * Chat they were written in; there is no other list.
- */
 export function OfflineTray({
   owner,
   sessionId,
@@ -29,9 +23,7 @@ export function OfflineTray({
   sessionId: number | null;
   computerName: string;
   offline: boolean;
-  /** A new Chat's tray already names its computer. */
   chip?: boolean;
-  /** The chip's tooltip: when the computer was last seen. */
   detail?: string;
 }) {
   const { items, error: storageError, loaded } = useOfflineTray(owner, sessionId, offline);
@@ -40,7 +32,6 @@ export function OfflineTray({
     setError("");
     void work.catch((failure: Error) => setError(failure.message));
   };
-  // A message the computer saved is in the transcript now: its copy here goes.
   const delivered = useOutbox().items.filter((item) => item.owner === owner && item.status === "sent" && outboxChat(item) === sessionId);
   useEffect(() => {
     for (const item of delivered) void outbox.remove(item.id).catch(() => {});
@@ -86,9 +77,7 @@ function TrayRow({ item, onAct }: { item: OutboxItem; onAct: (work: Promise<unkn
   const images = item.attachments.filter((file) => file.imageId);
   const files = item.attachments.filter((file) => !file.imageId);
   const attachment = images.length ? images : files;
-  // Waiting needs no word: the clock says it. Only sending and failures do.
   const status = failed ? item.error : item.status === "sending" ? "Sending…" : "";
-  // A send that may have reached the computer is checked before it goes again; a Worktree that may exist can't be redone.
   const retry = failed && item.phase !== "creating" ? (item.phase === "dispatching" ? "Check delivery" : "Retry") : null;
   return (
     <li data-offline-message={item.id} data-outbox-state={item.status} className="group flex items-start gap-2.5 rounded-card px-2.5 py-2 hover:bg-hover">

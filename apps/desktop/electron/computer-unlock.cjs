@@ -3,7 +3,6 @@ const path = require("node:path");
 const { randomBytes } = require("node:crypto");
 const { assertPrivate, windowsAcl } = require("@milagre/core/private-files");
 
-/** Desktop supplies an OS-sealed master key over the private owner socket; only the daemon writes the vault. */
 function createComputerUnlock({ dataDir, safeStorage, invoke }) {
   let preparing;
   async function prepare() {
@@ -18,7 +17,6 @@ function createComputerUnlock({ dataDir, safeStorage, invoke }) {
         saved = JSON.parse(await fs.readFile(file, "utf8"));
       } catch (error) {
         if (/** @type {any} */ (error)?.code !== "ENOENT") throw error;
-        // Never replace a missing wrapper for an existing vault with a different key.
         if (status.hasVault) throw new Error("The desktop key for existing computer credentials is missing.", { cause: error });
         const encoded = randomBytes(32).toString("base64");
         const sealed = safeStorage.encryptString(encoded).toString("base64");

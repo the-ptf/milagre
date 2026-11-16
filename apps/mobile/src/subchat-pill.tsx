@@ -26,12 +26,9 @@ import { useVisibleRunChatKeys } from "./visible-run-chats";
 
 const NO_KEYS: string[] = [];
 
-/** The Chat's Subchats pill state (the shared pill panel's), with the keys of the Chats its Delegations made. */
 export function useSubchatPanel(sessions: Parameters<typeof directSubchats>[0], chatKey: string | undefined) {
-  // The keys as one string, so a session changing under them (a title, a turn) leaves the pill and its panel as they are.
   const joined = (sessions && chatKey ? directSubchats(sessions, chatKey) : NO_KEYS).join("\n");
   const keys = useMemo(() => (joined ? joined.split("\n") : NO_KEYS), [joined]);
-  // The Subchats of its Subchats, which the pill counts when one waits on the user.
   const deeperJoined = (sessions && chatKey ? deeperSubchats(sessions, chatKey) : NO_KEYS).join("\n");
   const deeper = useMemo(() => (deeperJoined ? deeperJoined.split("\n") : NO_KEYS), [deeperJoined]);
   const panel = usePillPanel(keys.length > 0, chatKey ?? "");
@@ -40,16 +37,11 @@ export function useSubchatPanel(sessions: Parameters<typeof directSubchats>[0], 
 
 export type SubchatPanelState = ReturnType<typeof useSubchatPanel>;
 
-/**
- * Every direct Subchat's state, live: the Project's sessions and runs, the Mac's Heartbeats and the reports in the open
- * Chat's transcript. The clock ticks by the second only while the panel is open (its rows show elapsed time).
- */
 function useSubchats(panel: SubchatPanelState, messages: readonly ChatMessage[], live: boolean) {
   const session = useSession();
   const { routines, enabled } = useRoutines(session.client);
   const now = useDisplayNow(live ? 1000 : 60_000);
   const reports = useMemo(() => latestReports(messages), [messages]);
-  // Rows show each Subchat's latest line, so their runs come in full.
   useVisibleRunChatKeys(
     session.client,
     useMemo(() => [...panel.keys, ...panel.deeper], [panel.keys, panel.deeper]),
@@ -63,7 +55,6 @@ function useSubchats(panel: SubchatPanelState, messages: readonly ChatMessage[],
   );
 }
 
-/** The dot of a kind: a turning ring for live work, a still dot for the rest. */
 function KindDot({ kind }: { kind: SubchatKind }) {
   const { colors } = useTheme();
   const tone = KIND_TONE[kind];
@@ -71,7 +62,6 @@ function KindDot({ kind }: { kind: SubchatKind }) {
   return <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: tone === "ink3" ? colors.ink4 : colors[tone] }} />;
 }
 
-/** The pill's contents: the lead kind's dot, then the counts, the first in ink and the rest in ink-3. */
 function SummaryContent({ summary }: { summary: SubchatSummary }) {
   const { colors } = useTheme();
   return (
@@ -89,23 +79,16 @@ function SummaryContent({ summary }: { summary: SubchatSummary }) {
   );
 }
 
-/**
- * The Subchats pill above the composer: what the Chat's Subchats are doing in a few words ("1 needs you · 2 working"),
- * led by the dot of the most urgent. A tap grows it into the list. Hidden without a Subchat.
- */
 export const SubchatPill = memo(function SubchatPill({ panel, messages }: { panel: SubchatPanelState; messages: readonly ChatMessage[] }) {
   const { phase, show, close, attachChip, relayout } = panel;
   const states = useSubchats(panel, messages, false);
-  // The row gives way to a question card: the panel folds away with it rather than covering the question.
   useEffect(() => close, [close]);
   const summary = subchatSummary(states);
-  // One Subchat waiting on the user has its own two-line pill above the row (SubchatAsk), which opens that Subchat.
   const asking = !!summary.asking;
   useEffect(() => {
     if (asking) close();
   }, [asking, close]);
   if (!states.length || asking) return null;
-  // While the surface is out, it is the pill: this one keeps its place in the row, invisible.
   const away = phase !== "closed";
   return (
     <StatusPill
@@ -116,17 +99,11 @@ export const SubchatPill = memo(function SubchatPill({ panel, messages }: { pane
       expanded={away}
       hidden={away}
       onPress={show}
-      // New counts resize the pill; an open panel keeps growing from its new frame.
       onLayout={relayout}
     />
   );
 });
 
-/**
- * The pill while exactly one Subchat waits on the user: orange, two lines that never cut "needs you" (the title gives way
- * first), then the question, which wraps, so the pill grows with the text size. One tap opens that Subchat alone, where
- * the question is, instead of the list.
- */
 export const SubchatAsk = memo(function SubchatAsk({
   panel,
   messages,
@@ -169,7 +146,6 @@ function StatusMark({ kind }: { kind: SubchatKind }) {
   );
 }
 
-/** A small answer button: 32 tall with a hit area of 44, the recommended option filled in ink. */
 function AnswerButton({ title, primary = false, disabled, onPress }: { title: string; primary?: boolean; disabled: boolean; onPress: () => void }) {
   const { colors } = useTheme();
   return (
@@ -220,7 +196,6 @@ function SubchatRow({
   const needsYou = state.kind === "needs-you";
   const inline = inlineQuestion(state.request);
   const detailInk = state.kind === "failed" ? colors.redInk : state.kind === "done" ? colors.ink2 : colors.ink3;
-  // The label in its state's color, as on desktop; Queued and Stopped stay quiet.
   const labelInk = {
     "needs-you": colors.orangeInk,
     failed: colors.redInk,
@@ -290,11 +265,6 @@ function SubchatRow({
   );
 }
 
-/**
- * The Subchats panel: the pill grown over the Chat, one row per Subchat with what it is doing, and the answer to what
- * needs the user a tap away (a single-choice question's options, an approval's Allow and Deny). A row opens its Subchat.
- * Render it once, over the transcript and the composer.
- */
 export function SubchatPanel({
   panel,
   messages,
@@ -315,7 +285,6 @@ export function SubchatPanel({
     panel.close();
     onOpenChat(key);
   };
-  // One call at a time: the row says nothing is left to press until the host's answer arrives or fails.
   const send = async (requestId: string, call: () => Promise<unknown>, refused: string) => {
     if (!client) return;
     setSent(requestId);
