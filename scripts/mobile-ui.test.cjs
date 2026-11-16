@@ -396,11 +396,11 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return { useSplit: () => phoneSplit, useSplitLayout: () => phoneSplit, SplitProvider: ({ children }) => children };
       if ((base === "split-width" || base === "navigation-commands") && !(id in modules)) return load(`${base}.ts`, modules, "", cache);
       // The Chat screen's parts (app/chat.tsx and its chat-*.ts[x] siblings in src/) load with the screen's fakes, named from src/.
-      if (file === "app/chat.tsx" && ["chat-header", "chat-transcript-rows"].includes(relative) && !(id in modules)) {
+      if (file === "app/chat.tsx" && ["chat-header", "chat-transcript-rows", "chat-transcript-data"].includes(relative) && !(id in modules)) {
         const fromSrc = { ...modules };
         for (const [key, value] of Object.entries(modules))
           if (key.startsWith("../") && !(`./${key.slice(3)}` in fromSrc)) fromSrc[`./${key.slice(3)}`] = value;
-        return load(`${relative}.tsx`, fromSrc, "", cache);
+        return load(fs.existsSync(path.join(__dirname, "../apps/mobile/src", `${relative}.tsx`)) ? `${relative}.tsx` : `${relative}.ts`, fromSrc, "", cache);
       }
       // The sidebar's parts (project-navigation.tsx and its navigation-*.ts[x]) load as one module graph with the screen's fakes.
       if (relative?.startsWith("navigation-") && !(id in modules)) {

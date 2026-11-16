@@ -42,17 +42,8 @@ import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { compactButtonState } from "@milagre/shared/chat-display";
 import { useCompactButtonDisplay, useNewChatStats, useShowContextSize } from "../chat-display-setting";
-import type { ChatMessage, LinkIssueResult, PullRequestActionContext, WorktreeBinding } from "@milagre/shared/model";
-import {
-  associatedPullRequest,
-  chatPullRequests,
-  chatTitle,
-  createPendingChat,
-  createResendMemory,
-  pendingChatSessionId,
-  pullRequestRefs,
-  withPreview,
-} from "@milagre/shared/chats";
+import type { ChatMessage, LinkIssueResult, PullRequestActionContext } from "@milagre/shared/model";
+import { associatedPullRequest, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
@@ -60,7 +51,7 @@ import { LINK_PR_HINT, issueFirstMessage, type LinearIssue, type LinearIssuesRes
 import { worktreeShared } from "@milagre/shared/archive";
 import type { Client, OpenProject, Snapshot } from "../client";
 import { answeredQuestions, lastUserModel, projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import { pullRequestAction, pullRequestPresentation, rowPullRequests } from "@milagre/shared/pr-blockers";
+import { pullRequestAction } from "@milagre/shared/pr-blockers";
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
@@ -84,14 +75,11 @@ import {
   prepareAttachments,
 } from "../attachments";
 import { BackgroundRing, HeaderPullRequestChip, PullRequestAction, PullRequestMerge, PullRequestReview, SubagentChip } from "../status-indicators";
-import { usePrDetail } from "../pr-store";
-import { openThreads } from "@milagre/shared/pull-request-review";
 import { openPrPage, openPullRequest } from "../pr-nav";
 import { NewChatGlance } from "../new-chat-glance";
 import { onPullRequestRequest, prChoiceKey, registerPrChat, type PrChoice } from "../pr-chat";
 import { widthClass } from "../split-width";
 import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
-import { useChatPullRequests } from "../use-chat-pull-requests";
 import { SimulatorChip } from "../simulator";
 import { useBrowserShortcut } from "../browser";
 import { useInternalBrowser } from "../browser-setting";
@@ -165,7 +153,6 @@ import { undoHistory, useHistoryToast } from "../undo-history";
 import { archiveFromPhone, showArchiveNotice } from "../archive";
 import { randomUUID } from "expo-crypto";
 import { runChatAction } from "../chat-actions";
-import { useChatPage } from "../chat-pages";
 import { MessageNavigation } from "../message-navigation";
 import { FloatingInboxSlot } from "../attention";
 import { useLinear } from "../use-linear";
@@ -209,6 +196,7 @@ import {
   chatPaneMenu,
 } from "../chat-header";
 import { issueRunDivider, LiveReply, transcriptRows, useLiveSteps } from "../chat-transcript-rows";
+import { useChatPrs, useChatTranscriptData } from "../chat-transcript-data";
 
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
@@ -232,9 +220,7 @@ const NO_CHECKPOINTS: CheckpointApi = {
 
 type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string };
 
-const NO_MEMBERS: WorktreeBinding[] = [];
 const NO_QUOTES: ComposerQuote[] = [];
-const NO_REFS: string[] = [];
 
 export default function ChatScreen() {
   const { colors } = useTheme();
@@ -601,86 +587,29 @@ function ChatPane({
       setPendingChats((current) => (current[pendingKey] ? { ...current, [pendingKey]: { ...current[pendingKey], promoted: true } } : current));
     }, [acceptedSessionId, pending?.promoted, pendingKey, setPendingChats, adoptChat]),
   );
-  const allMessages = session.snapshot?.project.state.messages;
-  const lean = !!session.snapshot?.project.state.messagesInChats;
-  const page = useChatPage(lean && targetMatches ? connected : null, projectPath, params.id ? Number(params.id) : null, mentionState, session.reconnects);
-  const canonicalPage = useChatPage(
-    lean && targetMatches && pendingCanonicalId !== null ? connected : null,
+  const { lean, media, historyPage, messages } = useChatTranscriptData({
+    session,
+    connected,
     projectPath,
-    pendingCanonicalId,
+    params,
+    targetMatches,
     mentionState,
-    session.reconnects,
-  );
-  const media = useCallback((path: string) => connected!.image(projectPath!, path), [connected, projectPath]);
-  const savedMessages = useMemo(
-    () => (lean ? page.messages : params.id && allMessages ? allMessages.filter((m) => m.session_id === Number(params.id)) : []),
-    [lean, page.messages, allMessages, params.id],
-  );
-  const loadedMessages = useMemo(
-    () =>
-      pending
-        ? pendingCanonicalId !== null
-          ? lean
-            ? canonicalPage.messages
-            : (allMessages || []).filter((message) => message.session_id === pendingCanonicalId)
-          : withPreview(savedMessages, pending.preview)
-        : savedMessages,
-    [pending, pendingCanonicalId, lean, canonicalPage.messages, allMessages, savedMessages],
-  );
-  const historyPage = pendingCanonicalId !== null ? canonicalPage : page;
-  const [transcript, setTranscript] = useState({ key: scrollKey, messages: loadedMessages });
-  const messages = lean && historyPage.loading && !loadedMessages.length && transcript.key === scrollKey ? transcript.messages : loadedMessages;
+    pending,
+    pendingCanonicalId,
+    scrollKey,
+  });
   const compactionFeedback = useCompactionFeedback(
     messages.findLast((item) => compactionContext(item)),
     scrollKey,
   );
-  if (transcript.key !== scrollKey || transcript.messages !== messages) setTranscript({ key: scrollKey, messages });
   const pageLoading = lean && Boolean(params.id) && historyPage.loading && !messages.length;
-  const prPath = session.snapshot?.project.link || chatsHomeOpen ? undefined : worktreeOf?.path;
-  const openChat = params.id ? session.snapshot?.project.state.sessions[Number(params.id)] : undefined;
-  const savedPrRefs = openChat ? (openChat.summary?.pullRequests ?? session.snapshot?.project.pullRequestRefs?.[openChat.id]) : undefined;
-  const prRefs = useMemo(() => (openChat ? (savedPrRefs ?? pullRequestRefs(messages)) : []), [openChat, savedPrRefs, messages]);
-  const linkView = session.snapshot?.project.link;
-  const linkMembers = (linkView && params.id ? linkView.state.sessions[params.id]?.worktrees : undefined) ?? NO_MEMBERS;
-  const prStatus = useChatPullRequests(
-    session.client,
-    prPath ? [{ path: prPath, refs: prRefs }] : linkMembers.map((member) => ({ path: member.worktreePath, refs: NO_REFS })),
-  );
-  const chatPrs = prPath ? chatPullRequests(prRefs, prStatus[prPath]?.found ?? {}, prStatus[prPath]?.branch) : [];
-  const linkPrs = linkMembers.flatMap((member) => {
-    const branch = prStatus[member.worktreePath]?.branch;
-    return branch
-      ? [
-          {
-            pr: branch,
-            cwd: member.worktreePath,
-            project: linkView?.projects.find((entry) => entry.id === member.projectId)?.name,
-            projectPath: member.projectPath,
-          },
-        ]
-      : [];
+  const { prPath, chatPrs, rowPrs, pr, placeOf, prCwd, prChoices, prOpenThreads } = useChatPrs({
+    session,
+    chatsHomeOpen,
+    worktreeOf,
+    params,
+    messages,
   });
-  const rowPrs = rowPullRequests(prPath ? chatPrs : linkPrs.map((entry) => entry.pr));
-  const pr = rowPrs[0] ?? null;
-  const placeOf = (entry: (typeof rowPrs)[number]) => linkPrs.find((place) => place.pr === entry);
-  const prCwd = pr ? (prPath ?? placeOf(pr)?.cwd) : undefined;
-  const prChoicesJson = JSON.stringify(
-    rowPrs.map((entry) => {
-      const place = prPath ? undefined : placeOf(entry);
-      const { number, title, state } = entry;
-      const { tone, icon } = pullRequestPresentation(entry);
-      return {
-        number,
-        title,
-        state,
-        look: { tone, icon },
-        ...(place ? { cwd: place.cwd, projectPath: place.projectPath, ...(place.project ? { project: place.project } : {}) } : {}),
-      };
-    }),
-  );
-  const prChoices = useMemo(() => JSON.parse(prChoicesJson) as PrChoice[], [prChoicesJson]);
-  const prDetail = usePrDetail(session.client, prCwd, pr?.number ?? Number.NaN, pr?.state === "OPEN");
-  const prOpenThreads = pr && prDetail.pr?.state === "OPEN" && prDetail.pr.number === pr.number ? openThreads(prDetail.pr).length : 0;
   const remote = lean && (!pending || pendingCanonicalId !== null) ? Math.max(0, historyPage.total - historyPage.messages.length) : 0;
   const history = chatHistory(messages);
   const { liveSteps, onLiveSteps } = useLiveSteps();
