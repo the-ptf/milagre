@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { CheckmarkCircle02Icon, GitPullRequestIcon, PanelLeftOpenIcon, Undo02Icon } from "@hugeicons/core-free-icons";
+import { CheckmarkCircle02Icon, ComputerIcon, GitPullRequestIcon, PanelLeftOpenIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { roleById, type OrchestratorRole, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import type { ModelProvider } from "../../model";
 import { sinceLabel, type TaskCard } from "../../lib/orchestrator-board";
@@ -25,6 +25,7 @@ export type CardEnv = {
   accountLabels: readonly string[];
   projectName: (path: string | null) => string;
   accountLabel: (id: string | null) => string;
+  computerName: (task: OrchestratorTask) => string;
 };
 
 const CARD = "group relative flex w-full shrink-0 flex-col gap-1.5 rounded-card border border-line bg-surface px-3 py-2.5 text-left transition-colors";
@@ -118,7 +119,10 @@ export function ChatCard({ card, env, onOpen }: { card: TaskCard; env: CardEnv; 
         <span className="flex min-w-0 items-center gap-1.5">
           {role && <span className={BADGE}>{role.name}</span>}
           {card.inSidebar && <span className={BADGE}>In sidebar</span>}
-          {task.computer && <span className={BADGE}>On {task.computer}</span>}
+          <span className={`${BADGE} flex items-center gap-1`}>
+            <Icon icon={ComputerIcon} size={12} />
+            {env.computerName(task)}
+          </span>
         </span>
         <span className="text-11">{sinceLabel(task.createdAt, env.now)}</span>
       </div>

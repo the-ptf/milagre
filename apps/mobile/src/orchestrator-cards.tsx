@@ -7,6 +7,7 @@ import { lineHeight, radius, space, type } from "./design-tokens";
 import { Icon, ProviderLogo, SpinnerRing } from "./icons";
 import { modelAndEffort, projectName, relativeAge, type BoardItem } from "./orchestrator-board";
 import { SplitPicker } from "./orchestrator-split-picker";
+import { useSession } from "./session";
 import { useTheme } from "./theme";
 import { pressStyle, Tag, useStyles } from "./ui";
 
@@ -62,6 +63,7 @@ export function TaskCard({
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
+  const { hostName } = useSession();
   const { task } = item;
   const role = roles.find((entry) => entry.id === task.role)?.name ?? task.role;
   const needsTone = item.kind === "failed" ? colors.redInk : colors.orangeInk;
@@ -96,7 +98,7 @@ export function TaskCard({
           {task.provider ? <ProviderLogo provider={task.provider} size={12} /> : null}
           <View style={{ flex: 1 }}>
             <Meta>
-              {task.remoteComputerId ? `On ${task.computer ?? "another computer"} · ` : ""}
+              {`${task.computer ?? (hostName || "This computer")} · `}
               {projectName(task.projectPath, projects)} · {modelAndEffort(task.provider, task.model, task.effort, models)} · {role}
             </Meta>
           </View>
