@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CheckmarkCircle02Icon, GitPullRequestIcon, PanelLeftOpenIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { roleById, type OrchestratorRole, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import type { ModelProvider } from "../../model";
@@ -14,8 +14,7 @@ import { Select } from "../primitives/Select";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { SweepText } from "../primitives/SweepText";
 import { ProviderLogo } from "../ProviderLogo";
-import { lookToward, Mascot, type Look } from "./Mascot";
-import { Reel, type ReelItem, type ReelPhase } from "./Reel";
+import { SplitPicker } from "./SplitPicker";
 
 export type CardEnv = {
   color: string;
@@ -182,96 +181,50 @@ export function FailedCard({ card }: { card: TaskCard }) {
   );
 }
 
-function reelItems(env: CardEnv) {
-  const projects: ReelItem[] = env.projects.map((project) => ({ key: project.path, node: <ProjectLabel path={project.path} name={project.name} /> }));
-  const roles: ReelItem[] = env.roles.filter((role) => role.model).map((role) => ({ key: role.id, node: role.name }));
-  const models: ReelItem[] = env.roles.filter((role) => role.model).map((role) => ({ key: `${role.id}:${role.model}`, node: <ModelLabel route={role} /> }));
-  const accounts: ReelItem[] = env.accountLabels.map((label) => ({ key: label, node: <span className="truncate">{label}</span> }));
-  return { projects, roles, models, accounts };
-}
-
-function finals(task: OrchestratorTask, env: CardEnv): ReelItem[] | null {
+function pickedChips(task: OrchestratorTask, env: CardEnv): ReactNode[] | null {
   if (task.state !== "started") return null;
+  const account = env.accountLabel(task.accountId);
   return [
-    { key: task.projectPath ?? "", node: <ProjectLabel path={task.projectPath} name={env.projectName(task.projectPath)} /> },
-    { key: task.role, node: roleById(env.roles, task.role)?.name ?? task.role },
-    { key: `${task.role}:${task.model}`, node: <ModelLabel route={task} /> },
-    { key: env.accountLabel(task.accountId), node: <span className="truncate">{env.accountLabel(task.accountId)}</span> },
+    <ProjectLabel key="project" path={task.projectPath} name={env.projectName(task.projectPath)} />,
+    <ModelLabel key="model" route={task} />,
+    <span key="role">{roleById(env.roles, task.role)?.name ?? task.role}</span>,
+    <span key="account" className="truncate">
+      {account}
+    </span>,
   ];
 }
 
 export function DecidingCard({ card, env, hidden, onSettled }: { card: TaskCard; env: CardEnv; hidden: boolean; onSettled: (id: string) => void }) {
   const { task } = card;
   const scale = useMotionScale();
-  const picked = finals(task, env);
-  const [step, setStep] = useState(-1);
-  const [look, setLook] = useState<Look>(null);
-  const mascot = useRef<HTMLSpanElement>(null);
-  const reels = useRef<(HTMLSpanElement | null)[]>([]);
-  const items = useState(() => reelItems(env))[0];
+  const chips = pickedChips(task, env);
+  const [merged, setMerged] = useState(false);
   const settled = useRef(onSettled);
   settled.current = onSettled;
-  const isPicked = picked !== null;
-  useEffect(() => {
-    if (isPicked && step < 0 && !hidden) setStep(0);
-  }, [isPicked, step, hidden]);
-  useEffect(() => {
-    if (step < 4) return;
-    const timer = window.setTimeout(() => settled.current(task.id), 500 * scale);
-    return () => window.clearTimeout(timer);
-  }, [step, scale, task.id]);
-  useLayoutEffect(() => {
-    const target = reels.current[Math.max(0, step)];
-    setLook(step >= 4 ? null : lookToward(mascot.current, target ?? null));
-  }, [step, hidden]);
-  const phase = (index: number): ReelPhase => {
-    if (!picked) return index === 0 && !hidden ? "spin" : "wait";
-    return step === index ? "land" : step > index ? "done" : "wait";
-  };
-  const reel = (index: number, list: ReelItem[], badge = false) => (
-    <Reel
-      ref={(node) => {
-        reels.current[index] = node;
-      }}
-      items={list}
-      final={picked?.[index] ?? null}
-      phase={phase(index)}
-      badge={badge}
-      onLanded={() => window.setTimeout(() => setStep((current) => (current === index ? index + 1 : current)), 160 * scale)}
-    />
-  );
   return (
     <div data-task-card={task.id} data-deciding className={CARD} style={hidden ? { visibility: "hidden" } : undefined}>
-      <CardTitle
-        lead={
-          <span
-            ref={mascot}
-            key={hidden ? "away" : "home"}
-            className="-mt-0.5 flex"
-            style={scale ? { animation: "pop-in var(--duration-slow) var(--ease-enter) backwards" } : undefined}
-          >
-            <Mascot size={20} color={env.color} mood={step >= 4 ? "happy" : "thinking"} look={look} />
-          </span>
-        }
-        title={task.title}
-      />
-      <span className={META}>
-        <SweepText running className="text-ink-3">
-          {step >= 4 ? "Starting the Chat…" : "Picking the Project, model and account…"}
-        </SweepText>
+      <span
+        key={hidden ? "away" : "home"}
+        className="flex flex-col"
+        style={scale ? { animation: "pop-in var(--duration-slow) var(--ease-enter) backwards" } : undefined}
+      >
+        <SplitPicker
+          title={task.title}
+          chips={chips ?? []}
+          picked={chips !== null && !hidden}
+          color={env.color}
+          onDone={() => {
+            setMerged(true);
+            window.setTimeout(() => settled.current(task.id), 100 * scale);
+          }}
+        />
       </span>
-      <div className={META}>
-        {reel(0, items.projects)}
-        <span className="text-ink-3">·</span>
-        {reel(2, items.models)}
-      </div>
-      <div className={`${META} justify-between`}>
-        <span className="flex min-w-0 items-center gap-1.5">
-          {reel(1, items.roles, true)}
-          {reel(3, items.accounts)}
-        </span>
+      <span className={`${META} justify-between`}>
+        <SweepText running className="text-ink-3">
+          {merged ? "Starting the Chat…" : "Picking the Project, model and account…"}
+        </SweepText>
         <span className="text-11">now</span>
-      </div>
+      </span>
     </div>
   );
 }

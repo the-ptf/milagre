@@ -13,12 +13,11 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import { SectionLabel } from "../primitives/SectionLabel";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { Mascot } from "./Mascot";
-import { Reel, type ReelItem, type ReelPhase } from "./Reel";
+import { SplitPicker } from "./SplitPicker";
 
 const DEMO = "the sign-in button does nothing on Safari, fix it";
 const AGENTS = ["Claude Code", "Codex", "Antigravity", "Kiro"];
 const SUMMARY_AT = 15_200;
-const item = (label: string): ReelItem => ({ key: label, node: label });
 const sourceCount = ({ count, unit }: { count: number; unit: "notes" | "rules" }) => `${count} ${count === 1 ? unit.slice(0, -1) : unit}`;
 
 function Sources({ memory, reading }: { memory: OrchestratorMemory; reading: boolean }) {
@@ -123,28 +122,21 @@ function Summary({ memory, settings, error, color }: { memory: OrchestratorMemor
 }
 
 function DemoCard({ t, color, project }: { t: number; color: string; project: string }) {
-  const step = t < 7500 ? -1 : t < 8400 ? 0 : t < 9300 ? 1 : t < 10200 ? 2 : 3;
-  const phase = (index: number): ReelPhase => (step < 0 ? (index === 0 ? "spin" : "wait") : step === index ? "land" : step > index ? "done" : "wait");
-  const reel = (index: number, items: string[]) => <Reel items={items.map(item)} final={item(items[0]!)} phase={phase(index)} />;
   return (
     <div
       className="flex w-60 flex-col gap-1.5 rounded-card border border-line bg-surface px-3 py-2.5"
       style={{ animation: "pop-in var(--duration-base) var(--ease-enter) backwards" }}
     >
-      <div className="flex items-start gap-2">
-        <Mascot size={20} color={color} mood={step < 3 ? "thinking" : "happy"} look={step < 3 ? { x: 0.3, y: 1 } : null} />
-        <span className="text-13 font-medium text-ink">Sign-in button on Safari</span>
-      </div>
-      <div className="flex items-center gap-1.5 overflow-hidden text-12 whitespace-nowrap text-ink-3">
-        <span className="truncate">{project}</span>
-        <span>·</span>
-        {reel(0, ["Opus 5.5 · High", "GPT 6.1 Sol", "Sonnet 5.5"])}
-      </div>
-      <div className="flex items-center gap-1.5 overflow-hidden text-12 whitespace-nowrap text-ink-3">
-        {reel(1, ["Least used account", "Your team account"])}
-        <span>·</span>
-        {reel(2, ["This computer", "Your other computer"])}
-      </div>
+      <SplitPicker
+        title="Sign-in button on Safari"
+        chips={[project, "Opus 5.5 · High", "Least used account", "This computer"].map((label) => (
+          <span key={label} className="truncate">
+            {label}
+          </span>
+        ))}
+        picked={t >= 7500}
+        color={color}
+      />
     </div>
   );
 }

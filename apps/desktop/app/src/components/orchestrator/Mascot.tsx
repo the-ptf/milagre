@@ -7,18 +7,6 @@ export type MascotMood = "idle" | "thinking" | "happy";
 export type Look = { x: number; y: number } | null;
 
 const WHITE = /^(#fff|#ffffff|white)$/i;
-const clamp = (value: number) => Math.max(-1, Math.min(1, value));
-
-export function lookToward(from: Element | null, to: Element | null): Look {
-  const a = from?.getBoundingClientRect();
-  const b = to?.getBoundingClientRect();
-  if (!a || !b) return null;
-  const reach = Math.max(a.width * 3, 60);
-  return {
-    x: clamp((b.left + b.width / 2 - (a.left + a.width / 2)) / reach),
-    y: clamp((b.top + b.height / 2 - (a.top + a.height / 2)) / reach),
-  };
-}
 
 export function Mascot({
   size,

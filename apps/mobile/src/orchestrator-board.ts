@@ -91,14 +91,6 @@ export function projectName(path: string | null, projects: readonly { path: stri
 }
 
 /** A slot reel's strip: the other options cycling past, then the one that was picked, last. */
-export function reelStrip<T>(options: readonly T[], picked: T, same: (a: T, b: T) => boolean = Object.is, length = 7): T[] {
-  const others = options.filter((option) => !same(option, picked));
-  const strip: T[] = [];
-  for (let index = 0; index < length - 1; index++) strip.push(others.length ? (others[index % others.length] as T) : picked);
-  strip.push(picked);
-  return strip;
-}
-
 export function relativeAge(at: number, now: number): string {
   const minutes = Math.max(0, Math.floor((now - at) / 60000));
   if (minutes < 1) return "now";

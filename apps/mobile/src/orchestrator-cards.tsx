@@ -1,22 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withSequence, withTiming } from "react-native-reanimated";
 import { Alert02Icon, CheckmarkCircle02Icon, GitMergeIcon, GitPullRequestIcon } from "@hugeicons/core-free-icons";
-import { activeRoles, roleById, type OrchestratorRole, type OrchestratorTask } from "@milagre/shared/orchestrator";
+import { roleById, type OrchestratorRole, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import type { AgentModels } from "@milagre/shared/model";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { Icon, ProviderLogo, SpinnerRing } from "./icons";
-import { Mascot, type MascotGaze } from "./mascot";
-import { scaledTiming, useMotionScale, useReducedMotion } from "./motion";
-import { modelAndEffort, projectName, reelStrip, relativeAge, type BoardItem } from "./orchestrator-board";
+import { modelAndEffort, projectName, relativeAge, type BoardItem } from "./orchestrator-board";
+import { SplitPicker } from "./orchestrator-split-picker";
 import { useTheme } from "./theme";
 import { pressStyle, Tag, useStyles } from "./ui";
 
 export type Projects = readonly { path: string; name?: string }[];
-const REEL_ROW = lineHeight.footnote;
-const REEL_MS = 900;
-const REEL_ROWS = 14;
-const LAND_PAUSE_MS = 180;
 
 export function TaskMark({ item }: { item: BoardItem }) {
   const { colors } = useTheme();
@@ -113,91 +107,7 @@ export function TaskCard({
   );
 }
 
-type Slot = { label: string; options: string[]; picked: string };
-
-function Reel({ slot, state, onLanded }: { slot: Slot; state: "wait" | "active" | "done"; onLanded: () => void }) {
-  const { colors } = useTheme();
-  const reduced = useReducedMotion();
-  const scale = useMotionScale();
-  const strip = useMemo(
-    () => reelStrip(slot.options, slot.picked, Object.is, REEL_ROWS).map((value, position) => ({ value, position })),
-    [slot.options, slot.picked],
-  );
-  const offset = useSharedValue(0);
-  const end = -REEL_ROW * (strip.length - 1);
-  useEffect(() => {
-    if (state !== "active") return;
-    if (reduced || scale === 0) {
-      offset.set(end);
-      const timer = setTimeout(onLanded, LAND_PAUSE_MS);
-      return () => clearTimeout(timer);
-    }
-    offset.set(0);
-    offset.set(
-      withSequence(
-        withTiming(end - 4, scaledTiming({ duration: REEL_MS * 0.82, easing: Easing.bezier(0.16, 1, 0.3, 1) }, scale)),
-        withTiming(end, scaledTiming({ duration: REEL_MS * 0.18, easing: Easing.out(Easing.quad) }, scale), (finished) => {
-          if (finished) runOnJS(onLanded)();
-        }),
-      ),
-    );
-  }, [state, reduced, scale, end, offset, onLanded]);
-  const moving = useAnimatedStyle(() => ({ transform: [{ translateY: state === "done" ? end : offset.value }] }));
-  const text = { fontSize: type.footnote, lineHeight: REEL_ROW };
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 28 }}>
-      <Text style={[text, { width: 72, color: colors.ink3 }]}>{slot.label}</Text>
-      <View style={{ flex: 1, height: REEL_ROW, overflow: "hidden" }}>
-        {state === "wait" ? (
-          <Text style={[text, { color: colors.ink4 }]}>…</Text>
-        ) : (
-          <Animated.View style={moving}>
-            {strip.map(({ value, position }) => (
-              <Text
-                key={position}
-                numberOfLines={1}
-                style={[
-                  text,
-                  { color: state === "done" && position === strip.length - 1 ? colors.ink : colors.ink3, fontWeight: state === "done" ? "500" : "400" },
-                ]}
-              >
-                {value}
-              </Text>
-            ))}
-          </Animated.View>
-        )}
-      </View>
-    </View>
-  );
-}
-
-function Cycling({ options }: { options: string[] }) {
-  const { colors } = useTheme();
-  const reduced = useReducedMotion();
-  const [index, setIndex] = useState(0);
-  useEffect(() => {
-    if (reduced || options.length < 2) return;
-    const timer = setInterval(() => setIndex((current) => (current + 1) % options.length), 60);
-    return () => clearInterval(timer);
-  }, [reduced, options.length]);
-  return (
-    <Text numberOfLines={1} style={{ flex: 1, color: colors.ink3, fontSize: type.footnote, lineHeight: REEL_ROW }}>
-      {reduced ? "…" : (options[index] ?? "…")}
-    </Text>
-  );
-}
-
-const GAZE: MascotGaze[] = [
-  { x: 0.4, y: 0.1 },
-  { x: 0.4, y: 0.45 },
-  { x: 0.4, y: 0.75 },
-  { x: 0.4, y: 1 },
-];
-
-/**
- * A task the host is routing, then the four decisions landing one after another (Project, role, model and effort,
- * account) while a small Pebble watches each slot; `onDone` fires once the last one lands.
- */
+/** A task the host is routing; once routed, the mascot splits up and drops each pick as a chip, then `onDone` fires. */
 export function DecidingCard({
   task,
   projects,
@@ -217,46 +127,32 @@ export function DecidingCard({
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const routing = task.state === "routing";
-  const [step, setStep] = useState(0);
-  const projectNames = useMemo(() => projects.map((project) => projectName(project.path, projects)), [projects]);
-  const usable = activeRoles(roles);
-  const role = roleById(roles, task.role);
-  const slots: Slot[] = [
-    { label: "Project", options: projectNames, picked: projectName(task.projectPath, projects) },
-    { label: "Role", options: usable.map((entry) => entry.name), picked: role?.name ?? task.role },
-    {
-      label: "Model",
-      options: usable.map((entry) => modelAndEffort(entry.provider, entry.model, entry.effort, models)),
-      picked: modelAndEffort(task.provider, task.model, task.effort, models),
-    },
-    { label: "Account", options: ["Least used", "Project's account"], picked: accountName ?? task.reason.account ?? "Project's account" },
-  ];
-  const landed = () => {
-    setTimeout(() => {
-      if (step >= slots.length - 1) onDone?.();
-      setStep((current) => current + 1);
-    }, LAND_PAUSE_MS);
-  };
-  const looking = routing ? 0 : Math.min(step, slots.length - 1);
+  const [merged, setMerged] = useState(false);
+  const routed = task.state !== "routing";
+  const chips = useMemo(
+    () => [
+      projectName(task.projectPath, projects),
+      modelAndEffort(task.provider, task.model, task.effort, models),
+      roleById(roles, task.role)?.name ?? task.role,
+      accountName ?? task.reason.account ?? "Project's account",
+    ],
+    [task, projects, models, roles, accountName],
+  );
   return (
     <View accessibilityLabel={`Routing ${task.title}`} accessibilityLiveRegion="polite" style={[styles.card, { gap: space.sm, paddingVertical: space.lg }]}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
-        <Mascot size={20} color={color} mood={routing ? "thinking" : step >= slots.length ? "happy" : "thinking"} gaze={GAZE[looking] ?? null} />
-        <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>
-          {task.title}
-        </Text>
-      </View>
-      {slots.map((slot, index) =>
-        routing ? (
-          <View key={slot.label} style={{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 28 }}>
-            <Text style={{ width: 72, color: colors.ink3, fontSize: type.footnote, lineHeight: REEL_ROW }}>{slot.label}</Text>
-            {index === 0 ? <Cycling options={slot.options} /> : <Text style={{ color: colors.ink4, fontSize: type.footnote, lineHeight: REEL_ROW }}>…</Text>}
-          </View>
-        ) : (
-          <Reel key={slot.label} slot={slot} state={step === index ? "active" : step > index ? "done" : "wait"} onLanded={landed} />
-        ),
-      )}
+      <SplitPicker
+        title={task.title}
+        chips={chips}
+        picked={routed}
+        color={color}
+        onDone={() => {
+          setMerged(true);
+          onDone?.();
+        }}
+      />
+      <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
+        {merged ? "Starting the Chat…" : "Picking the Project, model and account…"}
+      </Text>
     </View>
   );
 }

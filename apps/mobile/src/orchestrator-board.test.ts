@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { AgentSession } from "@milagre/shared/model";
 import type { OrchestratorTask } from "@milagre/shared/orchestrator";
-import { boardCounts, boardItem, columnItems, modelAndEffort, projectName, pullRequestState, reelStrip, relativeAge } from "./orchestrator-board.ts";
+import { boardCounts, boardItem, columnItems, modelAndEffort, projectName, pullRequestState, relativeAge } from "./orchestrator-board.ts";
 
 const task = (patch: Partial<OrchestratorTask> = {}): OrchestratorTask => ({
   id: "t1",
@@ -82,9 +82,4 @@ test("an open PR wins over a merged one; labels read as on the desktop", () => {
   assert.equal(projectName("/code/gym", []), "gym");
   assert.equal(projectName("/code/gym", [{ path: "/code/gym", name: "happiergym" }]), "happiergym");
   assert.equal(relativeAge(0, 125 * 60000), "2h");
-});
-
-test("a reel cycles the other options and lands on the pick", () => {
-  assert.deepEqual(reelStrip(["a", "b", "c"], "b", Object.is, 5), ["a", "c", "a", "c", "b"]);
-  assert.deepEqual(reelStrip(["b"], "b", Object.is, 3), ["b", "b", "b"]);
 });
