@@ -10309,6 +10309,40 @@ test("mobile browser requests an authenticated proxy off the LAN and releases it
   ]);
 });
 
+const SIGN_IN_LINK = "https://claude.com/cai/oauth/authorize?code=true";
+
+test("phone sign-in code opens the link and sends the pasted code to the computer", async () => {
+  const react = hookHost();
+  const calls = [],
+    opened = [],
+    done = [];
+  const client = {
+    call: async (method, args) => {
+      calls.push([method, ...args]);
+      return { providers: [] };
+    },
+  };
+  const { AccountSignInCode } = load("account-sign-in-code.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Linking: { openURL: async (url) => opened.push(url) } },
+    "./session": { useSession: () => ({ client }) },
+    "./ui": { Field: "Field", InlineError: "InlineError", PillButton: "Button" },
+  });
+  const render = () => {
+    react.begin();
+    return AccountSignInCode({ provider: "claude", accountId: "default", url: SIGN_IN_LINK, onDone: (next) => done.push(next) });
+  };
+  find(render(), (n) => n.props?.title === "Open the sign-in link").props.onPress();
+  assert.deepEqual(opened, [SIGN_IN_LINK]);
+  assert.equal(find(render(), (n) => n.props?.title === "Sign in").props.disabled, true, "Nothing to send yet");
+  find(render(), (n) => n.type === "Field").props.onChangeText("abc#def");
+  find(render(), (n) => n.props?.title === "Sign in").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, [["accounts:code", "claude", "default", "abc#def"]]);
+  assert.deepEqual(done, [{ providers: [] }]);
+});
+
 for (const provider of ["claude", "codex"])
   test(`mobile Accounts selects by tapping the row and manages accounts through its menu (${provider})`, async () => {
     const react = hookHost({ effects: true });
@@ -10348,8 +10382,16 @@ for (const provider of ["claude", "codex"])
           calls.push([method, ...args]);
           const group = accounts.providers.find((group) => group.provider === provider);
           if (method === "accounts:select") group.selectedId = args[1];
-          if (method === "accounts:login") group.accounts.find((a) => a.id === args[1]).state = "signing-in";
-          if (method === "accounts:cancel") group.accounts.find((a) => a.id === args[1]).state = "signed-out";
+          if (method === "accounts:login")
+            Object.assign(
+              group.accounts.find((a) => a.id === args[1]),
+              { state: "signing-in", ...(provider === "claude" ? { signInUrl: SIGN_IN_LINK } : {}) },
+            );
+          if (method === "accounts:cancel")
+            Object.assign(
+              group.accounts.find((a) => a.id === args[1]),
+              { state: "signed-out", signInUrl: undefined },
+            );
           if (method === "accounts:remove") {
             group.accounts = group.accounts.filter((a) => a.id !== args[1]);
             group.selectedId = "default";
@@ -10359,6 +10401,7 @@ for (const provider of ["claude", "codex"])
       },
     };
     const { AccountsForComputer: AccountsSection } = load("accounts-section.tsx", {
+      "./account-sign-in-code": { AccountSignInCode: "AccountSignInCode" },
       react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "react-native": { Text: "Text", View: "View", Pressable: "Pressable" },
@@ -10415,6 +10458,9 @@ for (const provider of ["claude", "codex"])
       menu().props.onSelect("login");
       await settle();
       assert.ok(calls.some((c) => c.join(":") === `accounts:login:${provider}:work`));
+      const codeForm = find(render(), (n) => n.type === "AccountSignInCode");
+      if (provider === "claude") assert.deepEqual([codeForm.props.accountId, codeForm.props.url], ["work", SIGN_IN_LINK]);
+      else assert.equal(codeForm, undefined, "Only Claude takes a pasted code");
       menu().props.onSelect("cancel");
       await settle();
       assert.ok(calls.some((c) => c.join(":") === `accounts:cancel:${provider}:work`));
@@ -11632,6 +11678,7 @@ for (const provider of ["claude", "codex"])
       },
     };
     const { ProjectAccountsSection } = load("project-accounts-section.tsx", {
+      "./account-sign-in-code": { AccountSignInCode: "AccountSignInCode" },
       react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "react-native": {

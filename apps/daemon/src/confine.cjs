@@ -227,6 +227,7 @@ const PATHS = Object.freeze({
   "accounts:select": none,
   "accounts:login": none,
   "accounts:cancel": none,
+  "accounts:code": none,
   "accounts:remove": none,
   "mcp:accounts": none,
   "mcp:check": none,

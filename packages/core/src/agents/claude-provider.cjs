@@ -13,12 +13,14 @@ const {
   SUBAGENT_DESIGN_INSTRUCTIONS,
   SUBAGENT_PLAN_INSTRUCTIONS,
   RESUME_FAILED_MESSAGE,
+  AUTH_RETRY_MESSAGE,
   crashMessage,
   failedWith,
   isTerminal,
   mapClaudeMessage,
   missingCliMessage,
 } = require("./events.cjs");
+const { claudeLoggedOut } = require("./status.cjs");
 const { PendingPermissions, WorkspaceAccess, claudeAccessRequest, claudeRequest, claudeResult, isUngatedMilagreTool } = require("./permissions.cjs");
 const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = require("./questions.cjs");
 const { mcpContent, runTool } = require("../linked-tools.cjs");
@@ -137,6 +139,7 @@ class ClaudeSession {
     loadSdk = () => import("@anthropic-ai/claude-agent-sdk"),
     spawnImpl = spawn,
     interruptGraceMs = 3000,
+    loggedOut = (command, env) => claudeLoggedOut(command, { env }),
   }) {
     Object.assign(this, {
       cwd,
@@ -159,6 +162,7 @@ class ClaudeSession {
       loadSdk,
       spawnImpl,
       interruptGraceMs,
+      loggedOut,
     });
     this.state = { sessionId: forkSession ? null : (resumeId ?? null), turnId: null, hasText: false };
     this.query = null;
@@ -533,9 +537,10 @@ class ClaudeSession {
           else if (event.type === "turn-failed" && this.resumeGone(`${event.message}\n${message.errors ?? ""}\n${message.result ?? ""}`)) this.resumeFailed();
           else {
             // A logged-out Claude Code keeps answering "not logged in" until it is restarted, so the session
-            if (event.login && this.announcedId) this.emit({ type: "session-reset" });
-            this.finishTurn(event);
-            if (event.login) void this.close();
+            const ended = event.login && !(await this.loggedOut(this.command, this.env ?? process.env)) ? { ...event, message: AUTH_RETRY_MESSAGE } : event;
+            if (ended.login && this.announcedId) this.emit({ type: "session-reset" });
+            this.finishTurn(ended);
+            if (ended.login) void this.close();
           }
         }
         if (message.type === "result") this.implicitTurn = false;

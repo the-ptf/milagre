@@ -204,6 +204,132 @@
         }
       ]
     },
+    "accounts:list": {
+      "parameters": [
+        {
+          "name": "refresh",
+          "optional": true,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "accounts:add": {
+      "parameters": [
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "accounts:select": {
+      "parameters": [
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "accounts:login": {
+      "parameters": [
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "accounts:cancel": {
+      "parameters": [
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "accounts:remove": {
+      "parameters": [
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "accounts:code": {
+      "parameters": [
+        {
+          "name": "provider",
+          "optional": false,
+          "schema": {
+            "enum": ["codex", "claude", "antigravity", "kiro"]
+          }
+        },
+        {
+          "name": "accountId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "code",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "babysit:settings:read": {
       "parameters": []
     },
@@ -3622,107 +3748,6 @@
       "parameters": [
         {
           "name": "key",
-          "optional": false,
-          "schema": {
-            "type": "string"
-          }
-        }
-      ]
-    },
-    "accounts:list": {
-      "parameters": [
-        {
-          "name": "refresh",
-          "optional": true,
-          "schema": {
-            "enum": [false, true]
-          }
-        }
-      ]
-    },
-    "accounts:add": {
-      "parameters": [
-        {
-          "name": "provider",
-          "optional": false,
-          "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
-          }
-        },
-        {
-          "name": "value",
-          "optional": false,
-          "schema": {
-            "type": "string"
-          }
-        }
-      ]
-    },
-    "accounts:select": {
-      "parameters": [
-        {
-          "name": "provider",
-          "optional": false,
-          "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
-          }
-        },
-        {
-          "name": "value",
-          "optional": false,
-          "schema": {
-            "type": "string"
-          }
-        }
-      ]
-    },
-    "accounts:login": {
-      "parameters": [
-        {
-          "name": "provider",
-          "optional": false,
-          "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
-          }
-        },
-        {
-          "name": "value",
-          "optional": false,
-          "schema": {
-            "type": "string"
-          }
-        }
-      ]
-    },
-    "accounts:cancel": {
-      "parameters": [
-        {
-          "name": "provider",
-          "optional": false,
-          "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
-          }
-        },
-        {
-          "name": "value",
-          "optional": false,
-          "schema": {
-            "type": "string"
-          }
-        }
-      ]
-    },
-    "accounts:remove": {
-      "parameters": [
-        {
-          "name": "provider",
-          "optional": false,
-          "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
-          }
-        },
-        {
-          "name": "value",
           "optional": false,
           "schema": {
             "type": "string"

@@ -9,6 +9,7 @@ import { useSession } from "./session";
 import { Icon, ProviderLogo } from "./icons";
 import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "./project-icon";
 import { CheckRow, ErrorNotice, InlineError, ListRow, PageScroll, PullDown, SectionLabel, Tag, useStyles } from "./ui";
+import { AccountSignInCode } from "./account-sign-in-code";
 import { lineHeight, type } from "./design-tokens";
 import { useTheme, type Palette } from "./theme";
 
@@ -220,16 +221,19 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
         ) : effective?.message ? (
           <Text style={[styles.caption, { paddingLeft: 32 }]}>{effective.message}</Text>
         ) : null}
-        {effective && !missing && effective.state !== "ready" && effective.id !== "default" ? (
+        {effective && !missing && effective.state !== "ready" && (effective.id !== "default" || group.provider !== "kiro") ? (
           <View style={{ paddingLeft: 32 }}>
             <ListRow
               compact
-              title={effective.state === "signing-in" ? "Finish sign-in on computer" : "Re-authenticate"}
+              title={effective.state === "signing-in" ? (effective.signInUrl ? "Signing in" : "Finish sign-in on computer") : "Re-authenticate"}
               disabled={busy || effective.state === "signing-in"}
               onPress={() => {
                 void reauthenticate(group.provider, effective.id);
               }}
             />
+            {effective.state === "signing-in" && effective.signInUrl ? (
+              <AccountSignInCode provider={group.provider} accountId={effective.id} url={effective.signInUrl} onDone={() => void load(true)} />
+            ) : null}
           </View>
         ) : null}
       </View>

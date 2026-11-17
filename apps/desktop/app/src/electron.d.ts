@@ -852,6 +852,7 @@ export type MilagreBridge = {
     provider: ModelProvider,
     value: string,
   ) => Promise<import("@milagre/shared/model").AccountsSnapshot>;
+  submitAccountCode: (provider: ModelProvider, accountId: string, code: string) => Promise<import("@milagre/shared/model").AccountsSnapshot>;
   onAccountsChanged: (callback: () => void) => () => void;
   onUsageChanged: (callback: (payload: { scopeKey?: string }) => void) => () => void;
   readUsage: (scopeKey?: string) => Promise<UsageSnapshot>;

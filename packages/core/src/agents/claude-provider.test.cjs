@@ -8,6 +8,7 @@ const {
   MILAGRE_INSTRUCTIONS,
   advisorInstructions,
   RESUME_FAILED_MESSAGE,
+  AUTH_RETRY_MESSAGE,
   crashMessage,
   isTerminal,
   loginMessage,
@@ -271,6 +272,7 @@ function claude(
     defaultConfigDir = "/missing-claude-settings",
     command = "/usr/local/bin/claude",
     interruptGraceMs,
+    loggedOut = async () => true,
   } = {},
 ) {
   const sdk = fakeSdk(script);
@@ -287,6 +289,7 @@ function claude(
     emit: (event) => events.push(event),
     loadSdk: sdk.loadSdk,
     interruptGraceMs,
+    loggedOut,
   });
   t.after(() => session.close());
   return { session, events, calls: sdk.calls };
@@ -1163,6 +1166,24 @@ test("a logged-out Claude closes its session and forgets the id its logged-out r
   );
 });
 
+test("an authentication failure while Claude Code is still signed in asks to send again", async (t) => {
+  const checks = [];
+  const env = { CLAUDE_CONFIG_DIR: "/accounts/work" };
+  const { session, events } = claude(t, {
+    script: loggedOut,
+    env,
+    loggedOut: async (command, scoped) => {
+      checks.push([command, scoped]);
+      return false;
+    },
+  });
+  await session.startTurn(TURN);
+  await ended(events);
+  await waitUntil(() => session.closed);
+  assert.deepEqual(checks, [["/usr/local/bin/claude", env]]);
+  assert.deepEqual(events.at(-1), failedWith(AUTH_RETRY_MESSAGE, { login: true }));
+});
+
 test("a logged-out Claude that resumed a chat keeps the chat's id", async (t) => {
   const { session, events } = claude(t, { script: loggedOut, resumeId: "session-1" });
   await session.startTurn(TURN);
@@ -1183,7 +1204,7 @@ test("after a login failure the next message starts a fresh process that resumes
   const manager = new SessionManager({
     send: (chatId, event) => sent.push(event),
     createSession: (provider, options) => {
-      const session = new ClaudeSession({ ...options, loadSdk: sdks[sessions.length].loadSdk });
+      const session = new ClaudeSession({ ...options, loadSdk: sdks[sessions.length].loadSdk, loggedOut: async () => true });
       sessions.push(session);
       return session;
     },

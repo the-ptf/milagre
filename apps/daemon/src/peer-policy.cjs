@@ -5,6 +5,7 @@ const DENIED = new Set([
   "accounts:select",
   "accounts:login",
   "accounts:cancel",
+  "accounts:code",
   "accounts:remove",
   "chat:limit-switch",
   "project:set-hidden",

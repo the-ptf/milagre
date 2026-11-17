@@ -87,6 +87,59 @@ function AntigravityRow({ onInstalled }: { onInstalled: () => void }) {
   );
 }
 
+export function SignInCode({
+  provider,
+  accountId,
+  url,
+  onDone,
+  className = "px-3 pb-3 pl-[42px]",
+}: {
+  className?: string;
+  provider: ModelProvider;
+  accountId: string;
+  url: string;
+  onDone: (next: AccountsSnapshot) => void;
+}) {
+  const [code, setCode] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <form
+      data-sign-in-code
+      className={`grid gap-2 ${className}`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        setSending(true);
+        setError("");
+        window.milagre
+          .submitAccountCode(provider, accountId, code)
+          .then(onDone)
+          .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Could not send the code. Try again."))
+          .finally(() => setSending(false));
+      }}
+    >
+      <a href={url} target="_blank" rel="noreferrer" className="w-fit text-12 text-ink underline">
+        Open the sign-in link
+      </a>
+      <div className="flex max-w-[390px] gap-2">
+        <input
+          aria-label="Sign-in code"
+          value={code}
+          onChange={(event) => setCode(event.target.value)}
+          placeholder="Paste the code"
+          autoComplete="off"
+          spellCheck={false}
+          className={`${FIELD} min-w-0 flex-1`}
+        />
+        <Button type="submit" size={28} disabled={sending || !code.trim()}>
+          {sending ? "Signing in…" : "Sign in"}
+        </Button>
+      </div>
+      <InlineError size={12}>{error}</InlineError>
+    </form>
+  );
+}
+
 export function AccountsSettings() {
   const [snapshot, setSnapshot] = useState<AccountsSnapshot | null>(null);
   const [error, setError] = useState("");
@@ -179,76 +232,80 @@ export function AccountsSettings() {
                 const type = accountType(account.plan);
                 const typeIcon = type === "Business" ? Briefcase01Icon : type === "Team" ? UserMultipleIcon : UserIcon;
                 return (
-                  <div
-                    key={account.id}
-                    className={`flex items-center gap-2 rounded-control border pr-3 transition-colors duration-fast hover:bg-hover ${selected ? "border-line-strong" : "border-line"}`}
-                  >
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      aria-label={account.email || account.label}
-                      disabled={busy || account.state !== "ready"}
-                      onClick={() => {
-                        if (!selected) void act("select", group.provider, account.id);
-                      }}
-                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-control px-3 py-3 text-left disabled:cursor-default"
-                    >
-                      <Icon icon={selected ? CheckmarkCircle02Icon : CircleIcon} size={18} className={`shrink-0 ${selected ? "text-ink" : "text-ink-3"}`} />
-                      <span className="min-w-0 space-y-1">
-                        <span className="flex items-center gap-2">
-                          <span className="truncate text-13 font-medium">{account.email || account.label}</span>
-                          {type && (
-                            <Tooltip label={`${type} account`} className="shrink-0">
-                              <span role="img" aria-label={`${type} account`} className="flex text-ink-3">
-                                <Icon icon={typeIcon} size={14} />
-                              </span>
+                  <div key={account.id} className={`rounded-control border ${selected ? "border-line-strong" : "border-line"}`}>
+                    <div className="flex items-center gap-2 rounded-control pr-3 transition-colors duration-fast hover:bg-hover">
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        aria-label={account.email || account.label}
+                        disabled={busy || account.state !== "ready"}
+                        onClick={() => {
+                          if (!selected) void act("select", group.provider, account.id);
+                        }}
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-control px-3 py-3 text-left disabled:cursor-default"
+                      >
+                        <Icon icon={selected ? CheckmarkCircle02Icon : CircleIcon} size={18} className={`shrink-0 ${selected ? "text-ink" : "text-ink-3"}`} />
+                        <span className="min-w-0 space-y-1">
+                          <span className="flex items-center gap-2">
+                            <span className="truncate text-13 font-medium">{account.email || account.label}</span>
+                            {type && (
+                              <Tooltip label={`${type} account`} className="shrink-0">
+                                <span role="img" aria-label={`${type} account`} className="flex text-ink-3">
+                                  <Icon icon={typeIcon} size={14} />
+                                </span>
+                              </Tooltip>
+                            )}
+                            {selected && <span className="shrink-0 text-11 text-ink-2">Default</span>}
+                          </span>
+                          <span className="block text-12 text-ink-3">
+                            {[
+                              account.email && account.label !== account.email ? account.label : null,
+                              account.state === "signed-out" ? "Not signed in" : account.state === "unknown" ? "Not checked" : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                          {account.message && (
+                            <span role={account.state === "error" ? "alert" : "status"} className="block max-w-[390px] text-12 leading-5 text-ink-3">
+                              {account.message}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                      {(account.id !== "default" ||
+                        group.provider === "antigravity" ||
+                        (group.provider !== "kiro" && (account.state === "signed-out" || account.state === "signing-in"))) && (
+                        <div className="flex shrink-0 gap-2">
+                          {account.state === "signing-in" ? (
+                            <Button variant="secondary" size={28} disabled={busy} onClick={() => void act("cancel", group.provider, account.id)}>
+                              Cancel
+                            </Button>
+                          ) : (
+                            <Tooltip label="Sign in again in this computer's browser, or with a link and code" align="end">
+                              <Button variant="ghost" size={28} disabled={busy || signingIn} onClick={() => void act("login", group.provider, account.id)}>
+                                <Icon icon={RefreshIcon} size={14} />
+                                {account.state === "signed-out" ? "Sign in" : "Re-authenticate"}
+                              </Button>
                             </Tooltip>
                           )}
-                          {selected && <span className="shrink-0 text-11 text-ink-2">Default</span>}
-                        </span>
-                        <span className="block text-12 text-ink-3">
-                          {[
-                            account.email && account.label !== account.email ? account.label : null,
-                            account.state === "signed-out" ? "Not signed in" : account.state === "unknown" ? "Not checked" : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </span>
-                        {account.message && (
-                          <span role={account.state === "error" ? "alert" : "status"} className="block max-w-[390px] text-12 leading-5 text-ink-3">
-                            {account.message}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                    {(account.id !== "default" || group.provider === "antigravity") && (
-                      <div className="flex shrink-0 gap-2">
-                        {account.state === "signing-in" ? (
-                          <Button variant="secondary" size={28} disabled={busy} onClick={() => void act("cancel", group.provider, account.id)}>
-                            Cancel
-                          </Button>
-                        ) : (
-                          <Tooltip label="Sign in again in this computer's browser" align="end">
-                            <Button variant="ghost" size={28} disabled={busy || signingIn} onClick={() => void act("login", group.provider, account.id)}>
-                              <Icon icon={RefreshIcon} size={14} />
-                              Re-authenticate
-                            </Button>
-                          </Tooltip>
-                        )}
-                        {account.id !== "default" && (
-                          <Tooltip
-                            label="Remove from Milagre. The local profile remains. Removing the active account selects the connected CLI account."
-                            align="end"
-                            wrap
-                          >
-                            <Button variant="danger-ghost" size={28} disabled={busy} onClick={() => void act("remove", group.provider, account.id)}>
-                              <Icon icon={Delete02Icon} size={14} />
-                              Remove
-                            </Button>
-                          </Tooltip>
-                        )}
-                      </div>
+                          {account.id !== "default" && (
+                            <Tooltip
+                              label="Remove from Milagre. The local profile remains. Removing the active account selects the connected CLI account."
+                              align="end"
+                              wrap
+                            >
+                              <Button variant="danger-ghost" size={28} disabled={busy} onClick={() => void act("remove", group.provider, account.id)}>
+                                <Icon icon={Delete02Icon} size={14} />
+                                Remove
+                              </Button>
+                            </Tooltip>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {account.state === "signing-in" && account.signInUrl && (
+                      <SignInCode provider={group.provider} accountId={account.id} url={account.signInUrl} onDone={setSnapshot} />
                     )}
                   </div>
                 );

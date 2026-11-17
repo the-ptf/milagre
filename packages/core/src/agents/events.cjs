@@ -107,6 +107,7 @@ const sessionInstructions = ({ analysisOnly, sideChat, executionAdvisor, tldrEna
       : executionAdvisor
         ? executionAdvisorInstructions(tldrEnabled, workspaceInstructions)
         : milagreInstructions(tldrEnabled, workspaceInstructions, { sharedLink });
+const AUTH_RETRY_MESSAGE = "Claude Code couldn't authenticate this turn, but it is still signed in. Send your message again.";
 const RESUME_FAILED_MESSAGE =
   "Couldn't resume this chat's earlier agent session; it may have been deleted. Send your message again to continue in a fresh session.";
 
@@ -545,6 +546,7 @@ function codexReasoning(method, item, state) {
 }
 
 module.exports = {
+  AUTH_RETRY_MESSAGE,
   MILAGRE_INSTRUCTIONS,
   SUBAGENT_DESIGN_INSTRUCTIONS,
   SUBAGENT_PLAN_INSTRUCTIONS,

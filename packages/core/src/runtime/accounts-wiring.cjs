@@ -46,6 +46,7 @@ function createAccountsWiring({ options, dataDir, emit, commands, version, envir
   };
   for (const method of ["add", "select", "login", "cancel", "remove"])
     commands.handle(`accounts:${method}`, (_event, provider, value) => queueAccountMutation(() => accounts[method](provider, value)));
+  commands.handle("accounts:code", (_event, provider, id, entered) => queueAccountMutation(() => accounts.code(provider, id, entered)));
   const mcp = createMcp({
     accounts,
     routing,

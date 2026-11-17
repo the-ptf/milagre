@@ -26,7 +26,13 @@ function fixture(t) {
     },
     spawn: (command, args, opts) => {
       const child = new EventEmitter();
-      children.push({ child, command, args, opts });
+      const typed = [];
+      if (opts.stdio?.[0] === "pipe") {
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.stdin = Object.assign(new EventEmitter(), { writable: true, write: (text) => typed.push(text) });
+      }
+      children.push({ child, command, args, opts, typed });
       return child;
     },
   };
@@ -393,4 +399,52 @@ test("a connected CLI account that isn't signed in yet signs in where the termin
   await tick();
   assert.equal(group(accounts.snapshot(), "claude").accounts[0].state, "ready");
   await assert.rejects(accounts.login("claude", "default"), /Add account/);
+});
+
+const LINK = "https://claude.com/cai/oauth/authorize?code=true&state=s";
+
+test("a Claude sign-in shows its link, and a code pasted on another device finishes it", async (t) => {
+  const f = fixture(t);
+  let signedIn = false;
+  f.options.inspect = async (p) => (signedIn ? { state: "ready", email: `${p}@example.test` } : { state: "signed-out" });
+  const accounts = createAccounts(f.options);
+  t.after(() => accounts.close());
+  await accounts.list();
+  await accounts.login("claude", "default");
+  const { child, typed } = f.children[0];
+  child.stdout.emit("data", `Opening browser to sign in…\nIf the browser didn't open, visit: ${LINK}\nPaste code here if prompted > `);
+  const signing = group(accounts.snapshot(), "claude").accounts[0];
+  assert.equal(signing.state, "signing-in");
+  assert.equal(signing.signInUrl, LINK);
+  const finished = accounts.code("claude", "default", "  abc#def  ");
+  await tick();
+  assert.deepEqual(typed, ["abc#def\n"]);
+  signedIn = true;
+  child.emit("close", 0);
+  const account = group(await finished, "claude").accounts[0];
+  assert.equal(account.state, "ready");
+  assert.equal(account.signInUrl, undefined);
+});
+
+test("a rejected sign-in code says why, and codes go only to a running Claude sign-in", async (t) => {
+  const f = fixture(t);
+  f.options.inspect = async () => ({ state: "signed-out" });
+  const accounts = createAccounts(f.options);
+  t.after(() => accounts.close());
+  await accounts.list();
+  await assert.rejects(accounts.code("claude", "default", "abc"), /has ended/);
+  await accounts.login("claude", "default");
+  const { child, typed } = f.children[0];
+  await assert.rejects(accounts.code("claude", "default", "two words"), /whole code/);
+  await assert.rejects(accounts.code("claude", "default", ""), /whole code/);
+  assert.deepEqual(typed, []);
+  const finished = accounts.code("claude", "default", "stale");
+  child.stdout.emit("data", "Couldn't log in: That code wasn't accepted. Sign in again to get a new code.\n");
+  child.emit("close", 1);
+  const account = group(await finished, "claude").accounts[0];
+  assert.equal(account.state, "signed-out");
+  assert.equal(account.message, "That code wasn't accepted. Sign in again to get a new code.");
+  accounts.cancel("claude", "default");
+  await accounts.login("codex", "default");
+  await assert.rejects(accounts.code("codex", "default", "abc"), /doesn't take a code/);
 });
