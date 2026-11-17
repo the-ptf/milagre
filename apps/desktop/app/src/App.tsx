@@ -112,7 +112,7 @@ import { AppSplash } from "./components/StartupSplash";
 import { settleSplash, useSplash } from "./lib/startup-splash";
 import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, cachedScopeState, rememberProjectCopy, runKeys, seedScopeState, useScopeStates } from "./lib/sidebar-scopes";
-import { type AppView, chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
+import { type AppView, chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore, type RunPaneReturn, runPaneState } from "./lib/run-pane";
 import { ChatGrid, GridDropOverlay } from "./components/ChatGrid";
 import { createPendingChat, pendingChatSessionId, withPreview } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
@@ -535,6 +535,8 @@ function App() {
   const { pullRequests, chatPullRequests: chatPrs, dismissedBlockers, dismissBlockerAction } = useWorktreePullRequests(project?.path ?? "", state);
   const linear = useLinear();
   const { issues: linearIssues, refresh: refreshLinearIssues } = useWorktreeLinearIssues(project?.path ?? "", linear.active);
+  const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
+  const { runPaneOpen, chatShown } = runPaneState({ view, routineId, runPane, focusedChatKey });
   const sidePanels = useSidePanels();
   const { branchPr, prChatKey, setPrPick, setRowPr, prNumber, prReview, changes, prShown, localChanges, diffComments, prDiffReview, prPanelActions } =
     usePrPanel({
@@ -542,13 +544,13 @@ function App() {
       projectPath: project?.path,
       selectedSession,
       selectedWorktree,
-      chatView: view === "chat",
+      chatView: chatShown,
       branchPullRequests: pullRequests,
       sendPrToChat: (text) => sendPrToChat(text),
     });
   const diffPrefs = useDiffPreferences();
   const diffPresence = useDiffPresence(changes.diffOpen);
-  const changesAvailable = view === "chat" && showGit && Boolean(selectedSession && selectedWorktree);
+  const changesAvailable = chatShown && showGit && Boolean(selectedSession && selectedWorktree);
   const changesAvailableRef = useRef(false);
   changesAvailableRef.current = changesAvailable;
   const terminalChatId = view === "chat" && project && selectedSession && !selectedSession.archived ? chatKey(project.path, selectedSession.id) : null;
@@ -742,8 +744,6 @@ function App() {
       void reportChatAction(bridgeForKey(path).patchChat(path, sessionIdFromKey(key), { unread: false }), "Could not mark the Run read", setNotice);
     }
   });
-  const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
-  const runPaneOpen = (view === "orchestrator" || (view === "routines" && routineId !== null)) && runPane !== null && runPane === focusedChatKey;
   const {
     layout,
     toggleLayout,
@@ -2571,7 +2571,7 @@ function App() {
               )}
               <div
                 data-routine-split={runPaneOpen || undefined}
-                className={runPaneOpen ? "flex min-h-0 flex-1 gap-3 pt-[var(--window-chrome-height)]" : "contents"}
+                className={runPaneOpen ? `${diffPresence.occupied ? "hidden" : "flex"} min-h-0 flex-1 gap-3 pt-[var(--window-chrome-height)]` : "contents"}
               >
                 <div className={runPaneOpen ? `flex min-h-0 ${view === "orchestrator" ? "" : "w-[420px]"} shrink-0 flex-col` : "contents"}>
                   {view === "routines" && (

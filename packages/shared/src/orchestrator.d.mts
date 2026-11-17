@@ -148,7 +148,9 @@ export interface TaskChatSession {
 export function taskDoneAt(session: TaskChatSession | null | undefined, busy?: boolean): number | null;
 export function taskSwept(session: TaskChatSession | null | undefined, options: { busy?: boolean; retentionHours: number; now?: number }): boolean;
 export function roleById(roles: readonly OrchestratorRole[], id: string): OrchestratorRole | null;
-export function boardColumn(input: { done: boolean; needsYou: boolean; pullRequest?: "open" | "merged" | "closed" | null; finished?: boolean }): BoardColumn;
+export type BoardPullRequest = "open" | "merged" | "closed" | null;
+export function pullRequestState(states: readonly ("OPEN" | "MERGED" | "CLOSED")[]): BoardPullRequest;
+export function boardColumn(input: { done: boolean; needsYou: boolean; pullRequest?: BoardPullRequest; finished?: boolean }): BoardColumn;
 export function isIrreversible(input?: { tool?: string; command?: string; text?: string }): boolean;
 export function autopilotPending(
   task: OrchestratorTask | null | undefined,

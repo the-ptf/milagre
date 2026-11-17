@@ -1,9 +1,18 @@
 import { chatKey } from "@milagre/shared/agent-runs";
 import { qualifyKey } from "@milagre/shared/chat-scopes";
 import type { AgentRun, AgentRuns } from "@milagre/shared/agent-runs";
-import { autopilotPending, boardColumn, taskLimitText, type BoardColumn, type OrchestratorTask } from "@milagre/shared/orchestrator";
+import { chatPullRequests } from "@milagre/shared/chats";
+import {
+  autopilotPending,
+  boardColumn,
+  pullRequestState,
+  taskLimitText,
+  type BoardColumn,
+  type BoardPullRequest,
+  type OrchestratorTask,
+} from "@milagre/shared/orchestrator";
 import { subchatState, type SubchatKind } from "@milagre/shared/subchat-states";
-import type { AgentSession } from "../model";
+import type { AgentSession, PullRequestSnapshot } from "../model";
 
 type TaskCardKind = "deciding" | "pick-project" | "failed" | "chat";
 
@@ -15,11 +24,13 @@ export type TaskCard = {
   session: AgentSession | undefined;
   run: AgentRun | undefined;
   state: SubchatKind | null;
+  pullRequest: BoardPullRequest;
   detail: string;
   inSidebar: boolean;
 };
 
-type SessionStates = Record<string, { sessions?: Record<string, unknown> } | undefined>;
+type SessionStates = Record<string, { sessions?: Record<string, unknown>; worktrees?: Record<string, { path: string }> } | undefined>;
+type Snapshots = Record<string, PullRequestSnapshot | undefined>;
 
 type Placed = Pick<OrchestratorTask, "projectPath" | "sessionId"> & { remoteComputerId?: string | null };
 
@@ -38,10 +49,20 @@ export function taskSession(task: OrchestratorTask, states: SessionStates): Agen
 }
 
 function pending(task: OrchestratorTask, kind: TaskCardKind, column: BoardColumn, detail: string): TaskCard {
-  return { task, key: null, column, kind, session: undefined, run: undefined, state: null, detail, inSidebar: false };
+  return { task, key: null, column, kind, session: undefined, run: undefined, state: null, pullRequest: null, detail, inSidebar: false };
 }
 
-function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns, now: number): TaskCard {
+/** The state of a task Chat's pull requests, from its Project's snapshot; an unread one counts as open. */
+function taskPullRequest(task: OrchestratorTask, session: AgentSession | undefined, states: SessionStates, snapshots: Snapshots): BoardPullRequest {
+  const refs = session?.summary?.pullRequests ?? [];
+  const scope = taskScope(task);
+  const path = session && scope ? states[scope]?.worktrees?.[String(session.worktree_id)]?.path : undefined;
+  const snapshot = scope ? snapshots[scope] : undefined;
+  const prs = path && snapshot ? chatPullRequests(refs, snapshot.chats[path] ?? {}, snapshot.worktrees[path] ?? undefined) : [];
+  return prs.length ? pullRequestState(prs.map((pr) => pr.state)) : refs.length ? "open" : null;
+}
+
+function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns, now: number, snapshots: Snapshots): TaskCard {
   if (task.state === "routing") return pending(task, "deciding", "running", "Picking the Project, model and account…");
   if (task.state === "needs-project") return pending(task, "pick-project", "needs", "Which Project is this for?");
   if (task.state === "failed") return pending(task, "failed", "needs", task.error ?? "Couldn't start this task");
@@ -51,10 +72,11 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
   const state = subchatState({ key: key ?? task.id, title: task.title, session: session ?? {}, run }, now);
   const autopilot = state.kind === "needs-you" ? autopilotPending(task, run, now) : null;
   const limit = run ? null : taskLimitText(task, new Date(now));
+  const pullRequest = taskPullRequest(task, session, states, snapshots);
   const column = boardColumn({
     done: Boolean(session?.done_at || session?.archived),
     needsYou: (state.kind === "needs-you" && !autopilot) || state.kind === "failed" || Boolean(limit),
-    pullRequest: session?.summary?.pullRequests?.length ? "open" : null,
+    pullRequest,
     finished: !run && (state.kind === "stopped" || (state.kind === "done" && (Boolean(session?.summary?.lastOutcome) || (session?.summary?.count ?? 0) > 1))),
   });
   return {
@@ -65,6 +87,7 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
     session,
     run,
     state: autopilot ? "working" : state.kind,
+    pullRequest,
     detail: autopilot
       ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
       : (limit ?? state.detail),
@@ -72,8 +95,8 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
   };
 }
 
-export function boardCards(tasks: readonly OrchestratorTask[], states: SessionStates, runs: AgentRuns, now: number): TaskCard[] {
-  return tasks.toSorted((a, b) => b.createdAt - a.createdAt).map((task) => taskCard(task, states, runs, now));
+export function boardCards(tasks: readonly OrchestratorTask[], states: SessionStates, runs: AgentRuns, now: number, snapshots: Snapshots = {}): TaskCard[] {
+  return tasks.toSorted((a, b) => b.createdAt - a.createdAt).map((task) => taskCard(task, states, runs, now, snapshots));
 }
 
 export function cardsIn(cards: readonly TaskCard[], column: BoardColumn, projectPath: string | null = null): TaskCard[] {

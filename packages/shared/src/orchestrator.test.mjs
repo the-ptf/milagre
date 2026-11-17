@@ -7,6 +7,7 @@ import {
   foldOrchestratorAnswers,
   isMemoryImporting,
   boardColumn,
+  pullRequestState,
   isIrreversible,
   keywordRoute,
   normalizeOrchestratorMemory,
@@ -79,6 +80,13 @@ test("board columns follow done, needs you and the pull request", () => {
   assert.equal(boardColumn({ done: true, needsYou: true }), "done");
   assert.equal(boardColumn({ done: false, needsYou: false, finished: true }), "done", "finished work without a pull request is done");
   assert.equal(boardColumn({ done: false, needsYou: false, finished: true, pullRequest: "open" }), "review", "an open pull request waits in review");
+});
+
+test("a Chat's pull requests read as one board state: open wins, then merged", () => {
+  assert.equal(pullRequestState(["MERGED", "OPEN"]), "open");
+  assert.equal(pullRequestState(["CLOSED", "MERGED"]), "merged");
+  assert.equal(pullRequestState(["CLOSED"]), "closed");
+  assert.equal(pullRequestState([]), null);
 });
 
 test("irreversible actions are recognized from commands, tools and questions", () => {

@@ -307,6 +307,14 @@ export function roleById(roles, id) {
   return active.find((role) => role.id === id) ?? active.find((role) => role.id === "build") ?? active[0] ?? null;
 }
 
+/** A Chat's pull requests as one state for the board: an open one wins, then a merged one. */
+export function pullRequestState(states) {
+  if (states.includes("OPEN")) return "open";
+  if (states.includes("MERGED")) return "merged";
+  if (states.includes("CLOSED")) return "closed";
+  return null;
+}
+
 /** Which board column a task's Chat belongs in. */
 export function boardColumn({ done, needsYou, pullRequest, finished = false }) {
   if (done || pullRequest === "merged" || pullRequest === "closed") return "done";

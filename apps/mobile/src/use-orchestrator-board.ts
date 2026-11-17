@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { chatPullRequests } from "@milagre/shared/chats";
-import type { OrchestratorTask } from "@milagre/shared/orchestrator";
+import { pullRequestState, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { allComputers, useComputerViews } from "./all-computers";
 import { taskHost } from "./orchestrator-actions";
 import type { ProjectCopy } from "./all-computers-store";
-import { boardItem, boardCounts, pullRequestState, type BoardItem, type TaskChat } from "./orchestrator-board";
+import { boardItem, boardCounts, type BoardItem, type TaskChat } from "./orchestrator-board";
 import { useListSnapshot, useSession } from "./session";
 import { useChatPullRequests, type PullRequestTarget } from "./use-chat-pull-requests";
 
