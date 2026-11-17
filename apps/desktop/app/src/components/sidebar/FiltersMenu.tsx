@@ -78,10 +78,9 @@ export function FiltersButton({
   const subRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ bottom: 0, left: 0 });
-  const [sub, setSub] = useState<{ which: Sub; top: number; focus: boolean } | null>(null);
+  const [sub, setSub] = useState<{ which: Sub; top: number; bottom: number; focus: boolean } | null>(null);
   const [subHeight, setSubHeight] = useState(0);
   const [query, setQuery] = useState("");
-  const [searchTop, setSearchTop] = useState<number | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const hiddenCount = projects?.filter((project) => !project.shown).length ?? 0;
   const { otherComputers } = useSettings();
@@ -102,10 +101,7 @@ export function FiltersButton({
     );
     return true;
   };
-  const clearSearch = () => {
-    setQuery("");
-    setSearchTop(null);
-  };
+  const clearSearch = () => setQuery("");
   const close = () => {
     setOpen(false);
     setSub(null);
@@ -133,9 +129,9 @@ export function FiltersButton({
   }, []);
 
   const openSub = (which: Sub, row: HTMLElement, focus: boolean) => {
-    const top = row.getBoundingClientRect().top - 6;
+    const rect = row.getBoundingClientRect();
     if (sub?.which !== which) clearSearch();
-    setSub((current) => (current?.which === which && !focus ? current : { which, top, focus }));
+    setSub((current) => (current?.which === which && !focus ? current : { which, top: rect.top - 6, bottom: window.innerHeight - rect.bottom - 6, focus }));
   };
   const step = (event: ReactKeyboardEvent, rows: HTMLElement[]) => {
     const index = rows.indexOf(document.activeElement as HTMLElement);
@@ -170,12 +166,7 @@ export function FiltersButton({
       panelRef.current?.querySelector<HTMLElement>(`[data-sub="${which}"]`)?.focus();
     } else if (event.key === "Tab") event.preventDefault();
   };
-  const subTop = () => Math.max(8, Math.min(sub?.top ?? 0, window.innerHeight - 8 - subHeight));
-  const search = (next: string) => {
-    if (next && searchTop === null) setSearchTop(subTop());
-    if (!next) setSearchTop(null);
-    setQuery(next);
-  };
+  const upward = sub?.which === "projects" && sub.top > window.innerHeight / 2;
 
   const subRow = (which: Sub, icon: IconSvgElement, label: string, detail?: string, dot?: boolean) => (
     <MenuRow
@@ -261,10 +252,12 @@ export function FiltersButton({
                 className={`${PANEL} max-h-[min(420px,calc(100vh-16px))]`}
                 style={{
                   width: SUB_WIDTH[sub.which],
-                  top: searchTop ?? subTop(),
+                  ...(upward
+                    ? { bottom: Math.max(8, sub.bottom), maxHeight: Math.min(420, window.innerHeight - Math.max(8, sub.bottom) - 8) }
+                    : { top: Math.max(8, Math.min(sub.top, window.innerHeight - 8 - subHeight)) }),
                   left: position.left + MAIN_WIDTH + 6,
                   animation: "pop-in var(--duration-fast) var(--ease-enter) backwards",
-                  transformOrigin: "top left",
+                  transformOrigin: upward ? "bottom left" : "top left",
                 }}
               >
                 {sub.which === "projects" ? (
@@ -272,7 +265,8 @@ export function FiltersButton({
                     projects={projects ?? []}
                     computers={computers}
                     query={query}
-                    onQuery={search}
+                    onQuery={setQuery}
+                    searchAt={upward ? "bottom" : "top"}
                     searchRef={searchRef}
                     imageOf={imageOf}
                     currentImage={currentImage}
@@ -335,6 +329,7 @@ function ProjectsMenu({
   computers,
   query,
   onQuery,
+  searchAt,
   searchRef,
   imageOf,
   currentImage,
@@ -344,6 +339,7 @@ function ProjectsMenu({
   computers: ComputerSection[] | null;
   query: string;
   onQuery: (query: string) => void;
+  searchAt: "top" | "bottom";
   searchRef: RefObject<HTMLInputElement | null>;
   imageOf: (path: string) => string | null | undefined;
   currentImage?: string | null;
@@ -370,21 +366,25 @@ function ProjectsMenu({
     </Tooltip>
   );
 
+  const search = (
+    <div className={`shrink-0 p-1.5 ${searchAt === "top" ? "pb-0" : "pt-0"}`}>
+      <FieldGroup
+        ref={searchRef}
+        size={32}
+        data-menu-row
+        data-project-search
+        aria-label="Search Projects"
+        placeholder="Search Projects"
+        value={query}
+        onChange={(event) => onQuery(event.target.value)}
+        leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
+      />
+    </div>
+  );
+
   return (
     <>
-      <div className="shrink-0 p-1.5 pb-0">
-        <FieldGroup
-          ref={searchRef}
-          size={32}
-          data-menu-row
-          data-project-search
-          aria-label="Search Projects"
-          placeholder="Search Projects"
-          value={query}
-          onChange={(event) => onQuery(event.target.value)}
-          leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
-        />
-      </div>
+      {searchAt === "top" && search}
       <ScrollArea className="p-1.5">
         <div className="flex flex-col gap-px">
           {!matching.length && query.trim() && (
@@ -412,6 +412,7 @@ function ProjectsMenu({
           ))}
         </div>
       </ScrollArea>
+      {searchAt === "bottom" && search}
     </>
   );
 }
