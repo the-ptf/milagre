@@ -36,7 +36,6 @@ export function OrchestratorPage({
   const [mood, setMood] = useState<MascotMood>("idle");
   const empty = cards.length === 0 && !flight;
   const collapsed = settings.boardHidden || empty;
-  const clearance = useControlsClearance<HTMLDivElement>(true);
 
   const following = followedTask();
   const followedKey = cards.find((card) => card.task.id === following?.taskId && card.key && card.key !== following.leaving)?.key ?? null;
@@ -94,28 +93,7 @@ export function OrchestratorPage({
   const look = deciding && !typingLook ? WATCHING_CARD : typingLook;
   return (
     <div data-orchestrator-page className="relative flex min-h-0 flex-1 flex-col">
-      <div
-        ref={clearance.bar}
-        style={{ paddingLeft: clearance.inset.paddingLeft + 12, paddingRight: clearance.inset.paddingRight }}
-        className="flex h-[var(--window-chrome-height)] shrink-0 items-center gap-2"
-      >
-        <h1 className="text-13 font-semibold text-ink">{orchestrator.settings.name}</h1>
-        <span className="text-13 text-ink-3">
-          {names.projects.length} {names.projects.length === 1 ? "Project" : "Projects"}
-        </span>
-        <span className="flex-1" />
-        {!empty && (
-          <IconButton
-            size={32}
-            label={collapsed ? "Show the board" : "Hide the board"}
-            icon={KanbanIcon}
-            side="bottom"
-            aria-pressed={!collapsed}
-            className="no-drag z-[60]"
-            onClick={() => void saveOrchestratorSettings({ boardHidden: !collapsed })}
-          />
-        )}
-      </div>
+      <OrchestratorHeader name={settings.name} projects={names.projects.length} empty={empty} collapsed={collapsed} />
       <div className={`flex flex-col items-center gap-3.5 px-6 ${collapsed ? "flex-1 justify-center pb-24" : "pt-5 pb-4"}`}>
         <div className="flex w-full max-w-[720px] items-center gap-3">
           <span ref={home} className="flex" style={{ opacity: flight ? 0 : 1 }}>
@@ -141,6 +119,34 @@ export function OrchestratorPage({
           color={settings.mascotColor}
           onLand={() => setFlight((current) => (current ? { ...current, landed: true } : current))}
           onDone={() => setFlight(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function OrchestratorHeader({ name, projects, empty, collapsed }: { name: string; projects: number; empty: boolean; collapsed: boolean }) {
+  const { bar, inset } = useControlsClearance<HTMLDivElement>(true);
+  return (
+    <div
+      ref={bar}
+      style={{ paddingLeft: inset.paddingLeft + 12, paddingRight: inset.paddingRight }}
+      className="flex h-[var(--window-chrome-height)] shrink-0 items-center gap-2"
+    >
+      <h1 className="text-13 font-semibold text-ink">{name}</h1>
+      <span className="text-13 text-ink-3">
+        {projects} {projects === 1 ? "Project" : "Projects"}
+      </span>
+      <span className="flex-1" />
+      {!empty && (
+        <IconButton
+          size={32}
+          label={collapsed ? "Show the board" : "Hide the board"}
+          icon={KanbanIcon}
+          side="bottom"
+          aria-pressed={!collapsed}
+          className="no-drag z-[60]"
+          onClick={() => void saveOrchestratorSettings({ boardHidden: !collapsed })}
         />
       )}
     </div>
