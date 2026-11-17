@@ -281,7 +281,7 @@ async function browserChecks() {
     );
     await waitFor(`!!document.querySelector('[data-chat-menu] [data-sub="snooze"]')`);
     await evaluate(`document.querySelector('[data-chat-menu] [data-sub="snooze"]').click()`);
-    await waitFor(`!!document.querySelector('[data-chat-submenu="snooze"] [data-sub-choice="3h"]')`);
+    await waitFor(`!!document.querySelector('[data-chat-submenu="snooze"] [data-sub-choice="after:180"]')`);
     assert.equal(
       await evaluate(`document.querySelector('[data-chat-submenu="snooze"] [data-sub-choice]').textContent.startsWith("In 1 hour")`),
       true,
@@ -289,7 +289,7 @@ async function browserChecks() {
     );
     await screenshot("one-list-snooze-menu");
     const beforeMenu = Date.now();
-    await evaluate(`document.querySelector('[data-chat-submenu="snooze"] [data-sub-choice="3h"]').click()`);
+    await evaluate(`document.querySelector('[data-chat-submenu="snooze"] [data-sub-choice="after:180"]').click()`);
     const menuPatch = await evaluate(`window.patches.at(-1)`);
     assert.ok(Math.abs(menuPatch[2].snoozed_until - (beforeMenu + 3 * 3_600_000)) < 10_000, `three hours from now: ${JSON.stringify(menuPatch)}`);
     await waitFor(`!document.querySelector("[data-chat-menu]") && !${row(8)} && !!document.querySelector('[data-snoozed-row="8"]')`);

@@ -17,6 +17,8 @@ import { DISABLED_OPACITY, PullDown } from "./ui";
 import { HoverView } from "./primitives/hover";
 import { ChatsHomeIcon, ProjectIcon } from "./project-icon";
 import { chatMenu } from "./chat-actions";
+import { useSnoozePresets } from "./snooze-setting";
+import type { SnoozePreset } from "@milagre/shared/snooze";
 import { canOpenBeside } from "./split-chats";
 import { ArchivingOverlay } from "./archive-progress";
 import { ChatPullRequestChips, InlinePullRequestLinks } from "./chat-pull-request-chips";
@@ -41,7 +43,7 @@ const labels: Record<ChatMark, string> = {
   unread: "Unread",
 };
 
-type ChatRowContext = RowProps<"chat"> & { s: ReturnType<typeof useS>; colors: Palette; now: number };
+type ChatRowContext = RowProps<"chat"> & { s: ReturnType<typeof useS>; colors: Palette; now: number; snoozePresets: SnoozePreset[] };
 type ChatRowBase = ChatRowContext & RowView & RowActions;
 
 function chatRowSelection(ctx: ChatRowBase) {
@@ -60,6 +62,7 @@ function chatRowSelection(ctx: ChatRowBase) {
     worktreeForLinks,
     doneHours,
     snoozeMinutes,
+    snoozePresets,
   } = ctx;
   const offline = item.reach === "offline";
   const title = item.title;
@@ -99,6 +102,7 @@ function chatRowSelection(ctx: ChatRowBase) {
     !item.home,
     doneable,
     snoozeMinutes,
+    snoozePresets,
   );
   const archiving =
     archivingChats.has(`${copy?.project.path ?? item.path}#${item.chat.id}`) &&
@@ -292,7 +296,8 @@ export function NavigationChatRow(props: RowProps<"chat">) {
   const s = useS();
   const { colors } = useTheme();
   const now = useActivityClock(props.view.rowShow.lastActivity || !!props.item.home);
-  const parts = chatRowParts({ ...props, s, colors, now });
+  const [snoozePresets] = useSnoozePresets();
+  const parts = chatRowParts({ ...props, s, colors, now, snoozePresets });
   if (props.item.home && parts.chatList !== "list") return homeChatRow(parts);
   if (!parts.grouped) return inboxChatRow(parts);
   return groupedChatRow(parts);

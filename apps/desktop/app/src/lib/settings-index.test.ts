@@ -131,6 +131,10 @@ const NOT_INDEXED: Record<string, string> = {
   "Show the agent's cursor": "Computer use sub-page",
   Permissions: "Computer use sub-page group",
   "Never used by agents": "Computer use sub-page group",
+  // Each Snooze option row is a set of dropdowns; the group is indexed as Snooze options.
+  When: "Snooze options dropdown",
+  Duration: "Snooze options dropdown",
+  Time: "Snooze options dropdown",
   // Keybindings: a computer picker, not a setting row.
   Computers: "Keybindings scope picker",
 };

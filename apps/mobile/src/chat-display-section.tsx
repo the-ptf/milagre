@@ -1,7 +1,5 @@
 import { DoneRetention } from "./mac-settings-sections";
-import { SNOOZE_DURATION_OPTIONS, snoozeDurationLabel } from "@milagre/shared/snooze";
-import { useSnoozeMinutes } from "./snooze-setting";
-import { Findable } from "./settings-find";
+import { SnoozeSection } from "./snooze-settings-section";
 import { useContextSettings } from "./context-settings";
 import { FOLLOW_UP_OPTIONS, type FollowUps } from "@milagre/shared/queued-messages";
 import { Text, View } from "react-native";
@@ -20,7 +18,7 @@ import {
   SampleChatRow,
   TreePreview,
 } from "./chat-display-choices";
-import { CheckRow, ListRow, Toggle, showActions, useStyles } from "./ui";
+import { ListRow, Toggle, showActions, useStyles } from "./ui";
 import { radius, space } from "./design-tokens";
 
 const ROW_FIELDS = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer");
@@ -83,31 +81,9 @@ export function ChatDisplaySection() {
           { value: "full", title: "Full detail", description: "Each call on its own row.", preview: <FullToolsPreview /> },
         ]}
       />
-      <SnoozeFor />
+      <SnoozeSection />
       <DoneRetention />
     </View>
-  );
-}
-
-function SnoozeFor() {
-  const styles = useStyles();
-  const [minutes, setMinutes] = useSnoozeMinutes();
-  return (
-    <>
-      <Text style={[styles.section, { marginTop: space.xl }]}>Snooze</Text>
-      <Findable title="Snooze for">
-        {/* One choice of five: a checkmark list, as iOS Settings picks one value. */}
-        <View accessibilityRole="radiogroup" accessibilityLabel="Snooze for" style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
-          {SNOOZE_DURATION_OPTIONS.map((option, index) => (
-            <View key={option}>
-              {index > 0 && <View style={styles.separator} />}
-              <CheckRow title={snoozeDurationLabel(option)} checked={minutes === option} onPress={() => setMinutes(option)} />
-            </View>
-          ))}
-        </View>
-      </Findable>
-      <Text style={styles.muted}>Snooze for, in a Chat&apos;s menu, snoozes it this long. A question, an approval or a failed turn wakes it sooner.</Text>
-    </>
   );
 }
 

@@ -194,6 +194,12 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "snooze later remind wake default duration quiet",
   },
   {
+    page: "chat-display",
+    title: "Snooze options",
+    group: "Snooze",
+    keywords: "snooze presets menu times later tonight tomorrow next week remind",
+  },
+  {
     page: "voice",
     title: "Keyboard shortcut",
     keywords: "dictate voice keyboard alt space ipad",

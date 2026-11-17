@@ -147,7 +147,7 @@ const stubs = {
   "./usage-section": "export const UsageSection = () => null;",
   "./project-icon": "export const ProjectIcon = () => null; export const ChatsHomeIcon = () => null; export const ProjectIcons = () => null;",
   "./project-search": "export const ProjectSearch = () => null;",
-  "./snooze-setting": "export const useSnoozeMinutes = () => [60, () => {}];",
+  "./snooze-setting": "export const useSnoozeMinutes = () => [60, () => {}]; export const useSnoozePresets = () => [[], () => {}];",
   "./chat-actions": "export const chatMenu = () => []; export const runChatAction = async () => {};",
   "./chat-swipe-row":
     "export const ChatSwipeRow = ({ children }) => children; export const hideRevealed = () => {}; export const ClosesLeftContext = { Provider: ({ children }) => children };",

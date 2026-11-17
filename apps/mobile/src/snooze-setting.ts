@@ -1,30 +1,50 @@
 import { useSyncExternalStore } from "react";
 import * as SecureStore from "expo-secure-store";
-import { normalizeSnoozeMinutes, SNOOZE_DEFAULTS } from "@milagre/shared/snooze";
+import { normalizeSnoozeMinutes, normalizeSnoozePresets, SNOOZE_DEFAULTS, type SnoozePreset } from "@milagre/shared/snooze";
 
-const key = "milagre.snooze-minutes.v1";
-let minutes: number = SNOOZE_DEFAULTS.minutes;
-let changed = false;
-const listeners = new Set<() => void>();
-async function load() {
-  const saved = await SecureStore.getItemAsync(key).catch(() => null);
-  if (changed || saved === null) return;
-  minutes = normalizeSnoozeMinutes(Number(saved));
-  listeners.forEach((listener) => listener());
-}
-void load();
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
+function deviceSetting<T>(key: string, initial: T, parse: (saved: string) => T, serialize: (value: T) => string) {
+  let value = initial;
+  let changed = false;
+  const listeners = new Set<() => void>();
+  void (async () => {
+    const saved = await SecureStore.getItemAsync(key).catch(() => null);
+    if (changed || saved === null) return;
+    value = parse(saved);
+    listeners.forEach((listener) => listener());
+  })();
+  const subscribe = (listener: () => void) => {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
   };
-};
-function setMinutes(next: number) {
-  changed = true;
-  minutes = normalizeSnoozeMinutes(next);
-  listeners.forEach((listener) => listener());
-  void SecureStore.setItemAsync(key, String(minutes), { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }).catch(() => {});
+  const set = (next: T) => {
+    changed = true;
+    value = next;
+    listeners.forEach((listener) => listener());
+    void SecureStore.setItemAsync(key, serialize(value), { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }).catch(() => {});
+  };
+  return (): [T, (next: T) => void] => [useSyncExternalStore(subscribe, () => value), set];
 }
+
+const parsePresets = (saved: string) => {
+  try {
+    return normalizeSnoozePresets(JSON.parse(saved));
+  } catch {
+    return normalizeSnoozePresets(undefined);
+  }
+};
+
+const minutesSetting = deviceSetting("milagre.snooze-minutes.v1", SNOOZE_DEFAULTS.minutes, (saved) => normalizeSnoozeMinutes(Number(saved)), String);
+const presetsSetting = deviceSetting<SnoozePreset[]>("milagre.snooze-presets.v1", normalizeSnoozePresets(undefined), parsePresets, JSON.stringify);
+
 export function useSnoozeMinutes(): [number, (next: number) => void] {
-  return [useSyncExternalStore(subscribe, () => minutes), setMinutes];
+  const [minutes, set] = minutesSetting();
+  return [minutes, (next) => set(normalizeSnoozeMinutes(next))];
+}
+
+/** The choices in every Chat's Snooze until menu. Kept per device, like Snooze for. */
+export function useSnoozePresets(): [SnoozePreset[], (next: SnoozePreset[]) => void] {
+  const [presets, set] = presetsSetting();
+  return [presets, (next) => set(normalizeSnoozePresets(next))];
 }

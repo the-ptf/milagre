@@ -17,6 +17,7 @@ const SOURCES: Record<keyof typeof SETTINGS_PAGES, string[]> = {
   "chat-display": [
     "app/(settings)/chat-display.tsx",
     "chat-display-section.tsx",
+    "snooze-settings-section.tsx",
     "mac-settings-sections.tsx",
     shared("chat-row.ts"),
     shared("chat-display.ts"),

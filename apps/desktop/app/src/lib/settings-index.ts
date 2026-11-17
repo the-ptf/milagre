@@ -43,7 +43,7 @@ export const SECTION_TITLES: Record<Exclude<SettingsSection, "project" | "comput
 };
 
 export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
-  general: "editor sidebar chat order chat list done archive snooze plan usage keep awake",
+  general: "editor sidebar chat order chat list done archive snooze snooze options plan usage keep awake",
   worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle repositories folder import migrate t3 paseo orca",
   "this-mac": "computer resources memory disk drive other computers add computer computer use",
   usage: "token tokens cost spend dollars analytics estimated",
@@ -114,6 +114,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "How long a Chat's Snooze button puts it away",
     keywords: "snooze later remind wake hide hour",
   },
+  { page: "general", title: "Snooze options", keywords: "snooze presets menu times later tonight tomorrow next week remind" },
   { page: "general", title: "Plan usage" },
   {
     page: "general",

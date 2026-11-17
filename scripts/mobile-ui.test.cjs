@@ -515,10 +515,14 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // Worktrees › Import from another app: its row title and hint.
       if (id === "@milagre/shared/ade-import" && !(id in modules)) return require("../packages/shared/src/ade-import.ts");
       if (id === "@milagre/shared/project-list" && !(id in modules)) return require("../packages/shared/src/project-list.ts");
-      // Snooze: the shared rules, the row menu's choices, and the phone's default at its 1 hour.
+      // Snooze: the shared rules, the row menu's choices, and the phone's defaults (1 hour, the default options).
       if (id === "@milagre/shared/snooze" && !(id in modules)) return require("@milagre/shared/snooze");
       if (base === "snooze-actions" && !(id in modules)) return require("../apps/mobile/src/snooze-actions.ts");
-      if (base === "snooze-setting" && !(id in modules)) return { useSnoozeMinutes: () => [60, () => {}] };
+      if (base === "snooze-setting" && !(id in modules))
+        return {
+          useSnoozeMinutes: () => [60, () => {}],
+          useSnoozePresets: () => [require("@milagre/shared/snooze").normalizeSnoozePresets(undefined), () => {}],
+        };
       // The composer's glass is a native blur behind its children; tests render none.
       if (base === "composer-glass" && !(id in modules)) return { ComposerGlass: () => null };
       // The runs reply merge is plain logic; which Chats are on screen only narrows the host's runs reads, so UI tests

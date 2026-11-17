@@ -10,6 +10,7 @@ import { ChatListChoice } from "./ChatDisplayChoices";
 import { computerNoun } from "../../lib/shortcut-hints";
 import { ChoiceGroup } from "./settings-parts";
 import { DoneRetentionSetting, SnoozeSetting } from "./ChatSettings";
+import { SnoozeOptionsSetting } from "./SnoozeOptionsSetting";
 
 export function GeneralSettings() {
   const settings = useSettings();
@@ -66,6 +67,7 @@ export function GeneralSettings() {
       </ChoiceGroup>
       <DoneRetentionSetting />
       <SnoozeSetting />
+      <SnoozeOptionsSetting />
       <Group title="Plan usage">
         <Row label="Show" description="Claude, Codex and Antigravity plan limits">
           <Select<UsageDisplay>
