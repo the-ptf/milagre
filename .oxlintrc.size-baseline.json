@@ -539,19 +539,6 @@
       }
     },
     {
-      "files": ["apps/desktop/app/src/components/sidebar/FiltersMenu.tsx"],
-      "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 260,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ]
-      }
-    },
-    {
       "files": ["apps/desktop/app/src/components/SidebarNav.tsx"],
       "rules": {
         "max-lines": [

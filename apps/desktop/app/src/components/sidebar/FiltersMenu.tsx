@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import type { IconSvgElement } from "@hugeicons/react";
 import {
@@ -10,11 +10,13 @@ import {
   GitPullRequestIcon,
   LaptopIcon,
   PlusMinus01Icon,
+  Search01Icon,
   ViewIcon,
 } from "@hugeicons/core-free-icons";
 import { CHAT_ROW_FIELDS, type ChatRowField, type ChatRowShow } from "@milagre/shared/chat-row";
 import Tooltip from "@/components/primitives/Tooltip";
 import { CheckboxBox } from "../primitives/Checkbox";
+import { FieldGroup } from "../primitives/Field";
 import { Icon } from "../primitives/Icon";
 import { MenuLabel, MenuRow } from "../primitives/Popover";
 import { ProjectAvatar } from "../primitives/ProjectAvatar";
@@ -26,6 +28,7 @@ import { ThisComputer } from "../../lib/shortcut-hints";
 import { computerTone, useComputers, useHiddenComputers } from "../../lib/computers";
 import { useSettings } from "../../lib/settings";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
+import { matchesProjectQuery } from "@milagre/shared/project-list";
 import { ComputersMenu } from "./ComputersMenu";
 
 export type PickerProject = { path: string; name: string; initial: string; current: boolean; shown: boolean; listed: boolean; computerId: string };
@@ -75,8 +78,10 @@ export function FiltersButton({
   const subRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ bottom: 0, left: 0 });
-  const [sub, setSub] = useState<{ which: Sub; top: number; focus: boolean } | null>(null);
+  const [sub, setSub] = useState<{ which: Sub; top: number; bottom: number; focus: boolean } | null>(null);
   const [subHeight, setSubHeight] = useState(0);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
   const hiddenCount = projects?.filter((project) => !project.shown).length ?? 0;
   const { otherComputers } = useSettings();
   const { computers: paired } = useComputers();
@@ -96,16 +101,20 @@ export function FiltersButton({
     );
     return true;
   };
+  const clearSearch = () => setQuery("");
   const close = () => {
     setOpen(false);
     setSub(null);
+    clearSearch();
   };
   useDismiss(open, close, (target) => !!target.closest("[data-filters], [data-filters-panel]"), place);
   useLayoutEffect(() => {
     if (open) rowsOf(panelRef.current)[0]?.focus();
   }, [open]);
   useLayoutEffect(() => {
-    if (sub?.focus) rowsOf(subRef.current)[0]?.focus();
+    if (!sub?.focus) return;
+    if (sub.which === "projects") searchRef.current?.focus();
+    else rowsOf(subRef.current)[0]?.focus();
   }, [sub]);
   const subPanelRef = useCallback((panel: HTMLDivElement | null) => {
     subRef.current = panel;
@@ -120,8 +129,9 @@ export function FiltersButton({
   }, []);
 
   const openSub = (which: Sub, row: HTMLElement, focus: boolean) => {
-    const top = row.getBoundingClientRect().top - 6;
-    setSub((current) => (current?.which === which && !focus ? current : { which, top, focus }));
+    const rect = row.getBoundingClientRect();
+    if (sub?.which !== which) clearSearch();
+    setSub((current) => (current?.which === which && !focus ? current : { which, top: rect.top - 6, bottom: window.innerHeight - rect.bottom - 6, focus }));
   };
   const step = (event: ReactKeyboardEvent, rows: HTMLElement[]) => {
     const index = rows.indexOf(document.activeElement as HTMLElement);
@@ -143,10 +153,12 @@ export function FiltersButton({
     } else if (event.key === "Tab") event.preventDefault();
   };
   const subKeys = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const searching = event.target === searchRef.current;
+    if (sub?.which === "projects" && searchKeys(event, searchRef.current, query, clearSearch)) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       step(event, rowsOf(subRef.current));
-    } else if (event.key === "ArrowLeft" || event.key === "Escape") {
+    } else if ((event.key === "ArrowLeft" && !searching) || event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
       const which = sub?.which;
@@ -154,6 +166,7 @@ export function FiltersButton({
       panelRef.current?.querySelector<HTMLElement>(`[data-sub="${which}"]`)?.focus();
     } else if (event.key === "Tab") event.preventDefault();
   };
+  const upward = sub?.which === "projects" && sub.top > window.innerHeight / 2;
 
   const subRow = (which: Sub, icon: IconSvgElement, label: string, detail?: string, dot?: boolean) => (
     <MenuRow
@@ -173,26 +186,6 @@ export function FiltersButton({
         </>
       }
     />
-  );
-
-  const projectRow = (project: PickerProject) => (
-    <Tooltip key={project.path} label={project.current && !project.shown ? "Shown while it's the open Project" : project.path} wrap asChild>
-      <MenuRow
-        data-project-choice={project.path}
-        role="menuitemcheckbox"
-        aria-checked={project.shown}
-        disabled={!project.listed}
-        onClick={() => onShowProject(project.path, !project.shown)}
-        icon={<CheckboxBox checked={project.shown} />}
-        title={
-          <span className="flex min-w-0 items-center gap-2">
-            <ProjectAvatar name={project.name} initial={project.initial} src={project.current ? currentImage : imageOf(project.path)} />
-            <span className={`min-w-0 truncate ${project.shown ? "" : "text-ink-3"}`}>{project.name}</span>
-          </span>
-        }
-        trailing={project.current ? "Open" : undefined}
-      />
-    </Tooltip>
   );
 
   return (
@@ -259,54 +252,169 @@ export function FiltersButton({
                 className={`${PANEL} max-h-[min(420px,calc(100vh-16px))]`}
                 style={{
                   width: SUB_WIDTH[sub.which],
-                  top: Math.max(8, Math.min(sub.top, window.innerHeight - 8 - subHeight)),
+                  ...(upward
+                    ? { bottom: Math.max(8, sub.bottom), maxHeight: Math.min(420, window.innerHeight - Math.max(8, sub.bottom) - 8) }
+                    : { top: Math.max(8, Math.min(sub.top, window.innerHeight - 8 - subHeight)) }),
                   left: position.left + MAIN_WIDTH + 6,
                   animation: "pop-in var(--duration-fast) var(--ease-enter) backwards",
-                  transformOrigin: "top left",
+                  transformOrigin: upward ? "bottom left" : "top left",
                 }}
               >
-                <ScrollArea className="p-1.5">
-                  <div className="flex flex-col gap-px">
-                    {sub.which === "computers" && computerMenu ? (
-                      <ComputersMenu now={now} onAddComputer={computerMenu.onAddComputer} onOpenSettings={computerMenu.onOpenSettings} onPicked={close} />
-                    ) : sub.which === "projects" ? (
-                      (computers ? bySection(projects ?? [], computers) : [{ id: "", name: "", local: false, rows: projects ?? [] }]).map((section, index) => (
-                        <div
-                          key={section.id}
-                          role="group"
-                          aria-label={computers ? section.name : undefined}
-                          data-project-section={section.id || undefined}
-                          className="flex flex-col gap-px"
-                        >
-                          {computers && (
-                            <div data-project-section-header className={index > 0 ? "mt-1.5" : ""}>
-                              <MenuLabel>
-                                <span className="block truncate">{section.local ? `${section.name} · ${ThisComputer}` : section.name}</span>
-                              </MenuLabel>
-                            </div>
-                          )}
-                          {section.rows.map(projectRow)}
-                        </div>
-                      ))
-                    ) : (
-                      fields.map((field) => (
-                        <MenuRow
-                          key={field.id}
-                          data-show-field={field.id}
-                          checked={show[field.id]}
-                          onClick={() => onShowField(field.id, !show[field.id])}
-                          icon={FIELD_ICONS[field.id]}
-                          title={field.label}
-                        />
-                      ))
-                    )}
-                  </div>
-                </ScrollArea>
+                {sub.which === "projects" ? (
+                  <ProjectsMenu
+                    projects={projects ?? []}
+                    computers={computers}
+                    query={query}
+                    onQuery={setQuery}
+                    searchAt={upward ? "bottom" : "top"}
+                    searchRef={searchRef}
+                    imageOf={imageOf}
+                    currentImage={currentImage}
+                    onShowProject={onShowProject}
+                  />
+                ) : (
+                  <ScrollArea className="p-1.5">
+                    <div className="flex flex-col gap-px">
+                      {sub.which === "computers" && computerMenu ? (
+                        <ComputersMenu now={now} onAddComputer={computerMenu.onAddComputer} onOpenSettings={computerMenu.onOpenSettings} onPicked={close} />
+                      ) : (
+                        fields.map((field) => (
+                          <MenuRow
+                            key={field.id}
+                            data-show-field={field.id}
+                            checked={show[field.id]}
+                            onClick={() => onShowField(field.id, !show[field.id])}
+                            icon={FIELD_ICONS[field.id]}
+                            title={field.label}
+                          />
+                        ))
+                      )}
+                    </div>
+                  </ScrollArea>
+                )}
               </div>
             )}
           </>,
           document.body,
         )}
+    </>
+  );
+}
+
+/** The Projects submenu's search keys: Enter toggles the first match, Escape clears the query, typing on a row searches. */
+function searchKeys(event: ReactKeyboardEvent<HTMLDivElement>, input: HTMLInputElement | null, query: string, clear: () => void): boolean {
+  if (event.target === input) {
+    if (event.key === "Enter" && query.trim() && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      rowsOf(event.currentTarget)
+        .find((row) => row !== input)
+        ?.click();
+      return true;
+    }
+    if (event.key === "Escape" && query) {
+      event.preventDefault();
+      event.stopPropagation();
+      clear();
+      return true;
+    }
+    return false;
+  }
+  if (event.key.length !== 1 || event.key === " " || event.metaKey || event.ctrlKey || event.altKey) return false;
+  input?.focus();
+  return true;
+}
+
+function ProjectsMenu({
+  projects,
+  computers,
+  query,
+  onQuery,
+  searchAt,
+  searchRef,
+  imageOf,
+  currentImage,
+  onShowProject,
+}: {
+  projects: PickerProject[];
+  computers: ComputerSection[] | null;
+  query: string;
+  onQuery: (query: string) => void;
+  searchAt: "top" | "bottom";
+  searchRef: RefObject<HTMLInputElement | null>;
+  imageOf: (path: string) => string | null | undefined;
+  currentImage?: string | null;
+  onShowProject: (path: string, show: boolean) => void;
+}) {
+  const matching = projects.filter((project) => matchesProjectQuery(query, [project.name, project.path]));
+  const projectRow = (project: PickerProject) => (
+    <Tooltip key={project.path} label={project.current && !project.shown ? "Shown while it's the open Project" : project.path} wrap asChild>
+      <MenuRow
+        data-project-choice={project.path}
+        role="menuitemcheckbox"
+        aria-checked={project.shown}
+        disabled={!project.listed}
+        onClick={() => onShowProject(project.path, !project.shown)}
+        icon={<CheckboxBox checked={project.shown} />}
+        title={
+          <span className="flex min-w-0 items-center gap-2">
+            <ProjectAvatar name={project.name} initial={project.initial} src={project.current ? currentImage : imageOf(project.path)} />
+            <span className={`min-w-0 truncate ${project.shown ? "" : "text-ink-3"}`}>{project.name}</span>
+          </span>
+        }
+        trailing={project.current ? "Open" : undefined}
+      />
+    </Tooltip>
+  );
+
+  const search = (
+    <div className={`shrink-0 px-1.5 ${searchAt === "top" ? "pt-1.5" : "pb-1.5"}`}>
+      <FieldGroup
+        ref={searchRef}
+        size={32}
+        fill="bare"
+        className="pl-[7px]"
+        data-menu-row
+        data-project-search
+        aria-label="Search Projects"
+        placeholder="Search Projects"
+        value={query}
+        onChange={(event) => onQuery(event.target.value)}
+        leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
+      />
+    </div>
+  );
+
+  return (
+    <>
+      {searchAt === "top" && search}
+      <ScrollArea className="p-1.5">
+        <div className="flex flex-col gap-px">
+          {!matching.length && query.trim() && (
+            <div data-project-search-empty className="px-2 py-4 text-center text-12 text-ink-3">
+              No Projects match “{query.trim()}”
+            </div>
+          )}
+          {(computers ? bySection(matching, computers) : [{ id: "", name: "", local: false, rows: matching }]).map((section, index) => (
+            <div
+              key={section.id}
+              role="group"
+              aria-label={computers ? section.name : undefined}
+              data-project-section={section.id || undefined}
+              className="flex flex-col gap-px"
+            >
+              {computers && (
+                <div data-project-section-header className={index > 0 ? "mt-1.5" : ""}>
+                  <MenuLabel>
+                    <span className="block truncate">{section.local ? `${section.name} · ${ThisComputer}` : section.name}</span>
+                  </MenuLabel>
+                </div>
+              )}
+              {section.rows.map(projectRow)}
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+      {searchAt === "bottom" && search}
     </>
   );
 }

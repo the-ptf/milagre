@@ -1,21 +1,24 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
-import { Tick02Icon } from "@hugeicons/core-free-icons";
+import { Search01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { matchesProjectQuery } from "@milagre/shared/project-list";
 import { lineHeight, type } from "../design-tokens";
 import { useSession } from "../session";
 import { allComputers, setOtherComputerProjectHidden, useComputerViews } from "../all-computers";
 import type { HostView } from "../all-computers-store";
 import { ProjectIcon, ProjectIcons } from "../project-icon";
 import type { RecentProject } from "../client";
-import { CheckboxBox, CircleButton, ErrorNotice, PageScroll, SectionLabel, SheetHeader, pressStyle, useStyles } from "../ui";
+import { CheckboxBox, CircleButton, ErrorNotice, Field, PageScroll, SectionLabel, SheetHeader, pressStyle, useStyles } from "../ui";
 import { useTheme } from "../theme";
+import { Icon } from "../icons";
 
 const byName = (list: RecentProject[]) =>
   list
     .map((item) => ({ ...item, name: item.name || item.path.split("/").at(-1) || "Project" }))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
 const keyOf = (hostId: string, path: string) => `${hostId}\n${path}`;
+const memberNames = (project: RecentProject) => project.projects?.map((member) => member.name || member.path.split("/").at(-1) || "") ?? [];
 
 type Computer = { hostId: string; name: string; projects: RecentProject[]; unread?: "offline" | "checking" };
 const listed = (view: HostView): Computer => ({
@@ -37,6 +40,9 @@ export default function ChooseProjects() {
   const grouped = computers.length > 1;
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const searching = !!query.trim();
+  const matches = (project: RecentProject) => matchesProjectQuery(query, [project.name, project.path, ...memberNames(project)]);
   const shown = (hostId: string, path: string, hidden?: boolean) => !(pending[keyOf(hostId, path)] ?? hidden);
   async function toggle(hostId: string, project: RecentProject, show: boolean) {
     const key = keyOf(hostId, project.path);
@@ -87,7 +93,7 @@ export default function ChooseProjects() {
             {name}
           </Text>
           <Text numberOfLines={1} ellipsizeMode="middle" style={styles.caption}>
-            {project.link ? project.projects?.map((member) => member.name || member.path.split("/").at(-1)).join(" + ") || "Linked Projects" : project.path}
+            {project.link ? memberNames(project).join(" + ") || "Linked Projects" : project.path}
           </Text>
         </View>
       </Pressable>
@@ -103,23 +109,37 @@ export default function ChooseProjects() {
           : "Open a Project on your computer to list it here.";
   const list = (projects: Computer) => (
     <View key={projects.hostId} style={[styles.card, { padding: 4, gap: 0 }]}>
-      {projects.projects.map((project) => row(projects.hostId, project))}
+      {projects.projects.filter(matches).map((project) => row(projects.hostId, project))}
       {!projects.projects.length && <Text style={[styles.muted, { padding: 16 }]}>{empty(projects)}</Text>}
     </View>
   );
+  const visible = searching ? computers.filter((computer) => computer.projects.some(matches)) : computers;
   return (
     <PageScroll style={styles.screen} contentContainerStyle={{ gap: 0, padding: 0 }}>
       <SheetHeader title="Choose Projects" trailing={<CircleButton label="Done" icon={Tick02Icon} filled onPress={() => router.back()} />} />
       <View style={{ gap: 16, padding: 16, paddingTop: 8 }}>
         <Text style={styles.muted}>Checked Projects and Links show in your Projects list on this phone.</Text>
+        {all.length > 0 && (
+          <Field
+            label="Search Projects"
+            hideLabel
+            placeholder="Search Projects"
+            value={query}
+            onChangeText={setQuery}
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+            leading={<Icon icon={Search01Icon} tone="ink3" size={18} />}
+          />
+        )}
+        {searching && !visible.length && <Text style={[styles.muted, { paddingVertical: 16, textAlign: "center" }]}>No Projects match “{query.trim()}”.</Text>}
         {grouped
-          ? computers.map((computer) => (
+          ? visible.map((computer) => (
               <View key={computer.hostId} style={{ gap: 8 }}>
                 <SectionLabel>{computer.name}</SectionLabel>
                 {list(computer)}
               </View>
             ))
-          : computers.map((computer) => list(computer))}
+          : visible.map((computer) => list(computer))}
         {all.length > 0 && <Text style={styles.caption}>{hiddenCount ? `${hiddenCount} hidden.` : "All Projects and Links are shown."}</Text>}
         {error ? <ErrorNotice message={error} /> : null}
       </View>

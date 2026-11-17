@@ -293,6 +293,31 @@ async function browserChecks() {
       "Every Project by name, the hidden one unchecked",
     );
     await screenshot("project-chooser");
+    assert.equal(await evaluate(`document.activeElement?.hasAttribute("data-project-search")`), true, "Opening Projects puts the caret in its search");
+    const searchFor = (text) =>
+      evaluate(`(() => {
+        const input = document.querySelector("[data-project-search]");
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(text)});
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`);
+    const choices = () => evaluate(`[...document.querySelectorAll("[data-project-choice]")].map((row) => row.dataset.projectChoice)`);
+    await searchFor("ATL");
+    await waitFor(`document.querySelectorAll("[data-project-choice]").length === 1`);
+    assert.deepEqual(await choices(), ["/work/atlas"], "Search matches the name, ignoring case");
+    await searchFor("work/api");
+    await waitFor(`document.querySelector("[data-project-choice]")?.dataset.projectChoice === "/work/api"`);
+    assert.deepEqual(await choices(), ["/work/api"], "Search matches the path");
+    await screenshot("project-chooser-search");
+    await searchFor("nothing like it");
+    await waitFor(`!!document.querySelector("[data-project-search-empty]")`);
+    assert.deepEqual(await choices(), []);
+    await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+    await waitFor(`document.querySelectorAll("[data-project-choice]").length === 4`);
+    assert.equal(
+      await evaluate(`!!document.querySelector('[data-filters-sub="projects"]') && document.querySelector("[data-project-search]").value`),
+      "",
+      "Escape clears the search first",
+    );
     const linkKey = "milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
     await evaluate(`document.querySelector('[data-project-choice="${linkKey}"]').click()`);
     await waitFor(`!document.querySelector('[data-sidebar-scope="${linkKey}"]')`);
