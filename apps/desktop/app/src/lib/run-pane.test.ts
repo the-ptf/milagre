@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore } from "./run-pane.ts";
+import { chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore, runPaneState } from "./run-pane.ts";
 
 test("keepsRoutinesView holds the view for the Run Chat being opened, by its whole chat key", () => {
   assert.equal(keepsRoutinesView("/code/a#7", "/code/a", 7), true);
@@ -59,4 +59,15 @@ test("picking the unread Chat already on screen reads it, a Chat without a Proje
     readsOnPick({ onScreen: chatOnScreen({ view: "settings", runPane: null, projectPath: home, sessionId: 4 }), picked: `${home}#4`, unread: true }),
     false,
   );
+});
+
+test("runPaneState gives a task's Chat open beside the Orchestrator or its Routine the Changes and PR panel", () => {
+  const at = { routineId: null, runPane: "/code/a#9", focusedChatKey: "/code/a#9" };
+  assert.deepEqual(runPaneState({ ...at, view: "chat", runPane: null }), { runPaneOpen: false, chatShown: true });
+  assert.deepEqual(runPaneState({ ...at, view: "orchestrator" }), { runPaneOpen: true, chatShown: true });
+  assert.deepEqual(runPaneState({ ...at, view: "routines", routineId: "r1" }), { runPaneOpen: true, chatShown: true });
+  // The board, a Routine's page alone, or a pane still opening another Chat has no Chat to show a PR for.
+  assert.deepEqual(runPaneState({ ...at, view: "orchestrator", runPane: null }), { runPaneOpen: false, chatShown: false });
+  assert.deepEqual(runPaneState({ ...at, view: "routines" }), { runPaneOpen: false, chatShown: false });
+  assert.deepEqual(runPaneState({ ...at, view: "orchestrator", focusedChatKey: "/code/a#4" }), { runPaneOpen: false, chatShown: false });
 });
