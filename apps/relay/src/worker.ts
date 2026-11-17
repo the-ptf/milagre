@@ -8,6 +8,10 @@ export interface Env {
 const ID = /^[A-Za-z0-9_-]{22}$/;
 const HOOK_ID = /^[0-9a-f]{64}$/;
 const INTERNAL = "https://relay.internal";
+// Rooms created before 2026-11-15 stayed awake for hours with only a pinging host, while fresh ones slept (2026-11-17
+// relay outage). Bumping the generation moves every Mac into a fresh object; its hooks re-register on the next HOOK_SET.
+const ROOM_GENERATION = "r2";
+const roomOf = (env: Env, id: string) => env.ROOMS.get(env.ROOMS.idFromName(`${ROOM_GENERATION}:${id}`));
 
 async function lookupRoom(env: Env, hookId: string): Promise<string | null> {
   const owner = await env.HOOKS.get(env.HOOKS.idFromName(hookId)).fetch(`${INTERNAL}/room`);
@@ -23,14 +27,14 @@ export default {
       return handleHookRequest(request, {
         lookupRoom: (hookId) => lookupRoom(env, hookId),
         forwardToRoom: (roomId, hookId, packed) =>
-          env.ROOMS.get(env.ROOMS.idFromName(roomId)).fetch(`${INTERNAL}/hook`, { method: "POST", headers: { "x-milagre-hook": hookId }, body: packed }),
+          roomOf(env, roomId).fetch(`${INTERNAL}/hook`, { method: "POST", headers: { "x-milagre-hook": hookId }, body: packed }),
       });
     const role = url.pathname === "/v1/host" ? "host" : url.pathname === "/v1/phone" ? "phone" : null;
     if (!role) return new Response("Not found", { status: 404 });
     if (!ID.test(url.searchParams.get("id") ?? "")) return new Response("Bad id", { status: 400 });
     if (request.headers.get("Upgrade") !== "websocket") return new Response("Expected a WebSocket", { status: 426 });
     const id = url.searchParams.get("id")!;
-    const answer = await env.ROOMS.get(env.ROOMS.idFromName(id)).fetch(request);
+    const answer = await roomOf(env, id).fetch(request);
     const refusal = answer.status === 101 ? null : parseRefusal(answer.headers.get(REFUSAL_HEADER));
     return refusal ? closedSocket(refusal) : answer;
   },
