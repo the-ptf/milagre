@@ -1,5 +1,7 @@
 export type AutopilotMode = "answer" | "ask" | "off";
 export type ComputerPreference = "prefer" | "normal" | "less" | "manual" | "never";
+export type TaskOutcome = "pull-request" | "merged" | "reply";
+export type PullRequestState = "open" | "merged" | "closed" | null;
 export type BoardColumn = "running" | "needs" | "review" | "done";
 export type MemoryGroup = "work" | "projects" | "tools" | "other";
 export type OrchestratorProvider = "claude" | "codex" | "antigravity" | "kiro";
@@ -27,6 +29,7 @@ export interface OrchestratorSettings {
   projects: Record<string, { included: boolean; hints: string | null }>;
   hideTaskChats: boolean;
   notify: boolean;
+  outcome: TaskOutcome;
   mascotColor: string;
   name: string;
   boardHidden: boolean;
@@ -46,6 +49,7 @@ export interface OrchestratorAnswer {
 export interface OrchestratorTask {
   id: string;
   prompt: string;
+  outcome: TaskOutcome;
   title: string;
   projectPath: string | null;
   worktreeId: string | null;
@@ -123,6 +127,12 @@ export const ORCHESTRATOR_MAX_IMAGES: number;
 export const AUTOPILOT_MODES: readonly AutopilotMode[];
 export const COMPUTER_PREFERENCES: readonly ComputerPreference[];
 export const VETO_SECONDS: readonly number[];
+export const TASK_OUTCOMES: readonly { value: TaskOutcome; label: string }[];
+export const TASK_OUTCOME_DESCRIPTION: string;
+export function normalizeTaskOutcome(value: unknown): TaskOutcome;
+export function taskOutcomePrompt(outcome: TaskOutcome): string;
+export function taskOutcomeDetail(outcome: TaskOutcome, pullRequest: PullRequestState): string | null;
+export function pullRequestState(states: readonly ("OPEN" | "MERGED" | "CLOSED")[]): PullRequestState;
 export const BOARD_COLUMNS: readonly BoardColumn[];
 export const MEMORY_GROUPS: readonly MemoryGroup[];
 export const DEFAULT_ROLES: readonly OrchestratorRole[];
@@ -141,7 +151,14 @@ export function keywordRoute(
 ): { projectPath: string; score: number; hit: string | null } | null;
 export function activeRoles(roles: readonly OrchestratorRole[]): OrchestratorRole[];
 export function roleById(roles: readonly OrchestratorRole[], id: string): OrchestratorRole | null;
-export function boardColumn(input: { done: boolean; needsYou: boolean; pullRequest?: "open" | "merged" | "closed" | null; finished?: boolean }): BoardColumn;
+export function boardColumn(input: {
+  done: boolean;
+  needsYou: boolean;
+  pullRequest?: "open" | "merged" | "closed" | null;
+  finished?: boolean;
+  active?: boolean;
+  outcome?: TaskOutcome;
+}): BoardColumn;
 export function isIrreversible(input?: { tool?: string; command?: string; text?: string }): boolean;
 export function autopilotPending(
   task: OrchestratorTask | null | undefined,

@@ -1,10 +1,13 @@
-import { autopilotPending, boardColumn, taskLimitText, type BoardColumn, type OrchestratorTask } from "@milagre/shared/orchestrator";
+import { autopilotPending, boardColumn, taskLimitText, taskOutcomeDetail, type BoardColumn, type OrchestratorTask } from "@milagre/shared/orchestrator";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { AgentModels, AgentSession, ChatMessage, ModelProvider } from "@milagre/shared/model";
 import { MODEL_CATALOG } from "@milagre/shared/model-options";
 import { effortCopy } from "@milagre/shared/model-copy";
 import { subchatState } from "@milagre/shared/subchat-states";
 import { chatMark, type ChatMark } from "./indicators.ts";
+
+export { pullRequestState } from "@milagre/shared/orchestrator";
 
 export const BOARD_TABS: { id: BoardColumn; label: string }[] = [
   { id: "running", label: "Running" },
@@ -43,20 +46,25 @@ export function boardItem(task: OrchestratorTask, chat: TaskChat | undefined, pu
   const done = !!chat.chat.done_at || !!chat.chat.archived;
   const autopilot = NEEDS_YOU.has(mark) ? autopilotPending(task, chat.run, now) : null;
   const limit = chat.run ? null : taskLimitText(task, new Date(now));
+  const needsYou = (NEEDS_YOU.has(mark) && !autopilot) || state.kind === "failed" || state.kind === "stopped" || Boolean(limit);
+  const active = Boolean(chat.run) || chatActivity(chat.chat, undefined).activity === "background";
+  const column = boardColumn({
+    done,
+    needsYou,
+    active,
+    outcome: task.outcome,
+    pullRequest,
+    finished: !chat.run && (chat.chat.summary?.lastOutcome === "completed" || (chat.chat.summary?.count ?? chat.messages?.length ?? 0) > 1),
+  });
   return {
     ...base,
     inSidebar: chat.chat.orchestrator?.hidden === false,
-    column: boardColumn({
-      done,
-      needsYou: (NEEDS_YOU.has(mark) && !autopilot) || Boolean(limit),
-      pullRequest,
-      finished: state.kind === "done" || state.kind === "stopped",
-    }),
+    column,
     kind: "chat",
     mark: autopilot ? null : mark,
     detail: autopilot
       ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
-      : (limit ?? state.detail),
+      : (limit ?? (!needsYou && !active && column !== "running" ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),
   };
 }
 
@@ -69,13 +77,6 @@ export function boardCounts(items: readonly BoardItem[]): Record<BoardColumn, nu
 /** Newest first, so a task sent a moment ago lands on top of its column. */
 export function columnItems(items: readonly BoardItem[], column: BoardColumn): BoardItem[] {
   return items.filter((item) => item.column === column).sort((a, b) => b.task.createdAt - a.task.createdAt);
-}
-
-export function pullRequestState(states: readonly ("OPEN" | "MERGED" | "CLOSED")[]): PullRequestState {
-  if (states.includes("OPEN")) return "open";
-  if (states.includes("MERGED")) return "merged";
-  if (states.includes("CLOSED")) return "closed";
-  return null;
 }
 
 export function modelName(provider: ModelProvider | null, model: string | null, reported?: AgentModels | null): string {

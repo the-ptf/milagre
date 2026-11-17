@@ -45,7 +45,8 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
         readOnly: false,
         capability,
         run: async (args) => {
-          await permit(args.projectPath);
+          if (args.projectPath) await permit(args.projectPath);
+          assertActive();
           const result = await execute(args);
           assertActive();
           return JSON.stringify(result);

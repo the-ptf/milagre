@@ -69,14 +69,32 @@ test("keyword routing matches a Project by name first, then by its hints", () =>
   assert.equal(keywordRoute("write me a poem", projects), null);
 });
 
-test("board columns follow done, needs you and the pull request", () => {
-  assert.equal(boardColumn({ done: false, needsYou: false }), "running");
-  assert.equal(boardColumn({ done: false, needsYou: true, pullRequest: "open" }), "needs");
-  assert.equal(boardColumn({ done: false, needsYou: false, pullRequest: "open" }), "review");
-  assert.equal(boardColumn({ done: false, needsYou: false, pullRequest: "merged" }), "done");
-  assert.equal(boardColumn({ done: true, needsYou: true }), "done");
-  assert.equal(boardColumn({ done: false, needsYou: false, finished: true }), "done", "finished work without a pull request is done");
-  assert.equal(boardColumn({ done: false, needsYou: false, finished: true, pullRequest: "open" }), "review", "an open pull request waits in review");
+test("a reply or marking the Chat Done cannot bypass the required PR", () => {
+  const base = { done: false, needsYou: false };
+  assert.equal(boardColumn(base), "running");
+  assert.equal(boardColumn({ ...base, finished: true }), "needs");
+  assert.equal(boardColumn({ ...base, done: true }), "needs");
+  assert.equal(boardColumn({ ...base, pullRequest: "open" }), "done");
+  assert.equal(boardColumn({ ...base, pullRequest: "merged" }), "done");
+  assert.equal(boardColumn({ ...base, pullRequest: "closed" }), "needs");
+  assert.equal(boardColumn({ ...base, done: true, needsYou: true, pullRequest: "merged" }), "needs");
+  assert.equal(boardColumn({ ...base, active: true, pullRequest: "open" }), "running");
+  assert.equal(boardColumn({ ...base, outcome: "reply", finished: true }), "done");
+  assert.equal(boardColumn({ ...base, outcome: "reply", done: true }), "done");
+  assert.equal(boardColumn({ ...base, outcome: "merged", pullRequest: "open" }), "review");
+  assert.equal(boardColumn({ ...base, outcome: "merged", pullRequest: "merged" }), "done");
+  assert.equal(boardColumn({ ...base, outcome: "merged", pullRequest: "closed", done: true }), "needs");
+});
+
+test("outcomes persist and unknown or legacy values require a PR", () => {
+  for (const outcome of ["pull-request", "merged", "reply"]) {
+    assert.equal(normalizeOrchestratorSettings({ outcome }).outcome, outcome);
+    assert.equal(normalizeOrchestratorTask({ id: "t", prompt: "fix", outcome }).outcome, outcome);
+  }
+  for (const outcome of [undefined, "invented", null]) {
+    assert.equal(normalizeOrchestratorSettings({ outcome }).outcome, "pull-request");
+    assert.equal(normalizeOrchestratorTask({ id: "t", prompt: "fix", outcome }).outcome, "pull-request");
+  }
 });
 
 test("irreversible actions are recognized from commands, tools and questions", () => {

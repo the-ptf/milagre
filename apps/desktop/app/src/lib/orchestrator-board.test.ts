@@ -41,6 +41,7 @@ function task(id: string, patch: Partial<OrchestratorTask> = {}): OrchestratorTa
     answered: [],
     images: 0,
     limit: null,
+    outcome: "pull-request",
     ...patch,
   };
 }
@@ -90,15 +91,16 @@ test("a started task's column follows its Chat: running, waiting on the user, a 
     states,
     runs,
     NOW,
+    { t3: "open", t4: "merged" },
   );
   assert.deepEqual(
     cards.map((card) => [card.task.id, card.column, card.state]),
     [
       ["t1", "running", "working"],
       ["t2", "needs", "needs-you"],
-      ["t3", "review", "done"],
+      ["t3", "done", "done"],
       ["t4", "done", "done"],
-      ["t5", "done", "done"],
+      ["t5", "needs", "done"],
     ],
   );
   assert.equal(cards[0]!.detail, "Building for the simulator");
@@ -107,7 +109,7 @@ test("a started task's column follows its Chat: running, waiting on the user, a 
     cards.map((card) => card.inSidebar),
     [false, true, true, true, true],
   );
-  assert.deepEqual(boardCounts(cards), { running: 1, needs: 1 });
+  assert.deepEqual(boardCounts(cards), { running: 1, needs: 2 });
 });
 
 test("the sidebar counts a task as running only while it routes or its turn runs; a failed one needs the user", () => {
@@ -121,9 +123,9 @@ test("the sidebar counts a task as running only while it routes or its turn runs
   assert.equal(cards.find((card) => card.task.id === "t3")?.state, "failed");
 });
 
-test("a task whose turn ended with a reply moves to Done even before its summary has an outcome", () => {
+test("a task whose turn ended without a PR needs the owner", () => {
   const states = { "/p/app": { sessions: { 1: { id: 1, summary: { count: 2 } } } } };
-  assert.equal(boardCards([task("t1")], states as never, {}, NOW)[0]!.column, "done");
+  assert.equal(boardCards([task("t1")], states as never, {}, NOW)[0]!.column, "needs");
 });
 
 test("a task at its usage limit waits in Needs you and says until when", () => {
@@ -169,7 +171,7 @@ test("a task placed on a paired computer reads its Chat under that computer's ke
   assert.equal(taskChatKey(remote), "studio|/r/app#4");
   assert.deepEqual(taskProjectPaths([remote]), ["studio|/r/app"]);
   const states = { "studio|/r/app": { sessions: { 4: { id: 4, done_at: NOW } } } };
-  assert.equal(boardCards([remote], states, {}, NOW)[0]!.column, "done");
+  assert.equal(boardCards([remote], states, {}, NOW, { t4: "merged" })[0]!.column, "done");
 });
 
 test("ages read as now, minutes, hours and days", () => {
@@ -216,4 +218,16 @@ test("a request autopilot is about to answer keeps the card running", () => {
   assert.equal(card.column, "running");
   assert.equal(card.detail, "Answering for you in 30 s unless you answer first: allowed Use Read?");
   assert.equal(boardCards([waiting], states, runs, NOW + 31_000)[0]!.column, "needs");
+});
+
+test("the board uses verified PR state and explains unmet outcomes", () => {
+  const states = { "/p/app": { sessions: { 1: { id: 1, summary: { lastOutcome: "completed", pullRequests: ["https://github.com/o/r/pull/9"] } } } } };
+  const missing = boardCards([task("t1")], states, {}, NOW)[0]!;
+  assert.equal(missing.column, "needs");
+  assert.match(missing.detail, /no PR verified/);
+  const waiting = boardCards([task("t1", { outcome: "merged" })], states, {}, NOW, { t1: "open" })[0]!;
+  assert.equal(waiting.column, "review");
+  assert.equal(waiting.detail, "Waiting for the PR to merge.");
+  assert.equal(boardCards([task("t1", { outcome: "reply" })], states, {}, NOW)[0]!.column, "done");
+  assert.equal(boardCards([task("t1")], states, { "/p/app#1": run() } as AgentRuns, NOW, { t1: "open" })[0]!.column, "running");
 });

@@ -87,6 +87,7 @@ function createLocalMcpWiring({
     require("../orchestrator/mcp.cjs").orchestratorMcpMethods({
       send: (prompt) => handlers.get("orchestrator:send")(null, prompt),
       read: () => handlers.get("orchestrator:read")(null),
+      saveSettings: (patch) => handlers.get("orchestrator:settings:save")(null, patch),
     }),
   );
   const localMcp = require("../local-mcp.cjs").createLocalMcp({

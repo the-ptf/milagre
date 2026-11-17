@@ -6,6 +6,7 @@ import { useRuns } from "./agent-runs-store";
 import { useOrchestratorNames } from "./orchestrator-names";
 import { useOrchestrator } from "./orchestrator-store";
 import { useScopeStates } from "./sidebar-scopes";
+import { useOrchestratorPullRequests } from "./use-orchestrator-pull-requests";
 
 const TICK_MS = 30_000;
 
@@ -21,7 +22,8 @@ export function useOrchestratorBoard() {
     const timer = window.setInterval(() => setNow(Date.now()), TICK_MS);
     return () => window.clearInterval(timer);
   }, []);
-  const cards = useMemo(() => boardCards(orchestrator.tasks, states, runs, now), [orchestrator.tasks, states, runs, now]);
+  const pullRequests = useOrchestratorPullRequests(orchestrator.tasks, states);
+  const cards = useMemo(() => boardCards(orchestrator.tasks, states, runs, now, pullRequests), [orchestrator.tasks, states, runs, now, pullRequests]);
   const counts = useMemo(() => boardCounts(cards), [cards]);
   const roles = useMemo(() => activeRoles(orchestrator.settings.roles), [orchestrator.settings.roles]);
   const env = {

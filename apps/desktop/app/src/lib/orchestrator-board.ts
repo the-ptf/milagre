@@ -1,8 +1,17 @@
 import { chatKey } from "@milagre/shared/agent-runs";
 import { qualifyKey } from "@milagre/shared/chat-scopes";
 import type { AgentRun, AgentRuns } from "@milagre/shared/agent-runs";
-import { autopilotPending, boardColumn, taskLimitText, type BoardColumn, type OrchestratorTask } from "@milagre/shared/orchestrator";
+import {
+  autopilotPending,
+  boardColumn,
+  taskLimitText,
+  taskOutcomeDetail,
+  type PullRequestState,
+  type BoardColumn,
+  type OrchestratorTask,
+} from "@milagre/shared/orchestrator";
 import { subchatState, type SubchatKind } from "@milagre/shared/subchat-states";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import type { AgentSession } from "../model";
 
 type TaskCardKind = "deciding" | "pick-project" | "failed" | "chat";
@@ -41,7 +50,7 @@ function pending(task: OrchestratorTask, kind: TaskCardKind, column: BoardColumn
   return { task, key: null, column, kind, session: undefined, run: undefined, state: null, detail, inSidebar: false };
 }
 
-function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns, now: number): TaskCard {
+function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns, now: number, pullRequest: PullRequestState): TaskCard {
   if (task.state === "routing") return pending(task, "deciding", "running", "Picking the Project, model and account…");
   if (task.state === "needs-project") return pending(task, "pick-project", "needs", "Which Project is this for?");
   if (task.state === "failed") return pending(task, "failed", "needs", task.error ?? "Couldn't start this task");
@@ -51,10 +60,14 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
   const state = subchatState({ key: key ?? task.id, title: task.title, session: session ?? {}, run }, now);
   const autopilot = state.kind === "needs-you" ? autopilotPending(task, run, now) : null;
   const limit = run ? null : taskLimitText(task, new Date(now));
+  const needsYou = (state.kind === "needs-you" && !autopilot) || state.kind === "failed" || state.kind === "stopped" || Boolean(limit);
+  const active = Boolean(run) || chatActivity(session, undefined).activity === "background";
   const column = boardColumn({
+    outcome: task.outcome,
+    active,
     done: Boolean(session?.done_at || session?.archived),
-    needsYou: (state.kind === "needs-you" && !autopilot) || state.kind === "failed" || Boolean(limit),
-    pullRequest: session?.summary?.pullRequests?.length ? "open" : null,
+    needsYou,
+    pullRequest,
     finished: !run && (state.kind === "stopped" || (state.kind === "done" && (Boolean(session?.summary?.lastOutcome) || (session?.summary?.count ?? 0) > 1))),
   });
   return {
@@ -67,13 +80,19 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
     state: autopilot ? "working" : state.kind,
     detail: autopilot
       ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
-      : (limit ?? state.detail),
+      : (limit ?? (!needsYou && !active && column !== "running" ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),
     inSidebar: session ? !session.orchestrator?.hidden : false,
   };
 }
 
-export function boardCards(tasks: readonly OrchestratorTask[], states: SessionStates, runs: AgentRuns, now: number): TaskCard[] {
-  return tasks.toSorted((a, b) => b.createdAt - a.createdAt).map((task) => taskCard(task, states, runs, now));
+export function boardCards(
+  tasks: readonly OrchestratorTask[],
+  states: SessionStates,
+  runs: AgentRuns,
+  now: number,
+  pullRequests: Record<string, PullRequestState> = {},
+): TaskCard[] {
+  return tasks.toSorted((a, b) => b.createdAt - a.createdAt).map((task) => taskCard(task, states, runs, now, pullRequests[task.id] ?? null));
 }
 
 export function cardsIn(cards: readonly TaskCard[], column: BoardColumn, projectPath: string | null = null): TaskCard[] {

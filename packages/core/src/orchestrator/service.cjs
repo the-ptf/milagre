@@ -1,7 +1,14 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
-const { normalizeOrchestratorSettings, roleById, titleFromPrompt, recordTrust } = require("@milagre/shared/orchestrator");
+const {
+  normalizeOrchestratorSettings,
+  roleById,
+  titleFromPrompt,
+  recordTrust,
+  normalizeTaskOutcome,
+  taskOutcomePrompt,
+} = require("@milagre/shared/orchestrator");
 const { createAccounts, createLimitWatch } = require("./limits.cjs");
 const { routeTask } = require("./router.cjs");
 const { importMemory } = require("./memory-import.cjs");
@@ -81,10 +88,11 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       });
   }
 
-  function addTask(prompt, permissionMode, images = []) {
+  function addTask(prompt, permissionMode, images = [], outcome = settings().outcome) {
     const task = {
       id: randomUUID(),
       prompt,
+      outcome: normalizeTaskOutcome(outcome),
       title: titleFromPrompt(prompt),
       state: "routing",
       permissionMode,
@@ -146,7 +154,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       ...(role.effort ? { effort: role.effort } : {}),
       permissionMode: task.permissionMode,
       body: task.prompt,
-      prompt: withRole(task.prompt, role),
+      prompt: `${withRole(task.prompt, role)}\n\n<task_outcome>\n${taskOutcomePrompt(task.outcome)}\n</task_outcome>`,
       images,
       files: [],
     });

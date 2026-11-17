@@ -4,6 +4,8 @@ import {
   COMPUTER_PREFERENCES,
   MASCOT_COLORS,
   VETO_SECONDS,
+  TASK_OUTCOMES,
+  TASK_OUTCOME_DESCRIPTION,
   type AutopilotMode,
   type ComputerPreference,
   type OrchestratorComputer,
@@ -172,6 +174,17 @@ function OrchestratorForm({
       </Group>
       {!settings.enabled && <p className="px-1 pt-3 text-12 text-ink-3">Turn the Orchestrator on to change the settings below.</p>}
       <div data-orchestrator-options inert={!settings.enabled} className={`transition-opacity duration-base ${settings.enabled ? "" : "opacity-40"}`}>
+        <Group title="Completion">
+          <Row label="Required outcome" description={TASK_OUTCOME_DESCRIPTION}>
+            <Select<Settings["outcome"]>
+              label="Required outcome"
+              width={180}
+              value={settings.outcome}
+              options={[...TASK_OUTCOMES]}
+              onChange={(outcome) => save({ outcome })}
+            />
+          </Row>
+        </Group>
         <Group title="Mascot and shortcut">
           <Row label="Name" description="What the sidebar row and the page call it, up to 40 characters">
             <NameField key={settings.name} name={settings.name} onSave={(name) => save({ name })} />
