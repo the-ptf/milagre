@@ -11,6 +11,7 @@ import { useTheme } from "./theme";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import { useNewChatStats } from "./chat-display-setting";
 import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL, DEVICE_NOTES_WARNING } from "@milagre/shared/device-notes";
+import { OrchestratorChurchRow } from "./orchestrator-church-row";
 
 export function ExperimentalSection() {
   const styles = useStyles();
@@ -59,6 +60,7 @@ export function ExperimentalSection() {
   );
   return (
     <View style={{ gap: space.md }}>
+      <OrchestratorChurchRow />
       <View style={[styles.card, { gap: space.xs }]}>
         <Toggle title="Floating inbox" selected={floatingInbox} onPress={() => setFloatingInbox(!floatingInbox)} />
         <Text style={styles.caption}>

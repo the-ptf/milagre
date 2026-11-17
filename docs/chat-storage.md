@@ -13,6 +13,12 @@ A Project's messages live in `<project>/.milagre/chats.db`, one row per message,
 
 Rejected: one JSON file per Chat. A long Chat would be rewritten whole on every reply, and search would need its own index. A single JSON file for the whole Project, the shape before this, encoded every Chat on every save on the daemon's only thread.
 
+## Forks and side questions
+
+Fork copies the saved messages through the chosen message into a new top-level Chat in the same Worktree. The copy has new message ids, no send receipts, pending approvals or running processes, and a divider linking back to its source. It does not restore files. Its first reply receives the copied transcript, including when the user chooses another provider. Even a fork from the latest message uses this snapshot: resuming or forking the source's native id on the first send could include messages the source received after the user pressed Fork.
+
+`/btw` runs a separate read-only process while the main Chat continues. Its question, streamed answer and status live only in runtime memory, outside `chats.db`, unread state and the main Chat's activity. Claude and Codex fork native context; Antigravity and Kiro receive the saved transcript and any live reply text. Claude disables session persistence and Codex uses an ephemeral fork with `excludeTurns`, as the app-server's paginated protocol requires. All four adapters deny writes and shell execution. Stop, dismiss, replacement, completion and Chat retirement close the side process. A dismissed answer remains readable until cleared, the Chat retires or the host exits. Bring back explicitly inserts a quote into the main composer.
+
 ## Idle Chats leave memory
 
 The daemon holds a Chat's messages in memory only while the Chat is in use. A Chat untouched for ten minutes, with no turn running or preparing and no window showing it, is unloaded; its rows in `chats.db` are the only copy until something needs them.
@@ -41,7 +47,7 @@ Rejected: a hidden Project per Chat (every list skips hidden homes, so the phone
 
 Chat menus on desktop and phone offer Delete, not Archive. Delete acts at once, with no confirmation, and permanently removes the conversation, its rows, its local Designs and its page comments.
 
-Archive, delete, Worktree removal and Routine Run cleanup all retire a Chat through one ordered sequence, `createChatRetirement` in `packages/core/src/runtime/chat-lifecycle.cjs`: end its Heartbeats, cancel a pending usage-limit continuation, stop the running turn (which holds queued sends), cancel Worktree setup, close the agent session, stop Terminals and background commands, settle advisors and delegations, and cancel pending secret and bug-report questions. The Project state change is what notifies clients. The modes differ only around that sequence:
+Archive, delete, Worktree removal and Routine Run cleanup all retire a Chat through one ordered sequence, `createChatRetirement` in `packages/core/src/runtime/chat-lifecycle.cjs`: end its Heartbeats, cancel a pending usage-limit continuation, stop the running turn (which holds queued sends), cancel Worktree setup, close side questions and the agent session, stop Terminals and background commands, settle advisors and delegations, and cancel pending secret and bug-report questions. The Project state change is what notifies clients. The modes differ only around that sequence:
 
 - Archive saves at once and finishes the sequence in the background, so the row moves without waiting on the agent or advisors (#718, #734). Messages, page comments and Designs stay restorable.
 - Delete runs the sequence, removes the Chat from state, then removes its stored data: page comments, Designs and artifacts, the computer-use screen. Secret files are not per Chat; they expire on their own.
@@ -69,3 +75,11 @@ Captured: tracked and non-ignored untracked files. Excluded: links, Git and Mila
 Users add exclusions in `.milagre/checkpoint-ignore` per Worktree: one relative glob per line, `#` comments, exclusion only (no negation), `path/**` for directories. Name checks can't catch every secret, so this file is the way to keep one out.
 
 Checkpoints are local recovery data with no retention limit yet, not a backup.
+
+## Imported Chats
+
+Settings › Worktrees › Import from another app (desktop and phone), onboarding and the `import_run` tool copy T3 Code, Paseo and Orca work in (`packages/core/src/ade-import/`). Each source is read from its own files, never through its app: T3 Code's `~/.t3/userdata/statev2.sqlite` (or `state.sqlite`), Paseo's `~/.paseo/projects/*.json` and `agents/*/*.json`, Orca's `profile-state.db` (or `orca-data.json`). SQLite files are copied to a temp folder first, so a running T3 Code or Orca never sees a reader on its database.
+
+A Project is opened like any other, so the source's own `git worktree add` checkouts show up as Worktrees with no `base`: Milagre never removes them. A thread becomes a Chat with `native_session_id` set to the source's Claude session id or Codex thread id and `importedFrom: {source, id}`; a second import skips a thread whose id or native id is already on a Chat. Its history is parsed from the provider's own transcript (`~/.claude/projects/*/<id>.jsonl`, `~/.codex/sessions/**/rollout-*-<id>.jsonl`, both the `item_completed` and the older `response_item` rollout formats) into messages and steps with the same step builders a live turn uses, and its summary keeps the source's dates instead of the import time.
+
+Only Claude and Codex threads come over: other agents (Cursor, OpenCode and the like) have no adapter here, and Orca keeps no session ids for most terminal tabs, so Orca brings Projects only. The Chat must run where the session was made: Claude finds its transcript by working directory, so a thread whose folder is gone is skipped.

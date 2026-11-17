@@ -65,3 +65,12 @@ test("code, unknown references and Named Link scopes add no context or unnecessa
   assert.equal(reads, 0);
   assert.equal(await chatMentionsContext({ chatId: "/p#1", prompt: "@chat:999" }, read), "");
 });
+
+test("@Orchestrator asks the Chat's agent to hand the request to the Orchestrator, but not inside code", async () => {
+  const read = async () => state;
+  const called = await chatMentionsContext({ chatId: "/my/project#1", prompt: "@Orchestrator fix the rest timer in my gym app" }, read);
+  assert.match(called, /<orchestrator_mention>[\s\S]*orchestrator_send/);
+  assert.equal(await chatMentionsContext({ chatId: "/my/project#1", prompt: "see `@orchestrator` in the docs" }, read), "");
+  const both = await chatMentionsContext({ chatId: "/my/project#1", prompt: "@chat:2 and @orchestrator." }, read);
+  assert.ok(both.includes("</chat_mentions>") && both.includes("</orchestrator_mention>"));
+});

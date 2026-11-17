@@ -42,6 +42,24 @@ const ALLOWED: Record<string, string[]> = {
     "openCanvasProject",
   ],
   "app/useAppDialogs.ts": ["listRecentProjects"],
+  // The Orchestrator is this Mac's own: its host places tasks on paired computers itself and reports them back here.
+  "lib/orchestrator-store.ts": [
+    "onOrchestrator",
+    "readOrchestrator",
+    "saveOrchestratorSettings",
+    "sendToOrchestrator",
+    "pickOrchestratorProject",
+    "rerouteOrchestratorTask",
+    "undoOrchestratorTask",
+    "dismissOrchestratorTask",
+    "showOrchestratorTaskInSidebar",
+    "importOrchestratorMemory",
+    "saveOrchestratorMemory",
+    "forgetOrchestratorMemory",
+  ],
+  "lib/orchestrator-names.ts": ["readOrchestratorProjects", "listAccounts", "onAccountsChanged"],
+  "components/settings/OrchestratorSettings.tsx": ["readOrchestratorComputers"],
+  "components/settings/OrchestratorProjectsSettings.tsx": ["readOrchestratorProjects"],
   "app/useAppShortcuts.ts": ["onAppShortcut"],
   "app/StartupScreens.tsx": ["restartHost", "retryQuit"],
   "app/useModelSelection.ts": ["onAccountsChanged", "updateCli"],
@@ -110,6 +128,8 @@ const ALLOWED: Record<string, string[]> = {
   "components/UpdateReleaseNotes.tsx": ["getUpdateReleaseNotes"],
   // The Dock or taskbar icon is this computer's own.
   "components/settings/AppIconPicker.tsx": ["getAppIcon", "setAppIcon"],
+  // Onboarding's import card: what T3 Code, Paseo or Orca left on this Mac, and the Project it opens after importing.
+  "components/OnboardingImport.tsx": ["scanImports", "openProjectAt"],
   "components/AccountsSettings.tsx": ["getCliStatus", "listAccounts", "onAccountsChanged", "accountAction", "onCliProgress", "updateCli"],
   // First launch on this Mac, before any Project or computer: its own agents, folders and agent history, and whether it
   // knows a Project (a returning user skips the intro).

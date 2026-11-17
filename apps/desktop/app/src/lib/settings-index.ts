@@ -12,10 +12,12 @@ import {
 } from "@milagre/shared/linear";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
+import { ORCHESTRATOR_DESCRIPTION } from "./orchestrator-copy.ts";
 import type { SettingsSearchEntry } from "@milagre/shared/settings-search";
 import type { SettingsSection } from "../components/Settings";
 import { computerNoun } from "./shortcut-hints.ts";
 import { CLEANUP_INTRO, CLEANUP_TITLE } from "@milagre/shared/storage";
+import { IMPORT_INTRO, IMPORT_TITLE } from "@milagre/shared/ade-import";
 
 export type DesktopSettingsEntry = SettingsSearchEntry<SettingsSection>;
 
@@ -42,7 +44,7 @@ export const SECTION_TITLES: Record<Exclude<SettingsSection, "project" | "comput
 
 export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   general: "editor sidebar chat order chat list done archive snooze snooze options plan usage keep awake",
-  worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle repositories folder",
+  worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle repositories folder import migrate t3 paseo orca",
   "this-mac": "computer resources memory disk drive other computers add computer computer use",
   usage: "token tokens cost spend dollars analytics estimated",
   accounts: "sign in login claude codex antigravity profile per project link usage limits",
@@ -56,7 +58,7 @@ export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   connections: "linear issues integrations babysit pull requests",
   mcp: "servers tools model context protocol milagre mcp",
   devices: "phone pairing computers remote qr published pages share simlock simulators reset access",
-  experimental: "church experimental beta labs",
+  experimental: "church experimental beta labs orchestrator",
   about: "version update privacy support",
 };
 
@@ -535,6 +537,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "When a folder you add holds repositories, offer to add them as Projects with a Link that groups them.",
     keywords: "repositories folder import link group monorepo clients",
   },
+  {
+    page: "worktrees",
+    title: IMPORT_TITLE,
+    group: "Add Project",
+    description: IMPORT_INTRO,
+    keywords: "import migrate t3 code paseo orca threads chats projects move switch",
+  },
   { page: "worktrees", title: "Storage" },
   {
     page: "worktrees",
@@ -648,6 +657,38 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   },
 
   { page: "experimental", title: "Beta" },
+  {
+    page: "experimental",
+    title: "Orchestrator",
+    group: "Beta",
+    description: ORCHESTRATOR_DESCRIPTION,
+    keywords: "router board tasks mascot pebble autopilot memory roles",
+  },
+  { page: "experimental", title: "Color", group: "Orchestrator", keywords: "mascot pebble" },
+  { page: "experimental", title: "Account", group: "Orchestrator", keywords: "least used project account" },
+  { page: "experimental", title: "Memory", group: "Orchestrator", keywords: "notes" },
+  { page: "experimental", title: "Board", group: "Orchestrator", keywords: "task chats sidebar" },
+  { page: "experimental", title: "Turn on the Orchestrator", group: "Orchestrator", keywords: "enable" },
+  { page: "experimental", title: "Mascot and shortcut", group: "Orchestrator", keywords: "pebble color shortcut" },
+  { page: "experimental", title: "Open from anywhere", group: "Orchestrator", keywords: "shortcut quick box" },
+  { page: "experimental", title: "Routing", group: "Orchestrator", keywords: "route project" },
+  { page: "experimental", title: "Router model", group: "Orchestrator", keywords: "route model" },
+  { page: "experimental", title: "When no Project fits", group: "Orchestrator", keywords: "ask best guess" },
+  { page: "experimental", title: "Use other computers", group: "Orchestrator", keywords: "load balancing computers prefer" },
+  { page: "experimental", title: "Autopilot", group: "Orchestrator", keywords: "answer approvals questions" },
+  { page: "experimental", title: "Answer threads for me", group: "Orchestrator", keywords: "autopilot approvals" },
+  { page: "experimental", title: "Time to veto", group: "Orchestrator", keywords: "autopilot wait" },
+  { page: "experimental", title: "What it knows about you", group: "Orchestrator", keywords: "memory notes import" },
+  { page: "experimental", title: "Forget everything", group: "Orchestrator", keywords: "memory reset" },
+  { page: "experimental", title: "Projects it can route to", group: "Orchestrator", keywords: "hints" },
+  {
+    page: "experimental",
+    title: "Roles and models",
+    group: "Orchestrator",
+    keywords: "build design security test research architecture effort instructions",
+  },
+  { page: "experimental", title: "Keep Orchestrator task Chats out of the sidebar", group: "Orchestrator", keywords: "hidden board" },
+  { page: "experimental", title: "Notify me when a task needs me", group: "Orchestrator", keywords: "notifications" },
   {
     page: "experimental",
     title: "Floating inbox",

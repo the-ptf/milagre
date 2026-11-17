@@ -69,6 +69,13 @@ export function formatFileMention(path) {
   return /[\s"]/.test(path) || /^chat:[1-9]\d*[.,!?;:)\]}]*$/.test(path) || path.startsWith("computer:") ? `@"${path}"` : `@${path}`;
 }
 
+export const ORCHESTRATOR_MENTION = "@Orchestrator";
+
+/** Whether the prompt's prose calls the Orchestrator with `@Orchestrator` (any case), outside code and quotes. */
+export function mentionsOrchestrator(prompt) {
+  return /(^|\s)@orchestrator(?=$|\s|[.,!?;:)\]}])/i.test(prosePrompt(prompt));
+}
+
 export function formatChatMention(id) {
   return `@chat:${id}`;
 }
@@ -161,7 +168,7 @@ function fileTokens(prompt, files) {
       if (files(match[2])) tokens.push({ path: match[2], start, end: match.index + match[0].length });
       continue;
     }
-    if (/^chat:[1-9]\d*[.,!?;:)\]}]*$/.test(match[3]) || match[3].startsWith("computer:")) continue;
+    if (/^(chat:[1-9]\d*|orchestrator)[.,!?;:)\]}]*$/i.test(match[3]) || match[3].startsWith("computer:")) continue;
     let path = match[3];
     if (!files(path)) path = path.replace(TRAILING_PUNCTUATION, "");
     if (path && files(path)) tokens.push({ path, start, end: start + 1 + path.length });

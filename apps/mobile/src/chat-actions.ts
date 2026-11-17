@@ -42,6 +42,7 @@ export function chatMenu(
     {
       items: [
         { id: "rename", title: UI_COPY.renameChat, systemImage: "pencil" },
+        ...(!chat.archived ? [{ id: "fork", title: UI_COPY.forkChat, systemImage: "arrow.triangle.branch" }] : []),
         chat.unread ? { id: "read", title: "Mark as read", systemImage: "checkmark" } : { id: "unread", title: "Mark as unread", systemImage: "circle" },
       ],
     },
@@ -103,6 +104,11 @@ export async function runChatAction({
   expectActivity: () => void;
   notify: (message: string) => void;
 }) {
+  if (action === "fork") {
+    const result = await client.call<{ sessionId: number }>("chat:fork", [projectPath, chat.id, {}]);
+    await refresh();
+    return { forkedSessionId: result.sessionId };
+  }
   if (action === "archive" && !chat.archived) {
     if (link) {
       const done = startArchiving(`${projectPath}#${chat.id}`);

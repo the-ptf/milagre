@@ -1,0 +1,90 @@
+import { useEffect, useMemo, useState } from "react";
+import { chatPullRequests } from "@milagre/shared/chats";
+import type { OrchestratorTask } from "@milagre/shared/orchestrator";
+import { allComputers, useComputerViews } from "./all-computers";
+import { taskHost } from "./orchestrator-actions";
+import type { ProjectCopy } from "./all-computers-store";
+import { boardItem, boardCounts, pullRequestState, type BoardItem, type TaskChat } from "./orchestrator-board";
+import { useListSnapshot, useSession } from "./session";
+import { useChatPullRequests, type PullRequestTarget } from "./use-chat-pull-requests";
+
+type Joined = { task: OrchestratorTask; chat?: TaskChat; prPath?: string; prRefs: string[] };
+
+function join(task: OrchestratorTask, copy: ProjectCopy | undefined): Joined {
+  if (!copy || task.sessionId === null) return { task, prRefs: [] };
+  const chat = copy.project.state.sessions[task.sessionId];
+  if (!chat) return { task, prRefs: [] };
+  const run = copy.runs.runs[`${copy.project.path}#${chat.id}`];
+  const messages = copy.project.state.messages?.filter((message) => message.session_id === chat.id) ?? [];
+  return {
+    task,
+    chat: { chat, run, messages },
+    prPath: copy.project.state.worktrees[chat.worktree_id]?.path,
+    prRefs: chat.summary?.pullRequests ?? copy.project.pullRequestRefs?.[chat.id] ?? [],
+  };
+}
+
+function useNow(every: number) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), every);
+    return () => clearInterval(timer);
+  }, [every]);
+  return now;
+}
+
+/** The connected computer's tasks joined to their Chats, runs and PRs, as board cards. */
+export function useOrchestratorBoard(tasks: readonly OrchestratorTask[]) {
+  const session = useSession();
+  const snapshot = useListSnapshot();
+  const views = useComputerViews();
+  const hostId = session.client?.url;
+  const { cachedProject } = session;
+  const now = useNow(30000);
+  const joined = useMemo(
+    () =>
+      tasks.map((task) => {
+        const path = task.projectPath;
+        const at = taskHost(task, hostId, views);
+        const view = views.find((entry) => entry.hostId === at);
+        const here = at === hostId;
+        const copy =
+          !path || !at ? undefined : here && snapshot?.project.path === path ? snapshot : (view?.copies.get(path) ?? (here ? cachedProject(path) : undefined));
+        return { ...join(task, copy), at, ...(here ? {} : { prPath: undefined }) };
+      }),
+    [tasks, snapshot, views, hostId, cachedProject],
+  );
+  const missing = joined
+    .filter((entry) => entry.task.state === "started" && !entry.chat && entry.task.projectPath && entry.at)
+    .map((entry) => `${entry.at}\t${entry.task.projectPath}`);
+  const missingKey = [...new Set(missing)].sort().join("\n");
+  useEffect(() => {
+    if (!missingKey) return;
+    for (const line of missingKey.split("\n")) {
+      const [at = "", path = ""] = line.split("\t");
+      void allComputers.refreshProject(at, path).catch(() => {});
+    }
+  }, [missingKey]);
+  const targets = useMemo<PullRequestTarget[]>(() => {
+    const byPath = new Map<string, Set<string>>();
+    for (const entry of joined) {
+      if (!entry.prPath) continue;
+      const refs = byPath.get(entry.prPath) ?? new Set<string>();
+      for (const ref of entry.prRefs) refs.add(ref);
+      byPath.set(entry.prPath, refs);
+    }
+    return [...byPath].map(([path, refs]) => ({ path, refs: [...refs] }));
+  }, [joined]);
+  const status = useChatPullRequests(session.client, targets);
+  const items = useMemo<BoardItem[]>(
+    () =>
+      joined.map((entry) => {
+        const found = entry.prPath ? status[entry.prPath] : undefined;
+        const prs = found ? chatPullRequests(entry.prRefs, found.found, found.branch) : [];
+        return boardItem(entry.task, entry.chat, pullRequestState(prs.map((pr) => pr.state)), now);
+      }),
+    [joined, status, now],
+  );
+  const counts = useMemo(() => boardCounts(items), [items]);
+  return { items, counts };
+}

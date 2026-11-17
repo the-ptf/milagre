@@ -4,6 +4,7 @@ import { CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
 import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL } from "@milagre/shared/device-notes";
 import { LINEAR_HINT, LINEAR_MOVE_TO_STARTED_HINT, LINEAR_MOVE_TO_STARTED_TITLE, LINEAR_TITLE } from "@milagre/shared/linear";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
+import { IMPORT_INTRO, IMPORT_TITLE } from "@milagre/shared/ade-import";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import { searchSettings, type SettingsSearchEntry, type SettingsSearchHit } from "@milagre/shared/settings-search";
 import { DESIGN_SECTIONS, DESIGN_SYSTEM_GROUPS } from "./design-system-catalogue.ts";
@@ -32,6 +33,8 @@ export const SETTINGS_PAGES = {
   worktrees: { title: "Worktrees", needs: "computer" },
   connections: { title: "Integrations", needs: "computer" },
   "babysit-prs": { title: "Babysit PRs", needs: "computer" },
+  "orchestrator-settings": { title: "Orchestrator", needs: "computer" },
+  "orchestrator-memory": { title: "Orchestrator memory", needs: "computer" },
   "phone-sharing": { title: "Phone & sharing", needs: "computer" },
   simlock: { title: "Simlock devices", needs: "computer" },
   "this-mac": { title: "This computer", needs: "computer" },
@@ -322,6 +325,35 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   { page: "babysit-prs", title: "Reset all to defaults" },
 
   {
+    page: "orchestrator-settings",
+    title: "Turn on the Orchestrator",
+    keywords: "router one box route prompt project model account subchat board church",
+  },
+  { page: "orchestrator-settings", title: "Name", group: "Name", keywords: "rename orchestrator" },
+  { page: "orchestrator-settings", title: "Mascot color", group: "Mascot", keywords: "pebble avatar" },
+  {
+    page: "orchestrator-settings",
+    title: "Router model",
+    group: "Routing",
+    description: "Sends your prompt, your kept notes and the Project hints to this model's provider, on your account",
+  },
+  { page: "orchestrator-settings", title: "When no Project fits", group: "Routing", keywords: "ask me best guess" },
+  { page: "orchestrator-settings", title: "Account", group: "Routing", keywords: "least used today project's account limit" },
+  { page: "orchestrator-settings", title: "Use other computers", group: "Computers", keywords: "load balancing room cpu memory" },
+  { page: "orchestrator-settings", title: "Answer threads for me", group: "Autopilot", keywords: "autopilot ask me first off approvals questions" },
+  {
+    page: "orchestrator-settings",
+    title: "Time to veto",
+    group: "Autopilot",
+    description: "When it isn't sure, it waits this long before answering so you can step in",
+  },
+  { page: "orchestrator-memory", title: "Read again", group: "Memory", keywords: "import notes claude code codex antigravity kiro" },
+  { page: "orchestrator-memory", title: "Forget everything", group: "Memory", keywords: "memory notes reset" },
+  { page: "orchestrator-settings", title: "Keep Orchestrator Subchats out of the sidebar", group: "Board", keywords: "hide task chats" },
+  { page: "orchestrator-settings", title: "Notify me when a task needs me", group: "Board", keywords: "push alerts" },
+  { page: "orchestrator-settings", title: "Show the board", group: "Board", keywords: "collapse hide running needs you in review done" },
+
+  {
     page: "simlock",
     title: "Devices at once",
     group: "Limits",
@@ -362,6 +394,13 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     group: "Main branch",
     description: MAIN_SYNC_HINT,
     keywords: "git pull fast-forward main branch remote",
+  },
+  {
+    page: "worktrees",
+    title: IMPORT_TITLE,
+    group: "Add Project",
+    description: IMPORT_INTRO,
+    keywords: "import migrate t3 code paseo orca threads chats projects move switch",
   },
 
   {

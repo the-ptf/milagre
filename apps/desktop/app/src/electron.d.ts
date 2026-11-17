@@ -1,8 +1,18 @@
 import type { BranchPolicy, BranchPolicySettings } from "@milagre/shared/branch-policy";
 import type { IdleWorktrees, RemoveWorktree } from "@milagre/shared/storage";
+import type { ImportRequest, ImportResult, ImportScan } from "@milagre/shared/ade-import";
 import type { ContextSettings } from "@milagre/shared/context-settings";
 import type { AppUpdateState, HostUpdate } from "@milagre/shared/app-update";
 import type { BabysitSettings } from "@milagre/shared/babysit";
+import type {
+  OrchestratorComputer,
+  OrchestratorMemory,
+  OrchestratorMemoryNote,
+  OrchestratorProject,
+  OrchestratorSettings,
+  OrchestratorSnapshot,
+  OrchestratorTask,
+} from "@milagre/shared/orchestrator";
 import type { DoneSettings } from "@milagre/shared/done";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import type { KeybindingCommandId, KeybindingRule, KeybindingsState } from "@milagre/shared/keybindings";
@@ -418,6 +428,8 @@ export type MilagreBridge = {
   readComputerResources: (options?: { fresh?: boolean }) => Promise<ComputerResources>;
   /** Clean up worktrees: the worktrees Milagre made there that no Chat has used for 30 days or more, oldest first. */
   readIdleWorktrees: () => Promise<IdleWorktrees>;
+  scanImports: () => Promise<ImportScan>;
+  runImport: (request: ImportRequest) => Promise<ImportResult>;
   /**
    * Removes one of them with its Chats, checked again against `seen`; `force` discards unsaved work. Rejects when a Chat
    * on it runs or it changed since it was seen.
@@ -445,6 +457,23 @@ export type MilagreBridge = {
   saveBabysitSettings: (patch: Partial<BabysitSettings>) => Promise<BabysitSettings>;
   /** The settings changed, here or from another device. */
   onBabysitSettings: (callback: (value: BabysitSettings) => void) => () => void;
+  readOrchestrator: () => Promise<OrchestratorSnapshot>;
+  readOrchestratorProjects: () => Promise<OrchestratorProject[]>;
+  readOrchestratorComputers: () => Promise<OrchestratorComputer[]>;
+  saveOrchestratorSettings: (patch: Partial<OrchestratorSettings>) => Promise<OrchestratorSettings>;
+  sendToOrchestrator: (
+    prompt: string,
+    options?: { permissionMode?: PermissionMode; images?: { id: string; name: string; dataUrl: string }[] },
+  ) => Promise<OrchestratorTask>;
+  pickOrchestratorProject: (taskId: string, projectPath: string) => Promise<OrchestratorTask | null>;
+  showOrchestratorTaskInSidebar: (taskId: string, shown: boolean) => Promise<OrchestratorTask | null>;
+  undoOrchestratorTask: (taskId: string) => Promise<null>;
+  rerouteOrchestratorTask: (taskId: string, change: { projectPath?: string; role?: string }) => Promise<OrchestratorTask | null>;
+  dismissOrchestratorTask: (taskId: string) => Promise<null>;
+  importOrchestratorMemory: () => Promise<OrchestratorMemory>;
+  saveOrchestratorMemory: (notes: OrchestratorMemoryNote[]) => Promise<OrchestratorMemory>;
+  forgetOrchestratorMemory: () => Promise<OrchestratorMemory>;
+  onOrchestrator: (callback: (value: OrchestratorSnapshot) => void) => () => void;
   /** Settings › Chats: how long a Chat stays in the Done list before the host archives it. Kept by the host. */
   readDoneSettings: () => Promise<DoneSettings>;
   /** Merges the patch over the stored settings and returns the normalized result. */
@@ -710,9 +739,14 @@ export type MilagreBridge = {
     accountId: string,
   ) => Promise<{ continued: boolean; label: string }>;
   patchChat: (projectPath: string, sessionId: number, patch: SessionPatch) => Promise<void>;
+  forkChat: (projectPath: string, sessionId: number, options?: { messageId?: number }) => Promise<{ sessionId: number }>;
   deleteChat: (projectPath: string, sessionId: number) => Promise<void>;
   /** "Detach from parent": a subchat lists on its own again, and its open Delegations stop reporting back. */
   detachChat: (projectPath: string, sessionId: number) => Promise<string>;
+  askBtw: (request: import("@milagre/shared/model").BtwRequest) => Promise<import("@milagre/shared/model").BtwState>;
+  stopBtw: (chatId: string, options?: { clear?: boolean }) => Promise<import("@milagre/shared/model").BtwState | null>;
+  readBtw: (chatId: string) => Promise<import("@milagre/shared/model").BtwState | null>;
+  onBtwEvent: (callback: (payload: { chatId: string; btw: import("@milagre/shared/model").BtwState | null }) => void) => () => void;
   /** Archives one of a chat's subagents, or brings it back; the provider carries on either way. */
   archiveSubagent: (projectPath: string, sessionId: number, id: string, archived: boolean) => Promise<void>;
   archiveFinishedSubagents: (projectPath: string, sessionId: number) => Promise<void>;

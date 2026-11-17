@@ -242,7 +242,7 @@ function spawnLogged(command, args, { cwd, env, logFile }) {
 // The agent's own shell carries variables (ELECTRON_RUN_AS_NODE, CLAUDE_CODE_* messaging sockets, CLAUDECODE) that
 // would turn Electron into Node or tie the copy's agents to the calling session. Start from a clean environment.
 function cleanEnv(extra) {
-  const keep = ["HOME", "USER", "LOGNAME", "SHELL", "PATH", "LANG", "LC_ALL", "TMPDIR", "TERM", "DEVELOPER_DIR"];
+  const keep = ["HOME", "USER", "LOGNAME", "SHELL", "PATH", "LANG", "LC_ALL", "TMPDIR", "TERM", "DEVELOPER_DIR", "T3CODE_HOME", "PASEO_HOME"];
   const env = {};
   for (const key of keep) if (process.env[key] !== undefined) env[key] = process.env[key];
   return { ...env, DO_NOT_TRACK: "1", ...extra };

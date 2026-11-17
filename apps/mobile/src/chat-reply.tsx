@@ -1,4 +1,7 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { TranscriptDivider } from "./ui";
+import { GitForkIcon } from "@hugeicons/core-free-icons";
+import { MessageToolbar } from "./message-toolbar";
+import { memo, useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
 import { Image, Pressable, Text, View, type ViewInstance } from "react-native";
 import { activityDuration, stepDisplayTitle, waitingStepIds } from "@milagre/shared/tool-activity";
 import { useDisplayValue } from "./display-clock";
@@ -23,6 +26,8 @@ import { Markdown } from "./markdown";
 import { MessageActions, messageActionProps, selectableMessageText } from "./message-actions";
 import { SentQuote } from "./quote-chips";
 import { Icon } from "./icons";
+import { isOrchestratorAnswer } from "@milagre/shared/orchestrator";
+import { OrchestratorAnswerLine } from "./orchestrator-answer-line";
 import { ActivityTitle } from "./activity-item";
 import { ToolRow } from "./tool-row";
 import { ArtifactCards, DesignFeedbackCard } from "./artifact";
@@ -269,41 +274,7 @@ function openMention(path: string, attached: string[], root: string) {
 
 export type ReplyChat = Pick<MentionChat, "id" | "title" | "available">;
 const NO_MENTION_CHATS: readonly ReplyChat[] = [];
-export const ChatReply = memo(function ChatReply({
-  chats = NO_MENTION_CHATS,
-  message,
-  run,
-  onActivity,
-  media,
-  basePath,
-  chatId,
-  designChoice,
-  designsMoved,
-  limitProjectPath,
-  limitPending,
-  limitResumeBlocked,
-  limitResumeAvailable,
-  highlighted = false,
-  onOpenChat,
-}: {
-  chats?: readonly ReplyChat[];
-  message?: ChatMessage;
-  onOpenChat?: (chatKey: string) => void;
-  highlighted?: boolean;
-  run?: AgentRun;
-  onActivity: (message: string, stepId?: string) => void;
-  media: MediaSource;
-  basePath?: string;
-  chatId?: string;
-  designChoice?: string;
-  designsMoved?: number;
-  limitProjectPath?: string;
-  limitPending?: LimitResume;
-  limitResumeBlocked?: boolean;
-  limitResumeAvailable?: boolean;
-}) {
-  const { colors, textPx } = useTheme();
-  const styles = useStyles();
+function useUserPrompt(message: ChatMessage | undefined, run: AgentRun | undefined, basePath: string | undefined, chats: readonly ReplyChat[]) {
   const skillNames = useSkillNames(message?.role === "user" ? basePath : undefined);
   const userQuoted = useMemo(() => splitQuotes(message?.role === "user" ? (run?.text ?? message.body ?? "") : ""), [message?.role, run?.text, message?.body]);
   const userText = userQuoted.text;
@@ -320,6 +291,47 @@ export const ChatReply = memo(function ChatReply({
       }),
     [userText, skillNames, userFiles, basePath, userImages, chats],
   );
+  return { userQuoted, userText, userImages, userParts };
+}
+
+export const ChatReply = memo(function ChatReply({
+  chats = NO_MENTION_CHATS,
+  message,
+  run,
+  onActivity,
+  media,
+  basePath,
+  chatId,
+  designChoice,
+  designsMoved,
+  limitProjectPath,
+  limitPending,
+  limitResumeBlocked,
+  limitResumeAvailable,
+  highlighted = false,
+  onOpenChat,
+  onFork,
+}: {
+  chats?: readonly ReplyChat[];
+  message?: ChatMessage;
+  onOpenChat?: (chatKey: string) => void;
+  onFork?: (messageId: number) => void;
+  highlighted?: boolean;
+  run?: AgentRun;
+  onActivity: (message: string, stepId?: string) => void;
+  media: MediaSource;
+  basePath?: string;
+  chatId?: string;
+  designChoice?: string;
+  designsMoved?: number;
+  limitProjectPath?: string;
+  limitPending?: LimitResume;
+  limitResumeBlocked?: boolean;
+  limitResumeAvailable?: boolean;
+}) {
+  const { colors, textPx } = useTheme();
+  const styles = useStyles();
+  const { userQuoted, userText, userImages, userParts } = useUserPrompt(message, run, basePath, chats);
   const [toolCallDisplay] = useToolCallDisplay();
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
   const openActivity = (stepId?: string) => onActivity(message ? String(message.id) : "run", stepId);
@@ -336,6 +348,10 @@ export const ChatReply = memo(function ChatReply({
   const limit = !run && message?.role === "assistant" ? usageLimitOf(message) : null;
   const advisor = typeof message?.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
   const linked = linkedContext(message);
+  if (typeof message?.context === "object" && message.context?.kind === "chat-fork") {
+    const context = message.context;
+    return <TranscriptDivider icon={GitForkIcon} label={`Forked from ${context.title}`} onPress={() => onOpenChat?.(context.from)} />;
+  }
   if (advisor)
     return (
       <View style={{ paddingVertical: 8 }}>
@@ -454,6 +470,7 @@ export const ChatReply = memo(function ChatReply({
             </MessageActions>
           )
         )}
+        <MessageToolbar text={userText} message={message} onFork={onFork} align="end" />
       </View>
     );
   }
@@ -528,6 +545,7 @@ export const ChatReply = memo(function ChatReply({
           }
         </MessageActions>
       )}
+      <MessageToolbar text={reply.answer} message={message} run={run} onFork={onFork} />
       {heartbeats.map((step) => (
         <HeartbeatCard key={step.id} step={step} />
       ))}
@@ -555,5 +573,15 @@ export const ChatReply = memo(function ChatReply({
       {!run && !limit && message?.outcome === "failed" && <InlineError message="The turn failed. Review the response before trying again." />}
       {!run && !text && !allSteps.length && !message?.outcome && <Text style={styles.muted}>No text response</Text>}
     </View>
+  );
+});
+
+/** A Chat's reply row: the reply, or the one-line Pebble note autopilot leaves when it answers for the owner. */
+export const ChatRow = memo(function ChatRow(props: ComponentProps<typeof ChatReply>) {
+  const { message } = props;
+  return message && isOrchestratorAnswer(message) ? (
+    <OrchestratorAnswerLine summaries={message.context.summaries ?? [message.context.summary]} />
+  ) : (
+    <ChatReply {...props} />
   );
 });

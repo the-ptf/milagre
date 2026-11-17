@@ -1,4 +1,4 @@
-import { isHiddenRunChat } from "@milagre/shared/chats";
+import { isHiddenRunChat, isHiddenTaskChat } from "@milagre/shared/chats";
 import type { CoordinatorState, LinkState, LinkedWork } from "../model";
 import type { RunStatuses } from "./agent-runs.ts";
 
@@ -25,7 +25,9 @@ export function activeChatKeys(runs: RunStatuses, work: LinkedWork, states: Reco
       if (session.unread && !session.archived) keys.add(key);
     }
   const waiting = (key: string) => Boolean(runs[key]?.approvals.length || runs[key]?.questions.length);
-  return [...keys].filter((key) => !key.startsWith("milagre-link:") && !isHiddenRunChat(sessions.get(key), waiting(key)));
+  return [...keys].filter(
+    (key) => !key.startsWith("milagre-link:") && !isHiddenRunChat(sessions.get(key), waiting(key)) && !isHiddenTaskChat(sessions.get(key)),
+  );
 }
 
 export const draftTileKey = (projectPath: string) => `${projectPath}#0`;

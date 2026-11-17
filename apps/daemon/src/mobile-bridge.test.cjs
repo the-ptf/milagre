@@ -1268,6 +1268,11 @@ test("a live socket signals runs and state changes of its Project only, and /run
   assert.equal(mine.messages[3], "project");
   assert.ok(Date.now() - started < 400, "a turn's end is not held back like other Project changes");
   assert.deepEqual((await (await request("/runs?projectPath=" + encodeURIComponent(project))).json()).result.runs, {});
+  assert.equal((await rpc("chat:btw", [{ chatId: `${project}#${chat}`, prompt: "A side question", provider: "codex", model: "m" }])).status, 200);
+  await until(() => mine.messages.includes("btw"));
+  assert.equal(theirs.messages.includes("btw"), false);
+  await rpc("chat:btw-stop", [`${project}#${chat}`, { clear: true }]);
+  assert.deepEqual((await (await request("/runs?projectPath=" + encodeURIComponent(project))).json()).result.runs, {});
 });
 
 test("live sockets are pinged, capped, and the oldest gives way to a new one", async (t) => {
@@ -1663,6 +1668,15 @@ test("Routines changes reach every phone as a routines signal, Settings included
   assert.equal((await rpc("routines:create", [routine])).status, 200);
   await until(() => projectPhone.messages.includes("routines") && settingsPhone.messages.includes("routines"));
   assert.equal(settingsPhone.messages.filter((type) => type === "routines").length, 1);
+});
+
+test("Orchestrator changes reach every live phone as an orchestrator signal", async (t) => {
+  const { project, bridge, rpc, token } = await fixture(t);
+  const auth = { authorization: `Bearer ${token}` };
+  const projectPhone = await openLive(bridge, project, auth);
+  const settingsPhone = await openLive(bridge, "", auth);
+  assert.equal((await rpc("orchestrator:settings:save", [{ enabled: true }])).status, 200);
+  await until(() => projectPhone.messages.includes("orchestrator") && settingsPhone.messages.includes("orchestrator"));
 });
 
 test("a Link made or removed on the computer tells live phones to read the Links again", async (t) => {

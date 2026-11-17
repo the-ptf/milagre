@@ -4,6 +4,8 @@ import { router, useLocalSearchParams } from "expo-router";
 import { ArrowLeft01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { BACKGROUND_ITEM_LABELS, backgroundItems, type BackgroundItem } from "@milagre/shared/chat-activity";
 import type { Subagent } from "@milagre/shared/model";
+import { qaFleetFirst, qaPersona, qaPersonaMood } from "@milagre/shared/qa-personas";
+import { PersonaAvatar } from "../persona-avatar";
 import { useChatPorts } from "../ports";
 import { useSession } from "../session";
 import { WholeSubagentDetail } from "../subagent-glance";
@@ -18,7 +20,9 @@ export default function BackgroundSheet() {
   const chat = project?.state.sessions[Number(id)];
   const chatKey = `${project?.path}#${id}`;
   const { ports } = useChatPorts(project ? session.client : null, chatKey);
-  const items = backgroundItems(chat, ports);
+  const listed = backgroundItems(chat, ports);
+  const { fleet, others } = qaFleetFirst(listed.map((item) => ({ ...item, agentType: item.agent?.agentType })));
+  const items = [...fleet, ...others];
   const [selection, setSelected] = useState<(BackgroundItem & { chatKey: string }) | null>(null);
   const selected = selection?.chatKey === chatKey ? selection : null;
   const current = items.find((item) => item.type === selected?.type && item.id === selected.id);
@@ -51,14 +55,18 @@ export default function BackgroundSheet() {
         ) : (
           <>
             {!items.length && <EmptyState title="No background tasks running" />}
-            {items.map((item) => (
-              <ListRow
-                key={`${item.type}:${item.id}`}
-                title={item.title}
-                subtitle={`${BACKGROUND_ITEM_LABELS[item.type]} · Running`}
-                onPress={() => setSelected({ ...item, chatKey })}
-              />
-            ))}
+            {items.map((item) => {
+              const persona = item.agent && qaPersona(item.agent);
+              return (
+                <ListRow
+                  key={`${item.type}:${item.id}`}
+                  title={persona ? persona.name : item.title}
+                  subtitle={`${persona ? "QA fleet" : BACKGROUND_ITEM_LABELS[item.type]} · Running`}
+                  leading={persona && item.agent ? <PersonaAvatar persona={persona} size={28} mood={qaPersonaMood(item.agent)} /> : undefined}
+                  onPress={() => setSelected({ ...item, chatKey })}
+                />
+              );
+            })}
           </>
         )}
       </View>

@@ -173,6 +173,7 @@ const SELF_GATED_TOOLS = [
   "request_secret",
   "report_milagre_bug",
   "project_add",
+  "import_run",
   "worktree_link",
   "worktree_remove",
   "chat_set_mode",

@@ -1,3 +1,5 @@
+import { requestSideQuestion } from "./chat-branch-events";
+import { bridgeForKey } from "./computer-bridge";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { UI_COPY } from "@milagre/shared/model-copy";
 import type { SettingsSection } from "../components/Settings";
@@ -8,6 +10,8 @@ import type { Command } from "./commands";
 import type { RecentProject } from "./project-list";
 import { getSettings, updateSettings } from "./settings";
 import { settingsCommands, settingsPageCommands } from "./settings-commands";
+import { orchestratorEnabled } from "./orchestrator-store";
+import type { AppView } from "./run-pane";
 
 type Run = void | Promise<unknown>;
 
@@ -17,6 +21,7 @@ type AppCommandActions = {
   openProject: () => Run;
   openCanvas: () => void;
   openRoutines: () => void;
+  openOrchestrator: () => void;
   openUsage: () => void;
   openStorage: () => void;
   startTriage: () => Run;
@@ -41,7 +46,7 @@ export type AppCommandContext = {
   current: OpenProject;
   terminalChatId: string | null;
   projectSettings: boolean;
-  view: "chat" | "canvas" | "routines";
+  view: AppView;
   settingsOpen: boolean;
   layout: ChatLayout;
   selectedSession: AgentSession | undefined;
@@ -105,6 +110,18 @@ function actionCommands(ctx: AppCommandContext): Command[] {
       keywords: "heartbeats triggers schedule linear webhook automations",
       run: actions.openRoutines,
     },
+    ...(orchestratorEnabled()
+      ? [
+          {
+            id: "orchestrator",
+            label: "Orchestrator",
+            group: "Actions",
+            icon: "orchestrator" as const,
+            keywords: "board tasks route mascot box",
+            run: actions.openOrchestrator,
+          },
+        ]
+      : []),
     {
       id: "usage",
       label: "Token usage",
@@ -227,6 +244,25 @@ function currentChatCommands(ctx: AppCommandContext, session: AgentSession): Com
       group: UI_COPY.currentChat,
       icon: "unread",
       run: () => actions.setUnread(sessionId, !session.unread),
+    },
+    {
+      id: "btw",
+      label: "Ask a side question",
+      group: UI_COPY.currentChat,
+      icon: "message",
+      keywords: "btw ephemeral side question",
+      run: () => requestSideQuestion(`${ctx.current.path}#${sessionId}`),
+    },
+    {
+      id: "fork",
+      label: UI_COPY.forkChat,
+      group: UI_COPY.currentChat,
+      icon: "git",
+      keywords: "branch duplicate clone copy conversation",
+      run: async () => {
+        const result = await bridgeForKey(ctx.current.path).forkChat(ctx.current.path, sessionId);
+        actions.openChat(result.sessionId);
+      },
     },
     {
       id: "reload",

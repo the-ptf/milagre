@@ -15,6 +15,7 @@ export const KEYBINDING_COMMANDS = Object.freeze([
   { id: "sidebar.toggle", title: "Show or hide the sidebar", group: "Navigation", defaults: ["mod+b"], mobile: true },
   { id: "canvas.open", title: "Open the canvas", group: "Navigation", defaults: ["mod+shift+l"], forward: true },
   { id: "usage.open", title: "Open token usage", group: "Navigation", defaults: ["mod+shift+u"], forward: true },
+  { id: "orchestrator.open", title: "Open the Orchestrator box", group: "Navigation", defaults: ["mod+shift+space"], forward: true },
   { id: "grid.focusPrevious", title: "Previous Chat in the grid", group: "Navigation", defaults: ["mod+alt+arrowleft"] },
   { id: "grid.focusNext", title: "Next Chat in the grid", group: "Navigation", defaults: ["mod+alt+arrowright"] },
   { id: "chat.parent", title: "Open the parent Chat", group: "Navigation", defaults: ["mod+["], mobile: true },

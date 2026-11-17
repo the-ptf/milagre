@@ -423,6 +423,7 @@ type ChatComposerDockProps = {
   undo: CheckpointReview;
   undoIntent: UndoIntent;
   onOpenUndoFile?: Parameters<typeof UndoPanel>[0]["onOpenFile"];
+  btw?: ReactNode;
   start: boolean;
   trayTarget: OfflineTrayTarget;
   tray: ReactNode;
@@ -479,6 +480,7 @@ export function ChatComposerDock({ onRoom, onHeight, column, padding, ...props }
           />
         </View>
       )}
+      {props.btw}
       {props.undo.view !== "closed" && chat ? (
         <UndoPanel readOnly={!!chat.readOnlyReason} review={props.undo} intent={props.undoIntent} onOpenFile={props.onOpenUndoFile} />
       ) : (

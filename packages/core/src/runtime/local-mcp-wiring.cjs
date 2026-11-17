@@ -40,6 +40,7 @@ function createLocalMcpWiring({
 }) {
   const designAdapter = path.join(__dirname, "..", "design-mcp-tools.cjs");
   const localMcpHost = require("../local-mcp-host.cjs").createLocalMcpHost({
+    invoke: (channel, args) => handlers.get(channel)(null, ...args),
     projects: async () => [...withoutHomes(await projectRegistry().list()), ...(await chatsHomeEntries())],
     readProject,
     scopeStates,
@@ -67,6 +68,10 @@ function createLocalMcpWiring({
       await openProject(folder, { takeNotice: false, focus: false });
       emit("local-mcp:changed", { projectAdded: true });
     },
+    imports: {
+      scan: () => handlers.get("import:scan")(null),
+      run: (request) => handlers.get("import:run")(null, request),
+    },
     validateDesignChat: async (chatId) => {
       const scope = projectOfKey(chatId);
       if (!isLinkScopeKey(scope)) {
@@ -77,6 +82,13 @@ function createLocalMcpWiring({
       await existingChat("connecting Designs")(chatId);
     },
   });
+  Object.assign(
+    localMcpHost,
+    require("../orchestrator/mcp.cjs").orchestratorMcpMethods({
+      send: (prompt) => handlers.get("orchestrator:send")(null, prompt),
+      read: () => handlers.get("orchestrator:read")(null),
+    }),
+  );
   const localMcp = require("../local-mcp.cjs").createLocalMcp({
     dataDir,
     emit,

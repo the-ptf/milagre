@@ -355,7 +355,7 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
     setError("");
     clearArchiveNotice();
     try {
-      await runChatAction({
+      const result = await runChatAction({
         action,
         chat,
         running: !!copy.runs.runs[`${copy.project.path}#${chat.id}`],
@@ -379,6 +379,9 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
         expectActivity: session.expectActivity,
         notify: showArchiveNotice,
       });
+      if (result && typeof result === "object" && result.forkedSessionId && alive.current) {
+        onNavigate({ pathname: "/chat", params: { projectPath, hostId, id: String(result.forkedSessionId) } });
+      }
       if (action === "done" && docked && isCurrent && projectPath === currentPath && chat.id === activeChatId && alive.current)
         onNavigate({ pathname: "/chat", params: { projectPath, hostId } });
     } catch (e) {

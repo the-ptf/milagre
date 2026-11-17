@@ -1,4 +1,6 @@
 const { z } = require("zod");
+const { importTools } = require("./local-mcp-import.cjs");
+const { orchestratorTools } = require("./orchestrator/mcp.cjs");
 const projectInput = { projectPath: z.string().min(1).max(8192) };
 const requestId = z.string().min(1).max(128);
 const permissionMode = z.enum(["ask", "auto", "full"]);
@@ -90,6 +92,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
             { ...projectInput, provider: z.enum(["claude", "codex", "antigravity", "kiro"]), accountId: z.string().min(1).max(128).nullable() },
             (args) => host.setProjectAccount(args, assertActive),
           ),
+          ...orchestratorTools({ read, act, host, assertActive }),
           read(
             "project_list",
             "List Projects in Milagre (with inScope for this Chat, or only the Projects granted to an outside connection).",
@@ -102,6 +105,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
               return all.filter((item) => inProjectScope(activeScope, item.path)).map(({ id: projectId, path, name }) => ({ id: projectId, path, name }));
             },
           ),
+          ...importTools({ importer: host.importer, caller, assertActive, grant: (granted) => grantChatProject(caller, granted) }),
           {
             name: "project_add",
             description:
@@ -170,6 +174,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
         ];
       const chatInput = { ...projectInput, chatId: z.string().min(1).max(8192) };
       return [
+        ...require("./chat-branch-tools.cjs").createChatBranchTools({ host, chatInput, read, act, mutate }),
         read(
           "chat_list",
           "List Chats and current progress in an allowed Project.",

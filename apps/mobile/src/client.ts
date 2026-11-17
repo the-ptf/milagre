@@ -88,6 +88,8 @@ const LONG_CALLS = new Set([
   "worktree:remove",
   "storage:worktrees",
   "storage:remove-worktree",
+  "import:scan",
+  "import:run",
   "link:send",
   "link:open",
   "agent:update-cli",

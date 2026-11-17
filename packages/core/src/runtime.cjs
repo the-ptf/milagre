@@ -1,3 +1,4 @@
+const { hold } = require("./runtime/tracked-work.cjs");
 const { chatMentionsContext } = require("./chat-mentions.cjs");
 const { computerMentionsContext } = require("./computer-mentions.cjs");
 const { createLinkStore } = require("./link-store.cjs");
@@ -53,6 +54,7 @@ const { createAdvisorsWiring } = require("./runtime/advisors-wiring.cjs");
 const { createFiles } = require("./runtime/files.cjs");
 const { createAccountsWiring, registerAccountScopes } = require("./runtime/accounts-wiring.cjs");
 const { createUsage, registerTokenUsage } = require("./runtime/usage.cjs");
+const { registerOrchestrator } = require("./runtime/orchestrator-wiring.cjs");
 const { retireRunWorktree } = require("./routines/run-worktree.cjs");
 const { background: inBackgroundLane } = require("./process-lanes.cjs");
 const { emptyState, reconcileState, markDisconnectedSubagents, withWorktreeBases } = require("./project-state.cjs");
@@ -75,7 +77,7 @@ const { createSnoozeSweep } = require("./snooze-sweep.cjs");
 const { wakesSnoozed } = require("@milagre/shared/snooze");
 const { createBabysitWatch } = require("./babysit-watch.cjs");
 const HOOK_RELAY_URL = "wss://relay.milagre.cloud";
-const { chatTitle, isHiddenRunChat } = require("@milagre/shared/chats");
+const { chatTitle, isHiddenRunChat, isHiddenTaskChat } = require("@milagre/shared/chats");
 const ROUTINE_TARGET_CHATS = 50;
 
 const { createFileSearch } = require("./project-files.cjs");
@@ -103,6 +105,7 @@ function createRuntime(options) {
   let needsUserCount = 0;
   const NEEDS_USER_CHATS = 500;
   let closing = false;
+  let btw;
   let advisors;
   let advisorDelivery;
   const chatsHome = createChatsHome({ root: options.chatsHome ?? path.join(require("node:os").homedir(), ".milagre", "chats") });
@@ -110,14 +113,6 @@ function createRuntime(options) {
   const chatsHomeEntries = async () => ((await chatsHome.exists()) ? [{ path: chatsHome.path, name: projectName(chatsHome.path), kind: "chats" }] : []);
   function track(work, set = active) {
     return hold(Promise.resolve().then(work), set);
-  }
-  function hold(task, set) {
-    set.add(task);
-    task.then(
-      () => set.delete(task),
-      () => set.delete(task),
-    );
-    return task;
   }
   function accept(work) {
     if (closing) return Promise.reject(new Error("Milagre runtime is closing"));
@@ -321,8 +316,7 @@ function createRuntime(options) {
   }
 
   async function editProject(projectPath, change, options) {
-    const result = await scopeStates.update(projectPath, change, options);
-    if (result.changed) broadcastProjectState(projectPath, result.state);
+    await updateProject(projectPath, change, options);
     await scopeStates.flush(projectPath);
   }
 
@@ -431,6 +425,7 @@ function createRuntime(options) {
   let limitResume = null;
   let routines = null;
   let babysitWatch = null;
+  let autopilot = null;
   let chatSecrets = null;
   let bugReports = null;
   let subchatEscalation = null;
@@ -443,8 +438,7 @@ function createRuntime(options) {
       emit("agent:event", { chatId, event, ...(state ? { state: scopeStates.withPersistence(projectOfKey(chatId), state) } : {}), ...(seq ? { seq } : {}) });
       return;
     }
-    routines?.observe(chatId, event);
-    babysitWatch?.observe(chatId, event);
+    for (const watcher of [routines, babysitWatch, autopilot]) watcher?.observe(chatId, event);
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type))
       void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type)) {
@@ -530,20 +524,14 @@ function createRuntime(options) {
   commands.handle("agent:stop-port", (_event, chatId, pid) => (typeof chatId === "string" && Number.isInteger(pid) ? ports.stopPort(chatId, pid) : false));
 
   const agentNotes = new Map();
-  const deviceNotes = require("./design-settings.cjs").createDesignSettings(path.join(dataDir, "device-notes.json"), { name: "Device notes", missing: false });
+  const deviceNotes = require("./runtime/device-notes.cjs").registerDeviceNotes({ commands, dataDir, emit });
   const sentFromNotes = createSentFromNotes({ enabled: () => deviceNotes.enabled() });
   const turnDefaults = require("./turn-defaults.cjs").createTurnDefaults({ file: path.join(dataDir, "turn-defaults.json") });
-  commands.handle("device-notes:read", () => ({ enabled: deviceNotes.enabled() }));
-  commands.handle("device-notes:save", (_event, value) => {
-    const result = deviceNotes.save(value);
-    emit("device-notes:changed", result);
-    return result;
-  });
   async function startAgentTurn(request) {
     const cancelled = () =>
       closing ||
       (request.canStart && !request.canStart()) ||
-      (request.expectedAccountId !== undefined && accounts.selected(request.provider, projectOfKey(request.chatId)) !== request.expectedAccountId);
+      (request.expectedAccountId !== undefined && taskAccounts.selected(request.chatId, request.provider) !== request.expectedAccountId);
     if (cancelled()) return { turnId: null, steered: false, cancelled: true };
     const permissionMode = request.permissionMode ?? agents.permissionMode(request.chatId, "ask");
     if (permissionMode !== "full") await advisors?.stopExecution(request.chatId);
@@ -552,7 +540,7 @@ function createRuntime(options) {
     const images = decodeImages(request.images);
     const prompt =
       options.expandSkills === false ? request.prompt : await expandSkillPrompt(await folderSkillRoots(request.cwd).catch(() => request.cwd), request.prompt);
-    const cli = agents.activeAccount(request.chatId, request.provider) ?? (await agentCli(request.provider, projectOfKey(request.chatId)));
+    const cli = agents.activeAccount(request.chatId, request.provider) ?? (await taskAccounts.cli(request.chatId, request.provider));
     if (cancelled() || (request.expectedAccountId !== undefined && cli.accountId !== request.expectedAccountId))
       return { turnId: null, steered: false, cancelled: true };
     if (cli.problem) {
@@ -942,7 +930,7 @@ function createRuntime(options) {
         projects.map(async (project) => {
           const state = await Promise.resolve(projectStateReadOnly(project.path)).catch(() => null);
           const chats = Object.values(state?.sessions ?? {})
-            .filter((session) => !session.archived && !isHiddenRunChat(session) && (session.summary?.count ?? 0) > 0)
+            .filter((session) => !session.archived && !isHiddenRunChat(session) && !isHiddenTaskChat(session) && (session.summary?.count ?? 0) > 0)
             .toSorted((a, b) => (b.summary?.lastAt ?? 0) - (a.summary?.lastAt ?? 0) || b.id - a.id)
             .slice(0, ROUTINE_TARGET_CHATS)
             .map((session) => ({ chatId: chatKey(project.path, session.id), title: chatTitle(session), lastAt: session.summary?.lastAt ?? 0 }));
@@ -1079,6 +1067,7 @@ function createRuntime(options) {
     pageComments,
     advisorDelivery: () => advisorDelivery,
     advisors: () => advisors,
+    btw: () => btw,
     bugReports: () => bugReports,
     canvasChatModes: () => canvasChatModes,
     chatSecrets: () => chatSecrets,
@@ -1367,6 +1356,7 @@ function createRuntime(options) {
     simulatorToolDefinitions,
     isClosing: () => closing,
   });
+  btw = require("./runtime/btw-wiring.cjs").createBtwWiring({ commands, existingChat, scopeStates, chats, agents, routing, linked, turnDefaults, emit });
   const { advisorStore } = advisorServices;
   ({ advisorDelivery, advisors } = advisorServices);
   const linkWorkspaces = createLinkWorkspaces({
@@ -1501,6 +1491,7 @@ function createRuntime(options) {
   });
   ({ limitSwitch, limitResume } = limits);
   const withoutHomes = (list) => list.filter((project) => !chatsHome.isHome(project.path));
+  require("./runtime/ade-import.cjs").registerAdeImport({ commands, emit, openProject, editProject, projectRegistry, projectStateReadOnly, options });
   const { projectOrigin, addLink, removeLink, canvasChatModes, assertRegistrableProject } = registerProjects({
     options,
     dataDir,
@@ -1618,6 +1609,7 @@ function createRuntime(options) {
   shutdown.close(() => routinesStopped);
   shutdown.close(() => limitResumeStopped);
   shutdown.close(() => localMcp.close());
+  shutdown.close(() => btw.close());
   shutdown.close(() => advisorServices.close());
   shutdown.close(() => toolServices.close());
   shutdown.close(() => linear.dispose());
@@ -1652,6 +1644,11 @@ function createRuntime(options) {
     for (const owner of repositoryOwners.values()) owner.release();
     dataOwner.release();
   });
+  const { taskAccounts, autopilot: orchestratorAutopilot } = registerOrchestrator(
+    { commands, dataDir, emit, chats, states, accounts, routing, agentCli, version },
+    { projectRegistry, projectName, updateProject, defaultProjectBase, stopChat, archiveChat, respondPermission, answerQuestion, remote, git },
+  );
+  autopilot = orchestratorAutopilot;
   const close = () => shutdown.run();
 
   return {

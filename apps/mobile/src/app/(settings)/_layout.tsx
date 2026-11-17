@@ -37,6 +37,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="voice" options={{ title: "Voice" }} />
       <Stack.Screen name="models" options={{ title: "Models" }} />
       <Stack.Screen name="worktrees" options={{ title: "Worktrees" }} />
+      <Stack.Screen name="import" options={{ title: "Import from another app" }} />
       <Stack.Screen name="phone-sharing" options={{ title: "Phone & sharing" }} />
       <Stack.Screen name="this-mac" options={{ title: "This computer" }} />
       <Stack.Screen name="dictation-language" options={{ title: "Dictation language" }} />
@@ -52,6 +53,8 @@ export default function SettingsLayout() {
       <Stack.Screen name="mcp-server" />
       <Stack.Screen name="experimental" options={{ title: "Church" }} />
       <Stack.Screen name="babysit-prs" options={{ title: "Babysit PRs" }} />
+      <Stack.Screen name="orchestrator-settings" options={{ title: "Orchestrator" }} />
+      <Stack.Screen name="orchestrator-memory" options={{ title: "Memory" }} />
       <Stack.Screen name="simlock" options={{ title: "Simlock devices" }} />
       <Stack.Screen name="computer-use" options={{ title: "Computer use" }} />
       <Stack.Screen name="project-settings" options={{ title: "Project" }} />

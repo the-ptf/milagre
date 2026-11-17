@@ -5,7 +5,7 @@ const path = require("node:path");
 const { projectOfKey, sessionIdFromKey, lastUserModel } = require("@milagre/shared/agent-runs");
 const { IMAGE_TYPES } = require("@milagre/shared/limits");
 const { chatActivity } = require("@milagre/shared/chat-activity");
-const { queueStatus } = require("@milagre/shared/queued-messages");
+const { queue } = require("./chat-branch-tools.cjs");
 const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
 const { callerMode: asCaller, raisesMode } = require("./agents/permissions.cjs");
 const { inspectProject } = require("./project-identity.cjs");
@@ -57,6 +57,7 @@ function attachmentPrompt(body, files) {
 }
 
 function createLocalMcpHost({
+  invoke,
   projects,
   readProject,
   scopeStates,
@@ -68,9 +69,7 @@ function createLocalMcpHost({
   setPermissionMode,
   respondPermission,
   answerQuestion,
-  suggestAnswer = async () => {
-    throw Error("Suggestions are unavailable");
-  },
+  suggestAnswer = () => Promise.reject(Error("Suggestions are unavailable")),
   patchChat,
   searchChats,
   links,
@@ -81,10 +80,9 @@ function createLocalMcpHost({
   assignProjectAccount,
   worktreeStatus,
   removeWorktree,
-  registerProject = async () => {
-    throw Error("Adding Projects is unavailable");
-  },
+  registerProject = () => Promise.reject(Error("Adding Projects is unavailable")),
   assertRegistrableProject = async () => {},
+  imports,
 }) {
   const validateProject = async (projectPath) => {
     if (!(await projects()).some((project) => project.path === projectPath) || realpathSync(projectPath) !== projectPath)
@@ -119,15 +117,6 @@ function createLocalMcpHost({
       queued: session.queued?.length ?? 0,
     };
   };
-  const queue = (chatId, session) =>
-    session.queued?.length
-      ? {
-          queue: {
-            status: queueStatus({ count: session.queued.length, held: Boolean(session.queueHeld), running: Boolean(chats.runs[chatId]) }),
-            messages: session.queued.map(({ id, body, provider, model, queuedAt }) => ({ id, body, provider, model, queuedAt })),
-          },
-        }
-      : {};
   const savedMode = async (caller) => {
     try {
       return (await chat(projectOfKey(caller), caller)).session.permissionMode ?? "ask";
@@ -285,6 +274,7 @@ function createLocalMcpHost({
       });
     },
     requestProjectScope,
+    importer: imports && { ...imports, confirm, callerMode },
     validateChat: validateDesignChat,
     async addProject({ projectPath }, caller, inScope = () => false, onGrant) {
       const { identity } = await inspectProject(projectPath).catch((error) => {
@@ -336,7 +326,7 @@ function createLocalMcpHost({
       return {
         ...progress(chatId, session),
         ...pending(chatId),
-        ...queue(chatId, session),
+        ...queue(chatId, session, Boolean(chats.runs[chatId])),
         messages: messages.slice(-limit).map(({ id, role, body }) => ({ id, role, body })),
       };
     },
@@ -344,6 +334,7 @@ function createLocalMcpHost({
       const result = await createWorktree({ localMcp: { operationId, assertActive } }, args);
       return { projectPath: args.projectPath, worktreeId: result.worktreeId, ...(result.setupNote ? { setupNote: result.setupNote } : {}) };
     },
+    ...require("./chat-branch-tools.cjs").createChatBranchHost({ chat, invoke }),
     async createChat({ projectPath, worktreeId }, operationId, assertActive) {
       await project(projectPath);
       assertActive();
@@ -562,7 +553,7 @@ function createLocalMcpHost({
         const worktree = Object.values(state.worktrees).find((item) => item.localMcpOperation === operationId);
         return worktree ? { projectPath: args.projectPath, worktreeId: worktree.id } : null;
       }
-      if (operation === "chat_create") {
+      if (operation === "chat_create" || operation === "chat_fork") {
         const session = Object.values(state.sessions).find((item) => item.localMcpOperations?.includes(operationId));
         return session ? { chatId: `${args.projectPath}#${session.id}` } : null;
       }

@@ -68,25 +68,80 @@ const isLocalOnly = (channel) => LOCAL_ONLY.has(channel) || LOCAL_ONLY_PREFIXES.
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {import("../app/src/electron.d.ts").MilagreBridge["simulators"]}
+ */
+function simulatorBridge(invoke) {
+  return {
+    list: (request) => invoke("simulator:list", request),
+    attach: (request) => invoke("simulator:attach", request),
+    detach: (request) => invoke("simulator:detach", request),
+    open: (request) => invoke("simulator:open", request),
+    frame: (request) => invoke("simulator:frame", request),
+    offer: (request) => invoke("simulator:offer", request),
+    status: (request) => invoke("simulator:status", request),
+    control: (request) => invoke("simulator:control", request),
+    input: (request) => invoke("simulator:input", request),
+    repair: (request) => invoke("simulator:repair", request),
+    close: (request) => invoke("simulator:close", request),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "askBtw" | "stopBtw" | "readBtw" | "onBtwEvent" | "forkChat" | "deleteChat">}
+ */
+function makeSideQuestionBridge(invoke, listen) {
+  return {
+    deleteChat: (projectPath, sessionId) => invoke("chat:delete", projectPath, sessionId),
+    forkChat: (projectPath, sessionId, options) => invoke("chat:fork", projectPath, sessionId, options),
+
+    askBtw: (request) => invoke("chat:btw", request),
+    stopBtw: (chatId, options) => invoke("chat:btw-stop", chatId, options),
+    readBtw: (chatId) => invoke("chat:btw-read", chatId),
+    onBtwEvent: (callback) => listen("chat:btw-event", callback),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readBabysitSettings" | "saveBabysitSettings" | "onBabysitSettings" | "readDoneSettings" | "saveDoneSettings" | "onDoneSettings" | "readOrchestrator" | "readOrchestratorProjects" | "readOrchestratorComputers" | "saveOrchestratorSettings" | "sendToOrchestrator" | "pickOrchestratorProject" | "showOrchestratorTaskInSidebar" | "undoOrchestratorTask" | "rerouteOrchestratorTask" | "dismissOrchestratorTask" | "importOrchestratorMemory" | "saveOrchestratorMemory" | "forgetOrchestratorMemory" | "onOrchestrator">}
+ */
+function hostSettingsBridge(invoke, listen) {
+  return {
+    readBabysitSettings: () => invoke("babysit:settings:read"),
+    saveBabysitSettings: (patch) => invoke("babysit:settings:save", patch),
+    onBabysitSettings: (callback) => listen("babysit:settings", callback),
+    readDoneSettings: () => invoke("done:settings:read"),
+    saveDoneSettings: (patch) => invoke("done:settings:save", patch),
+    onDoneSettings: (callback) => listen("done:settings", callback),
+    readOrchestrator: () => invoke("orchestrator:read"),
+    readOrchestratorProjects: () => invoke("orchestrator:projects"),
+    readOrchestratorComputers: () => invoke("orchestrator:computers"),
+    saveOrchestratorSettings: (patch) => invoke("orchestrator:settings:save", patch),
+    sendToOrchestrator: (prompt, options) => invoke("orchestrator:send", prompt, options),
+    pickOrchestratorProject: (taskId, projectPath) => invoke("orchestrator:task:project", taskId, projectPath),
+    showOrchestratorTaskInSidebar: (taskId, shown) => invoke("orchestrator:task:sidebar", taskId, shown),
+    undoOrchestratorTask: (taskId) => invoke("orchestrator:task:undo", taskId),
+    rerouteOrchestratorTask: (taskId, change) => invoke("orchestrator:task:reroute", taskId, change),
+    dismissOrchestratorTask: (taskId) => invoke("orchestrator:task:dismiss", taskId),
+    importOrchestratorMemory: () => invoke("orchestrator:memory:import"),
+    saveOrchestratorMemory: (notes) => invoke("orchestrator:memory:save", notes),
+    forgetOrchestratorMemory: () => invoke("orchestrator:memory:forget"),
+    onOrchestrator: (callback) => listen("orchestrator:changed", callback),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @param {(channel: string, ...args: any[]) => void} send
  * @returns {import("../app/src/electron.d.ts").MilagreBridge}
  */
 function makeBridge(invoke, listen, send) {
   return {
-    simulators: {
-      list: (request) => invoke("simulator:list", request),
-      attach: (request) => invoke("simulator:attach", request),
-      detach: (request) => invoke("simulator:detach", request),
-      open: (request) => invoke("simulator:open", request),
-      frame: (request) => invoke("simulator:frame", request),
-      offer: (request) => invoke("simulator:offer", request),
-      status: (request) => invoke("simulator:status", request),
-      control: (request) => invoke("simulator:control", request),
-      input: (request) => invoke("simulator:input", request),
-      repair: (request) => invoke("simulator:repair", request),
-      close: (request) => invoke("simulator:close", request),
-    },
+    simulators: simulatorBridge(invoke),
     computerUse: {
       readSettings: () => invoke("computer-use:settings:read"),
       saveSettings: (patch) => invoke("computer-use:settings:save", patch),
@@ -207,6 +262,8 @@ function makeBridge(invoke, listen, send) {
     readComputerResources: (options) => invoke("computer:resources:read", options),
     readIdleWorktrees: () => invoke("storage:worktrees"),
     removeIdleWorktree: (request) => invoke("storage:remove-worktree", request),
+    scanImports: () => invoke("import:scan"),
+    runImport: (request) => invoke("import:run", request),
     readKeybindings: () => invoke("keybindings:read"),
     setKeybindingCommand: (command, rules) => invoke("keybindings:set-command", command, rules),
     resetKeybindingCommand: (command) => invoke("keybindings:reset-command", command),
@@ -216,12 +273,7 @@ function makeBridge(invoke, listen, send) {
     readContextSettings: () => invoke("context:settings:read"),
     saveContextSettings: (patch) => invoke("context:settings:save", patch),
     onContextSettings: (callback) => listen("context:settings", callback),
-    readBabysitSettings: () => invoke("babysit:settings:read"),
-    saveBabysitSettings: (patch) => invoke("babysit:settings:save", patch),
-    onBabysitSettings: (callback) => listen("babysit:settings", callback),
-    readDoneSettings: () => invoke("done:settings:read"),
-    saveDoneSettings: (patch) => invoke("done:settings:save", patch),
-    onDoneSettings: (callback) => listen("done:settings", callback),
+    ...hostSettingsBridge(invoke, listen),
     readRoutinesEnabled: () => invoke("routines:enabled:read"),
     listRoutines: () => invoke("routines:list"),
     updateRoutine: (id, patch) => invoke("routines:update", id, patch),
@@ -376,8 +428,9 @@ function makeBridge(invoke, listen, send) {
     scheduleLimitResume: (projectPath, sessionId, sourceMessageId) => invoke("chat:limit-resume", projectPath, sessionId, sourceMessageId),
     cancelLimitResume: (projectPath, sessionId, sendId) => invoke("chat:limit-resume:cancel", projectPath, sessionId, sendId),
     patchChat: (projectPath, sessionId, patch) => invoke("chat:patch", projectPath, sessionId, patch),
-    deleteChat: (projectPath, sessionId) => invoke("chat:delete", projectPath, sessionId),
+
     detachChat: (projectPath, sessionId) => invoke("chat:detach", projectPath, sessionId),
+    ...makeSideQuestionBridge(invoke, listen),
     archiveSubagent: (projectPath, sessionId, id, archived) => invoke("chat:archive-subagent", projectPath, sessionId, id, archived),
     archiveFinishedSubagents: (projectPath, sessionId) => invoke("chat:archive-finished-subagents", projectPath, sessionId),
     addGitNote: (chatId, body) => invoke("chat:git-note", chatId, body),

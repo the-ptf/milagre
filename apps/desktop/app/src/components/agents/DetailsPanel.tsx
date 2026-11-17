@@ -20,6 +20,8 @@ import {
 } from "@hugeicons/core-free-icons";
 import { chatBookmark } from "@milagre/shared/subchats";
 import { directSubchats } from "@milagre/shared/subchat-states";
+import { qaFleetRoster, qaPersona, qaPersonaMood } from "@milagre/shared/qa-personas";
+import { subagentActive } from "@milagre/shared/agent-runs";
 import type { AgentPort, BackgroundTask, Subagent } from "@milagre/shared/model";
 import { preferenceStorage as localStorage } from "../../lib/preference-storage.ts";
 import { chatSwitching } from "../../lib/chat-switch-timing";
@@ -38,6 +40,7 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import { SectionLabel } from "../primitives/SectionLabel";
 import Tooltip from "../primitives/Tooltip";
 import { useSidePanel } from "./PanelToggles";
+import { PersonaAvatar } from "./PersonaAvatar";
 import { useComputers } from "../../lib/computers";
 import { useRoutines } from "../../lib/routines";
 import { useRuns } from "../../lib/agent-runs-store";
@@ -51,7 +54,8 @@ import { openInEditor, useEditors } from "../../lib/editors";
  * - Environment: the computer, the repo, the Worktree's branch and its path (a click copies it; Finder and editor).
  * - Lineage (folds): the open Chat's parent, then its Subchats nested; a row opens that Chat, a muted → taking the place of
  *   its state under the pointer.
- * - Background tasks (folds): running commands, ports and subagents with their time.
+ * - QA fleet (folds), only while a QA fleet runs: each persona's latest launch, its time while it runs, then how it ended.
+ * - Background tasks (folds): running commands, ports and the other subagents with their time.
  * - Links (folds), only when the Chat has a PR or canvas Links.
  *
  * It has its own corner toggle and no shortcut. Open or closed holds for every Chat; the folds hold for the session.
@@ -77,7 +81,13 @@ function setDetailsPanelOpen(next: boolean) {
   listeners.forEach((listener) => listener());
 }
 
-const folds = { lineage: false, background: false, links: false };
+const folds = { lineage: false, fleet: false, background: false, links: false };
+
+const ENDED: Record<string, { word: string; className: string }> = {
+  completed: { word: "Done", className: "text-ink-3" },
+  failed: { word: "Failed", className: "text-red-ink" },
+  cancelled: { word: "Stopped", className: "text-ink-3" },
+};
 
 type ChatMenuSource = { item: SidebarRecent; actions: ChatRowActions };
 
@@ -305,11 +315,12 @@ function DetailsBody({ data }: { data: DetailsData }) {
     const timer = window.setTimeout(() => setCopied(null), 1500);
     return () => window.clearTimeout(timer);
   }, [copied]);
-  const running = (data.subagents ?? []).filter((agent) => agent.status === "running" || agent.status === "initializing" || agent.status === "waiting");
+  const fleet = qaFleetRoster(data.subagents ?? []);
+  const running = (data.subagents ?? []).filter((agent) => subagentActive(agent) && !qaPersona(agent));
   const tasks = data.backgroundTasks ?? [];
   const ports = data.ports ?? [];
   const busy = running.length + tasks.length + ports.length > 0;
-  const now = useDisplayNow(1000, busy);
+  const now = useDisplayNow(1000, busy || fleet.some(({ agent }) => subagentActive(agent)));
 
   const bookmark = data.family ? chatBookmark(data.family.sessions, data.chatKey) : null;
   const parent = data.family && bookmark ? familyEntry(bookmark.parent, data.family, false) : null;
@@ -390,6 +401,24 @@ function DetailsBody({ data }: { data: DetailsData }) {
               ))}
             </>
           )}
+        </Section>
+      )}
+      {fleet.length > 0 && (
+        <Section name="fleet">
+          <Heading label="QA fleet" open={!folds.fleet} onToggle={fold("fleet")} />
+          {!folds.fleet &&
+            fleet.map(({ persona, agent }) => {
+              const ended = subagentActive(agent) ? null : (ENDED[agent.status] ?? { word: "Ended", className: "text-ink-3" });
+              return (
+                <div key={agent.id} data-details-persona={persona.type} className={ROW}>
+                  <span aria-hidden className="-mx-px flex size-4 shrink-0 items-center justify-center">
+                    <PersonaAvatar persona={persona} size={18} mood={qaPersonaMood(agent)} />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{persona.name}</span>
+                  {ended ? <Value className={ended.className}>{ended.word}</Value> : <Value>{elapsed(agent.startedAt, now)}</Value>}
+                </div>
+              );
+            })}
         </Section>
       )}
       <Section name="background">

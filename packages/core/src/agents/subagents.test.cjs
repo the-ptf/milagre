@@ -48,6 +48,21 @@ test("Claude keeps the agent type a subagent was launched as", () => {
   const started = { type: "system", subtype: "task_started", task_id: "t2", task_type: "local_agent", subagent_type: "qa-breaker", description: "Breaker run" };
   assert.equal(child(mapClaudeMessage(started, {})).agentType, "qa-breaker");
 });
+test("Claude keeps a subagent's title while its progress names the current step", () => {
+  const state = {};
+  mapClaudeMessage(launch, state);
+  mapClaudeMessage(
+    { type: "system", subtype: "task_started", task_id: "task", tool_use_id: "spawn", task_type: "local_agent", description: "Review auth" },
+    state,
+  );
+  const progress = child(
+    mapClaudeMessage({ type: "system", subtype: "task_progress", task_id: "task", tool_use_id: "spawn", description: "Running sed -n 1,22p auth.ts" }, state),
+  );
+  assert.equal(progress.title, "Review auth");
+  assert.equal(progress.latestActivity, "Running sed -n 1,22p auth.ts");
+  const updated = child(mapClaudeMessage({ type: "system", subtype: "task_updated", task_id: "task", patch: { description: "Reading auth.ts" } }, state));
+  assert.equal(updated.title, "Review auth");
+});
 test("Claude excludes shell tasks and handles foreground results", () => {
   const state = {};
   assert.equal(

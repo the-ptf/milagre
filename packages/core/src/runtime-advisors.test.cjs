@@ -241,3 +241,80 @@ for (const provider of ["claude", "antigravity"]) {
     }
   });
 }
+
+for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
+  test(`${provider} side questions run separately and never write the main Chat`, async (t) => {
+    const f = await fixture(t, provider);
+    const before = await f.runtime.openProject(f.project);
+    const main = f.sessions[0];
+    const pending = await f.runtime.invoke("chat:btw", [{ chatId: f.chatId, prompt: "What does this do?", provider, model: "cm" }]);
+    await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
+    const side = f.sessions[1];
+    assert.equal(pending.status, "running");
+    assert.equal(side.provider, provider);
+    assert.equal(side.options.analysisOnly, true);
+    assert.equal(side.options.sideChat, true);
+    assert.ok(side.options.linked.tools.every((tool) => tool.readOnly));
+    assert.equal(main.turns.length, 1);
+    side.finish("A separate answer");
+    const answer = await f.runtime.invoke("chat:btw-read", [f.chatId]);
+    assert.equal(answer.text, "A separate answer");
+    assert.equal(answer.status, "completed");
+    const after = await f.runtime.openProject(f.project);
+    assert.deepEqual(after.state, before.state);
+    await f.runtime.invoke("chat:btw-stop", [f.chatId, { clear: true }]);
+    assert.equal(await f.runtime.invoke("chat:btw-read", [f.chatId]), null);
+  });
+}
+
+test("a fork copies only the chosen prefix and its first prompt carries that snapshot", async (t) => {
+  const f = await fixture(t);
+  f.sessions[0].finish("First answer");
+  await waitUntil(async () => (await f.runtime.openProject(f.project)).state.messages.some((message) => message.body === "First answer"));
+  const original = await f.runtime.openProject(f.project);
+  const picked = original.state.messages.filter((message) => message.session_id === f.id);
+  const fork = await f.runtime.invoke("chat:fork", [f.project, f.id, { messageId: picked[0].id }]);
+  assert.notEqual(fork.sessionId, f.id);
+  let snapshot = (await f.runtime.openProject(f.project)).state;
+  const copied = snapshot.messages.filter((message) => message.session_id === fork.sessionId);
+  assert.equal(copied.length, 2);
+  assert.equal(copied[1].context.kind, "chat-fork");
+  assert.equal(copied[0].body, picked[0].body);
+  assert.notEqual(copied[0].id, picked[0].id);
+  assert.equal(copied[0].clientMessageId, undefined);
+  assert.equal(snapshot.sessions[fork.sessionId].parent, undefined);
+  assert.deepEqual(snapshot.sessions[fork.sessionId].forkedFrom, { sessionId: f.id, messageId: picked[0].id });
+  await f.runtime.invoke("chat:send", [{ projectPath: f.project, sessionId: fork.sessionId, body: "Take another direction", provider: "claude", model: "cm" }]);
+  await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
+  assert.match(f.sessions[1].turns[0].prompt, /Review/);
+  assert.doesNotMatch(f.sessions[1].turns[0].prompt, /First answer/);
+  assert.equal(f.sessions[1].options.resumeId, undefined);
+  snapshot = (await f.runtime.openProject(f.project)).state;
+  assert.deepEqual(
+    snapshot.messages.filter((message) => message.session_id === f.id),
+    picked,
+  );
+  await assert.rejects(f.runtime.invoke("chat:fork", [f.project, f.id, { messageId: copied[0].id }]), /message/);
+});
+
+test("agents fork idempotently and ask, read and stop side questions through their scoped tools", async (t) => {
+  const f = await fixture(t);
+  const invoke = (name, args = {}) => runTool(f.tool(name), { projectPath: f.project, chatId: f.chatId, ...args });
+  const first = await invoke("chat_fork", { requestId: "fork-once" });
+  assert.equal(first.isError, false, first.text);
+  const repeated = await invoke("chat_fork", { requestId: "fork-once" });
+  assert.equal(repeated.isError, false, repeated.text);
+  assert.equal(repeated.text, first.text);
+  const state = (await f.runtime.openProject(f.project)).state;
+  assert.equal(Object.values(state.sessions).filter((chat) => chat.forkedFrom?.sessionId === f.id).length, 1);
+  const answer = await invoke("chat_btw", { prompt: "Why?", model: "cm" });
+  assert.equal(answer.isError, false, answer.text);
+  await waitUntil(() => f.sessions[1]?.turns.length);
+  f.sessions[1].finish("Because");
+  const read = await invoke("chat_btw_read");
+  assert.equal(read.isError, false, read.text);
+  assert.match(read.text, /Because/);
+  const stop = await invoke("chat_btw_stop", { clear: true });
+  assert.equal(stop.isError, false, stop.text);
+  assert.equal(await f.runtime.invoke("chat:btw-read", [f.chatId]), null);
+});

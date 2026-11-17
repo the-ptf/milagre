@@ -1,5 +1,19 @@
-export type LiveSignal = "runs" | "project" | "accounts" | "links" | "designs" | "mcp" | "routines" | "usage" | "token-usage" | "keybindings" | "pulls";
+export type LiveSignal =
+  | "btw"
+  | "runs"
+  | "project"
+  | "accounts"
+  | "links"
+  | "designs"
+  | "mcp"
+  | "routines"
+  | "usage"
+  | "token-usage"
+  | "keybindings"
+  | "pulls"
+  | "orchestrator";
 export const isLiveSignal = (type: unknown): type is LiveSignal =>
+  type === "btw" ||
   type === "runs" ||
   type === "project" ||
   type === "accounts" ||
@@ -10,7 +24,8 @@ export const isLiveSignal = (type: unknown): type is LiveSignal =>
   type === "usage" ||
   type === "token-usage" ||
   type === "keybindings" ||
-  type === "pulls";
+  type === "pulls" ||
+  type === "orchestrator";
 type LiveEvents = { open: unknown; message: { data?: unknown }; error: { message?: string }; close: unknown };
 export type LiveSocket = {
   addEventListener<K extends keyof LiveEvents>(type: K, listener: (event: LiveEvents[K]) => void): void;

@@ -17,7 +17,8 @@ import {
 } from "@hugeicons/core-free-icons";
 import { advisorAction, subagentRoleLabel, subagentActivityLabel } from "@milagre/shared/agent-activity";
 import { lastSaid, planCounts, plainTitle, subagentOutcome, subagentSteps, toolChips, toolSummary, type SubagentStep } from "@milagre/shared/subagent-glance";
-import { qaFleetFirst, qaPersona, type QaPersona } from "@milagre/shared/qa-personas";
+import { qaFleetFirst, qaPersona, qaPersonaMood, type QaPersona } from "@milagre/shared/qa-personas";
+import { PersonaAvatar } from "./PersonaAvatar";
 import type { AgentTask, ModelProvider, Subagent, ToolCategory } from "../../model";
 import { subagentActive, subagentFinished } from "../../lib/subagents";
 import { useSubagentDetails } from "../../lib/subagent-transcripts";
@@ -72,23 +73,6 @@ function AdvisorControls({ agent, onStop, onRetry }: { agent: Subagent; onStop?:
     >
       {action === "stop" ? "Stop" : "Retry"}
     </Button>
-  );
-}
-
-function PersonaAvatar({ persona, size, overlap }: { persona: QaPersona; size: number; overlap?: boolean }) {
-  return (
-    <svg
-      aria-hidden
-      data-qa-persona={persona.type}
-      viewBox="-50 -50 100 100"
-      width={size}
-      height={size}
-      className={`shrink-0 overflow-visible ${overlap ? "-ml-1.5 first:ml-0" : ""}`}
-    >
-      {persona.face.map(({ type: Shape, props }, index) => (
-        <Shape key={index} {...props} />
-      ))}
-    </svg>
   );
 }
 
@@ -401,7 +385,7 @@ function SubagentRow({ agent, provider, now }: { agent: Subagent; provider: Mode
   return (
     <span className="flex min-w-0 flex-1 items-start gap-2">
       {persona ? (
-        <PersonaAvatar persona={persona} size={28} />
+        <PersonaAvatar persona={persona} size={28} mood={qaPersonaMood(agent)} />
       ) : (
         <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-ink-3">
           <StatusIcon agent={agent} provider={provider} />
@@ -560,7 +544,7 @@ export function SubagentTrack({
                   <li data-qa-fleet className="flex items-center gap-2 px-2 pt-1 pb-0.5 text-12">
                     <span className="flex pl-1.5">
                       {fleet.slice(0, 5).map((agent) => (
-                        <PersonaAvatar key={agent.id} persona={qaPersona(agent)!} size={18} overlap />
+                        <PersonaAvatar key={agent.id} persona={qaPersona(agent)!} size={18} still overlap />
                       ))}
                     </span>
                     <span className="flex-1 font-semibold text-ink-2">QA fleet</span>

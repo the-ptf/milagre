@@ -1,3 +1,4 @@
+const { CHAT_BRANCH_PARTS, loadChatBranchPart } = require("./fixtures/mobile-chat-modules.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -254,7 +255,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (/^\.\.?\/quote-chips$/.test(id) && !(id in modules)) return { QuoteChips: "QuoteChips", SentQuote: "SentQuote" };
       if (/^\.\.?\/(draft-clear|file-mentions|prompt-label)$/.test(id) && !(id in modules)) return load(`${id.replace(/^\.\.?\//, "")}.ts`, modules, "", cache);
       if (
-        (id === "@milagre/shared/agent-runs" ||
+        (id === "@milagre/shared/result" ||
+          id === "@milagre/shared/agent-runs" ||
           id === "@milagre/shared/prompt-parts" ||
           id === "@milagre/shared/appearance" ||
           id === "@milagre/shared/prompt-mentions" ||
@@ -294,6 +296,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@milagre/shared/model-copy" && !(id in modules)) return require("../packages/shared/src/model-copy.ts");
       if (id === "@milagre/shared/pull-request-review" && !(id in modules)) return require("../packages/shared/src/pull-request-review.ts");
       const base = id.replace(/^\.\.?\//, "");
+      if (CHAT_BRANCH_PARTS.has(base) && !(id in modules)) return loadChatBranchPart(base, modules, load, cache);
       // The phone's own pins (chat-pins-store.ts): none saved unless a test gives its own store.
       if (base === "hosts-native" && id in modules && !modules[id].savedChatPins)
         return {
@@ -484,6 +487,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         };
       // A new Chat's glance cards (PRs, plan usage, today) read the host on their own; Chat tests render none.
       if (base === "new-chat-glance" && !(id in modules)) return { NewChatGlance: () => null };
+      // A QA persona's avatar is an Open Bot Avatar SVG string drawn by react-native-svg; tests read the persona from its props.
+      if (base === "persona-avatar" && !(id in modules)) return { PersonaAvatar: "PersonaAvatar" };
       // Church's New Chat stats switch: the shared label and hint, and off unless a test sets it.
       if (id === "@milagre/shared/new-chat-glance" && !(id in modules)) return require("../packages/shared/src/new-chat-glance.ts");
       if (file === "experimental-section.tsx" && base === "chat-display-setting" && !(id in modules)) return { useNewChatStats: () => [false, () => {}] };
@@ -507,6 +512,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@milagre/shared/pr-blockers" && !(id in modules)) return require("@milagre/shared/pr-blockers");
       // /storage's name and hint, which the Chat lists beside /undo.
       if (id === "@milagre/shared/storage" && !(id in modules)) return require("../packages/shared/src/storage.ts");
+      // Worktrees › Import from another app: its row title and hint.
+      if (id === "@milagre/shared/ade-import" && !(id in modules)) return require("../packages/shared/src/ade-import.ts");
       if (id === "@milagre/shared/project-list" && !(id in modules)) return require("../packages/shared/src/project-list.ts");
       // Snooze: the shared rules, the row menu's choices, and the phone's defaults (1 hour, the default options).
       if (id === "@milagre/shared/snooze" && !(id in modules)) return require("@milagre/shared/snooze");
@@ -531,6 +538,12 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           visibleRunChats: () => [],
           watchVisibleRunChats: () => () => {},
         };
+      // The Orchestrator's pinned row reads its own host store; Chat-list tests render none.
+      if (base === "orchestrator-row" && !(id in modules)) return { OrchestratorRow: () => null };
+      if (base === "orchestrator-church-row" && !(id in modules)) return { OrchestratorChurchRow: () => null };
+      if (id === "@milagre/shared/orchestrator" && !(id in modules)) return require("@milagre/shared/orchestrator");
+      if (base === "orchestrator-answer-line" && !(id in modules)) return { OrchestratorAnswerLine: () => null };
+      if (base === "orchestrator-mention-row" && !(id in modules)) return { OrchestratorMentionRow: () => null };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -3697,8 +3710,8 @@ function chatHost({
     setPreferences(fn) {
       this.preferences = fn(this.preferences);
     },
-    setDrafts(fn) {
-      this.drafts = fn(this.drafts);
+    setDrafts: (fn) => {
+      session.drafts = fn(session.drafts);
     },
     readDrafts: () => session,
     refresh: async () => {
@@ -3916,7 +3929,7 @@ function chatHost({
         ),
     },
     "../questions": { Approval: "Approval", Questions: "Questions" },
-    "../chat-reply": { ChatReply: "ChatReply" },
+    "../chat-reply": { ChatReply: "ChatReply", ChatRow: "ChatReply" },
     "../design-outbox": require("../apps/mobile/src/design-outbox.ts"),
     "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
     "../ui": ui,
@@ -4089,6 +4102,39 @@ test("archived-only subagents hide the mobile Chat menu action and pill", () => 
   );
 });
 
+test("/btw with an unsent quote never adds a message to the main Chat", async () => {
+  const chat = chatHost({
+    call: async (method) =>
+      method === "chat:btw"
+        ? {
+            requestId: "side",
+            chatId: "/p#7",
+            status: "completed",
+            text: "Side answer",
+            question: "Why?",
+            provider: "codex",
+            model: "m",
+            steps: [],
+            startedAt: 1,
+          }
+        : [],
+  });
+  chat.params.id = "7";
+  chat.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1, provider: "codex", status: "Created" };
+  chat.session.drafts["/p#7"] = "/btw Why?";
+  chat.session.quotes["/p#7"] = [{ id: "quote", text: "Keep this draft quote" }];
+  chat.render();
+  chat.send();
+  await settle();
+  assert.equal(
+    chat.calls.some(({ method }) => method === "chat:send"),
+    false,
+  );
+  assert.equal(chat.calls.find(({ method }) => method === "chat:btw").args[0].prompt, "Why?");
+  assert.equal(chat.session.drafts["/p#7"], "");
+  assert.equal(chat.session.quotes["/p#7"][0].text, "Keep this draft quote");
+});
+
 test("a saved phone Chat offers Undo changes in ⋯ and /undo, both open the list in the composer's place, and an undo line's Redo previews", async () => {
   const chat = chatHost();
   chat.params.id = "7";
@@ -4107,6 +4153,7 @@ test("a saved phone Chat offers Undo changes in ⋯ and /undo, both open the lis
   chat.render();
   assert.equal(chat.undo.chatId, "/p#7");
   assert.deepEqual(JSON.parse(JSON.stringify(chat.field().commands)), [
+    { name: "btw", description: "Ask a side question without adding to the Chat" },
     { name: "undo", description: "Undo a task's file changes" },
     { name: "storage", description: "Clean up old worktrees on this computer" },
   ]);
@@ -5625,7 +5672,7 @@ test("a linked Chat shows the Link icon, and its ⋯ menu links with another Cha
   );
   same(ids(login), [
     ["copy-path", "copy-branch"],
-    ["rename", "unread"],
+    ["rename", "fork", "unread"],
     ["pin"],
     ["link-with", "link-remove"],
     ["snooze-for", "snooze-until"],

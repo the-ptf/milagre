@@ -96,9 +96,11 @@ export function ChangesToggle({ open, onToggle, offset = 0 }: { open: boolean; o
   );
 }
 
-export function CanvasButton({ active, offset = 0, onToggle }: { active: boolean; offset?: number; onToggle: () => void }) {
+/** The title bar's Canvas button; `hidden` while split, where the title bar holds the panes' headers. */
+export function CanvasButton({ active, offset = 0, hidden = false, onToggle }: { active: boolean; offset?: number; hidden?: boolean; onToggle: () => void }) {
   const chrome = useWindowChrome();
   const shortcut = useShortcutLabel("canvas.open");
+  if (hidden) return null;
   return (
     <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
       <Tooltip label={active ? "Back to the Chat" : "Canvas"} shortcut={shortcut} compactHint side="bottom" align="end">

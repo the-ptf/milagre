@@ -278,6 +278,7 @@ function createChatRetirement({
   pageComments,
   advisorDelivery,
   advisors,
+  btw = () => null,
   bugReports,
   chatSecrets,
   linked,
@@ -292,6 +293,7 @@ function createChatRetirement({
     },
     { name: "stop the turn and queued sends", frees: true, run: (chatId) => chats.runs[chatId] && stopChat(chatId) },
     { name: "cancel Worktree setup", frees: true, run: (chatId) => worktreeSetups.cancel(chatId) },
+    { name: "close side questions", frees: true, run: (chatId) => btw()?.closeChat(chatId) },
     { name: "close the agent session", frees: true, run: (chatId) => agents.closeChat(chatId) },
     { name: "stop background commands", frees: true, run: (chatId) => terminals.closeChat(chatId) },
     {
@@ -482,6 +484,11 @@ function registerChatRetire({
     if (patch?.kept === true || patch?.pinned === true || patch?.archived === false || (typeof patch?.title === "string" && patch.title.trim() !== ""))
       await keepRunChat(projectPath, sessionId);
   });
+  commands.handle("chat:fork", async (_event, projectPath, sessionId, options = {}) => {
+    if (!Number.isSafeInteger(sessionId) || sessionId < 1) throw new Error("Choose an existing Chat to fork.");
+    await existingChat("forking it")(`${projectPath}#${sessionId}`);
+    return chats.forkChat(projectPath, sessionId, options);
+  });
   commands.handle("chat:delete", async (_event, projectPath, sessionId) => {
     if (!Number.isSafeInteger(sessionId) || sessionId < 1) throw new Error("Choose an existing Chat to delete.");
     const chatId = `${projectPath}#${sessionId}`;
@@ -631,6 +638,7 @@ function registerChatLifecycle({
   pageComments,
   advisorDelivery,
   advisors,
+  btw,
   bugReports,
   canvasChatModes,
   chatSecrets,
@@ -690,6 +698,7 @@ function registerChatLifecycle({
     pageComments,
     advisorDelivery,
     advisors,
+    btw,
     bugReports,
     chatSecrets,
     linked,

@@ -2,8 +2,9 @@ import { CheckRow } from "./ui";
 import { useCallback, useState } from "react";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_TITLE } from "@milagre/shared/auto-update";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
+import { IMPORT_INTRO, IMPORT_TITLE } from "@milagre/shared/ade-import";
 import { Text, View } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useSession } from "./session";
 import { InlineError, ListRow, useStyles } from "./ui";
 import { DONE_DEFAULTS, DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
@@ -121,6 +122,21 @@ export function MainSyncSection() {
           </View>
         </>
       )}
+    </View>
+  );
+}
+
+/** Worktrees › Add Project: opens the import from T3 Code, Paseo or Orca. */
+export function ImportSection() {
+  const styles = useStyles();
+  if (!useSession().client) return null;
+  return (
+    <View style={{ gap: 8 }}>
+      <Text style={styles.section}>Add Project</Text>
+      <View style={[styles.card, { gap: 4 }]}>
+        <ListRow title={IMPORT_TITLE} onPress={() => router.push("/import")} />
+        <Text style={styles.caption}>{IMPORT_INTRO}</Text>
+      </View>
     </View>
   );
 }
