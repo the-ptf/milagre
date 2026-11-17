@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState } from "react";
+import type { OrchestratorTask } from "@milagre/shared/orchestrator";
 import { ShortcutKeys } from "../primitives/ShortcutKeys";
 import { PebbleBox } from "./PebbleBox";
 
-export function QuickBox({ name, onClose }: { color?: string; name: string; onClose: () => void }) {
+export function QuickBox({
+  name,
+  onSent,
+  onClose,
+}: {
+  name: string;
+  onSent: (task: OrchestratorTask, from: DOMRect, pebble: DOMRect | null) => void;
+  onClose: () => void;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [opener] = useState(() => document.activeElement as HTMLElement | null);
   useEffect(() => {
@@ -27,7 +36,15 @@ export function QuickBox({ name, onClose }: { color?: string; name: string; onCl
       }}
     >
       <div style={{ animation: "pop-in var(--duration-base) var(--ease-enter) backwards" }}>
-        <PebbleBox placeholder="What do you need?" autoFocus onSent={onClose} onEscape={onClose} />
+        <PebbleBox
+          placeholder="What do you need?"
+          autoFocus
+          onSent={(task, from, pebble) => {
+            onSent(task, from, pebble);
+            onClose();
+          }}
+          onEscape={onClose}
+        />
         <div className="mt-2 flex justify-center gap-4 text-11 text-ink-2">
           <span className="flex items-center gap-1">
             <ShortcutKeys shortcut="Enter" /> send
