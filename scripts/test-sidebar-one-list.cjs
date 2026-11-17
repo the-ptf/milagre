@@ -53,6 +53,7 @@ localStorage.removeItem("milagre-settings");
 updateSettings({ chatRowShow: { ...DESKTOP_CHAT_ROW_SHOW, branch: true, lastActivity: true } });
 // Appearance › Sidebar rows: Title first (design Alt A) for most of the checks; Classic is checked at the end.
 updateSettings({ appearance: { ...DEFAULT_APPEARANCE, sidebarRows: "edge" } });
+updateSettings({ snoozePresets: [{ kind: "after", minutes: 60 }, { kind: "after", minutes: 180 }, { kind: "at", day: "tomorrow", time: "09:00" }] });
 window.updateSettings = updateSettings;
 window.DEFAULT_APPEARANCE = DEFAULT_APPEARANCE;
 function Fixture() {
