@@ -39,3 +39,9 @@ export function useOrchestrator(client: OrchestratorClient | null) {
   );
   return { ...state, store };
 }
+
+/** The effort the Orchestrator started a Chat with; only reads the Orchestrator for a Chat it started. */
+export function useTaskEffort(client: OrchestratorClient | null, taskId: string | undefined): string | null {
+  const { snapshot } = useOrchestrator(taskId ? client : null);
+  return snapshot?.tasks.find((task) => task.id === taskId || task.remoteTaskId === taskId)?.effort ?? null;
+}

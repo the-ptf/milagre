@@ -8,6 +8,7 @@ import {
   type OrchestratorSnapshot,
   type OrchestratorTask,
 } from "@milagre/shared/orchestrator";
+import { taskForChat } from "./orchestrator-board";
 import { getSettings } from "./settings";
 
 const EMPTY: OrchestratorSnapshot = { settings: { ...ORCHESTRATOR_DEFAULTS }, tasks: [], memory: normalizeOrchestratorMemory(null) };
@@ -44,6 +45,13 @@ function subscribe(notify: () => void) {
 export function useOrchestrator(): OrchestratorSnapshot & { loaded: boolean } {
   const current = useSyncExternalStore(subscribe, () => snapshot);
   return { ...current, loaded };
+}
+
+/** The model and effort the Orchestrator started this Chat with, so its composer shows them until someone picks another. */
+export function useTaskTurn(key: string | null): { model: string | null; effort: string | null } {
+  const model = useSyncExternalStore(subscribe, () => taskForChat(snapshot.tasks, key)?.model ?? null);
+  const effort = useSyncExternalStore(subscribe, () => taskForChat(snapshot.tasks, key)?.effort ?? null);
+  return { model, effort };
 }
 
 function withTask(task: OrchestratorTask | null) {
