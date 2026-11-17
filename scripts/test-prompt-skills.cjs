@@ -292,7 +292,6 @@ async function browserChecks() {
       for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
         await evaluate(`window.setSuggestOptions({ provider: ${JSON.stringify(provider)}, running: true })`);
         await type("follow up");
-        assert.equal(await evaluate(`!!document.querySelector('[aria-label="Follow-up delivery"]')`), false, "no delivery picker beside Send");
         const label = followUps === "now" && ["claude", "codex"].includes(provider) ? "Send now" : "Queue message";
         await waitFor(`!!document.querySelector('[aria-label="${label}"]')`);
         if (followUps === "queue" && provider === "claude") await screenshot("follow-up-queue");

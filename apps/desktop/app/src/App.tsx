@@ -121,7 +121,6 @@ import { getSettings, toggleTheme, useApplyTheme, useSettings } from "./lib/sett
 import { useChatPins } from "./lib/chat-pins";
 import { sessionsWithPins } from "@milagre/shared/chat-pins";
 import { EditorLinks, Notice } from "./components/editor-links";
-import { clearNoticeOnNavigate } from "./lib/notice";
 import { withReportPrompt } from "@milagre/shared/bug-report";
 import type { ProjectRead, RuntimeConnection, StateStamp } from "./electron";
 import { useSidebarUsage } from "./components/usage/use-sidebar-usage";
@@ -329,7 +328,6 @@ function App() {
   const nextChatView = useRef(0);
   const [, setChatView] = useState(0);
   function advanceChatView() {
-    clearNoticeOnNavigate();
     chatView.current = ++nextChatView.current;
     setChatView(chatView.current);
   }

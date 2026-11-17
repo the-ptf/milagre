@@ -147,8 +147,6 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "canvas:snapshot",
     "computers:list",
     "app:version",
-    "accounts:add",
-    "chat:limit-switch",
     "app:open-keybindings-file",
   ])
     assert.equal(isLocalOnly(channel), true, channel);
@@ -161,8 +159,6 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "attachment:preview",
     "fs:list-dirs",
     "media:read",
-    "accounts:scope",
-    "accounts:assign",
     "babysit:settings:read",
     "babysit:settings:save",
     "done:settings:read",

@@ -1,37 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  BABYSIT_DEFAULTS,
-  BABYSIT_LEVELS,
-  DAYS_OPTIONS,
-  FAILURE_OPTIONS,
-  INTERVAL_OPTIONS,
-  babysitStoppedText,
-  isBabysitStopped,
-  normalizeBabysitSettings,
-} from "./babysit.mjs";
-
-test("defaults match the spec", () => {
-  assert.deepEqual(BABYSIT_DEFAULTS, {
-    enabled: false,
-    intervalMinutes: 1,
-    wake: ["comments", "checks", "conflicts"],
-    level: 3,
-    resolveThreads: true,
-    stopWhenGreen: true,
-    stopAfterDays: { on: true, days: 7 },
-    stopAfterFailures: { on: false, times: 3 },
-    ownRule: false,
-    ownRuleText: "",
-    instructions: "",
-  });
-});
-
-test("the option lists", () => {
-  assert.deepEqual(INTERVAL_OPTIONS, [1, 2, 5, 10, 15, 30]);
-  assert.deepEqual(DAYS_OPTIONS, [1, 3, 7, 14, 30]);
-  assert.deepEqual(FAILURE_OPTIONS, [2, 3, 5]);
-});
+import { BABYSIT_DEFAULTS, BABYSIT_LEVELS, babysitStoppedText, isBabysitStopped, normalizeBabysitSettings } from "./babysit.mjs";
 
 test("normalize drops invalid values", () => {
   const out = normalizeBabysitSettings({ intervalMinutes: 4, level: 9, wake: ["checks", "nope"], extra: 1, instructions: 5 });

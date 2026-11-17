@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { HandoffContext, ModelOption } from "../model";
-import { handoffLabel, providerLabel } from "./handover.ts";
+import { handoffLabel } from "./handover.ts";
 
 const models: ModelOption[] = [
   { id: "claude-opus-5-5", name: "Opus 5.5", provider: "claude", description: "" },
@@ -24,6 +24,4 @@ test("a divider names each side by model when the catalog knows it, else by prov
 
 test("a divider on one provider is a restore", () => {
   assert.equal(handoffLabel(context({ provider: "claude" }, { provider: "claude" }), models).restored, true);
-  assert.equal(providerLabel("codex"), "Codex");
-  assert.equal(providerLabel("antigravity"), "Antigravity");
 });

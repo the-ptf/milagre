@@ -106,7 +106,6 @@ export const designOperationInputSchema: z.ZodType<unknown>;
 export function validateDesignDocument(value: unknown): DesignDocument;
 export function validateDesignConsistency(document: DesignDocument): DesignDocument;
 export function applyDesignOperations(document: DesignDocument, operations: DesignOperation[], intent?: DesignEditIntent): DesignDocument;
-export function diffDesignDocuments(before: DesignDocument, after: DesignDocument): DesignOperation[];
 export function designLayout(document: DesignDocument, textLayout?: typeof designTextLayout): Map<string, DesignBounds>;
 export function designTextLayout(node: DesignNode, width?: number): { lines: string[]; width: number; height: number; lineHeight: number };
 export function designInstanceRoot(document: DesignDocument, nodeId: string, byId?: ReadonlyMap<string, DesignNode>): DesignNode | null;
@@ -144,7 +143,6 @@ export function designFontFaces(document: DesignDocument): string;
 export const DESIGN_CATALOG_FAMILIES: string[];
 export function designCatalogFont(fontFamily?: string): { family: string; weights: number[]; advances: Record<string, number[]> } | undefined;
 export function loadDesignFonts(document: DesignDocument): Promise<void>;
-export function designFontsLoaded(document: DesignDocument): boolean;
 /** TrueType data (base64) for a rasterizer: every Inter weight plus the loaded catalog faces the document uses. */
 export function designFontBuffers(document: DesignDocument): string[];
 export function designInterWeight(fontWeight?: number): 400 | 500 | 600 | 700;

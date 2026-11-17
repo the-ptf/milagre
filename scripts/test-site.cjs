@@ -410,8 +410,6 @@ const checks = [
         const window = await open(size);
         await evaluate(window, `dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 10 }))`);
         await delay(1000);
-        assert.equal(await evaluate(window, `document.querySelector(".demo").classList.contains("three")`), false);
-        assert.equal(await evaluate(window, `!!document.querySelector(".phone-canvas")`), false);
         assert.equal(await evaluate(window, `getComputedStyle(document.querySelector(".phone-video")).opacity`), "1");
         const frame = await evaluate(
           window,

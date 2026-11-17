@@ -4,8 +4,6 @@ import type { ProviderUsage, UsageSnapshot } from "../../model";
 import {
   accountPickerLabel,
   accountUsageGroups,
-  CONTEXT_CRITICAL_PERCENT,
-  CONTEXT_WARN_PERCENT,
   contextSummary,
   contextTone,
   formatResetsIn,
@@ -211,8 +209,6 @@ test("token counts name a million-token window 1M, not 1000k", () => {
 });
 
 test("the context ring warns at 75% and turns critical at 90%", () => {
-  assert.equal(CONTEXT_WARN_PERCENT, 75);
-  assert.equal(CONTEXT_CRITICAL_PERCENT, 90);
   assert.equal(contextTone(74), "normal");
   assert.equal(contextTone(75), "warning");
   assert.equal(contextTone(89), "warning");

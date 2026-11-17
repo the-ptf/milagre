@@ -40,7 +40,6 @@ test("the pinned binary resolves for this platform", () => {
   const cli = agentDesktopBinary({ platform: "darwin", arch: "arm64" });
   assert.match(cli.binary, /agent-desktop-darwin-arm64$/);
   assert.match(cli.helper, /agent-desktop-macos-helper-darwin-arm64$/);
-  assert.equal(cli.version, "1.0.2");
 });
 
 test("the first snapshot of an app asks once, Allow for Chat keeps it", async () => {
@@ -82,7 +81,7 @@ test("blocked apps are refused without a card", async () => {
 
 test("concurrent first uses of an app share one card", async () => {
   let release;
-  const { host, settings } = setup();
+  const { settings } = setup();
   settings.save({ enabled: true });
   const asked = [];
   const gate = new Promise((resolve) => (release = resolve));
@@ -98,7 +97,6 @@ test("concurrent first uses of an app share one card", async () => {
   release("allow-for-chat");
   await both;
   assert.equal(asked.length, 1);
-  assert.ok(host);
 });
 
 test("acting on a ref uses the app of the snapshot it came from", async () => {

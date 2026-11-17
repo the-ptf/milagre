@@ -162,8 +162,6 @@ async function changedCopiedFiles({ projectPath, worktreePath, setting }) {
 }
 
 module.exports = {
-  COPY_LIMITS,
-  EXCLUDED_FOLDERS,
   changedCopiedFiles,
   copyFilesToWorktree,
   previewFilesToCopy,

@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createDesktopCommands } = require("./desktop-commands.cjs");
-const { BROWSER_SIGN_IN_METHODS, createHostBrowserSignIns } = require("./host-browser-sign-ins.cjs");
+const { createHostBrowserSignIns } = require("./host-browser-sign-ins.cjs");
 
 function setup(t, { methods = ["browser-panel:clear-sign-ins", "editor:list"], computers = [{ id: "studio", name: "Studio", online: true }] } = {}) {
   const port = createDesktopCommands();
@@ -16,7 +16,6 @@ function setup(t, { methods = ["browser-panel:clear-sign-ins", "editor:list"], c
 
 test("the phone sees this Mac's sign-ins and each paired computer's", async (t) => {
   const { signIns } = setup(t);
-  assert.deepEqual(BROWSER_SIGN_IN_METHODS, ["browser:sign-ins", "browser:sign-ins:clear"]);
   assert.deepEqual(await signIns.invoke("browser:sign-ins", []), {
     sessions: [
       { id: "local", name: null },

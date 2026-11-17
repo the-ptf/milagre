@@ -9,14 +9,10 @@ const { createProjectRegistry } = require("./project-registry.cjs");
 const { resolveProject } = require("./project-identity.cjs");
 const { reconcileState } = require("./project-state.cjs");
 const { scopeKey } = require("@milagre/shared/chat-scopes");
-let createLinkStore, createLinkWorkspaces;
-try {
-  ({ createLinkStore } = require("./link-store.cjs"));
-  ({ createLinkWorkspaces } = require("./link-workspaces.cjs"));
-} catch {}
+const { createLinkStore } = require("./link-store.cjs");
+const { createLinkWorkspaces } = require("./link-workspaces.cjs");
 
 async function fixture(t, options = {}) {
-  assert.equal(typeof createLinkStore, "function");
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-owned-")));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const registry = createProjectRegistry(path.join(root, "registry.json"), { roots: [] });

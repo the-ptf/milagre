@@ -83,13 +83,6 @@ export async function loadDesignFonts(document) {
   );
 }
 
-export function designFontsLoaded(document) {
-  return visibleText(document).every((node) => {
-    const entry = designCatalogFont(node.fontFamily);
-    return !entry || loadedCatalogFonts.has(entry.family.toLowerCase());
-  });
-}
-
 function usedFaces(document) {
   const faces = new Map();
   for (const node of visibleText(document)) {

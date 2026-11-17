@@ -134,10 +134,9 @@ test("a state with no running subagent to mark is returned as is", () => {
   assert.equal(markDisconnectedSubagents(state, new Set()), state);
 });
 
-test("new Projects omit obsolete spec fields and old Projects retain them on read", () => {
+test("old Projects retain fields the current state no longer writes on read", () => {
   const { emptyState, reconcileState } = require("./project-state.cjs");
   const fresh = emptyState("Fresh");
-  for (const field of ["connections", "events", "approvals", "artifacts", "outputs", "conflicts"]) assert.equal(field in fresh, false, field);
   const old = { ...fresh, outputs: [{ legacy: true }], approvals: ["old"] };
   const loaded = reconcileState(old, "Fresh", []);
   assert.deepEqual(loaded.outputs, old.outputs);

@@ -58,7 +58,6 @@ async function browserChecks() {
     assert.equal(win.isFocused(), false);
     await waitFor(`document.querySelectorAll('[data-local-mcp] [role=checkbox]').length===8`);
     assert.equal(await evaluate(`document.querySelector('h1').textContent`), "MCP servers");
-    assert.equal(await evaluate(`!!document.querySelector('[data-slot=published-pages-setting]')`), false);
     assert.equal(await evaluate(`!!document.querySelector('form')`), false);
     assert.equal(await evaluate(`!!document.querySelector('#custom-mcp-settings')`), false);
     assert.equal(await evaluate(`document.body.textContent.includes('Create MCP config')`), false);

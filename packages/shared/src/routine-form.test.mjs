@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createRequire } from "node:module";
 import {
-  EVERY_HOURS,
-  EVERY_MINUTES,
   deleteWarning,
   emptyRoutineForm,
   fallbackApplies,
@@ -304,15 +303,18 @@ test("name and prompt lengths follow the store's limits", () => {
   assert.deepEqual(formToInput({ ...linearForm(), prompt: "p".repeat(4001) }, NOW), { field: "prompt", error: "A prompt is at most 4000 characters" });
 });
 
-test("the form's cadences are the ones the Mac's cron accepts", async () => {
-  const { readFile } = await import("node:fs/promises");
-  const cron = await readFile(new URL("../../core/src/routines/cron.cjs", import.meta.url), "utf8");
-  const list = (name) => JSON.parse(cron.match(new RegExp(`const ${name} = (\\[[^\\]]*\\])`))[1]);
-  assert.deepEqual(EVERY_MINUTES, list("EVERY_MINUTES"));
-  assert.deepEqual(EVERY_HOURS, list("EVERY_HOURS"));
-  const store = await readFile(new URL("../../core/src/routines/store.cjs", import.meta.url), "utf8");
-  assert.match(store, /const NAME_MAX = 80;/);
-  assert.match(store, /const PROMPT_MAX = 4000;/);
+test("the form's cadences are the ones the Mac's cron accepts", () => {
+  const { everyToCron } = createRequire(import.meta.url)("../../core/src/routines/cron.cjs");
+  const base = { mode: "every", time: "08:30", days: [], cron: "", timezone: "UTC" };
+  const mac = (every) => {
+    try {
+      return { cron: everyToCron(every) };
+    } catch (error) {
+      return { error: error.message };
+    }
+  };
+  for (let every = 1; every <= 59; every += 1) assert.deepEqual(scheduleCron({ ...base, every, unit: "min" }), mac(`${every}m`), `${every} min`);
+  for (let every = 1; every <= 24; every += 1) assert.deepEqual(scheduleCron({ ...base, every, unit: "h" }), mac(`${every}h`), `${every} h`);
 });
 
 test("a signed webhook's header opens in the form, and clearing it sends null so it goes back to the default", () => {

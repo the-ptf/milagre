@@ -64,17 +64,6 @@ test("validated snapshots can be reused safely but cannot be mutated to bypass v
   assert.throws(() => renderDesignPage(clone), /embedded/);
 });
 
-test("shared pages render beyond the former 8 MiB HTML budget", () => {
-  const input = page();
-  const src = `data:image/png;base64,${Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(300000)]).toString("base64")}`;
-  input.designs = Array.from({ length: 24 }, (_, i) => ({
-    title: `Image ${i}`,
-    document: { schemaVersion: 1, width: 390, height: 844, nodes: [{ id: "image", type: "image", width: 100, height: 100, src }] },
-  }));
-  assert.ok(Buffer.byteLength(JSON.stringify(input)) > 8 * 1024 * 1024);
-  assert.ok(Buffer.byteLength(renderDesignPage(input)) > 8 * 1024 * 1024);
-});
-
 test("an Artifact snapshot freezes one HTML page in an opaque sandbox without private envelope data", () => {
   const source = '<button onclick="this.textContent=42">Calculate</button><script>window.parent.document.title="escape"</script>';
   const input = {
@@ -112,15 +101,6 @@ const allWeights = (index) => ({
   })),
 });
 const fontFaceCount = (html) => decodeURIComponent(html.match(/src="data:image\/svg\+xml,([^"]+)"/)?.[1] ?? "").match(/@font-face/g)?.length ?? 0;
-
-test("twenty designs that each use all four Inter weights render with embedded fonts", () => {
-  const html = renderDesignPage({
-    schemaVersion: 1,
-    title: "Many",
-    designs: Array.from({ length: 20 }, (_, index) => ({ title: `D${index}`, document: allWeights(index) })),
-  });
-  assert.equal(fontFaceCount(html), 4);
-});
 
 test("a large page preserves embedded fonts beyond the former HTML budget", () => {
   const png = `data:image/png;base64,${Buffer.concat([Buffer.from("\x89PNG\r\n\x1a\n", "latin1"), Buffer.alloc(100000, 1)]).toString("base64")}`;

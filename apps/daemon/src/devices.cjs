@@ -179,4 +179,4 @@ function createDevices(dataDir, { now = Date.now } = {}) {
   };
 }
 
-module.exports = { createDevices, MAX_DEVICES, CLAIM_MS };
+module.exports = { createDevices, CLAIM_MS };

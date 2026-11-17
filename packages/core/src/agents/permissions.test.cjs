@@ -3,7 +3,6 @@ const test = require("node:test");
 const {
   CANCELLED_MESSAGE,
   DENIED_MESSAGE,
-  PERMISSION_MODES,
   PendingPermissions,
   capText,
   claudeRequest,
@@ -19,7 +18,6 @@ const {
   isAcpPlanToolPermission,
   isCodexPlanToolApproval,
   isUngatedMilagreTool,
-  MODE_RANK,
   raisesMode,
   turnMode,
   askForUnknownModes,
@@ -29,7 +27,6 @@ const { PLAN_TOOL_NAMES } = require("../chat-plan-tools.cjs");
 const { ROUTINE_TOOL_NAMES } = require("../routines/tools.cjs");
 
 test("a mode Milagre doesn't know weighs as Ask for a caller and above Full for the Chat a message would run in", () => {
-  assert.deepEqual([...PERMISSION_MODES], ["ask", "auto", "full"]);
   assert.equal(callerMode("unknown"), "ask");
   assert.equal(callerMode(undefined), "ask");
   assert.equal(callerMode("full"), "full");
@@ -192,7 +189,6 @@ test("the Milagre tools every provider runs without its own card: reads, plan, o
   ])
     assert.equal(ungated(name), false, name);
   assert.equal(ungated("routine_list", true), true);
-  assert.ok(MODE_RANK.ask < MODE_RANK.auto && MODE_RANK.auto < MODE_RANK.full);
 });
 
 function pending() {
@@ -207,7 +203,6 @@ function pending() {
 test("each request is announced, then answered exactly once", () => {
   const { permissions, events, answers, ask } = pending();
   ask("a");
-  assert.equal(permissions.size, 1);
   assert.equal(permissions.resolve("a", "allow"), true);
   assert.equal(permissions.resolve("a", "deny"), false);
   assert.equal(permissions.resolve("missing", "allow"), false);
@@ -216,7 +211,6 @@ test("each request is announced, then answered exactly once", () => {
     { type: "permission-request", requestId: "a", kind: "other", tool: "T", title: "Allow?", allowForChat: false },
     { type: "permission-resolved", requestId: "a", decision: "allow" },
   ]);
-  assert.equal(permissions.size, 0);
 });
 
 test("cancelAll answers every waiting request as cancelled", () => {
@@ -232,7 +226,7 @@ test("cancelAll answers every waiting request as cancelled", () => {
     events.filter((event) => event.type === "permission-resolved").map((event) => event.requestId),
     ["a", "b"],
   );
-  assert.equal(permissions.size, 0);
+  assert.equal(permissions.resolve("a", "allow"), false);
 });
 
 test("always allowing in this chat can't exceed what the request offered", () => {
@@ -269,7 +263,6 @@ test("switching to Auto answers waiting edits inside the worktree; Full answers 
     events.filter((event) => event.type === "permission-resolved").map((event) => event.requestId),
     ["edit", "outside", "command"],
   );
-  assert.equal(permissions.size, 0);
 });
 
 test("in Full a request is answered without a card; in Auto the agent's own rules still ask", () => {
@@ -284,7 +277,11 @@ test("in Full a request is answered without a card; in Auto the agent's own rule
   assert.equal(events.length, 0);
   permissions.setMode("auto");
   add("edit", "edit");
-  assert.equal(permissions.size, 1);
+  assert.deepEqual(
+    answers.map((answer) => answer.requestId),
+    ["command"],
+  );
+  assert.equal(events.at(-1).type, "permission-request");
 });
 
 test("outside bot mode the policy is never consulted", () => {

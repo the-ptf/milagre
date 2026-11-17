@@ -207,14 +207,6 @@ test("terminal shell preferences require authentication and persist across runti
   assert.equal((await restarted.invoke("terminal:setShell", [{ shell: null }], context)).selectedShell, null);
 });
 
-test("the old handover commands are gone", async (t) => {
-  const { make } = await fixture(t);
-  const runtime = make();
-  assert.equal(runtime.methods.includes("chat:handover"), false);
-  assert.equal(runtime.methods.includes("chat:handover-draft"), false);
-  await assert.rejects(runtime.invoke("chat:handover", [{}]), /Unknown command/);
-});
-
 test("exclusive ownership rejects another profile owner and aliases of an open Project", async (t) => {
   const { project, dataDir, make } = await fixture(t);
   const first = make();

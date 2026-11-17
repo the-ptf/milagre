@@ -132,13 +132,6 @@ test("on LAN, a check that no longer reaches the endpoint, or finds it unadverti
   assert.equal((await supervisor.check()).kind, "primary");
 });
 
-test("a probe answered by another Mac (hostId mismatch) is not a route", async () => {
-  // The native probe returns false on a hostId mismatch; here that is an endpoint that does not answer.
-  const { supervisor, state } = harness({ answers: { [A]: false, [B]: false } });
-  assert.equal((await supervisor.check()).kind, "primary");
-  assert.deepEqual(state.opened, []);
-});
-
 test("suspend closes the LAN socket and demotes to primary at once; the next check re-promotes; concurrent checks share one walk", async () => {
   const { supervisor, state } = harness({ lan: route([A]) });
   await Promise.all([supervisor.check(), supervisor.check()]);

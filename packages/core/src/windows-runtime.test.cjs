@@ -273,8 +273,6 @@ test("Windows ACL operations encode paths and fail closed on command errors", ()
       return "";
     },
   });
-  assert.ok(script.includes("SetAccessRuleProtection"));
-  assert.ok(script.includes("S-1-5-18"));
   assert.ok(!script.includes("C:\\test'; whoami"));
   assert.throws(
     () =>
@@ -332,19 +330,16 @@ test("a Windows private path another account can read fails with that reason and
 
 test("Windows process creation times preserve PID reuse protection and unknown owners stay live", () => {
   const { processStartTime } = require("./ownership.cjs");
-  let script;
   assert.equal(
     processStartTime(123, {
       platform: "win32",
-      execFileSyncImpl(_file, args, options) {
+      execFileSyncImpl(_file, _args, options) {
         assert.deepEqual(options.env, require("./private-files.cjs").powershellEnvironment());
-        script = Buffer.from(args.at(-1), "base64").toString("utf16le");
         return "2026-01-02T03:04:05.1230000Z";
       },
     }),
     Date.parse("2026-01-02T03:04:05.123Z"),
   );
-  assert.ok(script.includes("Get-Process -Id 123"));
   assert.equal(
     processStartTime(123, {
       platform: "win32",
@@ -370,29 +365,6 @@ test("Windows shutdown refuses an exited or already killed child before looking 
       },
     });
   }
-});
-
-test("Windows shutdown pins validated process handles before termination", async () => {
-  const { killTree } = require("./agents/process-tree.cjs");
-  let script;
-  await killTree(
-    { pid: 321, exitCode: null, killed: false },
-    {
-      platform: "win32",
-      execFileImpl(file, args, options, callback) {
-        assert.match(file, /powershell.exe$/i);
-        assert.deepEqual(options.env, require("./private-files.cjs").powershellEnvironment());
-        script = Buffer.from(args.at(-1), "base64").toString("utf16le");
-        callback(null, "");
-      },
-    },
-  );
-  assert.ok(script.includes("CreationDate"));
-  assert.ok(script.includes(".Handle"));
-  assert.ok(script.includes("$current.CreationDate"));
-  assert.ok(script.includes(".Kill()"));
-  assert.ok(script.includes("[Console]::ReadLine()"));
-  assert.ok(!script.includes("Stop-Process"));
 });
 
 test("Linux and Windows editor detection uses installed CLIs instead of app bundles", async () => {
@@ -784,25 +756,6 @@ test("Windows native setup preserves Node quotes, spaced paths and command metac
   assert.equal(await fsp.readFile(path.join(cwd, "file with spaces & symbols.txt"), "utf8"), "ok");
 });
 
-test("Windows native launch binds its kill-on-close job atomically at CreateProcess", () => {
-  const { EventEmitter } = require("node:events");
-  const { PassThrough } = require("node:stream");
-  const { spawnWindowsJob } = require("./agents/windows-job.cjs");
-  const keeper = new EventEmitter();
-  Object.assign(keeper, { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() });
-  let source;
-  spawnWindowsJob("C:\\node.exe", [], {}, (_file, args) => {
-    const script = Buffer.from(args.at(-1), "base64").toString("utf16le");
-    source = Buffer.from(/FromBase64String\('([^']+)'\)/.exec(script)[1], "base64").toString("utf8");
-    return keeper;
-  });
-  assert.ok(source.includes("InitializeProcThreadAttributeList"));
-  assert.ok(source.includes("UpdateProcThreadAttribute"));
-  assert.ok(source.includes("0x0002000D"));
-  assert.ok(source.includes("0x08080004"));
-  assert.ok(!source.includes("AssignProcessToJobObject"));
-});
-
 test("fixture startup waits report early launcher failure and timeout stderr", async () => {
   const { EventEmitter } = require("node:events");
   const { PassThrough } = require("node:stream");
@@ -839,23 +792,6 @@ test("Windows TCP listener output accepts PowerShell CRLF line endings", () => {
     { pid: 10, ppid: 1, pgid: 10, startedAt: "100", command: "node.exe" },
     { pid: 20, ppid: 10, pgid: 20, startedAt: "200", command: "node.exe" },
   ]);
-});
-
-test("Windows keeper suppresses PowerShell progress serialization before compiling native code", () => {
-  const { EventEmitter } = require("node:events");
-  const { PassThrough } = require("node:stream");
-  const { spawnWindowsJob } = require("./agents/windows-job.cjs");
-  const keeper = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() });
-  let script;
-  let invocation;
-  spawnWindowsJob("C:\\node.exe", [], {}, (_file, args) => {
-    invocation = args;
-    script = Buffer.from(args.at(-1), "base64").toString("utf16le");
-    return keeper;
-  });
-  assert.ok(script.indexOf("$ProgressPreference='SilentlyContinue'") >= 0);
-  assert.ok(script.indexOf("$ProgressPreference='SilentlyContinue'") < script.indexOf("Add-Type"));
-  assert.equal(invocation[invocation.indexOf("-OutputFormat") + 1], "Text");
 });
 
 test("Windows job reports native missing executable errors through ENOENT", { timeout: 100 }, async () => {

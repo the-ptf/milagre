@@ -19,7 +19,6 @@ export {
   designFontBuffers,
   designFontFamily,
   designFontFaces,
-  designFontsLoaded,
   designInterHasGlyph,
   designInterWeight,
   designUsesInter,
@@ -248,51 +247,6 @@ export function applyDesignOperations(document, operations, intent) {
   const resolved = validateDesignDocument(result);
   assertDesignEditIntent(before, resolved, intent);
   return resolved;
-}
-
-export function diffDesignDocuments(before, after) {
-  const a = validateDesignDocument(before),
-    b = validateDesignDocument(after);
-  if (JSON.stringify(a) === JSON.stringify(b)) return [];
-  const { nodes: oldNodes, ...oldMetadata } = a;
-  const { nodes: newNodes, ...newMetadata } = b;
-  const replace = () => [{ op: "replace", document: b }];
-  if (JSON.stringify(oldMetadata) !== JSON.stringify(newMetadata)) return replace();
-  const oldById = new Map(oldNodes.map((node) => [node.id, node]));
-  const newById = new Map(newNodes.map((node) => [node.id, node]));
-  const oldOrder = oldNodes.filter((node) => newById.has(node.id)).map((node) => node.id);
-  const newOrder = newNodes.filter((node) => oldById.has(node.id)).map((node) => node.id);
-  if (JSON.stringify(oldOrder) !== JSON.stringify(newOrder)) return replace();
-  if (newNodes.some((node) => oldById.get(node.id)?.parentId && !newById.has(oldById.get(node.id).parentId))) return replace();
-  const operations = [];
-  for (const node of oldNodes) {
-    const instance = designInstanceRoot(a, node.id, oldById);
-    if (instance && instance.id !== node.id) continue;
-    if (!newById.has(node.id) && (!node.parentId || newById.has(node.parentId))) operations.push({ op: "delete", id: node.id });
-  }
-  for (const [index, node] of newNodes.entries()) {
-    const instance = designInstanceRoot(b, node.id, newById);
-    if (instance && instance.id !== node.id) continue;
-    const old = oldById.get(node.id);
-    if (!old) {
-      operations.push({ op: "insert", node, index });
-      continue;
-    }
-    if (Object.keys(old).some((field) => !Object.hasOwn(node, field))) return replace();
-    const patch = Object.fromEntries(
-      Object.entries(node).filter(
-        ([field, value]) =>
-          field !== "id" && old[field] !== value && (!instance || ["x", "y", "parentId", "name", "hidden", "locked", "componentValues"].includes(field)),
-      ),
-    );
-    if (Object.keys(patch).length) operations.push({ op: "update", id: node.id, patch });
-  }
-  try {
-    if (JSON.stringify(applyDesignOperations(a, operations)) !== JSON.stringify(b)) return replace();
-  } catch {
-    return replace();
-  }
-  return operations;
 }
 
 export function designColor(document, value, fallback = "transparent") {

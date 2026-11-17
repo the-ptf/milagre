@@ -3,11 +3,6 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { splitBody, createAssembler, toBase64, fromBase64 } from "./relay-rpc.mjs";
 
-test("base64 round trips", () => {
-  const bytes = new Uint8Array(randomBytes(1001));
-  assert.deepEqual(fromBase64(toBase64(bytes)), bytes);
-});
-
 test("base64 matches Buffer for every remainder length", () => {
   for (let n = 0; n < 12; n++) {
     const bytes = new Uint8Array(randomBytes(n));

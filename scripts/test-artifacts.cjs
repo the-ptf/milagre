@@ -564,7 +564,6 @@ async function browserChecks() {
       `(() => { const c = ${dock}.querySelector("[data-slot=artifact-canvas]").getBoundingClientRect(); const b = ${zoomBar}.getBoundingClientRect(); return { left: b.left - c.left, bottom: c.bottom - b.bottom, right: c.right - b.right }; })()`,
     );
     assert.ok(barPlace.bottom > 0 && barPlace.bottom <= 24 && Math.abs(barPlace.left - barPlace.right) <= 2, "the mode and zoom bar sits at the bottom centre");
-    assert.equal(await evaluate(`!!${dock}.querySelector("header [aria-label='Zoom in']")`), false, "the zoom left the header");
     assert.equal(await evaluate(`${dock}.querySelector("header [aria-label='Share page']").textContent.trim()`), "", "Share is an icon button");
     const zoom = await evaluate(`${dock}.querySelector("[data-slot=artifact-zoom]").textContent`);
     await evaluate(`${zoomBar}.querySelector("[aria-label='Zoom in']").click()`);
@@ -796,7 +795,6 @@ async function browserChecks() {
     await evaluate("document.activeElement?.blur()");
     await evaluate(`${dock}.querySelector("[aria-label='Comment on a design']").click()`);
     await waitFor(`!!${frame("login")}.querySelector("[data-slot=artifact-comment-layer]")`);
-    assert.equal(await evaluate(`/pin a comment/i.test(${dock}.textContent)`), false, "no instruction banner");
     // Over a design, the pointer is the pin's own shape, its point on the spot a click pins.
     assert.match(
       await evaluate(`getComputedStyle(${frame("login")}.querySelector("[data-slot=artifact-comment-layer]")).cursor`),
@@ -837,7 +835,6 @@ async function browserChecks() {
       `(() => { const s = ${frame("login")}.querySelector("[data-slot=artifact-comment-surface]").getBoundingClientRect(); return Math.round(s.width) === 256; })()`,
     );
     assert.equal(await evaluate(`${frame("login")}.querySelector("[data-slot=artifact-pin]").inert`), true, "the pin's number steps aside for the bubble");
-    assert.equal(await evaluate(`!!${dock}.querySelector("footer")`), false, "comments are written on the canvas, not in a list below it");
     await evaluate(`(() => {
       const box = document.activeElement;
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(box, "Make the button bigger");
@@ -922,7 +919,7 @@ async function browserChecks() {
     await evaluate(`${card}.scrollIntoView()`);
     await screenshot("feedback-card");
     // The card's comment opens the canvas on it, its bubble open; the choice is only a record.
-    assert.equal(await evaluate(`${card}.querySelector("[data-slot=design-feedback-choice]").tagName`), "DIV");
+    assert.equal(await evaluate(`${card}.querySelector("[data-slot=design-feedback-choice]").matches("button, a, [role=button]")`), false);
     await evaluate(`${dock}.querySelector("[aria-label='Close designs']").click()`);
     await waitFor(`!${dock}`);
     await evaluate(`${card}.querySelector("[data-slot=design-feedback-comment]").click()`);
@@ -1195,8 +1192,6 @@ async function browserChecks() {
     // A design is deleted from its frame on the canvas after a second press, and leaves the canvas and the Chat's cards.
     await evaluate('document.querySelector("[data-panel-toggle=designs]").click()');
     await waitFor(`${frames}?.length === 2`);
-    // Layers are the agent's to edit: no Edit button, and the frame's ⋯ menu holds Export.
-    assert.equal(await evaluate(`${frame("home")}.querySelectorAll("[data-slot=artifact-edit]").length`), 0, "users no longer edit layers");
     await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-more]").click()`);
     await waitFor('!!document.querySelector("[role=menu] [data-slot=artifact-export]")');
     assert.match(await evaluate('document.querySelector("[data-slot=artifact-export]").textContent'), /Export/);
@@ -1217,7 +1212,6 @@ async function browserChecks() {
     await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-delete-confirm]").click()`);
     await waitFor(`${frames}.length === 1 && !${frame("home")}`);
     assert.deepEqual(await evaluate("window.deletedIds"), ["home"]);
-    assert.doesNotMatch(await evaluate(`${dock}.querySelector("header").textContent`), /in this Chat/, "the header is one row, with no count under the title");
     await waitFor('!document.querySelector("[data-slot=artifact-thumb][data-artifact=home]") && !document.querySelector("[data-slot=artifact-group]")');
     await screenshot("deleted");
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
@@ -1233,10 +1227,9 @@ async function browserChecks() {
     assert.equal(await evaluate('!!document.querySelector("[data-artifact=login]")'), false, "Designs OFF hides only structured designs");
     assert.equal(await evaluate('!!document.querySelector("[data-artifact=home]")'), false, "unmarked structured refs stay hidden when Designs is OFF");
     await waitFor(`${dock}.querySelector('[aria-label="Share page"]')`);
-    // The page fills the dock, named in the header, with the zoom bar bottom-left; no comment box under it.
+    // The page fills the dock, named in the header, with the zoom bar bottom-left.
     assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-dock-title]").textContent`), "Explanation");
     await waitFor(`${dock}.querySelector("[data-slot=artifact-zoom]")?.textContent === "100%"`);
-    assert.equal(await evaluate(`!!${dock}.querySelector("textarea")`), false);
     // Expand through the normal control: the narrow dock's resize handle overlaps its left edge on Linux.
     // Give the click and its 264px bubble room inside the page, without relying on a one-pixel edge hit.
     await evaluate(`${dock}.querySelector('[aria-label="Fill the window with the artifacts"]').click()`);

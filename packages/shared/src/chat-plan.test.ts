@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ChatPlan } from "./model.ts";
-import { PHASES, currentPhase, deriveTasks, nativePlan, setPhase, setTasks, taskCounts, updateTask } from "./chat-plan.mjs";
+import { currentPhase, deriveTasks, nativePlan, setPhase, setTasks, taskCounts, updateTask } from "./chat-plan.mjs";
 
 const ids = (plan: ChatPlan) => {
   const out: string[] = [];
@@ -106,7 +106,6 @@ test("setPhase appends, skips repeats, caps at 200 and keeps the source", () => 
   assert.equal(plan.phases.length, 200);
   const native = nativePlan(undefined, [{ id: "0", content: "x", status: "pending" }], 1)!;
   assert.equal(setPhase(native, "build", 2).source, "native");
-  assert.equal(PHASES.length, 8);
 });
 
 test("nativePlan mirrors a flat list until Milagre owns the plan", () => {

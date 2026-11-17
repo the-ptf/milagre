@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clock } from "@milagre/shared/routines";
 import {
   chipStripInsets,
   computerOfRoutine,
@@ -90,7 +89,7 @@ test("a heartbeat's meta says its cadence, its Chat and how many runs are left",
   // A Heartbeat set for 2 days, read a few seconds later, still ends in 2 days (not 1).
   assert.equal(routineMeta({ ...heartbeat, maxRuns: undefined, expiresAt: NOW + 48 * HOUR - 5000 }, { now: NOW }), "Every 10 min · in a Chat · ends in 2 days");
   assert.equal(routineMeta({ ...heartbeat, maxRuns: undefined, expiresAt: NOW + 3 * HOUR - 5000 }, { now: NOW }), "Every 10 min · in a Chat · ends in 3 h");
-  assert.equal(routineStatus(heartbeat, NOW), `Next ${clock(heartbeat.nextRunAt!)}`);
+  assert.equal(routineStatus(heartbeat, NOW), "Next 12:12");
 });
 
 test("a schedule's status names the day of its next Run when it isn't today", () => {
@@ -116,7 +115,7 @@ test("a paused webhook says Paused, and it has no model to name", () => {
   assert.equal(routineStatus({ ...webhook, enabled: true }, NOW), "No Runs yet");
   const yesterday = NOW - 20 * HOUR;
   const ran = { ...webhook, enabled: true, runs: [{ id: "x", routineId: "w1", startedAt: yesterday, status: "acted" as const }] };
-  assert.equal(routineStatus(ran, NOW), `Yesterday ${clock(yesterday)}`);
+  assert.equal(routineStatus(ran, NOW), "Yesterday 16:00");
   assert.equal(routineStatus({ ...ran, runs: [{ ...ran.runs[0]!, startedAt: NOW - 3 * HOUR }] }, NOW), "3 h ago");
 });
 

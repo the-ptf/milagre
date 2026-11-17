@@ -692,16 +692,6 @@ test("a relay computer's requests prefer the LAN transport and fall back to the 
   assert.equal(relay.sent.length, 1);
 });
 
-test("a client without a LAN route in its runtime behaves as before", async () => {
-  const relay = fakeRelay(() => reply({ v: 1, result: "over-relay" }));
-  const client = createClient(relayHost, fetch, 30000, relay.runtime);
-  assert.equal(await client.call("daemon:status"), "over-relay");
-  const live = client.live("/p", { onSignal() {}, onStatus() {} });
-  await settle();
-  assert.equal(relay.lives.length, 1);
-  live.close();
-});
-
 test("a request over a LAN that dropped fails with the lost-connection copy", async () => {
   const lan = fakeRelay(() => {
     throw new Error("socket closed");

@@ -1,11 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { promptSkillParts, promptSkillAtSelection } from "./prompt-skills.mjs";
-import * as promptSkills from "./prompt-skills.mjs";
+import { promptSkillParts, promptSkillAtSelection, promptSkillQuery } from "./prompt-skills.mjs";
 
 test("skill completion queries follow the native caret and ignore code, paths and selected text", () => {
-  assert.equal(typeof promptSkills.promptSkillQuery, "function");
-  const query = promptSkills.promptSkillQuery;
+  const query = promptSkillQuery;
   assert.deepEqual(query("/", { start: 1, end: 1 }), { start: 0, end: 1, query: "" });
   assert.deepEqual(query("run /TL then", { start: 7, end: 7 }), { start: 4, end: 7, query: "tl" });
   assert.deepEqual(query("run /tldr then", { start: 7, end: 7 }), { start: 4, end: 9, query: "tl" });

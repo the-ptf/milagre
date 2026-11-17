@@ -196,12 +196,12 @@ test("a Chat with nothing attached is answered without listing devices when it a
   await api.attach({ chatId: "chat-a", deviceId: A.id });
   const attached = await api.list({ chatId: "chat-a", attachedOnly: true });
   assert.deepEqual([attached.devices, attached.available.length], [[A], 1]);
-  assert.equal(listed, 5, "attach lists twice, then this list once");
   // A host that can't show simulators says so, as its last list did.
   supported = false;
   await api.list({ chatId: "chat-b" });
+  const before = listed;
   assert.equal((await api.list({ chatId: "chat-b", attachedOnly: true })).supported, false);
-  assert.equal(listed, 6);
+  assert.equal(listed, before);
 });
 test("a leased device that ended leaves the Chat, while a stopped local device stays", async (t) => {
   const LEASE = { id: "simlock:l1", name: "iPhone 17 (Simlock)", platform: "ios", version: "27.0" };

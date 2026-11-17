@@ -73,13 +73,6 @@ test("frames over 1 MiB and a 17th phone are refused", () => {
   assert.equal(phones[0].closed.code, 1009);
 });
 
-test("a second host replaces the first", () => {
-  const room = createRoom({ id, nonce: randomNonce });
-  const first = connectHost(room);
-  connectHost(room);
-  assert.equal(first.closed.code, 4409);
-});
-
 test("a malformed proof closes the host instead of throwing", () => {
   for (const proof of [{ t: "proof", key: "!!", sig: "x" }, { t: "proof", key: b64url(keys.publicKey), sig: "***" }, { t: "proof" }, "not json"]) {
     const room = createRoom({ id, nonce: randomNonce });

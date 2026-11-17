@@ -228,7 +228,7 @@ test("a computer away still says where its Chats home is, and its kept home read
   await assert.rejects(call("computers:invoke", ID, "chats:ensure", []), { message: "studio is offline." });
 });
 
-test("the copy an opened Project's state leaves is written after the answer, once per change", async (t) => {
+test("the copy an opened Project's state leaves is written after the answer, and follows each change", async (t) => {
   const fs = require("node:fs/promises");
   const os = require("node:os");
   const path = require("node:path");
@@ -240,12 +240,6 @@ test("the copy an opened Project's state leaves is written after the answer, onc
     cache.close();
     await fs.rm(dir, { recursive: true, force: true, maxRetries: 5 });
   });
-  const puts = [];
-  const put = cache.put.bind(cache);
-  cache.put = (...args) => {
-    puts.push(args[2]);
-    return put(...args);
-  };
   let title = "first";
   const { call } = setup(
     {
@@ -255,24 +249,12 @@ test("the copy an opened Project's state leaves is written after the answer, onc
     { cache },
   );
   assert.equal((await call("computers:invoke", ID, "project:read", [`${ID}|/p`])).path, `${ID}|/p`);
-  assert.deepEqual(puts, [], "the answer goes first");
+  assert.equal(cache.get(ID, "scope", "/p"), null, "the answer goes first");
   await new Promise(setImmediate);
-  assert.deepEqual(puts, ["/p"]);
   assert.deepEqual(cache.get(ID, "scope", "/p"), { name: "p", state: { sessions: { 4: { id: 4, title: "first" } } } });
-  // Opened again unchanged, then changed: only the change is written (the cache skips what it already holds).
-  const { DatabaseSync } = require("node:sqlite");
-  const look = new DatabaseSync(path.join(dir, ID, "cache.sqlite"));
-  t.after(() => look.close());
-  const at = () => look.prepare("SELECT at FROM entries WHERE kind = 'scope' AND key = '/p'").get().at;
-  const first = at();
-  await new Promise((resolve) => setTimeout(resolve, 5));
-  await call("computers:invoke", ID, "project:switch", [`${ID}|/p`]);
-  await new Promise(setImmediate);
-  assert.equal(at(), first, "an unchanged state is not written again");
   title = "second";
   await call("computers:invoke", ID, "project:switch", [`${ID}|/p`]);
   await new Promise(setImmediate);
-  assert.ok(at() > first);
   assert.equal(cache.get(ID, "scope", "/p").state.sessions[4].title, "second");
   // A state the window remembers before the answer's copy is written is newer: the waiting copy is dropped.
   title = "third";

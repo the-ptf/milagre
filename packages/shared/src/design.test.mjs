@@ -12,7 +12,6 @@ import {
   designLayout,
   designNodeAt,
   designSvg,
-  diffDesignDocuments,
   validateDesignDocument,
 } from "./design.mjs";
 import { designIcons } from "./design-icons.mjs";
@@ -77,19 +76,6 @@ test("hidden frames hide descendants and do not consume auto-layout space", () =
   assert.equal(designLayout(document).get("button").y, 40);
   const hidden = applyDesignOperations(document, [{ op: "update", id: "frame", patch: { hidden: true } }]);
   assert.equal(designLayout(hidden).size, 0);
-});
-
-test("diffs keep ordinary edits small and preserve structural changes", () => {
-  const original = screen();
-  const after = applyDesignOperations(original, [{ op: "update", id: "title", patch: { text: "Short patch" } }]);
-  assert.deepEqual(diffDesignDocuments(original, after), [{ op: "update", id: "title", patch: { text: "Short patch" } }]);
-  assert.deepEqual(diffDesignDocuments(after, after), []);
-  const inserted = applyDesignOperations(after, [{ op: "insert", index: 1, node: { id: "image", type: "image", width: 20, height: 20 } }]);
-  assert.deepEqual(applyDesignOperations(after, diffDesignDocuments(after, inserted)), inserted);
-  const reordered = { ...inserted, nodes: inserted.nodes.toReversed() };
-  assert.deepEqual(applyDesignOperations(inserted, diffDesignDocuments(inserted, reordered)), reordered);
-  const removed = applyDesignOperations(original, [{ op: "delete", id: "frame" }]);
-  assert.deepEqual(applyDesignOperations(original, diffDesignDocuments(original, removed)), removed);
 });
 
 test("unknown tokens and style/URL injection are rejected before rendering", () => {
@@ -251,7 +237,6 @@ test("each layer type's default fill matches what the renderers paint", () => {
     ].map(designDefaultFill),
     [DESIGN_INK, DESIGN_INK, "transparent", "transparent", DESIGN_PLACEHOLDER, DESIGN_PLACEHOLDER, DESIGN_PLACEHOLDER],
   );
-  assert.deepEqual([DESIGN_INK, DESIGN_PLACEHOLDER], ["#202720", "#d8ded8"]);
   const document = {
     schemaVersion: 1,
     width: 390,

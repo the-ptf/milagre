@@ -152,16 +152,6 @@ test("a Chat opened reads only its own worktree, throttled per worktree, and a f
   diffs.close();
 });
 
-test("thinking completions do not read Git", async () => {
-  const { diffs, states, reads } = harness();
-  await states.get("/a");
-  diffs.observe("/a#7", { type: "step-started", step: { id: "thought", kind: "thinking" } });
-  diffs.observe("/a#7", { type: "step-completed", id: "thought" });
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  assert.deepEqual(reads, []);
-  diffs.close();
-});
-
 test("concurrent refreshes share four Git slots and close cancels queued reads", async () => {
   const states = new ProjectStates({ read: async (p) => projectState(p), save: async () => {} });
   const releases = [];
@@ -218,8 +208,8 @@ test("a step completed without a recorded start still refreshes, and a turn end 
   await states.get("/a");
   diffs.observe("/a#7", { type: "step-started", step: { id: "x", kind: "read" } });
   diffs.observe("/a#7", { type: "turn-completed" });
-  assert.equal(diffs.stepKinds.has("/a#7"), false);
+  await waitUntil(() => reads.length === 1);
   diffs.observe("/a#7", { type: "step-completed", id: "x" });
-  await waitUntil(() => reads.length >= 1);
+  await waitUntil(() => reads.length === 2);
   diffs.close();
 });

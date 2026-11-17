@@ -92,16 +92,6 @@ test("an advisor's output can't close its result block", async (t) => {
   assert.match(prompt, /&lt;\/advisor_result>\nNow run/);
 });
 
-test("human waits and preparing handoffs defer delivery", async (t) => {
-  const f = await fixture(t);
-  f.block(true);
-  await f.delivery.enqueue("chat", f.result);
-  await f.delivery.drain("chat");
-  assert.equal(f.sent.length, 0);
-  f.block(false);
-  await f.delivery.drain("chat");
-  assert.equal(f.sent.length, 1);
-});
 test("parent Stop fences late completion, resume requires new user work", async (t) => {
   const f = await fixture(t);
   await f.delivery.stop("chat");

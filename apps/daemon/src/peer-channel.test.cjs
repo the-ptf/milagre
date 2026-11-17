@@ -116,7 +116,6 @@ test("a desktop that falls behind by the budget is dropped instead of queued wit
   assert.equal(carrier.send({ v: 1, event: { channel: "project:state", payload: "y".repeat(200), seq: 1 } }), false);
   assert.deepEqual(out, []);
   assert.equal(state.dropped, 1);
-  assert.equal(PEER_BUDGET, 2 * MAX_FRAME_BYTES);
 });
 
 test("once the channel is gone, sends return false and nothing goes out; end and destroy drop it; close closes the connection", () => {
