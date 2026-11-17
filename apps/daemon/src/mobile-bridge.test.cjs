@@ -1968,11 +1968,6 @@ test("a phone snapshot's Chats and messages come from one state, even when a Cha
   assert.equal(removed, true, "the Worktree went during the chat list's read");
 });
 
-test("a phone may edit URL servers and switch them, but not add command servers or start a sign-in", () => {
-  for (const method of ["mcp:definition", "mcp:saveUrl", "mcp:remove", "mcp:toggle"]) assert.ok(METHODS.has(method), method);
-  for (const method of ["mcp:save", "mcp:signIn", "mcp:cancelSignIn"]) assert.ok(!METHODS.has(method), method);
-});
-
 test("phone checkpoint RPCs preview and restore a task with explicit confirmation", async (t) => {
   const { project, rpc, request, dataDir } = await fixture(t, { runtimeOptions: demoRuntimeOptions() });
   await fs.writeFile(path.join(project, "draft.txt"), "before task");

@@ -163,7 +163,6 @@ async function browserChecks() {
           win.webContents.setZoomFactor(1);
           await delay(100);
         }
-        assert.equal(await evaluate('!!document.querySelector("button[aria-label=\\"Chat actions\\"]")'), false, "no overflow menu button");
         assert.equal(await evaluate('document.querySelectorAll("[data-slot=panel-toggles] button").length'), 2, "Terminals and Changes show inline");
         await evaluate("window.setBrowserAvailable(true); window.setPrAvailable(true)");
         await waitFor('document.querySelectorAll("[data-slot=panel-toggles] button").length === 4');
@@ -190,12 +189,6 @@ async function browserChecks() {
         assert.ok(await evaluate('!!document.querySelector("[data-panel-toggle=browser]")'), "an empty browser still shows inline");
         await evaluate("window.setBrowserAvailable(false)");
         await waitFor('document.querySelectorAll("[data-slot=panel-toggles] button").length === 2');
-        win.setSize(640, 650);
-        await delay(200);
-        assert.equal(await evaluate('!!document.querySelector("[data-attention-button]")'), false, "no attention chip in the corner");
-        await capture(integrated ? "integrated-narrow-attention" : "native-narrow-attention");
-        win.setSize(1100, 650);
-        await delay(200);
         await capture(integrated ? "integrated-expanded" : "native-expanded");
         await click("[data-sidebar-toggle] button");
         await waitFor('document.querySelector("aside").dataset.sidebarCollapsed === "true"');

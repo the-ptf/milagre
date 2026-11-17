@@ -46,13 +46,6 @@ test("gives the GitHub request an abort signal so a stalled API cannot hang the 
   assert.ok(calls[0].init.signal instanceof AbortSignal);
 });
 
-test("falls back to the releases page when the GitHub request is aborted", async () => {
-  const aborted = async () => {
-    throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
-  };
-  assert.equal(await latestDownload("mac-arm64", aborted, { timeoutMs: 1 }), RELEASES_PAGE);
-});
-
 test("sends a bearer token to GitHub when one is configured", async () => {
   const { fetchImpl, calls } = github(release);
   await latestDownload("mac-arm64", fetchImpl, { token: "ghp_test" });

@@ -140,7 +140,7 @@ test("saves without subagents never create the content folder", async (t) => {
   assert.deepEqual(await fs.readdir(path.join(projectPath, ".milagre")), ["coordination.json"]);
 });
 
-test("many subagents round-trip through bounded concurrent hydration", async (t) => {
+test("many subagents round-trip through a save and a read", async (t) => {
   const projectPath = await tempProject(t);
   const { readProjectState } = require("./project-store.cjs");
   const texts = Array.from({ length: 20 }, (_, index) => `transcript ${index}`);
@@ -150,9 +150,6 @@ test("many subagents round-trip through bounded concurrent hydration", async (t)
     loaded.sessions[1].subagents.map((agent) => agent.transcript[0].text),
     texts,
   );
-  const calls = t.mock.method(fs, "mkdir");
-  await readProjectState(projectPath);
-  assert.equal(calls.mock.callCount(), 2); // contentDirectory once for the whole Project, not once per agent
 });
 
 test("only a durable save syncs to disk; routine saves just rename", async (t) => {

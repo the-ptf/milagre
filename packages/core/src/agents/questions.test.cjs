@@ -45,7 +45,6 @@ function pending() {
 test("each question is announced, then settled exactly once with the answers it asked for", () => {
   const { questions, events, settled, ask } = pending();
   ask("a");
-  assert.equal(questions.size, 1);
   assert.equal(questions.answer("a", { 0: [" Green "], 1: ["S", "", "  "], other: ["x"] }), true);
   assert.equal(questions.answer("a", { 0: ["Red"] }), false);
   assert.equal(questions.answer("missing", null), false);
@@ -54,7 +53,6 @@ test("each question is announced, then settled exactly once with the answers it 
     { type: "question-request", requestId: "a", questions: [colors, sizes] },
     { type: "question-resolved", requestId: "a", outcome: "answered" },
   ]);
-  assert.equal(questions.size, 0);
 });
 
 test("no answers, or only blank ones, dismiss the question", () => {
@@ -90,7 +88,7 @@ test("dismissAll and cancelAll settle every open question", () => {
     events.filter((event) => event.type === "question-resolved").map((event) => event.outcome),
     ["dismissed", "dismissed", "cancelled", "cancelled"],
   );
-  assert.equal(questions.size, 0);
+  assert.equal(questions.answer("d", { 0: ["Red"] }), false);
 });
 
 test("forget drops a withdrawn question without settling it", () => {

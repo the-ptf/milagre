@@ -19,7 +19,7 @@ export function simulatorGeometry(
   box: { width: number; height: number },
   inset?: number,
 ): SimulatorGeometry | null;
-export function simulatorAppearance(device?: Partial<SimulatorDevice>): { cutout: "island" | "notch" | "camera" | "none"; radius: number };
+export function simulatorAppearance(device?: Partial<SimulatorDevice>): { radius: number };
 export function simulatorPoint(
   point: { x: number; y: number },
   geometry: SimulatorGeometry | null,

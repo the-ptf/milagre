@@ -56,7 +56,6 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('${group}')`);
     assert.equal(await dots(group), 1, "The waiting project's group shows a dot");
     assert.equal(await dots('[data-sidebar-scope="/work/atlas"]'), 0, "The open project's group does not");
-    assert.equal(await evaluate(`!!document.querySelector("[data-attention-button]")`), false, "No attention chip in the top bar");
     await screenshot("button");
     await evaluate("window.clearWaiting()");
     await waitFor(`document.querySelectorAll('${group} [aria-label="Needs attention"]').length === 0`);

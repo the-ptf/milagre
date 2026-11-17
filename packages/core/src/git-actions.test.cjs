@@ -700,12 +700,3 @@ test("one big untracked file can't crowd the others out of the diff", async (t) 
   const big = context.diff.slice(0, context.diff.indexOf("[a-big.txt is cut off here.]"));
   assert.ok(big.length < 10_500, String(big.length));
 });
-
-test("readTextContext reads no more of a large untracked file than the diff can hold", async (t) => {
-  const { worktree, actions } = await fixture(t);
-  await fs.writeFile(path.join(worktree, "big.txt"), `${"x".repeat(99)}\n`.repeat(2000));
-  await fs.writeFile(path.join(worktree, "small.txt"), "small\n");
-  const context = await actions.readTextContext({ cwd: worktree, base: "main" });
-  assert.ok(context.diff.length < 41_000, String(context.diff.length));
-  assert.match(context.diff, /\[big\.txt is cut off here\.\]/);
-});

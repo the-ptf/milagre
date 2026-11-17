@@ -5,6 +5,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { createGitDiff } = require("./git-diff.cjs");
+const { configuredHelper } = require("./git/test-helpers.cjs");
 
 async function fixture(t, { commit = true } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-gitdiff-"));
@@ -215,17 +216,14 @@ test("committed on a branch that shares no history with the base says so", async
   });
 });
 
-test("patch reads turn off textconv", async (t) => {
-  const { cwd, write } = await fixture(t);
+test("patch reads never run a configured textconv helper", async (t) => {
+  const { cwd, write, diff } = await fixture(t);
+  const { marker } = await configuredHelper(cwd, "textconv", "README.md");
   await write("README.md", "one\nTWO\nthree\n");
-  const real = require("node:child_process").execFile;
-  const seen = [];
-  const execFile = (cmd, args, options, callback) => {
-    seen.push(args);
-    return real(cmd, args, options, callback);
-  };
-  await createGitDiff({ execFile }).readDiffFile({ cwd, mode: "uncommitted", path: "README.md" });
-  assert.ok(seen.some((args) => args.includes("diff") && args.includes("--no-textconv")));
+  const { patch } = await diff.readDiffFile({ cwd, mode: "uncommitted", path: "README.md" });
+  assert.match(patch, /\+TWO/);
+  assert.doesNotMatch(patch, /converted/);
+  await assert.rejects(fs.access(marker), { code: "ENOENT" });
 });
 
 test("comparison history excludes inherited commits with a chosen branch and includes author, full message and stats", async (t) => {

@@ -56,7 +56,6 @@ test("the tool text asks for a Heartbeat's end up front, since deleting it later
 
 test("the tool names and definitions line up", () => {
   const { tools } = setup();
-  assert.deepEqual(ROUTINE_TOOL_NAMES, ["routine_list", "heartbeat_create", "routine_create", "routine_update", "routine_delete", "routine_run_now"]);
   assert.deepEqual(
     tools.definitions(CHAT).map((tool) => tool.name),
     ROUTINE_TOOL_NAMES,

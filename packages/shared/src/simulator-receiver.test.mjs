@@ -80,32 +80,18 @@ test("device frame padding leaves the bezel outside the touch screen in either o
   }
   assert.equal(simulatorGeometry(portrait, { width: 40, height: 40 }, 24), null);
 });
-test("hardware cutouts follow the model identifier even when the simulator is renamed", () => {
+test("the screen's corner radius follows the model identifier even when the simulator is renamed", () => {
   const appearance = receiverModule.simulatorAppearance;
-  for (const [model, cutout] of [
-    ["iPhone-17-Pro", "island"],
-    ["iPhone-13", "notch"],
-    ["iPhone-16e", "notch"],
-    ["iPhone-14", "notch"],
-    ["iPhone-14-Pro", "island"],
-    ["iPhone-SE-3rd-generation", "none"],
-    ["iPad-Pro-11-inch-M4", "none"],
+  for (const [model, radius] of [
+    ["iPhone-17-Pro", 0.14],
+    ["iPhone-16e", 0.14],
+    ["iPhone-8", 0.025],
+    ["iPhone-SE-3rd-generation", 0.025],
+    ["iPad-Pro-11-inch-M4", 0.045],
   ]) {
-    assert.equal(
-      appearance?.({
-        platform: "ios",
-        name: "QA device",
-        deviceType: `com.apple.CoreSimulator.SimDeviceType.${model}`,
-      }).cutout,
-      cutout,
-      model,
-    );
+    assert.equal(appearance({ platform: "ios", name: "QA device", deviceType: `com.apple.CoreSimulator.SimDeviceType.${model}` }).radius, radius, model);
   }
-  assert.equal(appearance?.({ platform: "android", name: "Milagre_Pixel9" }).cutout, "camera");
-  for (const model of ["Pixel_6a", "Pixel_7a", "Pixel_8a", "Pixel_9a", "Pixel_10a"])
-    assert.equal(appearance?.({ platform: "android", name: model }).cutout, "camera", model);
-  assert.equal(appearance?.({ platform: "android", name: "Pixel_9_Pro_Fold" }).cutout, "none", "the inner and outer screens have different camera positions");
-  assert.equal(appearance?.({ platform: "ios", name: "Unknown simulator" }).cutout, "none");
+  assert.equal(appearance({ platform: "ios", name: "Unknown simulator" }).radius, 0.09);
 });
 test("touches cannot start on the rounded bezel, while a captured drag still clamps at the edge", () => {
   const geometry = { left: 100, top: 20, width: 200, height: 400, rotation: 0 };
@@ -264,23 +250,8 @@ test("wrapper rejects unknown commands and foreign viewers; dispose releases onl
 test("HTML embeds the receiver in the JS bundle and escapes device identifiers", () => {
   const html = createSimulatorReceiverHtml({ deviceId: "</script><script>bad()</script>" });
   assert.equal((html.match(/<script>/g) || []).length, 1);
-  assert.ok(html.includes("RTCPeerConnection"));
   assert.ok(html.includes("playsinline"));
   assert.ok(!html.includes('src="http'));
-});
-test("the streamed display owns its cutouts; shells never paint a second Island, notch or camera over it", () => {
-  for (const device of [
-    { platform: "ios", name: "iPhone 17 Pro" },
-    { platform: "ios", name: "iPhone 13" },
-    { platform: "ios", name: "iPhone Duo" },
-    { platform: "ios", name: "iPad Pro" },
-    { platform: "android", name: "Pixel 9" },
-  ]) {
-    const html = createSimulatorReceiverHtml({ deviceId: "sim", device });
-    assert.ok(!html.includes('id="cutout"'), device.name);
-    assert.ok(!html.includes('id="hardware"'), device.name);
-    assert.ok(!html.includes("#cutout"), device.name);
-  }
 });
 test("bundled script stays identical to tested source and every device uses the same CSP hash", () => {
   assert.equal(

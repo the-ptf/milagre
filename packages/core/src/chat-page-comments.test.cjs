@@ -98,7 +98,6 @@ test("a tap on the phone names the element at that point, with its screenshot ta
   };
   const result = await commentAtPoint(page, 0.2, 0.15);
   assert.deepEqual(result, { element: { ...element, styles: {}, point: { x: 0.5, y: 0.5 } }, shot: "iVBOR" });
-  assert.match(sent[0][1], /^\(\(\) => \{/);
   assert.deepEqual(sent[1], ["Runtime.evaluate", "window.__milagrePins?.hide(true)"]);
   // The crop keeps a margin and never starts off the page.
   assert.deepEqual(sent[2][1].clip, { x: 0, y: 88, width: 144, height: 64, scale: 1 });

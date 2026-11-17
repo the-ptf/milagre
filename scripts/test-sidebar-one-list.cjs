@@ -236,8 +236,6 @@ async function browserChecks() {
     assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 7, { done: true, unread: false }]);
     await waitFor(`!${row(7)} && document.querySelector("[data-chat-toast]")?.textContent.includes("Moved to Done")`);
     const done7 = `document.querySelector('[data-done-row="7"]')`;
-    assert.equal(await evaluate(`${done7}.querySelector("button").firstElementChild.tagName`), "SPAN", "no icon leads a Done row");
-    assert.equal(await evaluate(`${done7}.querySelector("button > span > svg")`), null, "no leading check-circle");
     assert.equal(
       await evaluate(
         `Math.abs(${done7}.querySelector("[data-done-countdown]").getBoundingClientRect().top - ${done7}.querySelector("[data-chat-title]").getBoundingClientRect().top) < 6`,
@@ -296,8 +294,6 @@ async function browserChecks() {
     await undoKey(false);
     assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 8, { snoozed_until: false }]);
     await waitFor(`!!${row(8)} && !document.querySelector('[data-snoozed-row="8"]')`);
-    assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-diff]")`), false);
-    assert.equal(await evaluate(`${row(1)}.textContent.includes("fix-login")`), false, "No branch name on the row");
     assert.equal(await evaluate(`${row(4)}.querySelector("[data-chat-ago]")?.textContent`), "30m");
     const ago = await evaluate(`${row(4)}.querySelector("[data-chat-ago]").className`);
     assert.ok(/\btext-ink\b/.test(ago) && /\bfont-medium\b/.test(ago) && !ago.includes("accent"), `unread time: ${ago}`);
@@ -334,7 +330,6 @@ async function browserChecks() {
       0,
       "The flat list is gone",
     );
-    assert.equal(await evaluate(`document.querySelectorAll("[data-chat-project]").length`), 0, "Rows no longer repeat their Project");
     assert.equal(await evaluate(`document.querySelectorAll("[data-inbox-row]").length`), 0, "Grouped rows keep their own look");
     assert.equal(JSON.parse(await evaluate(`localStorage.getItem("milagre-settings")`)).chatList, "grouped", "Grouped by Project is saved");
     await screenshot("grouped");

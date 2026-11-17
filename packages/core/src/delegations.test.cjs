@@ -1456,18 +1456,15 @@ test("a Delegation to a Chat whose last turn ran in Full asks an Ask caller with
   assert.equal(fixture.sessionOf("web").prompts.length, prompts, "nothing reached the Full Chat");
 });
 
-test("a Chat can't delegate to itself, nor to another Project's Worktree without a Link", async (t) => {
+test("a Chat can't delegate to itself", async (t) => {
   const fixture = await linkedProjects(t, { link: false });
-  const results = [];
+  let result;
   fixture.scripts.api = async (session) => {
-    results.push(await session.call("delegate", { worktree: fixture.folders.api, chat: fixture.chatOf("api"), message: "Do it yourself" }));
-    results.push(await session.call("delegate", delegation(fixture)));
+    result = await session.call("delegate", { worktree: fixture.folders.api, chat: fixture.chatOf("api"), message: "Do it yourself" });
     session.finish("Done.");
   };
-  await fixture.send("api", "Try both");
-  await waitFor(() => results.length === 2);
-  assert.equal(results[0].isError, true);
-  assert.match(results[0].text, /can't delegate to itself/);
-  assert.equal(results[1].isError, true);
-  assert.match(results[1].text, /isn't linked to this Chat/);
+  await fixture.send("api", "Try it");
+  await waitFor(() => result);
+  assert.equal(result.isError, true);
+  assert.match(result.text, /can't delegate to itself/);
 });

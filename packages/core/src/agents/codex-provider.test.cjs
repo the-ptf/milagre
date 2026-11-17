@@ -347,7 +347,10 @@ test("switching to Auto mid-turn leaves a waiting command to the user", async (t
   await session.startTurn({ ...TURN, permissionMode: "ask" });
   await asked(events);
   session.setPermissionMode("auto");
-  assert.equal(session.permissions.size, 1);
+  assert.equal(
+    events.some((event) => event.type === "permission-resolved"),
+    false,
+  );
   session.respondToPermission("srv-1", "deny");
   await ended(events);
 });
@@ -784,7 +787,6 @@ test("an approval requested after the turn was stopped is cancelled at once", as
     events.some((event) => event.type === "permission-request" || event.type === "permission-resolved"),
     false,
   );
-  assert.equal(session.permissions.size, 0);
 });
 
 test("a turn Codex announces that this session isn't running is ignored", async (t) => {
@@ -945,7 +947,6 @@ test("a question asked after the turn was stopped gets no answers at once", asyn
     events.some((event) => event.type === "question-request" || event.type === "question-resolved"),
     false,
   );
-  assert.equal(session.questions.size, 0);
 });
 
 test("threads start and resume without the question tool when Codex rejects the config", async (t) => {

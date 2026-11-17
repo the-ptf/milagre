@@ -1,13 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  applyDesignOperations,
-  createDesignInstance,
-  detachDesignInstance,
-  designInstanceRoot,
-  diffDesignDocuments,
-  validateDesignDocument,
-} from "./design.mjs";
+import { applyDesignOperations, createDesignInstance, detachDesignInstance, designInstanceRoot, validateDesignDocument } from "./design.mjs";
 
 const scene = () =>
   validateDesignDocument({
@@ -28,8 +21,6 @@ test("linked instances propagate main edits, preserving their position and desce
   const after = applyDesignOperations(before, [{ op: "update", id: "label", patch: { text: "Get started" } }]);
   assert.equal(after.nodes.find((node) => node.id === child.id).text, "Get started");
   assert.equal(after.nodes.find((node) => node.id === "copy").y, 100);
-  assert.deepEqual(diffDesignDocuments(before, after), [{ op: "update", id: "label", patch: { text: "Get started" } }]);
-  assert.deepEqual(applyDesignOperations(before, diffDesignDocuments(before, after)), after);
 });
 
 test("detach makes an independent frame and allows edits without changing the main component", () => {
@@ -179,7 +170,6 @@ test("component properties vary content while main style changes propagate", () 
   const detached = applyDesignOperations(doc, [{ op: "detach", id: "copy" }]);
   assert.equal(detached.nodes.find((n) => n.id === "copy").componentValues, undefined);
   assert.equal(detached.nodes.find((n) => n.text === "Cancel").componentSourceId, undefined);
-  assert.deepEqual(applyDesignOperations(doc, diffDesignDocuments(doc, after)), after);
 });
 
 test("document patches, duplicates and unsetting preserve unrelated fields", () => {

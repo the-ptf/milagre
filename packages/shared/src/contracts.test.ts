@@ -7,8 +7,7 @@ import { resolve } from "node:path";
 const require = createRequire(import.meta.url);
 
 test("provider names distinguish product and CLI while retaining picker order", async () => {
-  const { PROVIDERS, providerName, cliName } = await import("./providers.mjs");
-  assert.deepEqual(PROVIDERS, ["codex", "claude", "antigravity", "kiro"]);
+  const { providerName, cliName } = await import("./providers.mjs");
   assert.equal(providerName("claude"), "Claude");
   assert.equal(cliName("claude"), "Claude Code");
   assert.equal(providerName("codex"), cliName("codex"));
@@ -18,10 +17,8 @@ test("provider names distinguish product and CLI while retaining picker order", 
   assert.equal(cliName("kiro"), "Kiro CLI");
 });
 test("image limits and invalid image messages come from one contract", async () => {
-  const { MAX_ATTACHMENT_BYTES, IMAGE_TYPES, IMAGE_ERRORS } = await import("./limits.mjs");
+  const { IMAGE_ERRORS } = await import("./limits.mjs");
   const { decodeImages } = require("../../core/src/image-input.cjs");
-  assert.equal(MAX_ATTACHMENT_BYTES, 50 * 1024 * 1024);
-  assert.deepEqual(IMAGE_TYPES, ["image/png", "image/jpeg", "image/webp", "image/gif"]);
   for (const [images, expected] of [
     [[{ dataUrl: "data:image/svg+xml;base64,AAAA" }], IMAGE_ERRORS.type],
     [[{}], IMAGE_ERRORS.size],
@@ -55,9 +52,4 @@ test("provider labels and Electron error wrappers have one owner", () => {
     }
   }
   assert.deepEqual(offenders, []);
-});
-
-test("the wire model contains no presentation catalog or obsolete spec types", () => {
-  const model = readFileSync(new URL("./model.ts", import.meta.url), "utf8");
-  assert.doesNotMatch(model, /MODEL_CATALOG|EFFORT_COPY|PERMISSION_MODES|interface Connection|interface Event/);
 });

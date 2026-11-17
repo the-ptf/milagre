@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { preparePrivateDirectory, assertPrivate, windowsAcl } = require("@milagre/core/private-files");
-const { createDevices, MAX_DEVICES, CLAIM_MS } = require("./devices.cjs");
+const { createDevices, CLAIM_MS } = require("./devices.cjs");
 
 // The daemon keeps these in its data folder, which it makes private first: mkdtemp is 0700 on macOS and Linux, and
 // Windows needs its ACL set.
@@ -90,8 +90,7 @@ test("only the 32 newest devices are remembered", async () => {
   const dir = await tmp("devices-cap");
   const devices = createDevices(dir);
   await devices.load();
-  for (let i = 0; i <= MAX_DEVICES; i++) await devices.add(`phone${i}`);
-  assert.equal(MAX_DEVICES, 32);
+  for (let i = 0; i <= 32; i++) await devices.add(`phone${i}`);
   assert.equal(devices.isKnown("phone0"), false);
   assert.equal(devices.isKnown("phone1"), true);
   assert.equal(devices.isKnown("phone32"), true);

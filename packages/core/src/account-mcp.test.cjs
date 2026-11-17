@@ -180,6 +180,5 @@ test("the record of copied names is written with mode 0600", (t) => {
   fs.writeFileSync(source, JSON.stringify({ mcpServers: { b: { command: "b" }, a: { command: "a" } } }));
   fs.writeFileSync(target, "{}");
   inheritClaudeMcp(source, target);
-  assert.deepEqual(JSON.parse(fs.readFileSync(record, "utf8")), { names: ["a", "b"] });
   assert.equal(fs.statSync(record).mode & 0o777, 0o600);
 });

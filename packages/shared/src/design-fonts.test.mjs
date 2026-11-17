@@ -7,7 +7,6 @@ import {
   designDrawnWeight,
   designFontBuffers,
   designFontFaces,
-  designFontsLoaded,
   designInterHasGlyph,
   loadDesignFonts,
 } from "./design-fonts.mjs";
@@ -130,10 +129,8 @@ test("a catalog family is embedded only after it loads, at the measured weights 
     fontFamily: "EB Garamond, Georgia, serif",
     fontWeight: 560,
   });
-  assert.equal(designFontsLoaded(document), false);
   assert.doesNotMatch(designFontFaces(document), /Bebas Neue/);
   await loadDesignFonts(document);
-  assert.equal(designFontsLoaded(document), true);
   const faces = designFontFaces(document);
   assert.match(faces, /font-family:"Bebas Neue";font-weight:1 1000;/);
   // EB Garamond is drawn at 400 and 500; 560 renders with 500, which claims the weights nearest to it.

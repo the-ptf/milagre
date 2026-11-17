@@ -34,28 +34,6 @@ async function fixture(t) {
   return { api, tools, directory };
 }
 
-test("Designs are always on: tools exist, designs and comments survive a restarted store and Chat removal", async (t) => {
-  const { api, tools, directory } = await fixture(t);
-  assert.equal(api.enabled, undefined);
-  assert.equal(api.setEnabled, undefined);
-  assert.equal(typeof api.show, "function");
-  assert.equal(tools.artifact_show, undefined);
-  assert.equal(tools.artifact_read, undefined);
-  assert.ok(artifactToolDefinitions(CHAT, api).length > 0);
-  await tools.design_show.run({ id: "welcome", title: "Welcome", document: designDocument() });
-  const [comment] = await api.addComments({ chatId: CHAT, comments: [{ design: { id: "welcome", version: 1 }, text: "Bigger" }] });
-  const request = { chatId: CHAT, id: "welcome" };
-  assert.equal((await api.list({ ...request, format: "design" })).length, 1);
-  assert.equal((await api.comments(request)).length, 1);
-  await tools.artifact_resolve_comment.run({ id: comment.id, note: "Done" });
-  assert.equal((await api.comments(request))[0].resolved.note, "Done");
-  const restarted = createChatArtifacts({ directory, validateChat: async () => {} });
-  assert.equal((await restarted.get(request)).version, 1);
-  assert.equal((await restarted.comments(request)).length, 1);
-  await restarted.removeChat(CHAT);
-  assert.deepEqual(await restarted.list(request), []);
-});
-
 test("legacy HTML reopens as one current artifact and keeps old files and comments", async (t) => {
   const { api, directory } = await fixture(t);
   await api.showDesign({ chatId: CHAT, id: "active", title: "Active", document: designDocument() });
@@ -105,7 +83,7 @@ test("HTML tool updates one live page without version history", async (t) => {
   assert.equal(updated.id, first.id);
   assert.equal(updated.version, first.version + 1);
   assert.equal(updated.versions, 1);
-  const folder = path.join(directory, require("node:crypto").createHash("sha256").update(CHAT).digest("hex").slice(0, 32), first.id);
+  const folder = path.join(await chatFolder(directory), first.id);
   assert.deepEqual((await fs.readdir(folder)).sort(), ["meta.json", "v2.html"], "live updates retain only the current page");
   const read = JSON.parse(await tools.artifact_read.run({ id: first.id, version: first.version }));
   assert.equal(read.html, "<p>Two</p>");
@@ -272,7 +250,11 @@ test("an invalid layer id rejects the whole comment batch", async (t) => {
   assert.deepEqual(await api.comments({ chatId: CHAT }), []);
 });
 
-const chatFolder = async (directory) => path.join(directory, (await fs.readdir(directory))[0]);
+const chatFolder = async (directory) =>
+  path.join(
+    directory,
+    (await fs.readdir(directory)).find((name) => !name.startsWith(".")),
+  );
 
 test("removing a Chat deletes its designs and comments, and only its own", async (t) => {
   const { api, directory } = await fixture(t);
@@ -805,7 +787,7 @@ test("a page split into tabs keeps each tab, changes one tab at a time and is pu
   assert.equal(one.html, undefined);
   assert.equal(JSON.parse(await tools.artifact_read.run({ id: first.id })).tabs[0].html, "<p>Overview</p>");
   await assert.rejects(tools.artifact_read.run({ id: first.id, tab: "gone" }), /no tab gone/);
-  const folder = path.join(directory, require("node:crypto").createHash("sha256").update(CHAT).digest("hex").slice(0, 32), first.id);
+  const folder = path.join(await chatFolder(directory), first.id);
   assert.deepEqual((await fs.readdir(folder)).sort(), ["meta.json", "v2.html", "v2.tabs.json"], "only the current page is kept");
 
   const [shared] = (await api.pageSnapshot({ chatId: CHAT, title: "Report", kind: "artifacts" })).artifacts;
@@ -880,10 +862,7 @@ test("a page shows files the agent attaches from the Chat's Worktree, keeps them
   await assert.rejects(api.asset({ chatId: CHAT, name: "missing.png" }), /no longer on the page/);
   const shared = (await api.pageSnapshot({ chatId: CHAT, title: "Demo", kind: "artifacts" })).artifacts[0];
   assert.deepEqual(shared.assets, page.assets);
-  assert.equal(
-    await api.assetPath({ chatId: CHAT, hash }),
-    path.join(directory, require("node:crypto").createHash("sha256").update(CHAT).digest("hex").slice(0, 32), first.id, "assets", hash),
-  );
+  assert.ok((await fs.readFile(await api.assetPath({ chatId: CHAT, hash }))).equals(video));
 
   // Only regular files inside the Worktree, named without folders, used by the HTML.
   await assert.rejects(
@@ -918,7 +897,7 @@ test("a page shows files the agent attaches from the Chat's Worktree, keeps them
     kept.assets.map((asset) => asset.name),
     ["chart.png"],
   );
-  const folder = path.join(directory, require("node:crypto").createHash("sha256").update(CHAT).digest("hex").slice(0, 32), first.id, "assets");
+  const folder = path.join(await chatFolder(directory), first.id, "assets");
   assert.deepEqual(await fs.readdir(folder), [kept.assets[0].hash]);
   assert.deepEqual(await fs.readdir(path.join(directory, ".incoming")), [], "nothing is left on its way in");
   await show({ html: "<p>Text only</p>" });

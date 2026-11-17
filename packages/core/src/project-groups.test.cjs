@@ -29,7 +29,6 @@ async function fixture(t) {
 
 test("named Links survive registry reload without changing canvas edges", async (t) => {
   const { file, registry, projects } = await fixture(t);
-  assert.equal(typeof registry.createProjectGroup, "function", "registry can create a named Link");
   await registry.addLink({ project_id: projects[0].id }, { project_id: projects[1].id }, {});
   const edges = (await registry.snapshot()).links;
   const group = await registry.createProjectGroup({ name: "  RDFood  ", projectIds: projects.map((p) => p.id) });
@@ -46,7 +45,6 @@ test("named Links survive registry reload without changing canvas edges", async 
 
 test("named Links reject invalid and repeated membership", async (t) => {
   const { registry, projects } = await fixture(t);
-  assert.equal(typeof registry.createProjectGroup, "function");
   for (const request of [
     { name: "", projectIds: projects.map((p) => p.id) },
     { name: "Link", projectIds: [projects[0].id] },
@@ -77,13 +75,11 @@ test("another checkout of one repository is not a second Link member", async (t)
   execFileSync("git", ["-C", projects[0].path, "worktree", "add", "-qb", "feature", linked], { stdio: "ignore" });
   const same = await resolveProject(linked);
   await registry.add(same);
-  assert.equal(typeof registry.createProjectGroup, "function");
   await assert.rejects(registry.createProjectGroup({ name: "Same", projectIds: [projects[0].id, same.id] }), /distinct|two/i);
 });
 
 test("missing member Projects do not delete a named Link", async (t) => {
   const { registry, file, projects } = await fixture(t);
-  assert.equal(typeof registry.createProjectGroup, "function");
   const group = await registry.createProjectGroup({ name: "RDFood", projectIds: projects.map((p) => p.id) });
   await fs.rm(projects[1].path, { recursive: true });
   await registry.list();
@@ -92,7 +88,6 @@ test("missing member Projects do not delete a named Link", async (t) => {
 
 test("concurrent duplicate creation persists only one named Link", async (t) => {
   const { registry, projects } = await fixture(t);
-  assert.equal(typeof registry.createProjectGroup, "function");
   const results = await Promise.allSettled(["First", "Second"].map((name) => registry.createProjectGroup({ name, projectIds: projects.map((p) => p.id) })));
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
   assert.equal((await registry.listProjectGroups()).length, 1);

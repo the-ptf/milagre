@@ -113,10 +113,6 @@ class PendingQuestions {
     this.open = new Map();
   }
 
-  get size() {
-    return this.open.size;
-  }
-
   add(request, settle) {
     this.open.set(request.requestId, { settle, ids: new Set(request.questions.map((question) => question.id)) });
     this.emit({ type: "question-request", ...request });

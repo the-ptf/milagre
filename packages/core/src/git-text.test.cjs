@@ -64,7 +64,6 @@ test("the prompt caps the diff at 40,000 characters with a note, and caps the me
     firstMessage: "x".repeat(5000),
     recentMessages: ["message-1", "message-2", "message-3", "message-4", "message-5", "y".repeat(5000)],
   });
-  assert.equal(DIFF_LIMIT, 40_000);
   assert.ok(!prompt.includes("TAIL-THAT-IS-CUT"));
   assert.ok(prompt.includes("[The diff is cut off here: 16 more characters are not shown.]"));
   assert.ok(!prompt.includes("x".repeat(2001)));
@@ -218,14 +217,7 @@ test("generateGitText tries the chat's own agent, then the others in picker orde
   assert.deepEqual(asked, ["antigravity", "codex", "claude"]);
 });
 
-test("generateGitText falls back to the other agent when the first can't answer", async () => {
-  const missing = async () => {
-    throw new Error("Codex isn't installed.");
-  };
-  const result = await generateGitText(INPUT, { provider: "codex", models: { codex: missing, claude: async () => REPLY } });
-  assert.equal(result.ok, true);
-  assert.equal(result.provider, "claude");
-  // An unreadable reply counts as no answer.
+test("generateGitText falls back to the other agent when the first reply can't be read", async () => {
   const reverse = await generateGitText(INPUT, {
     provider: "claude",
     models: { claude: async () => "Sure! Here's a message: fix stuff", codex: async () => REPLY },

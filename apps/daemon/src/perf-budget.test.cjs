@@ -54,14 +54,6 @@ async function tempProject(t) {
   return { directory, project, state };
 }
 
-test("the large Project fixture is the same on every run", () => {
-  const first = JSON.stringify(largeProject({ projectPath: "/p" }));
-  assert.equal(JSON.stringify(largeProject({ projectPath: "/p" })), first);
-  const state = JSON.parse(first);
-  assert.equal(state.messages.length, 881);
-  assert.equal(Object.values(state.sessions).flatMap((session) => session.subagents ?? []).length, 94);
-});
-
 test("a lean desktop opens the large Project within its budget", async (t) => {
   const { directory, project } = await tempProject(t);
   execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });

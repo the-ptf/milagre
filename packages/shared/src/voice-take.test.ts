@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStreamingDictation } from "./voice-stream.ts";
-import { provisionalRange, revertTake, splitProvisional, startTake, writeTake, type DictationTake } from "./voice-dictation.ts";
+import { provisionalRange, revertTake, splitProvisional, startTake, writeTake } from "./voice-dictation.ts";
 
 const speech = (seconds: number, value = 4000) => new Int16Array(Math.round(16000 * seconds)).fill(value);
 const silence = (seconds: number) => speech(seconds, 0);
@@ -113,11 +113,4 @@ test("splitProvisional with no range returns the parts as they are", () => {
   const parts = [{ kind: "text", text: "plain" }];
   assert.deepEqual(splitProvisional(parts, null), [{ part: parts[0], text: "plain", provisional: false }]);
   assert.deepEqual(splitProvisional(parts, { start: 2, end: 2 }), [{ part: parts[0], text: "plain", provisional: false }]);
-});
-
-test("a take type keeps its anchor across rewrites", () => {
-  const take: DictationTake = startTake("x", { start: 1, end: 1 });
-  const written = writeTake(take, "x", "y", 0)!;
-  assert.deepEqual(written.take.anchor, { start: 1, end: 1 });
-  assert.equal(written.take.base, "x");
 });

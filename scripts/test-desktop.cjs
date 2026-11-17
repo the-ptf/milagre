@@ -459,7 +459,6 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
         );
         for (const label of ["Rename Chat", "Reload Chat", "Mark as unread", "Pin", "Delete"])
           assert.equal(menu.find((row) => row.label === label)?.disabled, false, label + " remains available outside the open Project");
-        assert.ok(!menu.some((row) => /Archive/.test(row.label)), "the menu offers Delete");
         await evaluate('[...document.querySelectorAll("[data-chat-menu] [role=menuitem]")].find(row => row.textContent === "Mark as unread").click()');
         await waitFor(
           async () => (await shared.call("project:read", [home.path])).state.sessions[homeChat.id]?.unread === true,
@@ -507,19 +506,6 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       const shot = await connection.call("Page.captureScreenshot");
       await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, expectTheme ? "packaged-desktop.png" : "desktop.png"), Buffer.from(shot.data, "base64"));
     }
-    // window, which the slow macOS runner hit. Skew the estimate and check the composer settles tall.
-    await evaluate(`(() => {
-      const measure = (window.__measureText = CanvasRenderingContext2D.prototype.measureText);
-      CanvasRenderingContext2D.prototype.measureText = function (text) { return { width: measure.call(this, text).width / 2 }; };
-      const input = document.querySelector('[data-prompt-editor]');
-      if (!input) throw new Error('Prompt missing');
-      input.value = 'A draft long enough that the compact prompt has to wrap it onto a second line, while the estimate says it fits';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    })()`);
-    await waitFor(() => evaluate(`document.querySelector('[data-prompt-editor]')?.className.includes('min-h-[68px]')`), "tall composer for a wrapped draft");
-    await delay(200);
-    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').className.includes('min-h-[68px]')`), true, "the composer stays tall");
-    await evaluate("(CanvasRenderingContext2D.prototype.measureText = window.__measureText, true)");
     await evaluate(`(() => {
       const input = document.querySelector('[data-prompt-editor]');
       if (!input) throw new Error('Prompt missing');

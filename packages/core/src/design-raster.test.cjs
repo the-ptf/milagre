@@ -58,20 +58,6 @@ function nonWhiteIn(image, { x, y, width, height }) {
   return count;
 }
 
-test("a phone design renders to a 1x PNG with Inter text and icons", async () => {
-  const png = await renderDesignPng(
-    phone([
-      { id: "title", type: "text", x: 16, y: 60, width: 300, height: 40, text: "Filter and sort", fontSize: 24, fontWeight: 600, fill: "#111111" },
-      { id: "close", type: "icon", icon: "x", x: 340, y: 64, width: 24, height: 24, fill: "#111111" },
-    ]),
-  );
-  assert.equal(png.mime, "image/png");
-  assert.deepEqual([png.width, png.height], [390, 844]);
-  const bytes = Buffer.from(png.base64, "base64");
-  assert.equal(bytes.subarray(1, 4).toString(), "PNG");
-  assert.ok(bytes.length > 2000, "text and icon pixels were drawn");
-});
-
 test("large canvases are scaled to 1568px on the long edge", async () => {
   const png = await renderDesignPng({ schemaVersion: 1, width: 3840, height: 2160, nodes: [] });
   assert.deepEqual([png.width, png.height], [1568, 882]);
@@ -85,7 +71,9 @@ test("an Inter 600 title and a token-coloured icon paint visible pixels", async 
     ],
     { tokens: { ink: "#111111" } },
   );
-  const image = decode((await renderDesignPng(document)).base64);
+  const png = await renderDesignPng(document);
+  assert.deepEqual([png.mime, png.width, png.height], ["image/png", 390, 844]);
+  const image = decode(png.base64);
   assert.ok(nonWhiteIn(image, { x: 16, y: 60, width: 300, height: 40 }) > 150, "the Inter title is drawn");
   assert.ok(nonWhiteIn(image, { x: 340, y: 64, width: 24, height: 24 }) > 20, "the $token icon is drawn");
   const blank = decode((await renderDesignPng(phone([]))).base64);

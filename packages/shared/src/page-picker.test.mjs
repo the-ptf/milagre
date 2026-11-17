@@ -13,15 +13,11 @@ test("the page scripts are valid JavaScript expressions, with their data inert",
     pageDescribeAtScript(0.5, 0.25),
   ])
     assert.doesNotThrow(() => new Function(`return ${script}`), script.slice(0, 40));
-  const hostile = pagePinsScript([{ n: 1, selector: '"]); alert(1); ("', text: "</script><img onerror=alert(1)>`${x}`", state: "open" }]);
-  assert.doesNotThrow(() => new Function(`return ${hostile}`));
-  assert.match(hostile, /const pins = \[\{"n":1,"selector":"\\"\]\); alert\(1\); \(\\""/);
-});
-
-test("a tapped point can't carry code into the page", () => {
-  const script = pageDescribeAtScript("1; alert(1)", Infinity);
-  assert.doesNotThrow(() => new Function(`return ${script}`));
-  assert.match(script, /const px = 0\.5 \* innerWidth, py = 0\.5 \* innerHeight;/);
+  const hostile = { n: 1, selector: '"]); alert(1); ("', text: "</script><img onerror=alert(1)>`${x}`", state: "open" };
+  let shown;
+  runInNewContext(pagePinsScript([hostile]), { window: { __milagrePins: { set: (pins) => (shown = pins) } } });
+  assert.equal(shown[0].selector, hostile.selector);
+  assert.equal(shown[0].text, hostile.text);
 });
 
 test("desktop and mobile page scripts remove resolved pins without changing saved comments or pending numbers", () => {
@@ -63,7 +59,7 @@ test("injected scripts work when the native JS engine does not retain function s
   }
 });
 
-test("blank page space gets an exact pin even below a short body or after scrolling", () => {
+function pageContext() {
   const root = {
     tagName: "HTML",
     nodeType: 1,
@@ -87,6 +83,18 @@ test("blank page space gets an exact pin even below a short body or after scroll
     scrollY: 300,
     getComputedStyle: () => ({ getPropertyValue: () => "" }),
   };
+  return { root, context };
+}
+
+test("a tapped point can't carry code into the page", () => {
+  const { context } = pageContext();
+  const picked = runInNewContext(pageDescribeAtScript("1; alert(1)", Infinity), context);
+  assert.equal(picked.box.x + picked.point.x * picked.box.width, 400);
+  assert.equal(picked.box.y + picked.point.y * picked.box.height, 300);
+});
+
+test("blank page space gets an exact pin even below a short body or after scrolling", () => {
+  const { root, context } = pageContext();
   const picked = runInNewContext(pageDescribeAtScript(0.25, 0.75), context);
   assert.equal(picked.selector, "html");
   assert.equal(picked.label, "Page background");
