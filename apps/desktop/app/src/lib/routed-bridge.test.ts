@@ -130,7 +130,7 @@ const ALLOWED: Record<string, string[]> = {
   "components/settings/AppIconPicker.tsx": ["getAppIcon", "setAppIcon"],
   // Onboarding's import card: what T3 Code, Paseo or Orca left on this Mac, and the Project it opens after importing.
   "components/OnboardingImport.tsx": ["scanImports", "openProjectAt"],
-  "components/AccountsSettings.tsx": ["getCliStatus", "listAccounts", "onAccountsChanged", "accountAction", "onCliProgress", "updateCli"],
+  "components/AccountsSettings.tsx": ["getCliStatus", "listAccounts", "onAccountsChanged", "accountAction", "submitAccountCode", "onCliProgress", "updateCli"],
   // First launch on this Mac, before any Project or computer: its own agents, folders and agent history, and whether it
   // knows a Project (a returning user skips the intro).
   "components/Onboarding.tsx": [

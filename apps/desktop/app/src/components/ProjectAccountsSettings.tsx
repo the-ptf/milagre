@@ -14,6 +14,7 @@ import Tooltip from "./primitives/Tooltip";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
 import { ProviderLogo } from "./ProviderLogo";
 import { bridgeForKey } from "../lib/computer-bridge";
+import { SignInCode } from "./AccountsSettings";
 
 function ChatsHomeMark() {
   return (
@@ -171,7 +172,7 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
                 ? "The assigned account is unavailable. Choose another saved account."
                 : `${effective!.email || effective!.label} · ${statusLabel(effective!.state)}`}
             </p>
-            {needsSignIn && effective!.id !== "default" && (
+            {needsSignIn && (effective!.id !== "default" || group.provider !== "kiro") && (
               <Button
                 variant="link"
                 size={24}
@@ -183,6 +184,9 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
               </Button>
             )}
           </div>
+        )}
+        {effective?.state === "signing-in" && effective.signInUrl && (
+          <SignInCode provider={group.provider} accountId={effective.id} url={effective.signInUrl} onDone={() => void load()} className="pl-7" />
         )}
         {effective?.message && !missing && (
           <p role="status" className="pl-7 text-12 text-ink-3">

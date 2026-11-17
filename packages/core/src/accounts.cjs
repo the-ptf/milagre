@@ -24,6 +24,14 @@ const ANTIGRAVITY_DEFAULT = "antigravity-default";
 // URL and region, so it happens in a terminal; Milagre neither adds Kiro Accounts nor signs them in.
 const KIRO_SIGN_IN_MESSAGE = "Kiro uses the account kiro-cli is signed in to. Run `kiro-cli login` in a terminal to sign in or switch, then refresh.";
 const text = (value) => (typeof value === "string" ? value.slice(0, 200) : undefined);
+const BROWSER_SIGN_IN_MESSAGE = "Finish signing in in the browser on your computer.";
+const CODE_SIGN_IN_MESSAGE = "Finish signing in in the browser on your computer, or open the sign-in link on this device and paste the code it shows.";
+const SIGN_IN_LINK = /visit:\s*(https:\/\/\S+)/;
+const SIGN_IN_FAILURE = /Couldn't log in:\s*(.+)/;
+const CODE_WAIT_MS = 30_000;
+const signingIn = (entry) =>
+  entry.url ? { state: "signing-in", message: CODE_SIGN_IN_MESSAGE, signInUrl: entry.url } : { state: "signing-in", message: BROWSER_SIGN_IN_MESSAGE };
+const validCode = (value) => typeof value === "string" && /^[\x21-\x7e]{1,2000}$/.test(value.trim());
 
 async function inspectAccount(provider, { command, env }) {
   if (provider === "antigravity") return inspectAntigravityAccount({ env });
@@ -60,6 +68,48 @@ async function inspectAccount(provider, { command, env }) {
   } finally {
     rpc.close();
   }
+}
+
+function signInEntry(stop) {
+  const entry = { stop, timer: null, child: null, url: null, output: "", settle: null };
+  entry.done = new Promise((resolve) => {
+    entry.settle = resolve;
+  });
+  return entry;
+}
+
+// Claude Code prints a sign-in link and waits for its code on stdin, so another device can finish the sign-in.
+function spawnCliSignIn(spawn, { provider, command, env, home }, finish) {
+  const claude = provider === "claude";
+  const child = spawn(command, claude ? ["auth", "login", "--claudeai"] : ["login"], {
+    env,
+    cwd: home,
+    stdio: claude ? ["pipe", "pipe", "pipe"] : ["ignore", "ignore", "ignore"],
+    detached: true,
+    windowsHide: true,
+  });
+  const entry = signInEntry(() => void killTree(child, { graceMs: 100 }).catch(() => {}));
+  if (claude) {
+    entry.child = child;
+    const read = (chunk) => {
+      entry.output = (entry.output + String(chunk)).slice(-8000);
+      entry.url ??= entry.output.match(SIGN_IN_LINK)?.[1] ?? null;
+    };
+    child.stdout?.on("data", read);
+    child.stderr?.on("data", read);
+    child.stdin?.on("error", () => {});
+  }
+  child.once("error", () => finish(false));
+  child.once("close", (code) => finish(code === 0, { cliMessage: entry.output.match(SIGN_IN_FAILURE)?.[1]?.trim() }));
+  return entry;
+}
+
+async function sendSignInCode(entry, entered) {
+  if (!entry) throw new Error("This sign-in has ended. Start it again.");
+  if (!entry.child?.stdin?.writable) throw new Error("This sign-in doesn't take a code. Finish it in the browser on your computer.");
+  if (!validCode(entered)) throw new Error("Paste the whole code from the sign-in page.");
+  entry.child.stdin.write(`${entered.trim()}\n`);
+  await Promise.race([entry.done, new Promise((resolve) => setTimeout(resolve, CODE_WAIT_MS).unref?.())]);
 }
 
 function createAccounts({
@@ -191,7 +241,7 @@ function createAccounts({
         accounts: [account(provider, "default"), ...saved.accounts.filter((a) => a.provider === provider)].map((a) => ({
           ...a,
           ...(identities.get(key(provider, a.id)) || { state: "unknown" }),
-          ...(logins.has(key(provider, a.id)) ? { state: "signing-in", message: "Finish signing in in the browser on your computer." } : {}),
+          ...(logins.has(key(provider, a.id)) ? signingIn(logins.get(key(provider, a.id))) : {}),
         })),
       })),
     };
@@ -372,27 +422,12 @@ function createAccounts({
     const status = await cli(provider);
     if (status.problem || !status.command) throw new Error(status.problem || "Install the provider CLI first.");
     const k = key(provider, id);
-    const entry = { stop: null, timer: null };
     let flow = null;
+    let entry;
     if (provider === "antigravity") {
       flow = antigravitySignIn({ command: status.command, args: status.args, harness: status.harness, env: environment(provider, id) });
-      entry.stop = () => flow.cancel();
-    } else {
-      const child = spawn(status.command, provider === "codex" ? ["login"] : ["auth", "login", "--claudeai"], {
-        env: environment(provider, id),
-        cwd: home,
-        stdio: ["ignore", "ignore", "ignore"],
-        detached: true,
-        windowsHide: true,
-      });
-      entry.stop = () => void killTree(child, { graceMs: 100 }).catch(() => {});
-      child.once("error", () => {
-        void finish(false);
-      });
-      child.once("close", (code) => {
-        void finish(code === 0);
-      });
-    }
+      entry = signInEntry(() => flow.cancel());
+    } else entry = spawnCliSignIn(spawn, { provider, command: status.command, env: environment(provider, id), home }, (...result) => void finish(...result));
     logins.set(k, entry);
     async function finish(success, failure) {
       if (logins.get(k) !== entry) return;
@@ -404,12 +439,15 @@ function createAccounts({
         } else
           identities.set(
             k,
-            failure?.subscription ? { state: "error", message: SUBSCRIPTION_MESSAGE } : { state: "signed-out", message: "Sign-in did not finish. Try again." },
+            failure?.subscription
+              ? { state: "error", message: SUBSCRIPTION_MESSAGE }
+              : { state: "signed-out", message: failure?.cliMessage ? text(failure.cliMessage) : "Sign-in did not finish. Try again." },
           );
       } catch {
         if (logins.get(k) === entry) identities.set(k, { state: "error", message: "Could not check this account. Try Refresh." });
       } finally {
         if (logins.get(k) === entry) logins.delete(k);
+        entry.settle();
       }
     }
     flow?.done.then(
@@ -430,8 +468,14 @@ function createAccounts({
       clearTimeout(entry.timer);
       logins.delete(k);
       entry.stop();
+      entry.settle();
     }
     identities.set(k, { state: "signed-out", message: "Sign-in cancelled. You can try again." });
+    return snapshot();
+  }
+  async function code(provider, id, entered) {
+    account(provider, id);
+    await sendSignInCode(logins.get(key(provider, id)), entered);
     return snapshot();
   }
   function remove(provider, id) {
@@ -455,6 +499,7 @@ function createAccounts({
     add,
     login,
     cancel,
+    code,
     remove,
     environment,
     directory,

@@ -1,4 +1,5 @@
 import type { ProjectKind } from "./chats-home.mjs";
+import type { ProviderAccount } from "./account-model.js";
 import type {
   SubchatAnsweredByContext,
   SubchatEscalationContext,
@@ -1264,19 +1265,6 @@ export interface UsageSnapshot {
   providers: ProviderUsage[];
 }
 
-export type ProviderAccount = {
-  missing?: boolean;
-  id: string;
-  provider: ModelProvider;
-  label: string;
-  state: "unknown" | "ready" | "signed-out" | "signing-in" | "error";
-  email?: string;
-  plan?: string;
-  message?: string;
-  /** When the account hit its plan's usage limit in a Chat: the time it can be used again (ISO). Project accounts only. */
-  limitedUntil?: string;
-};
-export type AccountsSnapshot = { providers: { provider: ModelProvider; installed?: boolean; selectedId: string; accounts: ProviderAccount[] }[] };
 export interface TranscriptState {
   next_id: number;
   sessions: Record<string, AgentSession | LinkChatSession>;
@@ -1284,6 +1272,6 @@ export interface TranscriptState {
 }
 export type LinkSendRequest = Omit<ChatSendRequest, "projectPath" | "worktreeId"> & { linkId: string; operationId: string };
 
-export type { ProjectAccountScope, ProjectAccountsSnapshot } from "./account-model.js";
+export type { AccountsSnapshot, ProjectAccountScope, ProjectAccountsSnapshot, ProviderAccount } from "./account-model.js";
 
 export type { BtwState, BtwRequest } from "./btw.js";

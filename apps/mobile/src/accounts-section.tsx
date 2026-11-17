@@ -7,6 +7,7 @@ import { useSession } from "./session";
 import { Icon, ProviderLogo } from "./icons";
 import { lineHeight, radius, type as typeScale } from "./design-tokens";
 import { IconButton, InlineError, pressStyle, PullDown, useStyles } from "./ui";
+import { AccountSignInCode } from "./account-sign-in-code";
 import { useTheme } from "./theme";
 
 export function AccountsSection() {
@@ -110,7 +111,9 @@ export function AccountsForComputer() {
                 account.state === "signed-out"
                   ? "Not signed in"
                   : account.state === "signing-in"
-                    ? "Finish sign-in on computer"
+                    ? account.signInUrl
+                      ? "Signing in"
+                      : "Finish sign-in on computer"
                     : account.state === "unknown"
                       ? "Not checked"
                       : null,
@@ -179,7 +182,9 @@ export function AccountsForComputer() {
                         ) : null}
                       </View>
                     </Pressable>
-                    {(account.id !== "default" || group.provider === "antigravity") && (
+                    {(account.id !== "default" ||
+                      group.provider === "antigravity" ||
+                      (group.provider !== "kiro" && (account.state === "signed-out" || account.state === "signing-in"))) && (
                       <PullDown
                         label={`Actions for ${name}`}
                         title={name}
@@ -203,8 +208,8 @@ export function AccountsForComputer() {
                                   }
                                 : {
                                     id: "login",
-                                    title: "Re-authenticate",
-                                    subtitle: "Finish on your computer",
+                                    title: account.state === "signed-out" ? "Sign in" : "Re-authenticate",
+                                    subtitle: group.provider === "claude" ? "On your computer or this phone" : "Finish on your computer",
                                     systemImage: "arrow.clockwise",
                                     disabled: busy || signingIn,
                                   },
@@ -238,6 +243,9 @@ export function AccountsForComputer() {
                       </PullDown>
                     )}
                   </View>
+                  {account.state === "signing-in" && account.signInUrl ? (
+                    <AccountSignInCode provider={group.provider} accountId={account.id} url={account.signInUrl} onDone={setSnapshot} />
+                  ) : null}
                   {account.message && account.state === "error" ? (
                     <InlineError message={account.message} style={{ paddingHorizontal: 12, paddingBottom: 12 }} />
                   ) : account.message && account.state !== "signing-in" ? (

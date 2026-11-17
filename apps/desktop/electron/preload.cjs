@@ -37,6 +37,7 @@ const LOCAL_ONLY = new Set([
   "accounts:select",
   "accounts:login",
   "accounts:cancel",
+  "accounts:code",
   "accounts:remove",
   "chat:limit-switch",
   "agent:update-cli",
@@ -100,6 +101,20 @@ function makeSideQuestionBridge(invoke, listen) {
     stopBtw: (chatId, options) => invoke("chat:btw-stop", chatId, options),
     readBtw: (chatId) => invoke("chat:btw-read", chatId),
     onBtwEvent: (callback) => listen("chat:btw-event", callback),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "listAccounts" | "accountAction" | "submitAccountCode" | "onAccountsChanged">}
+ */
+function accountsBridge(invoke, listen) {
+  return {
+    listAccounts: (refresh = false) => invoke("accounts:list", refresh),
+    accountAction: (action, provider, value) => invoke(`accounts:${action}`, provider, value),
+    submitAccountCode: (provider, accountId, code) => invoke("accounts:code", provider, accountId, code),
+    onAccountsChanged: (callback) => listen("accounts:changed", () => callback()),
   };
 }
 
@@ -484,9 +499,7 @@ function makeBridge(invoke, listen, send) {
     denyDevice: (key) => invoke("devices:deny", key),
     onDevicesPending: (callback) => listen("devices:pending", callback),
     onPhoneStatus: (callback) => listen("phone:status", callback),
-    listAccounts: (refresh = false) => invoke("accounts:list", refresh),
-    accountAction: (action, provider, value) => invoke(`accounts:${action}`, provider, value),
-    onAccountsChanged: (callback) => listen("accounts:changed", () => callback()),
+    ...accountsBridge(invoke, listen),
     onUsageChanged: (callback) => listen("usage:changed", callback),
     readUsage: (scopeKey) => invoke("usage:read", scopeKey),
     setKeepAwake: (enabled) => invoke("app:set-keep-awake", enabled),
