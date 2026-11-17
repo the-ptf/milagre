@@ -1,4 +1,12 @@
-import { isSnoozed, snoozeChoices, snoozeDurationLabel, snoozeTimeLabel } from "@milagre/shared/snooze";
+import {
+  isSnoozed,
+  snoozeChoices,
+  snoozeDurationLabel,
+  snoozeTimeLabel,
+  snoozeUntilForId,
+  SNOOZE_PRESET_DEFAULTS,
+  type SnoozePreset,
+} from "@milagre/shared/snooze";
 import type { MenuSection } from "./primitives/menu";
 
 // A Chat row's Snooze and Wake, as menu choices and the patches they send (snooze.mjs). Kept free of React Native so
@@ -11,22 +19,32 @@ const SNOOZE_CHOICE = "snooze:";
 const SNOOZE_AT = "snooze-at:";
 export const WAKE = "wake";
 
-export function snoozeMenuSection(chat: SnoozeChat, minutes: number, now = Date.now()): MenuSection | null {
+export function snoozeMenuSection(
+  chat: SnoozeChat,
+  minutes: number,
+  presets: readonly SnoozePreset[] = SNOOZE_PRESET_DEFAULTS,
+  now = Date.now(),
+): MenuSection | null {
   if (chat.archived || chat.done_at) return null;
   if (isSnoozed(chat, now)) return { items: [{ id: WAKE, title: "Wake", systemImage: "alarm" }] };
+  const choices = snoozeChoices(now, presets);
   return {
     items: [
       { id: SNOOZE_FOR, title: `Snooze for ${snoozeDurationLabel(minutes)}`, systemImage: "moon.zzz" },
-      {
-        id: "snooze-until",
-        title: "Snooze until",
-        systemImage: "clock",
-        submenu: snoozeChoices(now).map((choice) => ({
-          id: `${SNOOZE_CHOICE}${choice.id}`,
-          title: choice.label,
-          subtitle: snoozeTimeLabel(choice.until, now),
-        })),
-      },
+      ...(choices.length
+        ? [
+            {
+              id: "snooze-until",
+              title: "Snooze until",
+              systemImage: "clock",
+              submenu: choices.map((choice) => ({
+                id: `${SNOOZE_CHOICE}${choice.id}`,
+                title: choice.label,
+                subtitle: snoozeTimeLabel(choice.until, now),
+              })),
+            },
+          ]
+        : []),
     ],
   };
 }
@@ -34,8 +52,8 @@ export function snoozeMenuSection(chat: SnoozeChat, minutes: number, now = Date.
 export function settleSnooze(action: string, minutes: number, now = Date.now()): string {
   if (action === SNOOZE_FOR) return snoozeAt(now + minutes * MINUTE);
   if (!action.startsWith(SNOOZE_CHOICE)) return action;
-  const choice = snoozeChoices(now).find((option) => `${SNOOZE_CHOICE}${option.id}` === action);
-  return snoozeAt(choice?.until ?? snoozeChoices(now).find((option) => option.id === "tomorrow")!.until);
+  const until = snoozeUntilForId(action.slice(SNOOZE_CHOICE.length), now);
+  return until === null ? action : snoozeAt(until);
 }
 
 export const snoozeAt = (until: number) => `${SNOOZE_AT}${until}`;

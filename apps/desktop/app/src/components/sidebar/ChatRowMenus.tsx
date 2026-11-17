@@ -33,7 +33,8 @@ import { useDismiss } from "../../lib/use-dismiss";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { UI_COPY } from "@milagre/shared/model-copy";
 import { fileManager } from "@/lib/shortcut-hints";
-import { snoozeChoices, snoozeTimeLabel } from "@milagre/shared/snooze";
+import { snoozeChoices, snoozeTimeLabel, type SnoozePreset } from "@milagre/shared/snooze";
+import { useSettings } from "../../lib/settings";
 import { HugeIcon } from "./ChatMarks";
 import type { SidebarRecent, ChatRowActions } from "./ChatRow";
 import { HIDE_ONLY, MENU_WIDTH, SUB_MENU_WIDTH, type MenuEntry } from "./chat-row-parts";
@@ -127,7 +128,8 @@ type MenuContext = {
   run: (action: () => void) => () => void;
 };
 
-function archiveEntries({ item, actions, run }: MenuContext, deletionPlan: ArchivePlan, openedAt: number): MenuEntry[] {
+function archiveEntries({ item, actions, run }: MenuContext, deletionPlan: ArchivePlan, openedAt: number, presets: SnoozePreset[]): MenuEntry[] {
+  const choices = snoozeChoices(openedAt, presets);
   const snoozeItems: MenuEntry[] = item.doneAt
     ? []
     : item.snoozedUntil
@@ -142,14 +144,14 @@ function archiveEntries({ item, actions, run }: MenuContext, deletionPlan: Archi
             },
           ]
         : []
-      : actions.onSnooze
+      : actions.onSnooze && choices.length > 0
         ? [
             {
               key: "snooze",
               label: "Snooze",
               icon: AlarmClockIcon,
               onSelect: () => {},
-              sub: snoozeChoices(openedAt).map((choice) => ({
+              sub: choices.map((choice) => ({
                 key: choice.id,
                 label: choice.label,
                 detail: snoozeTimeLabel(choice.until, openedAt),
@@ -447,12 +449,13 @@ export function ChatMenu({
 
   const deletionPlan = plan ?? HIDE_ONLY;
   const [openedAt] = useState(() => Date.now());
+  const { snoozePresets } = useSettings();
   const context = { item, actions, run };
   const items: Array<MenuEntry | "divider"> = [
     ...chatEntries(context, { details, copy, onRename, onLink }),
     ...folderEntries(context, { details, editor, position, linked }),
     "divider" as const,
-    ...archiveEntries(context, deletionPlan, openedAt),
+    ...archiveEntries(context, deletionPlan, openedAt, snoozePresets),
   ].filter((entry) => entry === "divider" || (!omit?.has(entry.key) && (!actions.remote || (entry.key !== "reveal" && entry.key !== "editor"))));
 
   const moveFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {

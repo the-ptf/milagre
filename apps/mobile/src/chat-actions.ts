@@ -8,6 +8,7 @@ import { UI_COPY } from "@milagre/shared/model-copy";
 import { pinPatch } from "./pins";
 import { keepsOnPin, sessionsWithPins, type DevicePins } from "@milagre/shared/chat-pins";
 import { snoozeMenuSection, snoozePatch } from "./snooze-actions";
+import type { SnoozePreset } from "@milagre/shared/snooze";
 import { promptText } from "./text-prompt";
 
 /**
@@ -23,8 +24,9 @@ export function chatMenu(
   project = true,
   doneable = true,
   snoozeMinutes?: number,
+  snoozePresets?: readonly SnoozePreset[],
 ): MenuSection[] {
-  const snooze = doneable && snoozeMinutes !== undefined ? snoozeMenuSection(chat, snoozeMinutes) : null;
+  const snooze = doneable && snoozeMinutes !== undefined ? snoozeMenuSection(chat, snoozeMinutes, snoozePresets) : null;
   return [
     ...(beside ? [{ items: [{ id: "open-beside", title: "Open beside", systemImage: "rectangle.split.2x1" }] }] : []),
     ...(project

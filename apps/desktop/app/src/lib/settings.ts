@@ -6,7 +6,7 @@ import { DEFAULT_THEME_ID, parseCustomTheme, resolvePalette, resolveThemeSetting
 import type { CustomTheme, ThemeChoice } from "@milagre/shared/themes";
 import type { ChatOrder } from "./chat-list";
 import { DESKTOP_CHAT_ROW_SHOW, parseChatRowShow, type ChatRowShow } from "@milagre/shared/chat-row";
-import { normalizeSnoozeMinutes, SNOOZE_DEFAULTS } from "@milagre/shared/snooze";
+import { normalizeSnoozeMinutes, normalizeSnoozePresets, SNOOZE_DEFAULTS, type SnoozePreset } from "@milagre/shared/snooze";
 import {
   parseChatList,
   parseCompactButtonDisplay,
@@ -60,6 +60,7 @@ export interface AppSettings {
   chatList: ChatList;
   chatRowShow: ChatRowShow;
   snoozeMinutes: number;
+  snoozePresets: SnoozePreset[];
   toolCallDisplay: ToolCallDisplay;
   expandReasoning: boolean;
   newChatGlance: boolean;
@@ -108,6 +109,7 @@ const DEFAULTS: AppSettings = {
   chatList: "list",
   chatRowShow: DESKTOP_CHAT_ROW_SHOW,
   snoozeMinutes: SNOOZE_DEFAULTS.minutes,
+  snoozePresets: normalizeSnoozePresets(undefined),
   toolCallDisplay: "compact",
   expandReasoning: false,
   newChatGlance: false,
@@ -158,6 +160,7 @@ function load(): AppSettings {
       chatList: parseChatList(saved.chatList),
       chatRowShow: parseChatRowShow(saved.chatRowShow, DEFAULTS.chatRowShow),
       snoozeMinutes: normalizeSnoozeMinutes(saved.snoozeMinutes),
+      snoozePresets: normalizeSnoozePresets(saved.snoozePresets),
       toolCallDisplay: parseToolCallDisplay(saved.toolCallDisplay, saved.muriloMode),
       expandReasoning: typeof saved.expandReasoning === "boolean" ? saved.expandReasoning : DEFAULTS.expandReasoning,
       newChatGlance: typeof saved.newChatGlance === "boolean" ? saved.newChatGlance : DEFAULTS.newChatGlance,
