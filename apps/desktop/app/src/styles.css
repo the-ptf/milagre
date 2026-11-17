@@ -1240,6 +1240,12 @@ a {
 [data-run-chat-pane]:has([data-orchestrator-task-header]) nav:has(> [data-slot="preview-rail-item"]) {
   display: none;
 }
+[data-run-chat-pane]:has([data-orchestrator-task-header]) :is(.chat-column, .chat-gutter) {
+  padding-inline: 16px;
+}
+[data-run-chat-pane]:has([data-orchestrator-task-header]) [data-composer-dock] {
+  padding-bottom: 10px;
+}
 .orchestrator-hop {
   transform-origin: 50% 100%;
   animation-name: orchestrator-hop;

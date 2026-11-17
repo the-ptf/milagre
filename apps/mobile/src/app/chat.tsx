@@ -53,6 +53,7 @@ import type { QuoteFrom } from "../message-actions";
 import { useReachableHost } from "../routes-native";
 import { sameSession, useComposer, useMainSession, usePendingChats, useRunShape, useSession } from "../session";
 import { ChatComposerDock } from "../chat-composer-dock";
+import { useTaskEffort } from "../use-orchestrator";
 import { ChatsTrayLabel, LinearIssueButton, NewChatTray } from "../new-chat-tray";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
@@ -826,14 +827,11 @@ function ChatPane({
     }
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the counters are the trigger; the rest is read as it stands when one moves
   }, [compactRequests]);
-  const planPanel = usePlanPanel(
-    params.id ? session.snapshot?.project?.state.sessions[Number(params.id)]?.plan : undefined,
-    `${session.snapshot?.project?.path}#${params.id}`,
-  );
-  const subchatPanel = useSubchatPanel(
-    params.id && Number(params.id) > 0 ? session.snapshot?.project?.state.sessions : undefined,
-    `${session.snapshot?.project?.path}#${params.id}`,
-  );
+  const shownChat = params.id ? session.snapshot?.project?.state.sessions[Number(params.id)] : undefined;
+  const shownKey = `${session.snapshot?.project?.path}#${params.id}`;
+  const planPanel = usePlanPanel(shownChat?.plan, shownKey);
+  const taskEffort = useTaskEffort(session.client, shownChat?.orchestrator?.taskId);
+  const subchatPanel = useSubchatPanel(params.id && Number(params.id) > 0 ? session.snapshot?.project?.state.sessions : undefined, shownKey);
   const { attachRoom: attachPlanRoom } = planPanel;
   const { attachRoom: attachSubchatRoom } = subchatPanel;
   const attachPanelRooms = useCallback(
@@ -933,7 +931,7 @@ function ChatPane({
   const background = chat ? backgroundItems(chat, ports) : [];
   const designsMoved = history.designActivity + (run?.designActivity ?? 0);
   const contextUsage = run?.contextUsage ?? chat?.contextUsage;
-  const preferences = chatPreferences(composer.preferences[chatId], composer.defaults, chat?.permissionMode, run?.permissionMode);
+  const preferences = chatPreferences(composer.preferences[chatId], composer.defaults, chat?.permissionMode, run?.permissionMode, taskEffort);
   const turn = turnTarget(composer.preferences[chatId], chat?.provider, composer.defaults);
   const actualProvider = turn.provider;
   const model = selectedModel(actualProvider, turn.model || (chat && !turn.picked ? lastUserModel(project.state, chat.id) : ""), session.models);

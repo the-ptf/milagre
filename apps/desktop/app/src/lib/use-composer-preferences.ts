@@ -2,6 +2,7 @@ import { preferenceStorage as localStorage } from "./preference-storage.ts";
 import { useState, useEffect, useCallback } from "react";
 import type { EffortLevel, PermissionMode } from "../model";
 import { readComposerPreferences, saveComposerPreferences, type ComposerPreferences } from "./composer-preferences";
+import { useTaskTurn } from "./orchestrator-store";
 import { getSettings, updateSettings } from "./settings";
 
 export function useComposerPreferences(chatKey: string) {
@@ -31,7 +32,8 @@ export function useComposerPreferences(chatKey: string) {
   const current = prefs[chatKey] ?? {};
   const isNew = chatKey.endsWith("#new");
 
-  const effort = current.effort ?? (localStorage.getItem("milagre.effort") as EffortLevel | null) ?? "high";
+  const startedWith = useTaskTurn(chatKey).effort as EffortLevel | null;
+  const effort = current.effort ?? startedWith ?? (localStorage.getItem("milagre.effort") as EffortLevel | null) ?? "high";
   const ultracode = current.ultracode ?? localStorage.getItem("milagre.ultracode") === "on";
   const fastMode = current.fastMode ?? localStorage.getItem("milagre.fastMode") === "on";
   const permissionMode = current.permissionMode ?? getSettings().defaultPermissionMode;
