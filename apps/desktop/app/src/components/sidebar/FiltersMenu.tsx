@@ -367,10 +367,11 @@ function ProjectsMenu({
   );
 
   const search = (
-    <div className={`shrink-0 p-1.5 ${searchAt === "top" ? "pb-0" : "pt-0"}`}>
+    <div className={`shrink-0 px-1.5 ${searchAt === "top" ? "border-b" : "border-t"} border-line`}>
       <FieldGroup
         ref={searchRef}
         size={32}
+        fill="bare"
         data-menu-row
         data-project-search
         aria-label="Search Projects"
