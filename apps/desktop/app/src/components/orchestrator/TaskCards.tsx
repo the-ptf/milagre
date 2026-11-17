@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { CheckmarkCircle02Icon, ComputerIcon, GitPullRequestIcon, Image01Icon, PanelLeftOpenIcon, Undo02Icon } from "@hugeicons/core-free-icons";
+import { CheckmarkCircle02Icon, ComputerIcon, GitMergeIcon, GitPullRequestIcon, Image01Icon, PanelLeftOpenIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { roleById, type OrchestratorRole, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import type { ModelProvider } from "../../model";
 import { sinceLabel, type TaskCard } from "../../lib/orchestrator-board";
@@ -42,10 +42,16 @@ export function StatusMark({ card }: { card: TaskCard }) {
         <span className={`size-2 rounded-full ${failed(card) ? "bg-red" : "bg-orange"}`} />
       </span>
     );
-  if (card.column === "review" && card.session?.summary?.pullRequests?.length)
+  if (card.column === "review" && card.pullRequest === "open")
     return (
-      <span className="flex shrink-0 text-green">
+      <span className="flex shrink-0 text-green" role="img" aria-label="Pull request open">
         <Icon icon={GitPullRequestIcon} size={14} />
+      </span>
+    );
+  if (card.pullRequest === "merged")
+    return (
+      <span className="flex shrink-0 text-purple-ink" role="img" aria-label="Pull request merged">
+        <Icon icon={GitMergeIcon} size={14} />
       </span>
     );
   return (

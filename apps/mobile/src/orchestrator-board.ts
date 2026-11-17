@@ -1,4 +1,4 @@
-import { autopilotPending, boardColumn, taskLimitText, type BoardColumn, type OrchestratorTask } from "@milagre/shared/orchestrator";
+import { autopilotPending, boardColumn, taskLimitText, type BoardColumn, type BoardPullRequest, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { AgentModels, AgentSession, ChatMessage, ModelProvider } from "@milagre/shared/model";
 import { MODEL_CATALOG } from "@milagre/shared/model-options";
@@ -14,7 +14,7 @@ export const BOARD_TABS: { id: BoardColumn; label: string }[] = [
 ];
 
 export type TaskChat = { chat: AgentSession; run?: AgentRun; messages?: ChatMessage[] };
-export type PullRequestState = "open" | "merged" | "closed" | null;
+export type PullRequestState = BoardPullRequest;
 type BoardKind = "deciding" | "needs-project" | "failed" | "chat" | "loading" | "remote";
 
 export type BoardItem = {
@@ -69,13 +69,6 @@ export function boardCounts(items: readonly BoardItem[]): Record<BoardColumn, nu
 /** Newest first, so a task sent a moment ago lands on top of its column. */
 export function columnItems(items: readonly BoardItem[], column: BoardColumn): BoardItem[] {
   return items.filter((item) => item.column === column).sort((a, b) => b.task.createdAt - a.task.createdAt);
-}
-
-export function pullRequestState(states: readonly ("OPEN" | "MERGED" | "CLOSED")[]): PullRequestState {
-  if (states.includes("OPEN")) return "open";
-  if (states.includes("MERGED")) return "merged";
-  if (states.includes("CLOSED")) return "closed";
-  return null;
 }
 
 export function modelName(provider: ModelProvider | null, model: string | null, reported?: AgentModels | null): string {

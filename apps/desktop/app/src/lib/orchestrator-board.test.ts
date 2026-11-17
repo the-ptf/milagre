@@ -217,3 +217,16 @@ test("a request autopilot is about to answer keeps the card running", () => {
   assert.equal(card.detail, "Answering for you in 30 s unless you answer first: allowed Use Read?");
   assert.equal(boardCards([waiting], states, runs, NOW + 31_000)[0]!.column, "needs");
 });
+
+test("a task's PR reads from its Project's snapshot: open waits in review, merged or closed moves to Done", () => {
+  const url = "https://github.com/acme/app/pull/7";
+  const states = {
+    "/p/app": { sessions: { 1: { id: 1, worktree_id: 4, summary: { count: 2, pullRequests: [url] } } }, worktrees: { 4: { path: "/w/four" } } },
+  };
+  const snapshot = (state: string) => ({ "/p/app": { worktrees: {}, chats: { "/w/four": { [url]: { number: 7, url, state } } }, pending: false } });
+  const card = (snapshots?: object) => boardCards([task("t1")], states as never, {}, NOW, snapshots as never)[0]!;
+  assert.deepEqual([card().column, card().pullRequest], ["review", "open"], "unread yet: still in review");
+  assert.deepEqual([card(snapshot("OPEN")).column, card(snapshot("OPEN")).pullRequest], ["review", "open"]);
+  assert.deepEqual([card(snapshot("MERGED")).column, card(snapshot("MERGED")).pullRequest], ["done", "merged"]);
+  assert.deepEqual([card(snapshot("CLOSED")).column, card(snapshot("CLOSED")).pullRequest], ["done", "closed"]);
+});
