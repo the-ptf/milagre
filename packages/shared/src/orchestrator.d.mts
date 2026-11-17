@@ -140,6 +140,13 @@ export function keywordRoute(
   projects: readonly { path: string; name: string; hints: string | null }[],
 ): { projectPath: string; score: number; hit: string | null } | null;
 export function activeRoles(roles: readonly OrchestratorRole[]): OrchestratorRole[];
+export interface TaskChatSession {
+  archived?: boolean;
+  done_at?: number;
+  summary?: { lastOutcome?: "completed" | "failed" | "cancelled"; lastAt?: number; pullRequests?: string[] };
+}
+export function taskDoneAt(session: TaskChatSession | null | undefined, busy?: boolean): number | null;
+export function taskSwept(session: TaskChatSession | null | undefined, options: { busy?: boolean; retentionHours: number; now?: number }): boolean;
 export function roleById(roles: readonly OrchestratorRole[], id: string): OrchestratorRole | null;
 export function boardColumn(input: { done: boolean; needsYou: boolean; pullRequest?: "open" | "merged" | "closed" | null; finished?: boolean }): BoardColumn;
 export function isIrreversible(input?: { tool?: string; command?: string; text?: string }): boolean;

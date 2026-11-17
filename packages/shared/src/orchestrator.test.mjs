@@ -16,6 +16,8 @@ import {
   pickComputer,
   recordTrust,
   roleById,
+  taskDoneAt,
+  taskSwept,
   titleFromPrompt,
   trustScore,
 } from "./orchestrator.mjs";
@@ -202,4 +204,21 @@ test("answers saved before the Pebble line, as plain notes, fold in too", () => 
   assert.deepEqual(entries[0].message.context, { kind: "orchestrator-answer", summary: "allowed `ls`", summaries: ["allowed `ls`", "picked Monthly"] });
   assert.equal(entries[1].hidden, true);
   assert.equal(entries[2].message.context, null);
+});
+
+test("a task leaves the board when its Chat is gone, or after the Done retention like a Done Chat", () => {
+  const HOUR = 60 * 60 * 1000;
+  const now = 100 * HOUR;
+  const finished = (lastAt, extra = {}) => ({ summary: { lastOutcome: "completed", lastAt, ...extra } });
+  assert.equal(taskSwept(undefined, { retentionHours: 24, now }), true);
+  assert.equal(taskSwept({ archived: true }, { retentionHours: 0, now }), true);
+  assert.equal(taskSwept({ done_at: now - 24 * HOUR }, { retentionHours: 24, now }), true);
+  assert.equal(taskSwept({ done_at: now - 23 * HOUR }, { retentionHours: 24, now }), false);
+  assert.equal(taskSwept(finished(now - 2 * HOUR), { retentionHours: 1, now }), true);
+  assert.equal(taskSwept(finished(now - 2 * HOUR), { retentionHours: 0, now }), false);
+  assert.equal(taskSwept(finished(now - 2 * HOUR), { busy: true, retentionHours: 1, now }), false);
+  assert.equal(taskSwept(finished(now - 2 * HOUR, { pullRequests: ["https://x/pull/1"] }), { retentionHours: 1, now }), false);
+  assert.equal(taskSwept({ summary: { lastOutcome: "failed", lastAt: 1 } }, { retentionHours: 1, now }), false);
+  assert.equal(taskDoneAt({ summary: { lastOutcome: "cancelled", lastAt: 5 } }), 5);
+  assert.equal(taskDoneAt({ done_at: 9, summary: { lastOutcome: "completed", lastAt: 5 } }, true), 9);
 });
