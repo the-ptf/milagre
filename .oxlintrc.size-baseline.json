@@ -158,7 +158,7 @@
             "skipComments": true
           }
         ],
-        "complexity": ["error", 410]
+        "complexity": ["error", 407]
       }
     },
     {

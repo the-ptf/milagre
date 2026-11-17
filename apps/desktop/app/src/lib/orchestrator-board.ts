@@ -53,7 +53,7 @@ function pending(task: OrchestratorTask, kind: TaskCardKind, column: BoardColumn
 }
 
 /** The state of a task Chat's pull requests, from its Project's snapshot; an unread one counts as open. */
-export function taskPullRequest(task: OrchestratorTask, session: AgentSession | undefined, states: SessionStates, snapshots: Snapshots): BoardPullRequest {
+function taskPullRequest(task: OrchestratorTask, session: AgentSession | undefined, states: SessionStates, snapshots: Snapshots): BoardPullRequest {
   const refs = session?.summary?.pullRequests ?? [];
   const scope = taskScope(task);
   const path = session && scope ? states[scope]?.worktrees?.[String(session.worktree_id)]?.path : undefined;
