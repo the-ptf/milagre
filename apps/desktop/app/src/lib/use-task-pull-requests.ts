@@ -14,13 +14,12 @@ export function useTaskPullRequests(scopes: readonly string[], enabled: boolean)
     const list = key.split("\n");
     let disposed = false;
     let lastRead = 0;
-    const read = (scope: string) =>
-      bridgeForKey(scope)
+    const read = async (scope: string) => {
+      const found = await bridgeForKey(scope)
         .readPullRequestSnapshot(scope)
-        .then((found) => {
-          if (!disposed && found) setSnapshots((current) => ({ ...current, [scope]: found }));
-        })
-        .catch(() => {});
+        .catch(() => null);
+      if (!disposed && found) setSnapshots((current) => ({ ...current, [scope]: found }));
+    };
     const readAll = () => {
       lastRead = Date.now();
       for (const scope of list) void read(scope);
