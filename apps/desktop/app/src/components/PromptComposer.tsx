@@ -16,6 +16,7 @@ import { ModelPicker } from "./ModelPicker";
 import { UltracodeFatality } from "./UltracodeFatality";
 import { useDismiss } from "../lib/use-dismiss";
 import { useSettings } from "../lib/settings";
+import { shortcutCommand } from "../lib/keybindings";
 import { ProviderLogo } from "./ProviderLogo";
 import { Attachments } from "./Attachments";
 import { QuoteChips } from "./QuoteChips";
@@ -60,7 +61,7 @@ interface PromptComposerProps {
   quotes?: readonly ComposerQuote[];
   onRemoveQuote?: (id: string) => void;
   history?: string[];
-  onSend: (delivery?: MessageDelivery) => void;
+  onSend: (delivery?: MessageDelivery, background?: boolean) => void;
   onStop?: () => void;
   sendBlocked: boolean;
   running?: boolean;
@@ -412,21 +413,18 @@ export function PromptComposer({
     transformOrigin: `${anchor.below ? "top" : "bottom"} ${anchor.alignRight ? "right" : "left"}`,
   };
 
-  function send() {
+  function send(background = false) {
     browsing.current = null;
     setModelOpen(false);
     const missing = chipPaths.filter((path) => !imageDraft.files.includes(path));
-    if (missing.length) {
+    if (missing.length)
       flushSync(() => {
         for (const path of missing) {
           mentionAttached.current.add(path);
           imageDraft.attachPath(path);
         }
       });
-      onSendLatest.current(delivery);
-      return;
-    }
-    onSend(delivery);
+    onSendLatest.current(delivery, background);
   }
 
   function chooseModel(model: ModelOption) {
@@ -583,9 +581,10 @@ export function PromptComposer({
       }
     }
     if (recall(event)) return;
-    if (event.key === "Enter" && !event.shiftKey) {
+    const stay = shortcutCommand(event.nativeEvent) === "chat.sendStay";
+    if (stay || (event.key === "Enter" && !event.shiftKey)) {
       event.preventDefault();
-      if (canSend || !visibleSuggestion) send();
+      if (canSend || !visibleSuggestion) send(stay);
     }
   }
 
@@ -1008,7 +1007,7 @@ export function PromptComposer({
                 aria-label={canStop ? "Stop agent" : offlineName ? "Queue message" : running ? (queuesFollowUp ? "Queue message" : "Send now") : "Send"}
                 data-composer-submit
                 disabled={!canStop && (dictating || !canSend || sendBlocked || imageDraft.loading)}
-                onClick={canStop ? onStop : send}
+                onClick={canStop ? onStop : (event) => send(event.metaKey || event.ctrlKey)}
                 className={`flex size-7 shrink-0 items-center justify-center rounded-full text-on-ink transition-[background-color,opacity,scale] duration-fast enabled:hover:opacity-90 enabled:active:scale-press disabled:cursor-not-allowed disabled:opacity-40 ${ultracodeOn ? "bg-purple" : "bg-ink"}`}
               >
                 {canStop ? (

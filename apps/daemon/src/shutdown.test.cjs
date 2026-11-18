@@ -31,6 +31,7 @@ test("stop acknowledges with pending PR reads, preserves accepted Chat changes, 
   );
   const daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "0.1.0",
     runtimeOptions: {
       cwd: project,

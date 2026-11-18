@@ -39,6 +39,7 @@ async function fixture(t, { allowedRoot = true, runtime = (options) => options, 
   await fs.symlink(outside, path.join(demo, "link-out"));
   const daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "test",
     runtimeOptions: runtime(demoRuntimeOptions({ cwd: demo, worktreeRoot: path.join(demo, ".milagre", "worktrees") })),
   });

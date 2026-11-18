@@ -1530,6 +1530,7 @@
             "enum": [
               "commandPalette.toggle",
               "chat.new",
+              "worktree.new",
               "project.add",
               "settings.open",
               "theme.toggle",
@@ -1551,6 +1552,7 @@
               "chat.jump.8",
               "chat.jump.9",
               "chat.find",
+              "chat.sendStay",
               "chat.quote",
               "dictation.toggle",
               "changes.toggle",
@@ -1584,6 +1586,7 @@
             "enum": [
               "commandPalette.toggle",
               "chat.new",
+              "worktree.new",
               "project.add",
               "settings.open",
               "theme.toggle",
@@ -1605,6 +1608,7 @@
               "chat.jump.8",
               "chat.jump.9",
               "chat.find",
+              "chat.sendStay",
               "chat.quote",
               "dictation.toggle",
               "changes.toggle",

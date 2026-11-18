@@ -5,7 +5,8 @@ const { resolveProject } = require("./project-identity.cjs");
 const { createLink, pruneLinks, restoreLink } = require("./project-links.cjs");
 const { createProjectGroup, deleteProjectGroup, updateProjectGroup, validProjectGroup } = require("./project-groups.cjs");
 
-const DEFAULT_ROOTS = [path.join(os.homedir(), "Developer"), path.join(os.homedir(), ".milagre", "worktrees")];
+const registryRoots = (home) => [path.join(home, "Developer"), path.join(home, ".milagre", "worktrees")];
+const DEFAULT_ROOTS = registryRoots(os.homedir());
 const SKIP = new Set([".git", "node_modules", ".next", ".cache"]);
 
 async function coordinationProjects(roots) {
@@ -287,4 +288,4 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
   };
 }
 
-module.exports = { coordinationProjects, createProjectRegistry };
+module.exports = { coordinationProjects, createProjectRegistry, registryRoots };

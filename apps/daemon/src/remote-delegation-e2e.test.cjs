@@ -88,6 +88,7 @@ async function pairedMacs(t, { studioScript }) {
   const results = [];
   const daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "test",
     computerOptions: { allowLocalRelay: true, reconnectMs: 50, checkEveryMs: 60000, networkMs: 60000 },
     runtimeOptions: {

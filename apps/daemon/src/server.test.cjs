@@ -94,6 +94,7 @@ async function fixture(t, { createSession, lazyMessages, ...options } = {}) {
   const sessions = [];
   const daemon = await startDaemon({
     dataDir,
+    homeDir: directory,
     version: "9.8.7",
     maxFrameBytes: 8192,
     runtimeOptions: {
@@ -1345,9 +1346,13 @@ test("a Chat the host unloaded reads back whole, and no client hears its message
   assert.deepEqual(bodies((await readSavedState(project)).messages), ["First note", "A needle in here", "Third note"]);
 });
 
-test("a host keeps its Chats home in the home folder it is given, never the user's", async (t) => {
+test("a host keeps its Chats home and finds its Projects in the home folder it is given, never the user's", async (t) => {
   const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-daemon-home-")));
   const dataDir = path.join(directory, "profile");
+  const found = path.join(directory, "Developer", "found");
+  await fs.mkdir(path.join(found, ".milagre"), { recursive: true });
+  execFileSync("git", ["init", "-b", "main", found], { stdio: "ignore" });
+  await fs.writeFile(path.join(found, ".milagre", "coordination.json"), "{}");
   const daemon = await startDaemon({
     dataDir,
     version: "9.8.7",
@@ -1364,6 +1369,10 @@ test("a host keeps its Chats home in the home folder it is given, never the user
     }
   });
   assert.deepEqual(await c.call("chats:home"), { path: path.join(directory, ".milagre", "chats"), exists: false });
+  assert.deepEqual(
+    (await c.call("project:registry")).map((project) => project.path),
+    [found],
+  );
 });
 
 test("chats:ensure opens the Chats home with its state's number, leaves the connection's Project alone, and a reconnect's open keeps it off the recent list", async (t) => {

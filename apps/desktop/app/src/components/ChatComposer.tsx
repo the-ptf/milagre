@@ -243,9 +243,9 @@ export function ChatComposer({
     onUndo: openUndo,
   });
 
-  const send = useEvent((delivery?: MessageDelivery) => {
+  const send = useEvent((delivery?: MessageDelivery, background?: boolean) => {
     if (sideQuestions.intercept(store.text())) return;
-    onSend(delivery);
+    onSend(delivery, background);
   });
 
   function handleFileDrop(event: DragEvent<HTMLDivElement>) {

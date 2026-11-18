@@ -39,7 +39,7 @@ async function fixture(t, source = "agent") {
     },
     async close() {},
   };
-  const daemon = await startDaemon({ dataDir, version: "test", runtimeOptions: { environmentReady: Promise.resolve(), browsers } });
+  const daemon = await startDaemon({ dataDir, homeDir: dataDir, version: "test", runtimeOptions: { environmentReady: Promise.resolve(), browsers } });
   const clients = [],
     bridges = [];
   t.after(async () => {
