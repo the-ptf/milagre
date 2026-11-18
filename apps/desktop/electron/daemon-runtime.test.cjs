@@ -31,7 +31,7 @@ async function fixture(t) {
   const runtimeOptions = { cwd: project, environmentReady: Promise.resolve(), titleModels: {} };
   const daemons = [];
   const start = async () => {
-    const daemon = await startDaemon({ dataDir, version: "test", runtimeOptions });
+    const daemon = await startDaemon({ dataDir, homeDir: dataDir, version: "test", runtimeOptions });
     daemons.push(daemon);
     return daemon;
   };
@@ -794,7 +794,12 @@ test("a runtime given `connect` reconnects through it alone, and never starts, f
   await fs.mkdir(project);
   execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });
   const dataDir = path.join(root, "profile");
-  const daemon = await startDaemon({ dataDir, version: "test", runtimeOptions: { cwd: project, environmentReady: Promise.resolve(), titleModels: {} } });
+  const daemon = await startDaemon({
+    dataDir,
+    homeDir: dataDir,
+    version: "test",
+    runtimeOptions: { cwd: project, environmentReady: Promise.resolve(), titleModels: {} },
+  });
   let remote;
   t.after(async () => {
     await remote?.close().catch(() => {});

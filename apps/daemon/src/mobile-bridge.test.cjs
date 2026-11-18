@@ -92,6 +92,7 @@ async function fixture(t, { runtimeOptions = {}, bridgeOptions = {} } = {}) {
   execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });
   const daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "test",
     runtimeOptions: {
       environmentReady: Promise.resolve(),
@@ -780,7 +781,7 @@ test("the bridge reports a lost daemon and stops listening, so its owner can res
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-mobile-")));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const dataDir = path.join(root, "profile");
-  const daemon = await startDaemon({ dataDir, version: "test", runtimeOptions: { environmentReady: Promise.resolve(), titleModels: {} } });
+  const daemon = await startDaemon({ dataDir, homeDir: dataDir, version: "test", runtimeOptions: { environmentReady: Promise.resolve(), titleModels: {} } });
   const bridge = await startMobileBridge({ dataDir, port: 0, token: randomBytes(32).toString("hex") });
   await daemon.close();
   await bridge.lost;
@@ -1911,6 +1912,7 @@ test("a phone snapshot's Chats and messages come from one state, even when a Cha
   git("worktree", "add", "-q", "-b", "side", side);
   const daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "test",
     runtimeOptions: {
       environmentReady: Promise.resolve(),

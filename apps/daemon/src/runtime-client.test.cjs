@@ -32,7 +32,7 @@ async function fixture(t) {
   const runtimeOptions = { cwd: project, environmentReady: Promise.resolve(), titleModels: {}, registryRoots: [] };
   const daemons = [];
   const start = async () => {
-    const daemon = await startDaemon({ dataDir, version: "test", runtimeOptions });
+    const daemon = await startDaemon({ dataDir, homeDir: dataDir, version: "test", runtimeOptions });
     daemons.push(daemon);
     return daemon;
   };

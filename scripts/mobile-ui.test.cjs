@@ -351,6 +351,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // Dictation is not available in a test: no microphone, no on-device transcriber.
       if (file === "prompt-field.tsx" && base === "chat-display-setting" && !(id in modules)) return { useDictationAction: () => ["paste"] };
       if (base === "dictation-shortcut" && !(id in modules)) return { useDictationShortcut() {}, toggleDictationShortcut() {} };
+      if (base === "send-stay-shortcut" && !(id in modules)) return { useSendStayShortcut() {}, sendStayShortcut() {} };
+      if (base === "composer-placeholder" && !(id in modules)) return require("../apps/mobile/src/composer-placeholder.ts");
       if (base === "voice-dictation-hook" && !(id in modules))
         return {
           useVoiceDictation: () => ({
