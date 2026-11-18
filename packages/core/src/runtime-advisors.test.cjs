@@ -295,6 +295,9 @@ test("a fork copies only the chosen prefix and its first prompt carries that sna
     picked,
   );
   await assert.rejects(f.runtime.invoke("chat:fork", [f.project, f.id, { messageId: copied[0].id }]), /message/);
+  const whole = await f.runtime.invoke("chat:fork", [f.project, f.id, null]);
+  snapshot = (await f.runtime.openProject(f.project)).state;
+  assert.equal(snapshot.messages.filter((message) => message.session_id === whole.sessionId).length, picked.length + 1);
 });
 
 test("agents fork idempotently and ask, read and stop side questions through their scoped tools", async (t) => {

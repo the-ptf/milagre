@@ -484,10 +484,10 @@ function registerChatRetire({
     if (patch?.kept === true || patch?.pinned === true || patch?.archived === false || (typeof patch?.title === "string" && patch.title.trim() !== ""))
       await keepRunChat(projectPath, sessionId);
   });
-  commands.handle("chat:fork", async (_event, projectPath, sessionId, options = {}) => {
+  commands.handle("chat:fork", async (_event, projectPath, sessionId, options) => {
     if (!Number.isSafeInteger(sessionId) || sessionId < 1) throw new Error("Choose an existing Chat to fork.");
     await existingChat("forking it")(`${projectPath}#${sessionId}`);
-    return chats.forkChat(projectPath, sessionId, options);
+    return chats.forkChat(projectPath, sessionId, options ?? {});
   });
   commands.handle("chat:delete", async (_event, projectPath, sessionId) => {
     if (!Number.isSafeInteger(sessionId) || sessionId < 1) throw new Error("Choose an existing Chat to delete.");
