@@ -395,6 +395,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           chatsHomePath: async (_client, _hostId, home) => home.path,
           allComputers: { clientFor: () => null, hostFor: () => undefined, viewOf: () => undefined },
         };
+      // The first message's flight from the composer (send-launch.tsx) is drawing: without a launch it is the plain View it wraps.
+      if (base === "send-launch-store" && !(id in modules)) return require("../apps/mobile/src/send-launch-store.ts");
+      if (base === "send-launch" && !(id in modules))
+        return { SendLaunch: ({ style, children }) => modules["react/jsx-runtime"].jsx(modules["react-native"].View, { style, children }) };
       // One row per repository in New Chat's Project picker (new-chat-project.ts) is pure.
       if (base === "new-chat-project" && !(id in modules)) return require("../apps/mobile/src/new-chat-project.ts");
       if (base === "project-icon" && !(id in modules)) return { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" };
