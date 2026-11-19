@@ -6,8 +6,6 @@ import { themeStylesheet } from "./theme-sheet.ts";
 test("writes every token, ANSI color and Shiki variable", () => {
   const css = themeStylesheet(resolvePalette("catppuccin-mocha", "dark"));
   assert.match(css, /html:root\s*\{[^}]*--page:\s*#1e1e2e;/);
-  assert.match(css, /--hover-2:/);
-  assert.match(css, /--line-strong:/);
   assert.match(css, /--ansi-15:/);
   assert.match(css, /--shiki-token-keyword:\s*#cba6f7;/);
   assert.match(css, /--syntax-keyword:\s*#cba6f7;/);

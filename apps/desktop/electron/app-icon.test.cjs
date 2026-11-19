@@ -81,7 +81,7 @@ test("an unreadable image changes nothing", () => {
   assert.deepEqual(mac.calls.dock, []);
 });
 
-test("the renderer's type and picker list the same icons, and main and preload wire the IPC", () => {
+test("the renderer's type and picker list the same icons", () => {
   const read = (relative) => fs.readFileSync(path.join(__dirname, relative), "utf8");
   const typeLine = read("../app/src/electron.d.ts").match(/export type AppIcon = ([^;]+);/);
   assert.ok(typeLine, "electron.d.ts has no AppIcon type");
@@ -94,10 +94,4 @@ test("the renderer's type and picker list the same icons, and main and preload w
     [...picker.matchAll(/\{ id: "([^"]+)", name: "[^"]+" \}/g)].map((match) => match[1]),
     [...APP_ICONS],
   );
-  const preload = read("preload.cjs");
-  const main = read("main.cjs");
-  for (const channel of ["app-icon:get", "app-icon:set"]) {
-    assert.ok(preload.includes(`invoke("${channel}"`), `preload has no ${channel}`);
-    assert.ok(main.includes(`ipcMain.handle("${channel}"`), `main has no ${channel}`);
-  }
 });

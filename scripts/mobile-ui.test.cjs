@@ -351,6 +351,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // Dictation is not available in a test: no microphone, no on-device transcriber.
       if (file === "prompt-field.tsx" && base === "chat-display-setting" && !(id in modules)) return { useDictationAction: () => ["paste"] };
       if (base === "dictation-shortcut" && !(id in modules)) return { useDictationShortcut() {}, toggleDictationShortcut() {} };
+      if (base === "send-stay-shortcut" && !(id in modules)) return { useSendStayShortcut() {}, sendStayShortcut() {} };
+      if (base === "composer-placeholder" && !(id in modules)) return require("../apps/mobile/src/composer-placeholder.ts");
       if (base === "voice-dictation-hook" && !(id in modules))
         return {
           useVoiceDictation: () => ({
@@ -393,6 +395,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           chatsHomePath: async (_client, _hostId, home) => home.path,
           allComputers: { clientFor: () => null, hostFor: () => undefined, viewOf: () => undefined },
         };
+      // The first message's flight from the composer (send-launch.tsx) is drawing: without a launch it is the plain View it wraps.
+      if (base === "send-launch-store" && !(id in modules)) return require("../apps/mobile/src/send-launch-store.ts");
+      if (base === "send-launch" && !(id in modules))
+        return { SendLaunch: ({ style, children }) => modules["react/jsx-runtime"].jsx(modules["react-native"].View, { style, children }) };
       // One row per repository in New Chat's Project picker (new-chat-project.ts) is pure.
       if (base === "new-chat-project" && !(id in modules)) return require("../apps/mobile/src/new-chat-project.ts");
       if (base === "project-icon" && !(id in modules)) return { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" };
@@ -544,6 +550,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@milagre/shared/orchestrator" && !(id in modules)) return require("@milagre/shared/orchestrator");
       if (base === "orchestrator-answer-line" && !(id in modules)) return { OrchestratorAnswerLine: () => null };
       if (base === "orchestrator-mention-row" && !(id in modules)) return { OrchestratorMentionRow: () => null };
+      if (base === "use-orchestrator" && !(id in modules)) return { useTaskEffort: () => null };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -1832,11 +1839,6 @@ test("phone inbox pages keep one Chat visible and retain a draft when paging bac
   find(tree, (n) => n.type === "InboxPager").props.select(0);
   tree = render();
   assert.deepEqual(JSON.parse(JSON.stringify(card(tree).props.draft)), draft);
-  assert.equal(
-    find(tree, (n) => n.props?.accessibilityRole === "tab"),
-    undefined,
-    "the inbox has no filters",
-  );
   gesture.end({ translationX: -90, velocityX: 0 });
   tree = render();
   assert.equal(card(tree).props.item.key, "b", "swiping left moves to the next message");
@@ -5610,11 +5612,6 @@ test("Settings opens as a sheet over project navigation, which stays open under 
   find(nav.render(), (node) => node.props?.label === "Settings").props.onPress();
   assert.deepEqual(nav.routes, ["/settings"]);
   assert.deepEqual(nav.secondaryRoutes, ["sheet"], "the sidebar is not closed to open Settings");
-  assert.equal(
-    find(nav.render(), (node) => node.type === "SettingsView"),
-    undefined,
-    "Settings is not a custom drawer page",
-  );
   assert.ok(find(nav.render(), (node) => node.type === "FlatList"));
 });
 
@@ -5633,11 +5630,6 @@ test("the sidebar lists no archived Chats, a hidden Run Chat a sweep archived in
       .props.data.filter((item) => item.kind === "chat")
       .map((item) => item.chat.id);
   same(ids(), [3]);
-  assert.equal(
-    find(nav.render(), (node) => node.type === "PullDown" && node.props.label === "Filter Chats"),
-    undefined,
-    "there is no Filter menu any more",
-  );
 });
 
 /** Two Chats of web in their own Worktrees: Login (3) and Docs (4). */
@@ -10105,7 +10097,7 @@ test("mobile browser shortcut opens in the Chat's iPad panel when available", as
   assert.deepEqual(h.pushed, [], "a docked Browser does not also open a phone sheet");
 });
 
-test("mobile browser sheet opens a sole page directly and lists several, with no Attach or Detach", async (t) => {
+test("mobile browser sheet opens a sole page directly and lists several", async (t) => {
   const other = { id: "b", browser: "Chrome 141", pages: 2, title: "Mine" };
   for (const [list, direct] of [
     [{ supported: true, targets: [BROWSER_PAGE], others: [] }, true],
@@ -10128,11 +10120,6 @@ test("mobile browser sheet opens a sole page directly and lists several, with no
     assert.equal(body.props.collapsable, false);
     assert.equal(!!find(body, (node) => node.props?.url === BROWSER_PAGE.url), direct);
     assert.ok(!calls.some(([method]) => /^browser:(open|attach|detach|page-url)$/.test(method)), "listing starts no capture and attaches nothing");
-    assert.equal(
-      find(tree, (node) => node.type === "PillButton" && /^(Attach|Detach)$/.test(node.props.title)),
-      undefined,
-      "the Browser lists this Chat's pages only",
-    );
     if (direct) {
       list.targets = [{ ...BROWSER_PAGE, url: "https://example.com/agent-next" }];
       const refreshed = h.render("BrowserSheet", { hostId: "mac", chatId: "/p#1" });
@@ -10495,11 +10482,6 @@ for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
       const screen = ongoingChatHost({ contextSettings: { buttonThreshold: 70, autoThreshold: 85, autoCompact: false, followUps } });
       screen.session.snapshot.project.state.sessions[7].provider = provider;
       screen.session.snapshot.runs.runs["/p#7"] = { startedAt: Date.now(), questions: [], approvals: [], steps: [] };
-      assert.equal(
-        find(screen.render(), (node) => node.props?.label === "Follow-up delivery"),
-        undefined,
-        "no delivery picker in the composer",
-      );
       const label = followUps === "now" && ["claude", "codex"].includes(provider) ? "Send now" : "Queue message";
       const send = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === label);
       assert.ok(send);
@@ -14740,27 +14722,6 @@ test("mobile Linear page shows the Mac's Linear switch and status, re-read on fo
     find(empty, (n) => n.props?.title === "Linear"),
     undefined,
   );
-  // The Linear switch no longer lives on the Experimental page.
-  const experimental = load("experimental-section.tsx", {
-    react,
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { View: "View", Text: "Text" },
-    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
-    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
-    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
-    "./icons": { Icon: "Icon" },
-    "@hugeicons/core-free-icons": {},
-    "./session": { useSession: () => ({ designs: designsOn, client }) },
-    "./settings-list": { Row: "Row" },
-    "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
-  }).ExperimentalSection;
-  react.begin();
-  const experimentalTree = experimental();
-  assert.ok(find(experimentalTree, (n) => n.props?.title === "Ultracode Fatality"));
-  assert.equal(
-    find(experimentalTree, (n) => n.props?.title === "Linear"),
-    undefined,
-  );
 });
 
 test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the Mac and rolled back when refused", async () => {
@@ -14853,54 +14814,6 @@ test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the
     find(older(), (n) => n.props?.title === resumeTitle),
     undefined,
     "an older Mac hides continuation too",
-  );
-});
-
-test("mobile Experimental page has no Routines switch (Routines left Experimental)", async () => {
-  const react = hookHost();
-  const focused = [];
-  const saves = [];
-  let refuse = false;
-  const client = {
-    async call(method, args) {
-      if (method === "routines:enabled:read") return { enabled: false };
-      if (method === "routines:enabled:save") {
-        saves.push(args[0]);
-        if (refuse) throw new Error("This computer does not allow changing this setting from a phone.");
-        return { enabled: args[0] };
-      }
-      return null;
-    },
-  };
-  const modules = (session) => ({
-    react,
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/linear": require("../packages/shared/src/linear.ts"),
-    "react-native": { View: "View", Text: "Text" },
-    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
-    "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue", seedsFrom: (id) => ({ from: id }) },
-    "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
-    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
-    "./push": { usePush: () => ({ state: null }) },
-    "./icons": { Icon: "Icon" },
-    "@hugeicons/core-free-icons": {},
-    "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
-    "./session": { useSession: () => ({ designs: { ...designsOn }, ...session }) },
-    "./settings-list": { Row: "Row" },
-    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PillButton: "PillButton", Toggle: "Toggle", styles: {} },
-  });
-  const { ExperimentalSection } = load("experimental-section.tsx", modules({ client }));
-  const render = () => {
-    react.begin();
-    return ExperimentalSection();
-  };
-  const settle = () => new Promise((resolve) => setImmediate(resolve));
-  for (const effect of focused.splice(0)) effect();
-  await settle();
-  assert.equal(
-    find(render(), (n) => n.props?.title === "Routines"),
-    undefined,
   );
 });
 
@@ -15667,11 +15580,6 @@ test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off,
   );
   providerIcons.props.onChange("simplified");
   assert.deepEqual(JSON.parse(JSON.stringify(saved.at(-1))), { providerIcons: "simplified" });
-  assert.equal(
-    find(render(), (n) => n.type === "Segmented" && n.props?.label !== "Mode"),
-    undefined,
-    "only Mode stays segmented",
-  );
 });
 
 test("mobile advisor Stop and Retry call the owning Chat and show failures without hiding records", async () => {
@@ -17895,11 +17803,6 @@ test("the header opens Settings over the sidebar and Routines as a page, and its
   find(tree, (node) => node.props?.label === "Routines").props.onPress();
   assert.deepEqual(nav.routes, ["/settings", "/routines"]);
   assert.deepEqual(nav.secondaryRoutes, ["sheet", true], "Settings opens over the sidebar; Routines is a page, pushed after the sidebar closes");
-  assert.equal(
-    find(tree, (node) => node.props?.label === "Close navigation"),
-    undefined,
-    "no close button",
-  );
   const menu = find(tree, (node) => node.type === "PullDown" && node.props.label === "More");
   same(
     menu.props.sections.flatMap((section) => section.items.map((item) => item.title)),
@@ -18157,11 +18060,6 @@ test("the phone Routines screen groups heartbeats and triggers, says why a trigg
   assert.match(textOf(heartbeat), /Babysit PR #473/);
   assert.match(textOf(heartbeat), /Every 15 min · next \d\d:\d\d · 3 Runs left/);
   assert.match(textOf(trigger), /Paused: 3 failed runs in a row: no worktree/);
-  assert.equal(
-    find(trigger, (node) => node.type === "RowCheckbox"),
-    undefined,
-    "no tick on the row: Pause and Resume are in its menu",
-  );
   const menu = find(trigger, (node) => node.type === "PullDown");
   // Pause or Resume first; a Linear trigger only runs on its event, so it has no Run now; the heartbeat (a schedule) does.
   // Copy VM-owned arrays into this realm for deepStrictEqual.

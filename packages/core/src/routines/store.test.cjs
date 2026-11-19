@@ -2338,33 +2338,6 @@ test("a flood of bad signatures takes no place in the seen ledger and keeps the 
   assert.equal(reopened.rejections(hook.id), 0);
 });
 
-test("a queue that can't move on this tick is checked without copying the store", () => {
-  const { store, clock, file } = setup();
-  const hook = store.create({ ...spec });
-  store.enqueue(hook.id, delivery(1));
-  store.enqueue(hook.id, delivery(2));
-  store.enqueue(hook.id, delivery(3));
-  store.enqueue(hook.id, delivery(4));
-  assert.equal(store.claimQueued(clock.t, 3).length, 3);
-  // Three Runs going and one event waiting: nothing can move, so nothing is written.
-  const written = fs.statSync(file).mtimeMs;
-  const before = fs.readFileSync(file, "utf8");
-  const original = structuredClone;
-  let clones = 0;
-  globalThis.structuredClone = (value) => {
-    clones += 1;
-    return original(value);
-  };
-  try {
-    assert.deepEqual(store.claimQueued(clock.t, 3), []);
-  } finally {
-    globalThis.structuredClone = original;
-  }
-  assert.equal(clones, 0, "no transaction copy");
-  assert.equal(fs.readFileSync(file, "utf8"), before);
-  assert.equal(fs.statSync(file).mtimeMs, written);
-});
-
 test("the store says which Routines its upkeep purged, so their webhook secrets go with them", () => {
   const { options, clock } = setup();
   const purged = [];

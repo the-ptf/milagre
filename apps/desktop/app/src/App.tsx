@@ -10,6 +10,7 @@ import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
 import { ComputerAllowPrompt } from "./components/ComputerAllowPrompt";
 import { LinkWorkspace } from "./components/LinkWorkspace";
 import { AppDialogs, AppSettingsModal, SettingsNav } from "./app/AppDialogs";
+import { NewWorktreeBox, openNewWorktreeBox } from "./components/NewWorktreeBox";
 import { useAppDialogs } from "./app/useAppDialogs";
 import { useAppShortcuts, useJumpToChat } from "./app/useAppShortcuts";
 import { useFindInChat } from "./app/useFindInChat";
@@ -112,7 +113,7 @@ import { AppSplash } from "./components/StartupSplash";
 import { settleSplash, useSplash } from "./lib/startup-splash";
 import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, cachedScopeState, rememberProjectCopy, runKeys, seedScopeState, useScopeStates } from "./lib/sidebar-scopes";
-import { type AppView, chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
+import { type AppView, chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore, type RunPaneReturn, runPaneState } from "./lib/run-pane";
 import { ChatGrid, GridDropOverlay } from "./components/ChatGrid";
 import { createPendingChat, pendingChatSessionId, withPreview } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
@@ -121,7 +122,6 @@ import { getSettings, toggleTheme, useApplyTheme, useSettings } from "./lib/sett
 import { useChatPins } from "./lib/chat-pins";
 import { sessionsWithPins } from "@milagre/shared/chat-pins";
 import { EditorLinks, Notice } from "./components/editor-links";
-import { clearNoticeOnNavigate } from "./lib/notice";
 import { withReportPrompt } from "@milagre/shared/bug-report";
 import type { ProjectRead, RuntimeConnection, StateStamp } from "./electron";
 import { useSidebarUsage } from "./components/usage/use-sidebar-usage";
@@ -329,7 +329,6 @@ function App() {
   const nextChatView = useRef(0);
   const [, setChatView] = useState(0);
   function advanceChatView() {
-    clearNoticeOnNavigate();
     chatView.current = ++nextChatView.current;
     setChatView(chatView.current);
   }
@@ -396,6 +395,7 @@ function App() {
   }, [knownComputers]);
   const openComputer = project && isRemoteKey(project.path) ? pairedComputers.find((computer) => computer.id === computerOfKey(project.path)) : undefined;
   const readOnly = Boolean(project && isRemoteKey(project.path) && isReadOnly(openComputer));
+  const offlineName = readOnly ? (openComputer?.name ?? "That computer") : null;
   const reconnecting = Boolean(openComputer && computerTone(openComputer) === "connecting");
   const away = Boolean(openComputer && isDimmed(openComputer));
   const bannerNow = useDisplayNow(60_000, away);
@@ -535,6 +535,8 @@ function App() {
   const { pullRequests, chatPullRequests: chatPrs, dismissedBlockers, dismissBlockerAction } = useWorktreePullRequests(project?.path ?? "", state);
   const linear = useLinear();
   const { issues: linearIssues, refresh: refreshLinearIssues } = useWorktreeLinearIssues(project?.path ?? "", linear.active);
+  const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
+  const { runPaneOpen, chatShown } = runPaneState({ view, routineId, runPane, focusedChatKey });
   const sidePanels = useSidePanels();
   const { branchPr, prChatKey, setPrPick, setRowPr, prNumber, prReview, changes, prShown, localChanges, diffComments, prDiffReview, prPanelActions } =
     usePrPanel({
@@ -542,13 +544,13 @@ function App() {
       projectPath: project?.path,
       selectedSession,
       selectedWorktree,
-      chatView: view === "chat",
+      chatView: chatShown,
       branchPullRequests: pullRequests,
       sendPrToChat: (text) => sendPrToChat(text),
     });
   const diffPrefs = useDiffPreferences();
   const diffPresence = useDiffPresence(changes.diffOpen);
-  const changesAvailable = view === "chat" && showGit && Boolean(selectedSession && selectedWorktree);
+  const changesAvailable = chatShown && showGit && Boolean(selectedSession && selectedWorktree);
   const changesAvailableRef = useRef(false);
   changesAvailableRef.current = changesAvailable;
   const terminalChatId = view === "chat" && project && selectedSession && !selectedSession.archived ? chatKey(project.path, selectedSession.id) : null;
@@ -742,8 +744,6 @@ function App() {
       void reportChatAction(bridgeForKey(path).patchChat(path, sessionIdFromKey(key), { unread: false }), "Could not mark the Run read", setNotice);
     }
   });
-  const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
-  const runPaneOpen = (view === "orchestrator" || (view === "routines" && routineId !== null)) && runPane !== null && runPane === focusedChatKey;
   const {
     layout,
     toggleLayout,
@@ -1523,11 +1523,11 @@ function App() {
     }
   }
 
-  async function resolveSendTarget(body: string, issue?: IssueRef, view = chatView.current) {
+  async function resolveSendTarget(body: string, issue?: IssueRef, view = chatView.current, fresh = false) {
     if (!state || !project || !selectedWorktree) return null;
     if (!issue && preparedTarget.current?.view === view && preparedTarget.current.projectPath === project.path) return preparedTarget.current;
-    if (selectedSession) return { sessionId: selectedSession.id as number | null, worktreeId: selectedWorktree.id };
-    if (isolation === "local" && !issue) return { sessionId: null, worktreeId: selectedWorktree.id };
+    if (selectedSession && !fresh) return { sessionId: selectedSession.id as number | null, worktreeId: selectedWorktree.id };
+    if ((fresh ? noGit : isolation === "local") && !issue) return { sessionId: null, worktreeId: selectedWorktree.id };
     setBaseBranch(effectiveBaseBranch);
     saveChatPreferences(localStorage, project.path, { baseBranch: effectiveBaseBranch });
     const created = await retrySend(
@@ -1561,20 +1561,33 @@ function App() {
     prAction?: PullRequestActionContext,
     issue?: LinearIssue,
     delivery?: MessageDelivery,
+    fresh?: { view: number },
   ): Promise<boolean> {
     if ((!body && !images.length && !files.length) || !state || !selectedWorktree || !project || preparingHere || imageDraft.loading) return false;
     if (movingDraft.current) return false;
-    const view = chatView.current;
-    const sendKey = `${project.path}#${selectedSession?.id ?? `new${view}`}`;
+    const view = fresh?.view ?? chatView.current;
+    const session = fresh ? undefined : selectedSession;
+    const sendKey = `${project.path}#${session?.id ?? `new${view}`}`;
     if (sendsInFlight.current.has(sendKey)) return false;
     sendsInFlight.current.add(sendKey);
     const stillHere = () => projectRef.current?.path === project.path && chatView.current === view;
     setNewChatError(null);
     const model = selectedModel;
-    const firstMessage = chatCount === 0;
+    const options = {
+      delivery,
+      provider: model.provider,
+      model: model.id,
+      permissionMode: mode,
+      effort: effortFor(capabilityFor(model, capabilities), effort),
+      ultracode: capabilityFor(model, capabilities).ultracode && ultracode,
+      fastMode: capabilityFor(model, capabilities).fastMode && fastMode,
+      replies: getSettings().claudeReplies,
+      tldrEnabled: getSettings().tldrEnabled,
+    };
+    const firstMessage = Boolean(fresh) || chatCount === 0;
     const submittedDraft = draftStore.get();
     if (!outbox.getSnapshot().loaded) await outbox.ready.catch(() => {});
-    if (queueForComputer(project.path) || hasQueuedChat(project.path, selectedSession?.id ?? null)) {
+    if (queueForComputer(project.path) || hasQueuedChat(project.path, session?.id ?? null)) {
       try {
         const id = crypto.randomUUID();
         await outbox.enqueue({
@@ -1582,28 +1595,20 @@ function App() {
           computerId: computerOfKey(project.path),
           computerName: openComputer?.name ?? "This computer",
           owner: project.path,
-          conversation: selectedSession ? `chat:${selectedSession.id}` : id,
+          conversation: session ? `chat:${session.id}` : id,
           request: {
             projectPath: project.path,
-            sessionId: selectedSession?.id ?? null,
-            delivery,
+            sessionId: session?.id ?? null,
             worktreeId: selectedWorktree.id,
             body,
             images: [],
             files: [],
             prompt: prAction ? pullRequestActionPrompt(prAction) : body,
-            provider: model.provider,
-            model: model.id,
-            permissionMode: mode,
-            effort: effortFor(capabilityFor(model, capabilities), effort),
-            ultracode: capabilityFor(model, capabilities).ultracode && ultracode,
-            fastMode: capabilityFor(model, capabilities).fastMode && fastMode,
-            replies: getSettings().claudeReplies,
-            tldrEnabled: getSettings().tldrEnabled,
+            ...options,
             ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
             ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: submittedDraft })! } : {}),
           },
-          ...(!selectedSession && (isolation !== "local" || issue)
+          ...(!session && (!(fresh ? noGit : isolation === "local") || issue)
             ? {
                 createWorktree: {
                   projectPath: project.path,
@@ -1616,7 +1621,7 @@ function App() {
             : {}),
           attachments: await outboxAttachments(images, files, imageDraft.localFiles),
         });
-        if (!preserveComposer && stillHere()) {
+        if (!preserveComposer && (stillHere() || fresh)) {
           if (draftStore.get() === submittedDraft) setDraft("");
           for (const image of images) imageDraft.remove(image.id);
           for (const file of files) imageDraft.removeFile(file);
@@ -1631,13 +1636,12 @@ function App() {
       }
     }
     const prepared = preparedTarget.current?.view === view && preparedTarget.current.projectPath === project.path ? preparedTarget.current : null;
-    const previewWorktreeId = prepared?.worktreeId ?? (selectedSession || (isolation === "local" && !issue) ? selectedWorktree.id : NO_WORKTREE);
-    const resendKey = `${project.path}#${selectedSession?.id ?? `new${view}`}`;
+    const previewWorktreeId = prepared?.worktreeId ?? (session || ((fresh ? noGit : isolation === "local") && !issue) ? selectedWorktree.id : NO_WORKTREE);
     const resendParts = [...images.map((image) => image.id), ...files];
     const preview = createPendingChat({
-      clientMessageId: failedSendIds.current.reuse(resendKey, body, resendParts),
+      clientMessageId: failedSendIds.current.reuse(sendKey, body, resendParts),
       state,
-      sessionId: selectedSession?.id,
+      sessionId: session?.id,
       worktreeId: previewWorktreeId,
       body,
       images,
@@ -1652,7 +1656,7 @@ function App() {
         ...preview,
         view,
         projectPath: project.path,
-        originSessionId: selectedSession?.id ?? null,
+        originSessionId: session?.id ?? null,
         originWorktreeId: selectedWorktree.id,
         creatingWorktree: previewWorktreeId === NO_WORKTREE,
         provider: model.provider,
@@ -1662,17 +1666,6 @@ function App() {
       setDraft("");
       imageDraft.clear();
     }
-    const options = {
-      delivery,
-      provider: model.provider,
-      model: model.id,
-      permissionMode: mode,
-      effort: effortFor(capabilityFor(model, capabilities), effort),
-      ultracode: capabilityFor(model, capabilities).ultracode && ultracode,
-      fastMode: capabilityFor(model, capabilities).fastMode && fastMode,
-      replies: getSettings().claudeReplies,
-      tldrEnabled: getSettings().tldrEnabled,
-    };
     let target: Awaited<ReturnType<typeof resolveSendTarget>> = null;
     let sent = false;
     let uploading = true;
@@ -1680,7 +1673,7 @@ function App() {
       const uploadedFiles = await prepareLocalFileUploads(project.path, files, images, imageDraft.localFiles);
       const uploadedImages = await prepareImageUploads(project.path, images);
       uploading = false;
-      target = await resolveSendTarget(body, issue, view);
+      target = await resolveSendTarget(body, issue, view, Boolean(fresh));
       if (!target) return false;
       if (firstMessage && stillHere()) preparedTarget.current = { ...target, view, projectPath: project.path };
       dispatchPending({ type: "target", clientMessageId: preview.message.clientMessageId, sessionId: target.sessionId, worktreeId: target.worktreeId });
@@ -1704,7 +1697,7 @@ function App() {
       );
       if (preparedTarget.current?.view === view) preparedTarget.current = null;
       sent = true;
-      failedSendIds.current.forget(resendKey);
+      failedSendIds.current.forget(sendKey);
       dispatchPending({ type: "sent", clientMessageId: preview.message.clientMessageId, sessionId, worktreeId: target.worktreeId });
       if (stillHere()) {
         const carried = draftStore.get();
@@ -1715,24 +1708,24 @@ function App() {
       }
       return true;
     } catch (error) {
-      failedSendIds.current.remember(resendKey, preview.message.clientMessageId!, body, resendParts);
+      failedSendIds.current.remember(sendKey, preview.message.clientMessageId!, body, resendParts);
       const message = `${uploading ? "Could not upload attachments" : target ? "Could not send the message" : "Could not create the worktree"}: ${ipcErrorMessage(error)}`;
       if (stillHere()) {
         setNewChatError(message);
-        if (!preserveComposer) {
+        if (!preserveComposer || fresh) {
           const nextDraft = draftStore.get();
           const remapped = imageDraft.restore(images, files, nextDraft);
           setDraft([restoredDraft(body, submittedDraft, issue !== undefined), remapped].filter(Boolean).join("\n\n"));
         }
       } else {
-        if (!preserveComposer)
+        if (!preserveComposer || fresh)
           setFailedSends((current) => [
             ...current,
             {
               ...preview,
               view,
               projectPath: project.path,
-              originSessionId: selectedSession?.id ?? null,
+              originSessionId: session?.id ?? null,
               originWorktreeId: selectedWorktree.id,
               draft: restoredDraft(body, submittedDraft, issue !== undefined),
               error: message,
@@ -1810,12 +1803,15 @@ function App() {
     }
   }
 
-  async function sendMessage(delivery?: MessageDelivery) {
+  async function sendMessage(delivery?: MessageDelivery, background = false) {
     const body = draftStore.get().trim();
-    if ((!body && !imageDraft.images.length && !imageDraft.files.length) || !state || !selectedWorktree || !project || preparingHere || imageDraft.loading)
-      return;
-    await executeSend(body, permissionMode, imageDraft.images, imageDraft.files, false, undefined, undefined, delivery);
+    const fresh = background && !selectedSession ? { view: ++nextChatView.current } : undefined;
+    await executeSend(body, permissionMode, imageDraft.images, imageDraft.files, false, undefined, undefined, delivery, fresh);
   }
+  const startInNewWorktree = (body: string, images: ImageAttachment[], open: boolean) => {
+    if (open) startNewChat();
+    void executeSend(body, permissionMode, images, [], true, undefined, undefined, undefined, { view: open ? chatView.current : ++nextChatView.current });
+  };
 
   const recommendationRef = useRef<(option: string) => void>(() => {});
   recommendationRef.current = (option) => {
@@ -2386,6 +2382,7 @@ function App() {
       recentProjects,
       actions: {
         newChat: () => startNewChatOnThisMac(),
+        newWorktree: openNewWorktreeBox,
         newTerminal: (chatId) => newTerminal(chatId, undefined, setNotice),
         openProject: () => openProject(),
         openCanvas,
@@ -2571,7 +2568,7 @@ function App() {
               )}
               <div
                 data-routine-split={runPaneOpen || undefined}
-                className={runPaneOpen ? "flex min-h-0 flex-1 gap-3 pt-[var(--window-chrome-height)]" : "contents"}
+                className={runPaneOpen ? `${diffPresence.occupied ? "hidden" : "flex"} min-h-0 flex-1 gap-3 pt-[var(--window-chrome-height)]` : "contents"}
               >
                 <div className={runPaneOpen ? `flex min-h-0 ${view === "orchestrator" ? "" : "w-[420px]"} shrink-0 flex-col` : "contents"}>
                   {view === "routines" && (
@@ -2653,7 +2650,7 @@ function App() {
                         messageScope={project.path}
                         earlier={earlierMessages}
                         trimHistory={lean && !(pendingHere && pendingCanonicalId !== null) ? chatWindow.trim : undefined}
-                        onSend={(delivery) => void sendMessage(delivery)}
+                        onSend={(delivery, background) => void sendMessage(delivery, background)}
                         onCompact={
                           selectedSession && providerCapabilities(selectedSession.provider ?? "claude").compact && !readOnly
                             ? () => void compactContext()
@@ -2685,7 +2682,7 @@ function App() {
                         isSending={isSending}
                         readOnlyHistory={!!selectedSession?.readOnlyReason}
                         sendBlocked={preparingHere || Boolean(selectedSession?.formerWorktree || selectedSession?.readOnlyReason)}
-                        offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
+                        offlineName={offlineName}
                         offlineTray={
                           offlineTray.shown && project ? (
                             <OfflineTray
@@ -2864,6 +2861,7 @@ function App() {
             />
           </div>
           {linkDialog}
+          <NewWorktreeBox projectName={project.name} offlineName={offlineName} linkOpen={Boolean(selectedLink)} onStart={startInNewWorktree} />
           {appDialogs}
           {commandPaletteOpen && (
             <ProjectPalette

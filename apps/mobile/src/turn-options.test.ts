@@ -163,6 +163,13 @@ test("a Chat shows the mode the Mac saved on it, whatever this phone picked last
   assert.equal(chatPreferences(undefined, defaultPreferences), defaultPreferences);
 });
 
+test("an Orchestrator Chat shows the effort it was started with until this phone picks one", () => {
+  assert.equal(chatPreferences(undefined, defaultPreferences, undefined, undefined, "low").effort, "low");
+  const picked = { ...defaultPreferences, effort: "medium" };
+  assert.equal(chatPreferences(picked, defaultPreferences, undefined, undefined, "low").effort, "medium");
+  assert.equal(chatPreferences(undefined, defaultPreferences, undefined, undefined, null), defaultPreferences);
+});
+
 test("a pick made here shows until the Mac's copy moves on", () => {
   const picked = { ...defaultPreferences, permissionMode: "full" as const, permissionPick: { mode: "full" as const, over: "ask" as const } };
   assert.equal(chatPreferences(picked, defaultPreferences, "ask").permissionMode, "full", "not saved on the Mac yet");

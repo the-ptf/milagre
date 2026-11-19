@@ -53,8 +53,10 @@ import type { QuoteFrom } from "../message-actions";
 import { useReachableHost } from "../routes-native";
 import { sameSession, useComposer, useMainSession, usePendingChats, useRunShape, useSession } from "../session";
 import { ChatComposerDock } from "../chat-composer-dock";
+import { useTaskEffort } from "../use-orchestrator";
 import { ChatsTrayLabel, LinearIssueButton, NewChatTray } from "../new-chat-tray";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
+import { composerPlaceholder } from "../composer-placeholder";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
 import { chatMentionChoices, type MentionComputer } from "@milagre/shared/prompt-mentions";
@@ -149,7 +151,7 @@ import { useWorktreeLinearIssues } from "../use-worktree-linear-issues";
 import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
 import { allComputers, chatsHomePath, useComputerViews, useNewChatProjects, useNoProjectChoice } from "../all-computers";
-import { CHATS_PLACEHOLDER, isChatsHomeProject, JUST_CHAT_HEADING, NO_PROJECT_FOLDER, NO_PROJECT_LABEL, NO_PROJECT_LINE } from "@milagre/shared/chats-home";
+import { isChatsHomeProject, JUST_CHAT_HEADING, NO_PROJECT_FOLDER, NO_PROJECT_LABEL, NO_PROJECT_LINE } from "@milagre/shared/chats-home";
 import { newChatLinks as linksOf, newChatProjectGroups, preferredCopy, type NewChatProject } from "../new-chat-project";
 import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "../project-icon";
 import { panelWorktree } from "../project-surfaces";
@@ -826,14 +828,11 @@ function ChatPane({
     }
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the counters are the trigger; the rest is read as it stands when one moves
   }, [compactRequests]);
-  const planPanel = usePlanPanel(
-    params.id ? session.snapshot?.project?.state.sessions[Number(params.id)]?.plan : undefined,
-    `${session.snapshot?.project?.path}#${params.id}`,
-  );
-  const subchatPanel = useSubchatPanel(
-    params.id && Number(params.id) > 0 ? session.snapshot?.project?.state.sessions : undefined,
-    `${session.snapshot?.project?.path}#${params.id}`,
-  );
+  const shownChat = params.id ? session.snapshot?.project?.state.sessions[Number(params.id)] : undefined;
+  const shownKey = `${session.snapshot?.project?.path}#${params.id}`;
+  const planPanel = usePlanPanel(shownChat?.plan, shownKey);
+  const taskEffort = useTaskEffort(session.client, shownChat?.orchestrator?.taskId);
+  const subchatPanel = useSubchatPanel(params.id && Number(params.id) > 0 ? session.snapshot?.project?.state.sessions : undefined, shownKey);
   const { attachRoom: attachPlanRoom } = planPanel;
   const { attachRoom: attachSubchatRoom } = subchatPanel;
   const attachPanelRooms = useCallback(
@@ -933,7 +932,7 @@ function ChatPane({
   const background = chat ? backgroundItems(chat, ports) : [];
   const designsMoved = history.designActivity + (run?.designActivity ?? 0);
   const contextUsage = run?.contextUsage ?? chat?.contextUsage;
-  const preferences = chatPreferences(composer.preferences[chatId], composer.defaults, chat?.permissionMode, run?.permissionMode);
+  const preferences = chatPreferences(composer.preferences[chatId], composer.defaults, chat?.permissionMode, run?.permissionMode, taskEffort);
   const turn = turnTarget(composer.preferences[chatId], chat?.provider, composer.defaults);
   const actualProvider = turn.provider;
   const model = selectedModel(actualProvider, turn.model || (chat && !turn.picked ? lastUserModel(project.state, chat.id) : ""), session.models);
@@ -1302,7 +1301,7 @@ function ChatPane({
       },
     });
   }
-  async function send(typedBody?: string, withAttachments = true, prAction?: PullRequestActionContext, issue?: LinearIssue): Promise<boolean | "busy"> {
+  async function send(typedBody?: string, withAttachments = true, prAction?: PullRequestActionContext, issue?: LinearIssue, stay = false) {
     const { draft, quotes, attachments } = heldDraft();
     const outgoing = quotedMessage(quotes, draft);
     const body = typedBody ?? outgoing;
@@ -1317,15 +1316,19 @@ function ChatPane({
     if (command(typed, withAttachments && !sentQuotes.length, sendOptions(model, preferences))) return false;
     const issueKey = issue?.key;
     const steered = Boolean(run) && messageDelivery !== "queue" && canSteer;
+    const stayDraft = stay ? randomUUID() : undefined;
+    const origin = stayDraft ? pendingOrigin(project.path, undefined, String(worktreeId), stayDraft) : originChatId;
+    const key = `${client.url}|${origin}`;
+    const sendKey = stay ? key : sendingKey;
     if (!body && !(withAttachments && attachments.length)) return false;
-    if (busy || sendingRef.current.has(sendingKey) || picking) return "busy";
-    sendingRef.current.add(sendingKey);
-    setSendingKeys((current) => [...current, sendingKey]);
+    if (busy || sendingRef.current.has(sendKey) || picking) return "busy";
+    sendingRef.current.add(sendKey);
+    setSendingKeys((current) => [...current, sendKey]);
     setError("");
     if (!outbox.getSnapshot().loaded) await outbox.ready.catch(() => {});
     if (offline || hasQueuedChat(client.url, project.path, params.id ? Number(params.id) : null)) {
       try {
-        if (!project.link && (newWorktree || issue) && !base) throw new Error("Choose a base branch before queuing this message.");
+        if (!project.link && (newWorktree || stay || issue) && !base) throw new Error("Choose a base branch before queuing this message.");
         const id = randomUUID();
         const mentioned =
           withAttachments && worktree?.path
@@ -1352,7 +1355,7 @@ function ChatPane({
             ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
           },
           ...(project.link ? { link: { linkId: project.link.link.id, operationId: id } } : {}),
-          ...(!project.link && (newWorktree || issue)
+          ...(!project.link && (newWorktree || stay || issue)
             ? {
                 createWorktree: {
                   projectPath: project.path,
@@ -1369,15 +1372,15 @@ function ChatPane({
         dropSentQuotes();
         const ids = new Set(picked.map((item) => item.id));
         composer.setAttachments((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((item) => !ids.has(item.id)) }));
-        Keyboard.dismiss();
+        if (!stay) Keyboard.dismiss();
         void outbox.flush().catch(() => {});
         return true;
       } catch (error) {
         setError((error as Error).message);
         return false;
       } finally {
-        sendingRef.current.delete(sendingKey);
-        setSendingKeys((current) => current.filter((key) => key !== sendingKey));
+        sendingRef.current.delete(sendKey);
+        setSendingKeys((current) => current.filter((key) => key !== sendKey));
       }
     }
     const mentionRoot = worktree?.path;
@@ -1394,10 +1397,9 @@ function ChatPane({
     }
     const sending = withAttachments ? [...attachments, ...mentions.added] : [];
     const focus = focused.current;
-    const current = () => focus !== null && focused.current === focus && session.isSelected();
+    const current = () => !stay && focus !== null && focused.current === focus && session.isSelected();
     const clearsDraft = own || issueKey !== undefined;
-    const creates = !project.link && (newWorktree || issueKey !== undefined);
-    const key = `${client.url}|${originChatId}`;
+    const creates = !project.link && (newWorktree || stay || issueKey !== undefined);
     const operationId = project.link ? composer.linkOperations.forSend(key, JSON.stringify([sent, sending.map((item) => item.id)]), randomUUID) : null;
     const resendParts = sending.map((item) => item.id);
     const preview = createPendingChat({
@@ -1418,8 +1420,8 @@ function ChatPane({
         preview,
         hostId: client.url,
         projectPath: sendingProjectPath,
-        originChatId,
-        ...(params.id ? {} : { draft: draftId }),
+        originChatId: origin,
+        ...(params.id ? {} : { draft: stayDraft ?? draftId }),
         originSessionId: params.id ? Number(params.id) : null,
         worktreeId,
         newWorktree: creates,
@@ -1432,7 +1434,7 @@ function ChatPane({
     const sentIds = new Set(sending.map((item) => item.id));
     composer.setAttachments((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((item) => !sentIds.has(item.id)) }));
     following.current = true;
-    Keyboard.dismiss();
+    if (!stay) Keyboard.dismiss();
     const options = { ...sendOptions(model, preferences), delivery: messageDelivery };
     const retried = <T,>(work: () => Promise<T>) => retrySend(work, { retryable: (error) => retryKind(error) !== null });
     const retriedUnsent = <T,>(work: () => Promise<T>) => retrySend(work, { retryable: (error) => retryKind(error) === "unsent" });
@@ -1442,7 +1444,7 @@ function ChatPane({
       let target = { sessionId: params.id ? Number(params.id) : (null as number | null), worktreeId };
       if (creates) {
         if (!base) throw new Error(branches?.error || "Choose a base branch before sending.");
-        let ready = preparedTarget.current;
+        let ready = stay ? null : preparedTarget.current;
         if (!ready || ready.client !== client || ready.path !== sendingProjectPath || ready.base !== base || ready.issueKey !== issueKey) {
           const created = await retriedUnsent(() =>
             client.call<{ project: OpenProject; worktreeId: number }>("worktree:create", [
@@ -1458,7 +1460,7 @@ function ChatPane({
           const chat = sessionForWorktree(created.project.state, created.worktreeId);
           if (!chat) throw new Error("No Chat was created for the new worktree.");
           ready = { client, path: sendingProjectPath, base, issueKey, worktreeId: created.worktreeId, sessionId: chat.id };
-          preparedTarget.current = ready;
+          if (!stay) preparedTarget.current = ready;
         }
         target = { sessionId: ready.sessionId, worktreeId: ready.worktreeId };
       }
@@ -1578,11 +1580,11 @@ function ChatPane({
           [chatId]: [...sending, ...(current[chatId] || []).filter((item) => !sending.some((sent) => sent.id === item.id))],
         }));
       }
-      if (current()) setError((e as Error).message);
+      if (stay || current()) setError((e as Error).message);
       return accepted;
     } finally {
-      sendingRef.current.delete(sendingKey);
-      setSendingKeys((current) => current.filter((key) => key !== sendingKey));
+      sendingRef.current.delete(sendKey);
+      setSendingKeys((current) => current.filter((key) => key !== sendKey));
     }
   }
   function headerAction(id: string) {
@@ -2028,17 +2030,10 @@ function ChatPane({
         known: knownFiles.current,
         onMention: worktree?.path ? mentionFile : undefined,
         commands: chat && !chat.readOnlyReason ? CHAT_COMMANDS : STORAGE_COMMANDS,
-        placeholder: offline
-          ? `Queue a message for ${computerName || "this computer"}`
-          : run
-            ? queuesFollowUp
-              ? "Queue a message for the next turn"
-              : "Steer the agent"
-            : chatsHomeOpen && !params.id
-              ? CHATS_PLACEHOLDER
-              : undefined,
+        placeholder: composerPlaceholder({ offline, computerName, running: Boolean(run), queuesFollowUp, chatsHome: chatsHomeOpen && !params.id }),
         focusRequest: composerFocusRequest,
         onSend: () => void send(),
+        onSendStay: () => void send(undefined, true, undefined, undefined, true),
         onStop: () => void action(() => client.call("agent:interrupt", [chatId]), true),
         onFocus: () => {
           setComposerFocused(true);

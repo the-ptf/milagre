@@ -39,7 +39,7 @@ async function fixture(t) {
     },
     async close() {},
   };
-  const daemon = await startDaemon({ dataDir, version: "test", runtimeOptions: { environmentReady: Promise.resolve(), simulators } });
+  const daemon = await startDaemon({ dataDir, homeDir: dataDir, version: "test", runtimeOptions: { environmentReady: Promise.resolve(), simulators } });
   const clients = [],
     bridges = [];
   t.after(async () => {

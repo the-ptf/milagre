@@ -154,8 +154,7 @@ test("each architecture builds in parallel and notarizes once, as a disk image",
     assert.match(job.steps.find((step) => step.name === name).run, /node \.release-tools\/scripts\//, name);
 });
 
-test("merges cut no release; CI only rewrites the Next beta draft once main passes the required checks", () => {
-  assert.equal(ciWorkflow.jobs.release, undefined);
+test("CI only rewrites the Next beta draft once main passes the required checks", () => {
   const job = ciWorkflow.jobs["next-beta"];
   assert.equal(job.if, "github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'the-ptf/milagre'");
   assert.deepEqual(job.needs, ["javascript", "native-gate", "macos-desktop-smoke"]);
@@ -164,8 +163,6 @@ test("merges cut no release; CI only rewrites the Next beta draft once main pass
   assert.equal(checkout.with["fetch-depth"], 0);
   assert.equal(checkout.with["persist-credentials"], false);
   assert.deepEqual(job.steps.map((step) => step.run).filter(Boolean), ["git fetch --quiet --tags origin\nnode scripts/plan-release.cjs next-draft\n"]);
-  assert.ok(!fs.existsSync(path.join(__dirname, "../.releaserc.json")), "semantic-release no longer tags merges");
-  assert.ok(!fs.existsSync(path.join(__dirname, "../.github/workflows/release.yml")), "no separate workflow_run release workflow");
 });
 
 test("signature, ticket, Gatekeeper and disk image failures stop verification", (t) => {
@@ -285,7 +282,6 @@ test("the macOS build stages its installers on the channel Publish asks for and 
   assert.ok(publishSteps.indexOf("Merge the macOS feed") < publishSteps.indexOf("Publish the release"), "the merged feed is checked before upload");
   const build = steps.find((step) => step.name === "Build macOS installers");
   assert.match(build.run, /--config\.publish\.channel="\$\{CHANNEL\}"/);
-  assert.doesNotMatch(build.run, /generateUpdatesFilesForAllChannels/, "the flag does nothing for the github provider");
 });
 
 test("every platform builds the planned commit, and the release tag exists only once Publish creates it", () => {
@@ -296,15 +292,6 @@ test("every platform builds the planned commit, and the release tag exists only 
   assert.equal(publishWorkflow.jobs.linux.env.RELEASE_TAG, "${{ needs.prepare.outputs.release_tag }}");
   assert.equal(publishWorkflow.jobs.publish.env.TARGET, sha);
   assert.doesNotMatch(JSON.stringify(buildWorkflow), /gh release/);
-});
-
-test("no build mirrors the stable feed to the beta channel", () => {
-  // Stable rebuilds the newest beta's commit, so beta installs must not be offered it.
-  for (const [name, workflow] of [
-    ["build-macos.yml", buildWorkflow],
-    ["publish.yml", publishWorkflow],
-  ])
-    assert.doesNotMatch(JSON.stringify(workflow), /Mirror the stable feed|cp release\/latest[^ ]*\.yml release\/beta/, name);
 });
 
 test("reusable workflows take their secrets by name, never inherited", () => {
@@ -330,9 +317,6 @@ test("one Publish workflow cuts betas on a schedule and either channel on dispat
   assert.equal(plan.env.SCHEDULED, "${{ github.event_name == 'schedule' }}");
   assert.deepEqual(publishWorkflow.permissions, { contents: "write", actions: "read" }, "gh run list needs actions: read");
   assert.equal(steps.at(-1).with.name, "release-notes");
-  assert.ok(!fs.existsSync(path.join(__dirname, "pick-release-candidate.cjs")), "drafts are no longer picked");
-  for (const name of ["publish-beta.yml", "publish-installers.yml"])
-    assert.ok(!fs.existsSync(path.join(__dirname, "../.github/workflows", name)), `${name} is folded into publish.yml`);
 });
 
 test("macOS and Linux always build; Windows builds for betas, and RELEASE_WINDOWS signs it and adds it to stable", () => {

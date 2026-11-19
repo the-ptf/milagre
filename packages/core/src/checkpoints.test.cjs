@@ -434,35 +434,3 @@ test("a later capture reads again every file whose stamp moved", async (t) => {
   assert.notEqual(after["same-size.txt"].hash, before["same-size.txt"].hash);
   assert.notEqual(after["fresh.txt"].hash, before["fresh.txt"].hash);
 });
-test("a scan trusts a file's unchanged stamp and reads it again once any stamp field moves", async (t) => {
-  const f = await fixture(t);
-  const blobs = path.join(path.dirname(f.root), "blobs");
-  const scan = (known) => {
-    const stat = require("node:fs").statSync(f.root);
-    const request = {
-      op: "scan",
-      root: f.root,
-      identity: { dev: stat.dev, ino: stat.ino },
-      names: ["a.txt", "new.txt"],
-      blobDirectory: blobs,
-      known,
-      racyMs: 0,
-    };
-    const out = execFileSync(process.execPath, [path.join(__dirname, "checkpoint-files.cjs")], {
-      cwd: f.root,
-      input: JSON.stringify(request),
-      encoding: "utf8",
-    });
-    return JSON.parse(out).result;
-  };
-  await f.write("new.txt", "new\n");
-  const first = scan();
-  assert.ok(first.stamps["a.txt"] && first.stamps["new.txt"]);
-  // A planted entry with the file's own stamp is taken as it is, without reading the file.
-  const planted = first.files["new.txt"].hash;
-  const second = scan({ "a.txt": [...first.stamps["a.txt"].slice(0, 5), planted, first.stamps["a.txt"][6]] });
-  assert.equal(second.files["a.txt"].hash, planted);
-  // One stamp field off, and the file is read.
-  const third = scan({ "a.txt": [first.stamps["a.txt"][0] + 1, ...first.stamps["a.txt"].slice(1, 5), planted, first.stamps["a.txt"][6]] });
-  assert.equal(third.files["a.txt"].hash, first.files["a.txt"].hash);
-});

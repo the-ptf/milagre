@@ -37,28 +37,17 @@ export function simulatorGeometry(status, box, inset = 0) {
   };
 }
 
-/** Unknown models keep their screen intact. A custom simulator name cannot override a known model. */
+/** A custom simulator name cannot override a known model. */
 export function simulatorAppearance(device) {
   const model = String(device?.deviceType || device?.name || "").replaceAll(/[-_]/g, " ");
-  if (device?.platform === "android")
-    return {
-      cutout: !/\bFold\b/i.test(model) && /pixel\s*(?:[6-9]|\d{2})a?\b/i.test(model) ? "camera" : "none",
-      radius: 0.09,
-    };
-  if (/iPad/i.test(model)) return { cutout: "none", radius: 0.045 };
-  if (/iPhone\s*SE/i.test(model)) return { cutout: "none", radius: 0.025 };
-  const phone = /iPhone\s*(\d+)(e)?(?:\s|$)/i.exec(model);
-  if (phone) {
-    const generation = Number(phone[1]);
-    const island = !phone[2] && (generation >= 15 || (generation === 14 && /\bPro\b/i.test(model)));
-    return {
-      cutout: island ? "island" : generation >= 11 ? "notch" : "none",
-      radius: generation >= 11 ? 0.14 : 0.025,
-    };
-  }
-  if (/iPhone\s*X(?:R|S)?\b/i.test(model)) return { cutout: "notch", radius: 0.12 };
-  if (/iPhone\s*Air\b/i.test(model)) return { cutout: "island", radius: 0.14 };
-  return { cutout: "none", radius: 0.09 };
+  if (device?.platform === "android") return { radius: 0.09 };
+  if (/iPad/i.test(model)) return { radius: 0.045 };
+  if (/iPhone\s*SE/i.test(model)) return { radius: 0.025 };
+  const phone = /iPhone\s*(\d+)e?(?:\s|$)/i.exec(model);
+  if (phone) return { radius: Number(phone[1]) >= 11 ? 0.14 : 0.025 };
+  if (/iPhone\s*X(?:R|S)?\b/i.test(model)) return { radius: 0.12 };
+  if (/iPhone\s*Air\b/i.test(model)) return { radius: 0.14 };
+  return { radius: 0.09 };
 }
 
 /** Coordinates are relative to the stage; outside starts are ignored, captured drags clamp at the edge. */

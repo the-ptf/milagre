@@ -5,7 +5,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { createWorktree, issueBranch, listBranches, renameWorktreeBranch, slugify } = require("./worktrees.cjs");
-const { COPY_LIMITS, EXCLUDED_FOLDERS, previewFilesToCopy } = require("./worktree-files.cjs");
+const { previewFilesToCopy } = require("./worktree-files.cjs");
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-worktrees-"));
@@ -251,10 +251,6 @@ test("the copy stops at the size cap", async (t) => {
   assert.ok(created.copy.notes.length > 0);
 });
 
-test("the default cap is 500 files and 100 MB", () => {
-  assert.deepEqual(COPY_LIMITS, { maxFiles: 500, maxBytes: 100 * 1024 * 1024 });
-});
-
 test("a copy that fails does not fail the worktree", async (t) => {
   const fx = await ignoredFixture(t);
   await fs.chmod(path.join(fx.project, ".env.local"), 0o000);
@@ -310,7 +306,6 @@ test("a negated pattern never lifts an exclusion, and more build folders are ski
     "coverage/.env": "7",
   });
   assert.deepEqual((await previewFilesToCopy(fx.project, [".env*", "!node_modules/p1/.env"])).matches, [".env", ".env.local"]);
-  assert.deepEqual(EXCLUDED_FOLDERS.filter((folder) => ["Pods", ".gradle", ".expo", ".dart_tool", "coverage"].includes(folder)).length, 5);
   assert.deepEqual((await previewFilesToCopy(fx.project, undefined)).matches, [".env", ".env.local"]);
 });
 

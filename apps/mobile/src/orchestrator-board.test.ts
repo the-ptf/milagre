@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { AgentSession } from "@milagre/shared/model";
 import type { OrchestratorTask } from "@milagre/shared/orchestrator";
-import { boardCounts, boardItem, columnItems, modelAndEffort, projectName, pullRequestState, relativeAge } from "./orchestrator-board.ts";
+import { boardCounts, boardItem, columnItems, modelAndEffort, projectName, relativeAge } from "./orchestrator-board.ts";
 
 const task = (patch: Partial<OrchestratorTask> = {}): OrchestratorTask => ({
   id: "t1",
@@ -77,10 +77,7 @@ test("columns count every card and list the newest first", () => {
   );
 });
 
-test("an open PR wins over a merged one; labels read as on the desktop", () => {
-  assert.equal(pullRequestState(["MERGED", "OPEN"]), "open");
-  assert.equal(pullRequestState(["CLOSED"]), "closed");
-  assert.equal(pullRequestState([]), null);
+test("labels read as on the desktop", () => {
   assert.equal(modelAndEffort("claude", "claude-opus-5-5", "high"), "Opus 5.5 · High");
   assert.equal(modelAndEffort("claude", "made-up", null), "made-up");
   assert.equal(projectName("/code/gym", []), "gym");

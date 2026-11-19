@@ -22,6 +22,7 @@ test("the large Project's idle Chats leave the daemon's memory, and every reader
   await fs.writeFile(path.join(project, ".milagre/coordination.json"), JSON.stringify(fixture));
   const daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "test",
     runtimeOptions: {
       environmentReady: Promise.resolve(),

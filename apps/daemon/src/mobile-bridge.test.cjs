@@ -92,6 +92,7 @@ async function fixture(t, { runtimeOptions = {}, bridgeOptions = {} } = {}) {
   execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });
   const daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "test",
     runtimeOptions: {
       environmentReady: Promise.resolve(),
@@ -780,7 +781,7 @@ test("the bridge reports a lost daemon and stops listening, so its owner can res
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-mobile-")));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const dataDir = path.join(root, "profile");
-  const daemon = await startDaemon({ dataDir, version: "test", runtimeOptions: { environmentReady: Promise.resolve(), titleModels: {} } });
+  const daemon = await startDaemon({ dataDir, homeDir: dataDir, version: "test", runtimeOptions: { environmentReady: Promise.resolve(), titleModels: {} } });
   const bridge = await startMobileBridge({ dataDir, port: 0, token: randomBytes(32).toString("hex") });
   await daemon.close();
   await bridge.lost;
@@ -1911,6 +1912,7 @@ test("a phone snapshot's Chats and messages come from one state, even when a Cha
   git("worktree", "add", "-q", "-b", "side", side);
   const daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "test",
     runtimeOptions: {
       environmentReady: Promise.resolve(),
@@ -1966,11 +1968,6 @@ test("a phone snapshot's Chats and messages come from one state, even when a Cha
   removed = false;
   consistent((await json(`/snapshot?projectPath=${at}&view=chats`)).project.state);
   assert.equal(removed, true, "the Worktree went during the chat list's read");
-});
-
-test("a phone may edit URL servers and switch them, but not add command servers or start a sign-in", () => {
-  for (const method of ["mcp:definition", "mcp:saveUrl", "mcp:remove", "mcp:toggle"]) assert.ok(METHODS.has(method), method);
-  for (const method of ["mcp:save", "mcp:signIn", "mcp:cancelSignIn"]) assert.ok(!METHODS.has(method), method);
 });
 
 test("phone checkpoint RPCs preview and restore a task with explicit confirmation", async (t) => {

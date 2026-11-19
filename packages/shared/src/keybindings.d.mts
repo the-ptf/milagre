@@ -1,6 +1,7 @@
 export type KeybindingCommandId =
   | "commandPalette.toggle"
   | "chat.new"
+  | "worktree.new"
   | "project.add"
   | "settings.open"
   | "theme.toggle"
@@ -14,6 +15,7 @@ export type KeybindingCommandId =
   | "chat.parent"
   | `chat.jump.${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`
   | "chat.find"
+  | "chat.sendStay"
   | "chat.quote"
   | "dictation.toggle"
   | "changes.toggle"

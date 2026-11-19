@@ -75,7 +75,6 @@ async function browserChecks() {
     assert.equal(await evaluate('document.querySelector("[data-chat-pr]").textContent'), "#10213");
     assert.equal(await evaluate('document.querySelectorAll("[data-chat-pr]").length'), 1);
     assert.equal(await evaluate('!!document.querySelector("button a")'), false, "Link is not nested in a button");
-    assert.equal(await evaluate('document.querySelector("[data-chat-pr]").hasAttribute("title")'), false, "PR link does not use a native tooltip");
     await evaluate(`document.querySelector('[data-chat-pr]').dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))`);
     await waitFor('!!document.querySelector("[data-chat-hover-card]")');
     assert.ok(

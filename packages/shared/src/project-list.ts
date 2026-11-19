@@ -80,3 +80,10 @@ export function worktreeGroups<R>({
 }
 
 export const worktreeHeading = (group: WorktreeGroup<unknown>) => !group.primary && group.rows.length > 1;
+
+/** Whether a Project matches a picker search: every word of the query, ignoring case, is in one of its texts (name, path). */
+export function matchesProjectQuery(query: string, texts: readonly (string | undefined)[]): boolean {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const haystack = texts.filter(Boolean).join("\n").toLowerCase();
+  return words.every((word) => haystack.includes(word));
+}

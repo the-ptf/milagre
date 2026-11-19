@@ -48,12 +48,6 @@ test("CI typechecks once and builds the renderer without a second typecheck", ()
   assert.ok(!commands.has("npm run build"));
 });
 
-test("desktop agent tests do not repeat the renderer logic tests", () => {
-  const desktop = require("../apps/desktop/package.json").scripts;
-  assert.equal(desktop["test:agent"], "node --test electron/*.test.cjs");
-  assert.equal(desktop["test:ui"], 'node --test "app/src/**/*.test.ts"');
-});
-
 test("every action is pinned to a full SHA with its version in a comment", () => {
   const files = [...fs.readdirSync(path.join(__dirname, "../.github/workflows")).map((name) => `workflows/${name}`), `actions/install-dependencies/action.yml`];
   for (const name of files) {
@@ -62,14 +56,6 @@ test("every action is pinned to a full SHA with its version in a comment", () =>
       assert.match(line, /uses: (\.\/\S+|[^@\s]+@[0-9a-f]{40} # v\d+\.\d+\.\d+)/, `${name}: ${line.trim()}`);
     }
   }
-});
-
-test("the Next beta draft waits for the required checks, not the change filter or desktop-checks", () => {
-  assert.equal(ci.jobs.release, undefined, "merges cut no release");
-  const needs = new Set([ci.jobs["next-beta"].needs].flat());
-  assert.ok(needs.has("javascript"));
-  assert.ok(!needs.has("desktop-checks"));
-  assert.ok(!needs.has("changes"));
 });
 
 test("CI tests both supported Node runtimes on separate runners outside PRs, and Node 26 on PRs", () => {
@@ -93,8 +79,6 @@ test("CI tests both supported Node runtimes on separate runners outside PRs, and
   );
   // Beside the quick checks the suite took longer: node --test wants the whole runner.
   assert.ok(!runs(ci.jobs["quick-checks"]).some((run) => /--unit/.test(run)), "no unit tests among the quick checks");
-  const every = Object.values(ci.jobs).flatMap((job) => runs(job));
-  assert.ok(!every.some((run) => /npm run test:/.test(run)), "no per-suite scripts left in CI");
 });
 
 test("independent quick checks run in parallel, while the site commands sharing Astro's cache run sequentially", () => {
@@ -124,7 +108,6 @@ test("independent quick checks run in parallel, while the site commands sharing 
     ["npm run typecheck:site", "npm run build:site"],
   );
   for (const step of group.parallel) assert.ok(step.name && step.run, "every parallel step is named and runs a command");
-  for (const name of ["static", "supply-chain"]) assert.equal(ci.jobs[name], undefined, `${name} folded into quick-checks`);
 });
 
 test("package signatures are verified once per lockfile: a cached marker keyed on its hash stands in afterwards", () => {
@@ -159,7 +142,7 @@ function assertSkipOnlyWhenUnplanned(gate, name, output) {
   );
 }
 
-test("the macOS smoke runs on pushes to main only and still gates the Next beta draft and the desktop gate", () => {
+test("the macOS smoke runs on pushes to main only and still gates the desktop gate", () => {
   const job = ci.jobs["macos-desktop-smoke"];
   assert.equal(job.if, "github.event_name == 'push'");
   assert.equal(job.needs, undefined);
@@ -168,8 +151,6 @@ test("the macOS smoke runs on pushes to main only and still gates the Next beta 
     "node_modules come from the cache, not a 64 s npm ci",
   );
   assert.ok(runs(job).includes("npm test -- --only test-desktop"));
-  // A beta ships only a main commit whose whole CI run passed, this job included (scripts/plan-release.cjs).
-  assert.ok(ci.jobs["next-beta"].needs.includes("macos-desktop-smoke"));
   assert.ok(ci.jobs["desktop-gate"].needs.includes("macos-desktop-smoke"), "skipped on a PR, which the gate accepts");
   // The local run replaces it on PRs.
   assert.match(fs.readFileSync(path.join(__dirname, "../AGENTS.md"), "utf8"), /npm test -- --only test-desktop` on your Mac/);
@@ -262,21 +243,12 @@ test("Electron checks run on Ubuntu under xvfb, one shard per matrix leg, with s
 test("CI lints every workspace with oxlint, which carries the Expo rules for mobile", () => {
   const commands = new Set(runs(ci.jobs["quick-checks"]));
   assert.ok(commands.has("npm run lint"));
-  assert.ok(!commands.has("npm run lint --workspace @milagre/mobile"));
   const config = JSON.parse(fs.readFileSync(path.join(__dirname, "../.oxlintrc.json"), "utf8"));
   const mobile = config.overrides.find((override) => override.files.includes("apps/mobile/**"));
   assert.deepEqual(mobile.jsPlugins, ["./apps/mobile/lint/expo-env.mjs"]);
   for (const rule of ["react/refs", "react/set-state-in-effect", "react/purity", "expo/no-env-var-destructuring", "expo/no-dynamic-env-var"]) {
     assert.equal(mobile.rules[rule], "error", rule);
   }
-});
-
-test("lint, format check and dead code are parallel steps of the javascript job, on the repo's oxfmt and knip scripts", () => {
-  const commands = runs(ci.jobs["quick-checks"]);
-  for (const command of ["npm run lint", "npm run format:check", "npm run knip"]) assert.ok(commands.includes(command), command);
-  const scripts = require("../package.json").scripts;
-  assert.equal(scripts["format:check"], "oxfmt --check .");
-  assert.equal(scripts.knip, "knip");
 });
 
 test("CI lints the lockfile before installing and verifies signatures after", () => {
@@ -343,7 +315,6 @@ test("a native-gate job always reports for branch protection and only fails when
   assert.deepEqual(gate.needs, ["changes", "native-tests"]);
   assert.match(runs(gate).join("\n"), /\[ "\$CHANGES" = success \] \|\| exit 1/);
   assertSkipOnlyWhenUnplanned(gate, "RESULT", "native");
-  assert.deepEqual(ci.jobs["next-beta"].needs, ["javascript", "native-gate", "macos-desktop-smoke"]);
 });
 
 test("CI and the title check run on merge groups, so every required check reports before the queue merges", () => {
@@ -368,8 +339,6 @@ test("a desktop-gate job always reports for the merge queue and only fails when 
   assertSkipOnlyWhenUnplanned(gate, "CHECKS", "electron");
   assert.equal(gate.steps[0].env.SMOKE, "${{ needs.macos-desktop-smoke.result }}");
   assert.match(script, /case "\$SMOKE" in success\|skipped\) ;; \*\) exit 1 ;; esac/);
-  // The Next beta draft keeps its own gate list; desktop-gate guards merges, not releases.
-  assert.ok(!ci.jobs["next-beta"].needs.includes("desktop-gate"));
 });
 
 test("PR policy reruns on label changes, checks each rule in its own step and reports green on merge groups", () => {

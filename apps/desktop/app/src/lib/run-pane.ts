@@ -42,6 +42,25 @@ export function chatOnScreen({
   return (view === "routines" || view === "orchestrator") && runPane === key ? key : null;
 }
 
+/**
+ * Whether a task's Chat is open in the pane beside the Orchestrator or its Routine, and whether a Chat is on screen at
+ * all: the Chat view or that pane, which both get the Changes and PR panel.
+ */
+export function runPaneState({
+  view,
+  routineId,
+  runPane,
+  focusedChatKey,
+}: {
+  view: string;
+  routineId: string | null;
+  runPane: string | null;
+  focusedChatKey: string | null;
+}): { runPaneOpen: boolean; chatShown: boolean } {
+  const runPaneOpen = (view === "orchestrator" || (view === "routines" && routineId !== null)) && runPane !== null && runPane === focusedChatKey;
+  return { runPaneOpen, chatShown: view === "chat" || runPaneOpen };
+}
+
 export function readsOnPick({ onScreen, picked, unread }: { onScreen: string | null; picked: string; unread: boolean }): boolean {
   return unread && onScreen === picked;
 }

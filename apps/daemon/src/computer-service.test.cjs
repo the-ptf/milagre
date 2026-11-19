@@ -15,6 +15,7 @@ test("the daemon owns computer management with no desktop and persists headless 
   const open = async () =>
     startDaemon({
       dataDir,
+      homeDir: dataDir,
       version: "test",
       runtimeOptions: { cwd: dataDir, environmentReady: Promise.resolve(), titleModels: {}, agentCli: async () => ({ command: null }) },
     });
@@ -65,6 +66,7 @@ test("a headless daemon pairs over the relay, drives a remote computer and recon
   const open = () =>
     startDaemon({
       dataDir,
+      homeDir: dataDir,
       version: "headless",
       computerOptions: { allowLocalRelay: true, reconnectMs: 50, checkEveryMs: 60000, networkMs: 60000 },
       runtimeOptions: { cwd: dataDir, environmentReady: Promise.resolve(), titleModels: {}, agentCli: async () => ({ command: null }) },

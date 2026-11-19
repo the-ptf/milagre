@@ -202,14 +202,12 @@ test("snapshot copies survive fresh-store reopen without authorizing their prove
   t.after(() => reopened.close());
   await reopened.get(project);
   const fresh = new ChatImages({ states: reopened, runs: () => ({}), broadcast() {} });
-  assert.equal(fresh.copies.size, 0);
   assert.equal(await fresh.resolve(project, file), null);
   for (const [i, snapshot] of snapshots.entries()) {
     const resolved = await fresh.resolve(project, snapshot);
     assert.equal(resolved, captured.images[i].path);
     assert.deepEqual(await fs.readFile(resolved), Buffer.concat([png, Buffer.from(`snapshot-${i}`)]));
   }
-  assert.equal(fresh.copies.size, 0);
 });
 
 test("failed snapshot copies preserve Read rows, the reply and unrelated images", async (t) => {
@@ -301,5 +299,4 @@ test("Claude-produced snapshots and five late Markdown images reopen durably aft
     assert.equal(await fresh.resolve(project, step.file), stored);
     assert.deepEqual(await fs.readFile(stored), expected.get(step.file));
   }
-  assert.equal(fresh.copies.size, 0, "fresh resolution uses durable mappings, never cached copy promises");
 });

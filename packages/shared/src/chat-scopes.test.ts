@@ -2,9 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 test("scope keys preserve Project paths and separate named Link Chats", async () => {
-  const helpers = await import("./chat-scopes.mjs").catch(() => null);
-  assert.equal(typeof helpers?.chatKeyForScope, "function", "scope keys are available");
-  if (!helpers) return;
+  const helpers = await import("./chat-scopes.mjs");
   const project = { kind: "project" as const, projectPath: "/code/my#project" };
   assert.equal(helpers.chatKeyForScope(project, 7), "/code/my#project#7");
   assert.deepEqual(helpers.scopeFromChatKey("/code/my#project#7"), project);

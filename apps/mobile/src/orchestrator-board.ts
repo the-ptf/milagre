@@ -1,4 +1,12 @@
-import { autopilotPending, boardColumn, taskLimitText, taskOutcomeDetail, type BoardColumn, type OrchestratorTask } from "@milagre/shared/orchestrator";
+import {
+  autopilotPending,
+  boardColumn,
+  taskLimitText,
+  taskOutcomeDetail,
+  type BoardColumn,
+  type BoardPullRequest,
+  type OrchestratorTask,
+} from "@milagre/shared/orchestrator";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { AgentModels, AgentSession, ChatMessage, ModelProvider } from "@milagre/shared/model";
@@ -6,8 +14,6 @@ import { MODEL_CATALOG } from "@milagre/shared/model-options";
 import { effortCopy } from "@milagre/shared/model-copy";
 import { subchatState } from "@milagre/shared/subchat-states";
 import { chatMark, type ChatMark } from "./indicators.ts";
-
-export { pullRequestState } from "@milagre/shared/orchestrator";
 
 export const BOARD_TABS: { id: BoardColumn; label: string }[] = [
   { id: "running", label: "Running" },
@@ -17,7 +23,7 @@ export const BOARD_TABS: { id: BoardColumn; label: string }[] = [
 ];
 
 export type TaskChat = { chat: AgentSession; run?: AgentRun; messages?: ChatMessage[] };
-export type PullRequestState = "open" | "merged" | "closed" | null;
+export type PullRequestState = BoardPullRequest;
 type BoardKind = "deciding" | "needs-project" | "failed" | "chat" | "loading" | "remote";
 
 export type BoardItem = {

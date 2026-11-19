@@ -4,7 +4,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
-const { startReviewDemo, announce, DEFAULT_DATA_DIR, PROJECT_NAME, LINK_FILE, PHONE_PORT, COMPUTER_NAME } = require("./review-demo.cjs");
+const { startReviewDemo, announce, DEFAULT_DATA_DIR, PROJECT_NAME, LINK_FILE, COMPUTER_NAME } = require("./review-demo.cjs");
 const { demoSession, DEMO_MODEL } = require("../apps/daemon/src/demo-agent.cjs");
 const { REFUSED } = require("../apps/daemon/src/confine.cjs");
 
@@ -32,7 +32,6 @@ test("the review demo seeds a project, runs only the demo agent, and confines th
   demo = await startReviewDemo({ dataDir, phoneOptions: { startRelay: relay.startRelay, localPort: 0 }, keepOpenMs: 50, log: (line) => logs.push(line) });
   const project = path.join(dataDir, PROJECT_NAME);
   assert.equal(demo.project, project);
-  assert.equal(PHONE_PORT, 8899);
   assert.equal(DEFAULT_DATA_DIR, "/Users/Shared/Milagre Review Demo", "project paths never show the owner's home");
   assert.equal((await fs.stat(dataDir)).mode & 0o777, 0o700);
   assert.equal(demo.runtimeOptions.expandSkills, false);

@@ -8,7 +8,6 @@ const { codexPolicy } = require("./codex-provider.cjs");
 const { SessionManager } = require("./session-manager.cjs");
 const { ClaudeSession } = require("./claude-provider.cjs");
 test("owned roots permit member paths but reject symlinks escaping to another repository", async (t) => {
-  assert.equal(typeof insideWorkspace, "function");
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-roots-")));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const member = path.join(root, "member"),

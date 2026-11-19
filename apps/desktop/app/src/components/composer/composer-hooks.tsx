@@ -7,6 +7,7 @@ import { bridgeForKey } from "../../lib/computer-bridge";
 import { useChatsGroup, useProjectGroups } from "../../lib/project-copies";
 import { isModalOpen } from "../../lib/modal";
 import type { ChatComposerProps } from "./chat-composer-props";
+import { useSendLaunch } from "./use-send-launch";
 
 const NO_CHECKPOINTS: CheckpointApi = {
   list: async () => [],
@@ -68,7 +69,7 @@ export function useComposerLayout(isNewChat: boolean, root: RefObject<HTMLDivEle
       host.style.removeProperty("--composer-dock");
     };
   }, [isNewChat]);
-  return { topBandRef, dockRef };
+  return { topBandRef, dockRef, captureLaunch: useSendLaunch(root, isNewChat) };
 }
 
 type NewChatSetupProps = Pick<ChatComposerProps, "scopeKind" | "offlineName" | "linearActive" | "onStartFromIssue" | "newChatProject" | "projectPath"> & {

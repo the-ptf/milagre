@@ -649,7 +649,7 @@ export const MessageSection = memo(function MessageSection({
           )}
         </div>
       )}
-      <div className={bodyClass(cards, isUser, highlighted)}>
+      <div data-user-bubble={bubble || undefined} className={bodyClass(cards, isUser, highlighted)}>
         {bubble && bubbleActionsAvailable(copyUser, undoId, onUndo, forkThis) && (
           <BubbleActions
             message={message}

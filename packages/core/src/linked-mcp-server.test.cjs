@@ -21,7 +21,7 @@ async function fixture(t) {
   return { api, url };
 }
 
-test("the live MCP endpoint lists Designs tools and never exposes retired HTML tools", async (t) => {
+test("the live MCP endpoint lists Designs tools and never exposes the HTML artifact tools", async (t) => {
   const { url } = await fixture(t);
   let id = 0;
   const request = async (method, params = {}) => {
@@ -72,7 +72,6 @@ test("the live MCP endpoint lists Designs tools and never exposes retired HTML t
     ["heading"],
   );
   assert.equal(source.html, undefined);
-  for (const name of ["artifact_show", "artifact_read"]) assert.equal((await call(name, {})).isError, true);
 });
 
 test("MCP accepts maximum-sized design documents encoded as UTF-8 and escaped JSON", async (t) => {

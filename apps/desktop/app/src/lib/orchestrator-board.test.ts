@@ -91,7 +91,6 @@ test("a started task's column follows its Chat: running, waiting on the user, a 
     states,
     runs,
     NOW,
-    { t3: "open", t4: "merged" },
   );
   assert.deepEqual(
     cards.map((card) => [card.task.id, card.column, card.state]),
@@ -167,11 +166,11 @@ test("a task's Chat key, the task of a Chat and the Projects tasks run in", () =
 });
 
 test("a task placed on a paired computer reads its Chat under that computer's key", () => {
-  const remote = task("t4", { projectPath: "/r/app", remoteComputerId: "studio", remoteTaskId: "x", computer: "Studio" });
+  const remote = task("t4", { projectPath: "/r/app", remoteComputerId: "studio", remoteTaskId: "x", computer: "Studio", outcome: "reply" });
   assert.equal(taskChatKey(remote), "studio|/r/app#4");
   assert.deepEqual(taskProjectPaths([remote]), ["studio|/r/app"]);
   const states = { "studio|/r/app": { sessions: { 4: { id: 4, done_at: NOW } } } };
-  assert.equal(boardCards([remote], states, {}, NOW, { t4: "merged" })[0]!.column, "done");
+  assert.equal(boardCards([remote], states, {}, NOW)[0]!.column, "done");
 });
 
 test("ages read as now, minutes, hours and days", () => {
@@ -220,14 +219,31 @@ test("a request autopilot is about to answer keeps the card running", () => {
   assert.equal(boardCards([waiting], states, runs, NOW + 31_000)[0]!.column, "needs");
 });
 
+const PR_URL = "https://github.com/acme/app/pull/7";
+const withPr = {
+  "/p/app": {
+    sessions: { 1: { id: 1, worktree_id: 4, summary: { lastOutcome: "completed", count: 2, pullRequests: [PR_URL] } } },
+    worktrees: { 4: { path: "/w/four" } },
+  },
+};
+const prSnapshot = (state: string) => ({ "/p/app": { worktrees: {}, chats: { "/w/four": { [PR_URL]: { number: 7, url: PR_URL, state } } }, pending: false } });
+
 test("the board uses verified PR state and explains unmet outcomes", () => {
-  const states = { "/p/app": { sessions: { 1: { id: 1, summary: { lastOutcome: "completed", pullRequests: ["https://github.com/o/r/pull/9"] } } } } };
+  const states = { "/p/app": { sessions: { 1: { id: 1, summary: { lastOutcome: "completed" } } } } };
   const missing = boardCards([task("t1")], states, {}, NOW)[0]!;
   assert.equal(missing.column, "needs");
   assert.match(missing.detail, /no PR verified/);
-  const waiting = boardCards([task("t1", { outcome: "merged" })], states, {}, NOW, { t1: "open" })[0]!;
+  const waiting = boardCards([task("t1", { outcome: "merged" })], withPr as never, {}, NOW, prSnapshot("OPEN") as never)[0]!;
   assert.equal(waiting.column, "review");
   assert.equal(waiting.detail, "Waiting for the PR to merge.");
   assert.equal(boardCards([task("t1", { outcome: "reply" })], states, {}, NOW)[0]!.column, "done");
-  assert.equal(boardCards([task("t1")], states, { "/p/app#1": run() } as AgentRuns, NOW, { t1: "open" })[0]!.column, "running");
+  assert.equal(boardCards([task("t1")], withPr as never, { "/p/app#1": run() } as AgentRuns, NOW, prSnapshot("OPEN") as never)[0]!.column, "running");
+});
+
+test("a task's PR reads from its Project's snapshot and meets the recorded outcome", () => {
+  const card = (outcome: string, snapshots?: object) => boardCards([task("t1", { outcome } as never)], withPr as never, {}, NOW, snapshots as never)[0]!;
+  assert.deepEqual([card("pull-request").column, card("pull-request").pullRequest], ["done", "open"], "unread yet: counts as open");
+  assert.deepEqual([card("merged", prSnapshot("OPEN")).column, card("merged", prSnapshot("OPEN")).pullRequest], ["review", "open"]);
+  assert.deepEqual([card("merged", prSnapshot("MERGED")).column, card("merged", prSnapshot("MERGED")).pullRequest], ["done", "merged"]);
+  assert.deepEqual([card("pull-request", prSnapshot("CLOSED")).column, card("pull-request", prSnapshot("CLOSED")).pullRequest], ["needs", "closed"]);
 });

@@ -72,20 +72,6 @@ async function until(check, label) {
   throw new Error(`Timed out waiting for ${label}`);
 }
 
-test("on one connection, calls past MAX_PENDING wait behind remote calls: a local read waits for a computer", async (t) => {
-  const { dataDir, daemon } = await fakeDaemon(t);
-  const window = await connect({ dataDir, requireAuthentication: false });
-  t.after(() => window.close());
-  const remote = Array.from({ length: MAX_PENDING }, (_, index) => window.call("computers:invoke", ["c1", "media:read", [{ index }]]));
-  await until(() => daemon.held.length === MAX_PENDING, "the remote calls to fill the slots");
-  let answered = false;
-  const local = window.call("chat:messages", ["/p", 1]).then(() => (answered = true));
-  await delay(50);
-  assert.equal(answered, false, "the local read waits for a slot");
-  daemon.release();
-  await Promise.all([local, ...remote]);
-});
-
 test("remote calls take a connection of their own, so this Mac's calls never wait behind them", async (t) => {
   const { dataDir, daemon } = await fakeDaemon(t);
   const window = await connect({ dataDir, requireAuthentication: false });

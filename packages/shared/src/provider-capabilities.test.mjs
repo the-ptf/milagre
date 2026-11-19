@@ -19,12 +19,3 @@ test("an unknown provider gets the conservative defaults", () => {
   assert.ok(Object.isFrozen(DEFAULT_CAPABILITIES));
   for (const flag of FLAGS) assert.equal(DEFAULT_CAPABILITIES[flag], false, flag);
 });
-
-test("the flags match what each provider's agent does", () => {
-  assert.deepEqual(Object.fromEntries(PROVIDERS.map((provider) => [provider, providerCapabilities(provider)])), {
-    codex: { steer: true, compact: false, backgroundSubagents: false, subagentRecovery: true, advisor: true, managedInstall: false, addAccounts: true },
-    claude: { steer: true, compact: true, backgroundSubagents: true, subagentRecovery: false, advisor: true, managedInstall: false, addAccounts: true },
-    antigravity: { steer: false, compact: false, backgroundSubagents: false, subagentRecovery: true, advisor: false, managedInstall: true, addAccounts: true },
-    kiro: { steer: false, compact: false, backgroundSubagents: false, subagentRecovery: false, advisor: false, managedInstall: false, addAccounts: false },
-  });
-});

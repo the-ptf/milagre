@@ -385,7 +385,6 @@ test("starts with Milagre's options and streams a reply", async (t) => {
   assert.deepEqual(calls.options.systemPrompt, { type: "preset", preset: "claude_code", append: MILAGRE_INSTRUCTIONS });
   assert.equal("resume" in calls.options, false);
   assert.deepEqual(calls.prompts[0].message.content, [{ type: "text", text: "Hi" }]);
-  assert.equal(typeof calls.options.canUseTool, "function");
   assert.equal("disallowedTools" in calls.options, false);
 });
 

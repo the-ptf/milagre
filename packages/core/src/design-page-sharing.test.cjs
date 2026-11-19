@@ -394,7 +394,7 @@ test("consent, Chat scope and page kind are enforced before any public request",
   assert.equal(calls.length, 0);
 });
 test("page capture is ordered with edits", async (t) => {
-  const { artifacts, options } = await fixture(t);
+  const { artifacts } = await fixture(t);
   const update = artifacts.apply({
     chatId: CHAT,
     id: "first",
@@ -412,7 +412,6 @@ test("page capture is ordered with edits", async (t) => {
   const snapshot = await capture;
   assert.equal(snapshot.designs[0].document.nodes[0].text, "Before capture");
   assert.equal(snapshot.designs[1].document.nodes[0].text, "Hello");
-  assert.equal(options.artifacts, artifacts);
 });
 test("image embedding blocks private addresses and deduplicates downloads", async () => {
   for (const address of ["127.0.0.1", "10.0.0.2", "172.16.0.1", "169.254.169.254", "192.168.1.1", "::1", "::ffff:127.0.0.1", "2001:db8::1", "2002:7f00:1::"])

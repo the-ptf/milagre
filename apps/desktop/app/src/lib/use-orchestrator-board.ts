@@ -6,7 +6,7 @@ import { useRuns } from "./agent-runs-store";
 import { useOrchestratorNames } from "./orchestrator-names";
 import { useOrchestrator } from "./orchestrator-store";
 import { useScopeStates } from "./sidebar-scopes";
-import { useOrchestratorPullRequests } from "./use-orchestrator-pull-requests";
+import { useTaskPullRequests } from "./use-task-pull-requests";
 
 const TICK_MS = 30_000;
 
@@ -17,12 +17,12 @@ export function useOrchestratorBoard() {
   const { thisMac } = useComputers();
   const paths = taskProjectPaths(orchestrator.tasks);
   const { states } = useScopeStates(orchestrator.settings.enabled && paths.length > 0, paths);
+  const pullRequests = useTaskPullRequests(paths, orchestrator.settings.enabled);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), TICK_MS);
     return () => window.clearInterval(timer);
   }, []);
-  const pullRequests = useOrchestratorPullRequests(orchestrator.tasks, states);
   const cards = useMemo(() => boardCards(orchestrator.tasks, states, runs, now, pullRequests), [orchestrator.tasks, states, runs, now, pullRequests]);
   const counts = useMemo(() => boardCounts(cards), [cards]);
   const roles = useMemo(() => activeRoles(orchestrator.settings.roles), [orchestrator.settings.roles]);

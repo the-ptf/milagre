@@ -69,17 +69,6 @@ test("repository metadata and distribution code use the canonical repository", a
   const desktop = JSON.parse(await fs.readFile(path.join(root, "apps/desktop/package.json"), "utf8"));
   assert.equal(desktop.homepage, url);
   assert.ok(desktop.dependencies["@milagre/shared"], "electron-builder must bundle the shared repository module");
-  const files = [
-    ...(await fs.readdir(path.join(root, "apps/desktop/electron"), { recursive: true })).map((file) => `apps/desktop/electron/${file}`),
-    ...(await fs.readdir(path.join(root, "scripts"))).filter((file) => /^generate-.*\.cjs$/.test(file)).map((file) => `scripts/${file}`),
-  ];
-  const oldRepository = "the-ptf/milagre-ade";
-  assert.ok(!JSON.stringify(pkg.build).includes(oldRepository));
-  for (const file of files) {
-    if ((await fs.stat(path.join(root, file))).isFile()) {
-      assert.ok(!(await fs.readFile(path.join(root, file), "utf8")).includes(oldRepository), `${file} uses the old repository`);
-    }
-  }
 });
 
 test("docs/<name>.md paths referenced from apps, packages and scripts exist", async () => {

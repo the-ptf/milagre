@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createDesktopCommands } = require("./desktop-commands.cjs");
-const { APP_UPDATE_METHODS, createHostUpdates } = require("./host-updates.cjs");
+const { createHostUpdates } = require("./host-updates.cjs");
 
 /** A desktop app registered with the host, running a stand-in updater that answers in the order calls arrive. */
 function desktopWith(t, state, { methods = ["update:state", "update:check", "update:install", "app:version", "editor:list"] } = {}) {
@@ -36,10 +36,6 @@ function desktopWith(t, state, { methods = ["update:state", "update:check", "upd
   return { port, sent, updater, updates: createHostUpdates(port) };
 }
 
-test("the phone and paired desktops get three update commands", () => {
-  assert.deepEqual([...APP_UPDATE_METHODS], ["app-update:state", "app-update:check", "app-update:install"]);
-});
-
 test("app-update:state is the desktop updater's state and the version the app runs", async (t) => {
   const { updates, sent } = desktopWith(t, { status: "downloaded", version: "0.233.0", progress: 100, auto: false });
   assert.deepEqual(await updates.invoke("app-update:state"), { status: "downloaded", version: "0.233.0", progress: 100, auto: false, current: "0.232.0" });
@@ -54,10 +50,9 @@ test("with no desktop app open on the Mac, the state is null and check answers t
 });
 
 test("a check starts on the desktop and answers at once with the check begun", async (t) => {
-  const { updates, sent } = desktopWith(t, { status: "up-to-date", version: null, progress: 0 });
+  const { updates } = desktopWith(t, { status: "up-to-date", version: null, progress: 0 });
   const state = await updates.invoke("app-update:check");
   assert.equal(state.status, "checking");
-  assert.equal(sent[0], "update:check", "the check goes out before the read that answers");
 });
 
 test("install needs a downloaded update, then restarts the desktop and answers with the install begun", async (t) => {

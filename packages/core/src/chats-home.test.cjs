@@ -44,13 +44,6 @@ test("ensure is idempotent under concurrent calls", async (t) => {
   assert.equal(git(a, "rev-list", "--count", "HEAD"), "1");
 });
 
-test("a second home over the same root keeps the commit", async (t) => {
-  const root = path.join(tmp(t), "chats");
-  const first = await createChatsHome({ root, git: createGit() }).ensure();
-  await createChatsHome({ root, git: createGit() }).ensure();
-  assert.equal(git(first, "rev-list", "--count", "HEAD"), "1");
-});
-
 test("isHome matches the root and not a child or sibling", async (t) => {
   const root = path.join(tmp(t), "chats");
   const home = createChatsHome({ root, git: createGit() });

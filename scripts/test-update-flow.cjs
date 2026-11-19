@@ -116,7 +116,6 @@ async function browserChecks() {
     await evaluate("window.__update({ status: 'downloaded', version: '1.2.3', progress: 100 })");
     await waitFor("!!document.querySelector('[aria-label=\"Update available\"]')");
     assert.match(await evaluate("document.body.innerText"), /stop running agents/);
-    assert.doesNotMatch(await evaluate("document.body.innerText"), /terminal/i);
     await evaluate(`${button("What's new")}.click()`);
     await waitFor("!!document.querySelector('dialog[open]') && document.body.innerText.includes('Changes in v1.2.3')");
     await screenshot("update-release-notes");

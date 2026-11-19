@@ -218,8 +218,6 @@ async function browserChecks() {
     await click('[data-inbox-agent="/work/shop#2"]');
     assert.equal(await evaluate('document.querySelector("[data-inbox-item]").dataset.inboxItem'), "/work/shop#2");
     await jump(1, 3);
-    assert.equal(await evaluate('!!document.querySelector("[data-inbox-filter]")'), false);
-    assert.equal(await evaluate('!!document.querySelector("[data-inbox-panel] h1")'), false);
     await shot("floating-inbox-desktop");
     await evaluate(`document.querySelector("[data-floating-bar]").dispatchEvent(new MouseEvent("mouseover",{bubbles:true}))`);
     await waitFor('!!document.querySelector("[data-inbox-trigger]")');

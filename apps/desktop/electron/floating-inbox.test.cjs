@@ -88,7 +88,6 @@ function fixture(positionFile) {
 }
 
 test("floating inbox is off by default, opens two isolated surfaces, and destroys both when disabled", () => {
-  assert.ok(fs.existsSync(path.join(__dirname, "floating-inbox.cjs")), "floating inbox window controller exists");
   const { windows, floating, loaded } = fixture();
   assert.equal(windows.length, 0);
   floating.setEnabled(true);

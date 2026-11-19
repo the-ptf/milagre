@@ -19,8 +19,9 @@ export function chatPreferences(
   defaults: TurnPreferences,
   chatMode?: PermissionMode,
   runMode?: PermissionMode,
+  startedWith?: string | null,
 ): TurnPreferences {
-  const base = saved || defaults;
+  const base = saved || (startedWith ? { ...defaults, effort: startedWith } : defaults);
   const pick = saved?.permissionPick;
   const permissionMode = pick && pick.over === chatMode ? pick.mode : (chatMode ?? runMode ?? base.permissionMode);
   return permissionMode === base.permissionMode ? base : { ...base, permissionMode };

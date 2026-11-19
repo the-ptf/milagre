@@ -145,7 +145,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2859,
+            "max": 2857,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -153,12 +153,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2648,
+            "max": 2646,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 410]
+        "complexity": ["error", 407]
       }
     },
     {
@@ -425,7 +425,7 @@
         "max-lines": [
           "error",
           {
-            "max": 991,
+            "max": 990,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -433,7 +433,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 881,
+            "max": 879,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -536,19 +536,6 @@
           }
         ],
         "complexity": ["error", 175]
-      }
-    },
-    {
-      "files": ["apps/desktop/app/src/components/sidebar/FiltersMenu.tsx"],
-      "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 260,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ]
       }
     },
     {
@@ -670,7 +657,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2461,
+            "max": 2456,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -678,12 +665,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2211,
+            "max": 2204,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 523]
+        "complexity": ["error", 518]
       }
     },
     {
@@ -1583,7 +1570,7 @@
         "max-lines": [
           "error",
           {
-            "max": 993,
+            "max": 982,
             "skipBlankLines": true,
             "skipComments": true
           }

@@ -1,3 +1,4 @@
+import { doneDueAt } from "./done.mjs";
 import { limitHeadline } from "./usage-limit.mjs";
 
 export const ORCHESTRATOR_MASCOT = Object.freeze({
@@ -334,6 +335,7 @@ export function taskOutcomePrompt(outcome) {
   return `${requirement} Include the PR URL in your final reply. Do not stop at local changes or a summary. If a PR cannot be created or the request needs no code changes, explain the blocker to the owner. Never make an empty or unrelated PR to satisfy this requirement. Merging, deploying and publishing still require the owner's approval.`;
 }
 
+/** A Chat's pull requests as one state for the board: an open one wins, then a merged one. */
 export function pullRequestState(states) {
   if (states.includes("OPEN")) return "open";
   if (states.includes("MERGED")) return "merged";
@@ -359,6 +361,24 @@ export function boardColumn({ done, needsYou, pullRequest, finished = false, act
   if (pullRequest === "open") return outcome === "merged" ? "review" : "done";
   if (done || finished) return "needs";
   return "running";
+}
+
+/** When a task's Chat became Done on the board's clock (ms): marked Done, or idle after a turn that ended with no pull request; null while it isn't. */
+export function taskDoneAt(session, busy = false) {
+  if (!session) return null;
+  if (session.done_at) return session.done_at;
+  const summary = session.summary;
+  if (busy || summary?.pullRequests?.length) return null;
+  return summary?.lastOutcome === "completed" || summary?.lastOutcome === "cancelled" ? (summary.lastAt ?? null) : null;
+}
+
+/** Whether a task leaves the board: its Chat is archived or gone, or it has been Done as long as a Done Chat stays in the sidebar. */
+export function taskSwept(session, { busy = false, retentionHours, now = Date.now(), outcome = ORCHESTRATOR_DEFAULTS.outcome }) {
+  if (!session || session.archived) return true;
+  const doneAt = outcome === "reply" ? taskDoneAt(session, busy) : (session.done_at ?? null);
+  if (doneAt === null) return false;
+  const due = doneDueAt({ done_at: doneAt }, retentionHours);
+  return due !== null && due <= now;
 }
 
 const IRREVERSIBLE = [

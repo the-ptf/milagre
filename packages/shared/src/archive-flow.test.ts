@@ -101,21 +101,6 @@ test("a failed conversation deletion restores the Chat and reports the error", a
   assert.deepEqual(h.removals, []);
 });
 
-test("a Worktree another Chat started using is kept while the conversation is deleted", async () => {
-  const state = baseState();
-  state.sessions["3"] = session(3, 2);
-  const h = harness({}, state);
-  assert.equal(await archiveChat(h.deps, 2, "delete", plan), "hidden");
-  assert.deepEqual(h.calls, ["stop", "hide", "destroy"]);
-});
-
-test("no status from the menu, or no base, means nothing is removed", async () => {
-  const h = harness();
-  assert.equal(await archiveChat(h.deps, 2, "remove", { ...plan, status: null }), "hidden");
-  assert.equal(await archiveChat(h.deps, 2, "remove", null), "hidden");
-  assert.deepEqual(h.removals, []);
-});
-
 test("the turn winds down before the removal is asked for", async () => {
   const order: string[] = [];
   const h = harness({

@@ -17,6 +17,7 @@ type Run = void | Promise<unknown>;
 
 type AppCommandActions = {
   newChat: () => Run;
+  newWorktree: () => void;
   newTerminal: (chatId: string) => Run;
   openProject: () => Run;
   openCanvas: () => void;
@@ -70,6 +71,15 @@ function actionCommands(ctx: AppCommandContext): Command[] {
       keybinding: "chat.new" as const,
       keywords: "create agent session",
       run: () => actions.newChat(),
+    },
+    {
+      id: "new-worktree",
+      label: "New worktree…",
+      group: "Actions",
+      icon: "add",
+      keybinding: "worktree.new" as const,
+      keywords: "create chat agent background quick",
+      run: () => actions.newWorktree(),
     },
     ...(terminalChatId
       ? [

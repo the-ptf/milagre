@@ -33,14 +33,13 @@ const dashPolicy = {
   baseBranch: "release/example-app/v2",
 };
 
-test("templates keep dash-only names valid, omit optional tickets, and never rewrite slash-containing bases", () => {
+test("templates keep dash-only names valid, and omit optional tickets", () => {
   assert.equal(
     formatPolicyBranch(validateBranchPolicy(dashPolicy), { slug: "Fix the Login", ticket: "DEMO-123", suffix: "ab12" }),
     "developer-demo-123-fix-the-login",
   );
   assert.equal(formatPolicyBranch(dashPolicy, { slug: "Fix the Login", suffix: "ab12" }), "developer-fix-the-login");
   assert.equal(formatPolicyBranch(dashPolicy, { slug: "DEMO-123 fix login", ticket: "DEMO-123", suffix: "ab12" }), "developer-demo-123-fix-login");
-  assert.equal(dashPolicy.baseBranch, "release/example-app/v2");
   assert.throws(() => validateBranchPolicy({ ...dashPolicy, template: "milagre/{slug}" }), /dashes only/);
   assert.throws(() => validateBranchPolicy({ ...dashPolicy, template: "{unknown}-{slug}" }), /may only use/);
   assert.throws(() => validateBranchPolicy({ ...dashPolicy, baseBranch: "--detach" }), /base branch/);

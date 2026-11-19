@@ -1,7 +1,7 @@
 export type AutopilotMode = "answer" | "ask" | "off";
 export type ComputerPreference = "prefer" | "normal" | "less" | "manual" | "never";
 export type TaskOutcome = "pull-request" | "merged" | "reply";
-export type PullRequestState = "open" | "merged" | "closed" | null;
+export type BoardPullRequest = "open" | "merged" | "closed" | null;
 export type BoardColumn = "running" | "needs" | "review" | "done";
 export type MemoryGroup = "work" | "projects" | "tools" | "other";
 export type OrchestratorProvider = "claude" | "codex" | "antigravity" | "kiro";
@@ -131,8 +131,8 @@ export const TASK_OUTCOMES: readonly { value: TaskOutcome; label: string }[];
 export const TASK_OUTCOME_DESCRIPTION: string;
 export function normalizeTaskOutcome(value: unknown): TaskOutcome;
 export function taskOutcomePrompt(outcome: TaskOutcome): string;
-export function taskOutcomeDetail(outcome: TaskOutcome, pullRequest: PullRequestState): string | null;
-export function pullRequestState(states: readonly ("OPEN" | "MERGED" | "CLOSED")[]): PullRequestState;
+export function taskOutcomeDetail(outcome: TaskOutcome, pullRequest: BoardPullRequest): string | null;
+export function pullRequestState(states: readonly ("OPEN" | "MERGED" | "CLOSED")[]): BoardPullRequest;
 export const BOARD_COLUMNS: readonly BoardColumn[];
 export const MEMORY_GROUPS: readonly MemoryGroup[];
 export const DEFAULT_ROLES: readonly OrchestratorRole[];
@@ -150,11 +150,21 @@ export function keywordRoute(
   projects: readonly { path: string; name: string; hints: string | null }[],
 ): { projectPath: string; score: number; hit: string | null } | null;
 export function activeRoles(roles: readonly OrchestratorRole[]): OrchestratorRole[];
+export interface TaskChatSession {
+  archived?: boolean;
+  done_at?: number;
+  summary?: { lastOutcome?: "completed" | "failed" | "cancelled"; lastAt?: number; pullRequests?: string[] };
+}
+export function taskDoneAt(session: TaskChatSession | null | undefined, busy?: boolean): number | null;
+export function taskSwept(
+  session: TaskChatSession | null | undefined,
+  options: { busy?: boolean; retentionHours: number; now?: number; outcome?: TaskOutcome },
+): boolean;
 export function roleById(roles: readonly OrchestratorRole[], id: string): OrchestratorRole | null;
 export function boardColumn(input: {
   done: boolean;
   needsYou: boolean;
-  pullRequest?: "open" | "merged" | "closed" | null;
+  pullRequest?: BoardPullRequest;
   finished?: boolean;
   active?: boolean;
   outcome?: TaskOutcome;

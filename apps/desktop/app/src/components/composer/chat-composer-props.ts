@@ -53,7 +53,7 @@ export interface ChatComposerProps {
   onRetryLoad?: () => void;
   pendingMessageId?: number;
   store: DraftStore;
-  onSend: (delivery?: MessageDelivery) => void;
+  onSend: (delivery?: MessageDelivery, background?: boolean) => void;
   onStop?: () => void;
   onCompact?: () => void;
   pullRequestAction?: { label: string; tone: "red" | "orange" | "green"; onRun: () => void };

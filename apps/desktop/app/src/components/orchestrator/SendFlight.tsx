@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import { useMotionScale } from "../../lib/ease";
 import { Mascot } from "./Mascot";
 
-export type Flight = { id: string; text: string; from: DOMRect; bot: DOMRect };
+/** `rest` is where the Pebble settles after the drop; without it, it flies back to `bot`, where it took off. */
+export type Flight = { id: string; text: string; from: DOMRect; bot: DOMRect; rest?: DOMRect };
 
 const BOT = 36;
 const CARRY_MS = 1500;
@@ -16,7 +17,9 @@ const at = (x: number, y: number, scale = 1) => `translate(${x}px, ${y}px) scale
 function targetBox(id: string): Box {
   const card = document.querySelector(`[data-task-card="${CSS.escape(id)}"]`) ?? document.querySelector("[data-orchestrator-row]");
   const box = card?.getBoundingClientRect();
-  return box ? { left: box.left, top: box.top, width: box.width, height: box.height } : { left: 24, top: window.innerHeight - 120, width: 240, height: 96 };
+  return box?.width
+    ? { left: box.left, top: box.top, width: box.width, height: box.height }
+    : { left: 24, top: window.innerHeight - 120, width: 240, height: 96 };
 }
 
 export function SendFlight({ flight, color, onLand, onDone }: { flight: Flight; color: string; onLand: () => void; onDone: () => void }) {
@@ -37,8 +40,10 @@ export function SendFlight({ flight, color, onLand, onDone }: { flight: Flight; 
     const to = targetBox(flight.id);
     const botX = (box: Box) => box.left + box.width / 2 - BOT / 2;
     const botY = (box: Box) => box.top - BOT + 12;
-    const mid = { left: (from.left + to.left) / 2 + 40, top: Math.min(from.top, to.top) - 60, width: to.width, height: 60 };
+    const mid = { left: (from.left + to.left) / 2 + 40, top: Math.max(BOT, Math.min(from.top, to.top) - 60), width: to.width, height: 60 };
     const homeAt = at(home.left, home.top, home.width / BOT);
+    const rest = flight.rest ?? home;
+    const restAt = at(rest.left, rest.top, rest.width / BOT);
     const carry = bot.current.animate(
       [
         { transform: homeAt, offset: 0, easing: SLIDE },
@@ -66,7 +71,7 @@ export function SendFlight({ flight, color, onLand, onDone }: { flight: Flight; 
       handlers.current.onLand();
       note.current?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180 * scale, fill: "forwards" });
       back =
-        bot.current?.animate([{ transform: at(botX(to), botY(to)) }, { transform: at(botX(to), botY(to) - 18), offset: 0.25 }, { transform: homeAt }], {
+        bot.current?.animate([{ transform: at(botX(to), botY(to)) }, { transform: at(botX(to), botY(to) - 18), offset: 0.25 }, { transform: restAt }], {
           duration: RETURN_MS * scale,
           delay: 120 * scale,
           easing: SLIDE,

@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { Image, Pressable, ScrollView, Text, View, type ViewStyle } from "react-native";
+import { useRef, type ReactNode } from "react";
+import { Image, Pressable, ScrollView, Text, View, type ViewInstance, type ViewStyle } from "react-native";
 import { router } from "expo-router";
 import { ArrowUp01Icon, Attachment01Icon, Cancel01Icon, File01Icon, StopIcon, Video01Icon } from "@hugeicons/core-free-icons";
 import type { ChatMessage, ContextUsage } from "@milagre/shared/model";
@@ -14,6 +14,7 @@ import { ComposerGlass } from "./composer-glass";
 import { UltracodeGlow } from "./ultracode-glow";
 import { QuoteChips } from "./quote-chips";
 import { PromptField } from "./prompt-field";
+import { useSendStayShortcut } from "./send-stay-shortcut";
 import { AgentControls } from "./agent-controls";
 import { ContextRing } from "./context-ring";
 import { Icon } from "./icons";
@@ -36,6 +37,7 @@ import type { PastedImage } from "./attachment-picker";
 import type { Attachment } from "./attachments";
 import type { MobileModel, TurnPreferences } from "./turn-options";
 import type { RunShape } from "./run-shape";
+import { armSendLaunch } from "./send-launch-store";
 
 type Project = Snapshot["project"];
 type DockChat = NonNullable<Project["state"]["sessions"][number]>;
@@ -295,6 +297,7 @@ type DraftComposerProps = {
   placeholder?: string;
   focusRequest: number;
   onSend: () => void;
+  onSendStay?: () => void;
   onStop: () => void;
   onFocus: () => void;
   onBlur: () => void;
@@ -316,8 +319,17 @@ function DraftComposer(props: DraftComposerProps) {
   const attachments = held.attachments[chatId] || NO_ATTACHMENTS;
   const empty = !draft.trim() && !quotes.length && !attachments.length;
   const sendDisabled = props.sendBlocked || empty;
+  const focused = useRef(false);
+  const field = useRef<ViewInstance>(null);
+  const send = () => {
+    if (start) armSendLaunch(field);
+    props.onSend();
+  };
+  const sendStay = start && !sendDisabled ? props.onSendStay : undefined;
+  useSendStayShortcut(sendStay, () => focused.current);
   return (
     <View
+      ref={field}
       style={{
         backgroundColor: start ? colors.surface : "transparent",
         borderWidth: 1,
@@ -367,10 +379,16 @@ function DraftComposer(props: DraftComposerProps) {
         commands={props.commands}
         placeholder={props.placeholder}
         onSubmit={() => {
-          if (!sendDisabled) props.onSend();
+          if (!sendDisabled) send();
         }}
-        onFocus={props.onFocus}
-        onBlur={props.onBlur}
+        onFocus={() => {
+          focused.current = true;
+          props.onFocus();
+        }}
+        onBlur={() => {
+          focused.current = false;
+          props.onBlur();
+        }}
         focusRequest={props.focusRequest}
         onTouchStart={props.onTouchStart}
         onChangeText={(value) => {
@@ -384,7 +402,17 @@ function DraftComposer(props: DraftComposerProps) {
               <IconButton label="Stop agent" icon={StopIcon} filled size={36} disabled={props.actionBusy} onPress={props.onStop} />
             )}
             {(offline || !running || !empty) && (
-              <IconButton label={props.sendLabel} icon={ArrowUp01Icon} filled size={36} loading={busy} disabled={sendDisabled} onPress={props.onSend} />
+              <IconButton
+                label={props.sendLabel}
+                icon={ArrowUp01Icon}
+                filled
+                size={36}
+                loading={busy}
+                disabled={sendDisabled}
+                onPress={send}
+                onLongPress={sendStay}
+                longPressLabel="Start in a new worktree, stay here"
+              />
             )}
           </View>
         )}

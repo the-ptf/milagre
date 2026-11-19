@@ -10,6 +10,12 @@ const { randomUUID } = require("node:crypto");
 const fs = require("node:fs/promises");
 const { once } = require("node:events");
 const { createRuntime } = require("@milagre/core");
+const { registryRoots } = require("@milagre/core/project-registry");
+
+const homeDefaults = (homeDir, options) => ({
+  chatsHome: options.chatsHome ?? require("node:path").join(homeDir, ".milagre", "chats"),
+  registryRoots: options.registryRoots ?? registryRoots(homeDir),
+});
 const { socketPath: pathFor, prepareSocketDirectory } = require("./paths.cjs");
 const { VERSION, MAX_FRAME_BYTES, wire } = require("./protocol.cjs");
 const { createPhone, RELAY_URL } = require("./phone.cjs");
@@ -251,7 +257,7 @@ async function startDaemon({
     remoteComputers,
     hostNetwork: () => ({ name: (macName ??= computerName()), addresses: lanAddresses() }),
     ...runtimeOptions,
-    chatsHome: runtimeOptions.chatsHome ?? require("node:path").join(homeDir, ".milagre", "chats"),
+    ...homeDefaults(homeDir, runtimeOptions),
     dataDir,
     version,
     isChatFocused,

@@ -14,7 +14,6 @@ import {
   scopeChats,
   withHeartbeats,
 } from "./sidebar-scopes.ts";
-import { clock } from "@milagre/shared/routines";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
 
 const session = (id: number, extra = {}) => ({ id, worktree_id: 1, agent_name: "Claude", status: "Idle", ...extra });
@@ -162,7 +161,7 @@ test("rail status: asking or waiting beats running, and only live chats are list
 });
 
 test("heartbeatKeys holds the Chats of enabled heartbeats only, each with its hover line", () => {
-  const at = Date.UTC(2026, 9, 17, 10, 45);
+  const at = new Date(2026, 9, 17, 10, 45).getTime();
   const beat = (id: string, chatId: string, enabled: boolean) => ({
     id,
     name: id,
@@ -178,7 +177,7 @@ test("heartbeatKeys holds the Chats of enabled heartbeats only, each with its ho
   });
   const trigger = { ...beat("t", "", true), target: { kind: "new-chat" as const, projectPath: "/code/shop", workspace: "worktree" as const } };
   const keys = heartbeatKeys([beat("on", "/code/shop#1", true), beat("off", "/code/shop#2", false), trigger]);
-  assert.equal(keys, `/code/shop#1\tHeartbeat · every 15 min · next ${clock(at)}`);
+  assert.equal(keys, "/code/shop#1\tHeartbeat · every 15 min · next 10:45");
   const lines = heartbeatLines(keys);
   assert.deepEqual([...lines.keys()], ["/code/shop#1"]);
   const rows = [
@@ -186,7 +185,7 @@ test("heartbeatKeys holds the Chats of enabled heartbeats only, each with its ho
     { id: "2", label: "b" },
   ];
   const marked = withHeartbeats("/code/shop", rows, lines);
-  assert.equal(marked[0]!.heartbeat, `Heartbeat · every 15 min · next ${clock(at)}`);
+  assert.equal(marked[0]!.heartbeat, "Heartbeat · every 15 min · next 10:45");
   // Rows without a heartbeat keep their object, so memoized rows don't re-render.
   assert.equal(marked[1], rows[1]);
   assert.equal(withHeartbeats("/code/shop", rows, new Map()), rows);

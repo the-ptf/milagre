@@ -9,6 +9,7 @@ const MAX_WHEN_LENGTH = 256;
 export const KEYBINDING_COMMANDS = Object.freeze([
   { id: "commandPalette.toggle", title: "Search commands, Chats and Projects", group: "General", defaults: ["mod+k"], mobile: true },
   { id: "chat.new", title: "New Chat", group: "General", defaults: ["mod+n"], mobile: true },
+  { id: "worktree.new", title: "New Chat in a new worktree, from anywhere", group: "General", defaults: ["mod+shift+n"], forward: true, mobile: true },
   { id: "project.add", title: "Add Project", group: "General", defaults: ["mod+o"] },
   { id: "settings.open", title: "Open Settings", group: "General", defaults: ["mod+,"], forward: true, mobile: true },
   { id: "theme.toggle", title: "Switch light and dark", group: "General", defaults: ["mod+shift+t"], forward: true },
@@ -27,6 +28,7 @@ export const KEYBINDING_COMMANDS = Object.freeze([
     mobile: true,
   })),
   { id: "chat.find", title: "Find in Chat", group: "Chat", defaults: ["mod+f"] },
+  { id: "chat.sendStay", title: "Start a new Chat in a new worktree and stay here", group: "Chat", defaults: ["mod+enter"], mobile: true },
   { id: "chat.quote", title: "Quote the selected text in the next message", group: "Chat", defaults: ["mod+shift+'"] },
   { id: "dictation.toggle", title: "Dictate", group: "Chat", defaults: ["alt+space"], mobile: true },
   { id: "changes.toggle", title: "Show or hide Changes", group: "Panels", defaults: ["mod+shift+d"], forward: true, mobile: true },

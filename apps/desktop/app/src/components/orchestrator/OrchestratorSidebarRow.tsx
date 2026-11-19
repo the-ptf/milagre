@@ -11,6 +11,7 @@ import { SpinnerRing } from "../primitives/SpinnerRing";
 import Tooltip from "../primitives/Tooltip";
 import { Mascot } from "./Mascot";
 import { QuickBox } from "./QuickBox";
+import { SendFlight, type Flight } from "./SendFlight";
 import { StartedToast } from "./StartedToast";
 
 const AWAY = { x: 1, y: -0.35 };
@@ -65,6 +66,8 @@ export function OrchestratorSidebarRow({ active, onShow }: { active: boolean; on
   const [hovered, setHovered] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [flight, setFlight] = useState<Flight | null>(null);
+  const rowMascot = useRef<HTMLSpanElement>(null);
   const shortcut = useShortcutLabel("orchestrator.open");
   useEffect(() => {
     if (!settings.enabled) return;
@@ -119,7 +122,9 @@ export function OrchestratorSidebarRow({ active, onShow }: { active: boolean; on
             onPointerLeave={() => setHovered(false)}
             className={`flex h-8 w-full items-center gap-2 rounded-control px-2 text-left transition-colors active:bg-hover-2 ${active ? "bg-hover-2" : "hover:bg-hover"}`}
           >
-            <Mascot size={20} color={settings.mascotColor} look={hovered ? null : AWAY} followPointer={hovered} />
+            <span ref={rowMascot} className="flex" style={{ opacity: flight ? 0 : 1 }}>
+              <Mascot size={20} color={settings.mascotColor} look={hovered ? null : AWAY} followPointer={hovered} />
+            </span>
             {label}
             {counts.running > 0 && (
               <span
@@ -153,7 +158,16 @@ export function OrchestratorSidebarRow({ active, onShow }: { active: boolean; on
           }}
         />
       )}
-      {quick && <QuickBox color={settings.mascotColor} name={settings.name} onClose={() => setQuick(false)} />}
+      {quick && (
+        <QuickBox
+          name={settings.name}
+          onClose={() => setQuick(false)}
+          onSent={(task, from, pebble) => {
+            if (pebble) setFlight({ id: task.id, text: task.prompt, from, bot: pebble, rest: rowMascot.current?.getBoundingClientRect() });
+          }}
+        />
+      )}
+      {flight && <SendFlight key={flight.id} flight={flight} color={settings.mascotColor} onLand={() => {}} onDone={() => setFlight(null)} />}
       <StartedToast tasks={orchestrator.tasks} color={settings.mascotColor} projectName={names.projectName} onOpen={openTask} />
     </div>
   );

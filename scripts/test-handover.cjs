@@ -90,7 +90,6 @@ async function browserChecks() {
     await waitFor('document.querySelector("[data-brief-dialog]")');
     assert.equal(await evaluate('document.querySelector("[data-brief-preview] h1").textContent'), "Goal");
     assert.equal(await evaluate('document.querySelector("[data-brief-preview] strong").textContent'), "login redirect");
-    assert.equal(await evaluate('!!document.querySelector("[data-brief-tab]") || !!document.querySelector("[data-brief-editor]")'), false);
     await delay(600);
     await shot("brief");
     press("Escape");

@@ -334,10 +334,6 @@ class PendingPermissions {
     this.answers = new Map();
   }
 
-  get size() {
-    return this.answers.size;
-  }
-
   add(request, answer, { inWorkspace = false } = {}) {
     if (this.mode === "full") {
       answer("allow");

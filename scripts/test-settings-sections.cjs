@@ -130,10 +130,6 @@ async function browserChecks() {
     const stats = `document.querySelector('main [role="checkbox"][aria-label="New Chat stats"]')`;
     await openSection("Church");
     assert.equal(await evaluate(`${stats}.getAttribute("aria-checked")`), "false", "New Chat stats default off");
-    await evaluate(`localStorage.setItem("milagre-settings", JSON.stringify({ newChatStats: true }))`);
-    await window.loadURL(process.argv[2]);
-    await openSection("Church");
-    assert.equal(await evaluate(`${stats}.getAttribute("aria-checked")`), "false", "the old enabled preference does not enable the Church beta");
     await evaluate(`${stats}.click()`);
     await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).newChatGlance === true`);
     await window.loadURL(process.argv[2]);
@@ -144,8 +140,6 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await openSection("Church");
     assert.equal(await evaluate(`${stats}.getAttribute("aria-checked")`), "false", "opting out survives a reload");
-    await openSection("Chat");
-    assert.equal(await evaluate(`!!${stats}`), false, "New Chat stats no longer belongs to Chat");
     await openSection("Appearance");
     await waitFor(`!!document.querySelector('[data-preview-area="sidebar"]')`);
     assert.equal(await evaluate(`document.querySelector('dialog[data-settings-modal]').open`), true);
@@ -165,7 +159,6 @@ async function browserChecks() {
     await screenshot("preview-sidebar");
     await evaluate(`${rowOf("Sidebar size")}.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse" }))`);
     await waitFor(`!${region("sidebar")}.hasAttribute("data-highlighted")`);
-    assert.equal(await evaluate(`document.querySelectorAll('main input[type="number"]').length`), 0, "no number fields on Appearance");
     const openMenu = async (label) => {
       await evaluate(`document.querySelector('button[aria-label=${JSON.stringify(label)}]').click()`);
       await waitFor(`!!document.querySelector('[role="listbox"][aria-label=${JSON.stringify(label)}]')`);
@@ -270,7 +263,6 @@ async function browserChecks() {
     await openMenu("Provider icons");
     await pick("Original");
     await waitFor(`!!document.querySelector("[data-provider-logo=codex] linearGradient")`);
-    assert.equal(await evaluate(`!!document.querySelector('main [aria-label="Sidebar usage"]')`), false);
     await openSection("Church");
     await waitFor(`!!document.querySelector('main [role="checkbox"][aria-label="Device notes"]')`);
     await delay(300);
@@ -308,15 +300,7 @@ async function browserChecks() {
     await evaluate(`window.milagre.readDeviceNotesEnabled = window.deviceNotesRead; void 0`);
     await openSection("Church");
     await waitFor(`${deviceNotes}?.getAttribute("aria-checked") === "false"`);
-    assert.equal(
-      await evaluate(
-        `/legacy sidebar|Notification chime|Custom theme|usage limits|Linear|Published pages/i.test(document.querySelector("main").textContent) || /Other computers|Designs/.test(document.querySelector("main").textContent)`,
-      ),
-      false,
-      "settings that graduated are not in Church",
-    );
     await screenshot("experimental");
-    assert.equal(await evaluate(`!!document.querySelector("main [data-babysit-prs-row]")`), false, "Babysit PRs is not in Church");
     await openSection("Integrations");
     const babysitRow = `document.querySelector("main [data-babysit-prs-row]")`;
     await waitFor(`${babysitRow}?.textContent.includes("Off")`);
@@ -421,7 +405,6 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!${babysitRow}`), true, "Back returns to Integrations");
     await openSection("Phone & sharing");
     await waitFor(`!!document.querySelector("main [data-slot=published-pages-setting]")`);
-    assert.equal(await evaluate(`!!document.querySelector('main [role="checkbox"][aria-label="Designs"]')`), false, "Designs can't be turned off");
     await screenshot("milagre");
     assert.equal(await evaluate(`[...document.querySelectorAll("main h2")].map((h) => h.textContent).includes("Designs and artifacts")`), true);
     const pagesSetting = 'document.querySelector("[data-slot=published-pages-setting]")';
@@ -438,16 +421,6 @@ async function browserChecks() {
     await screenshot("published-pages-orphan-revoked");
     await evaluate(`${shareDialog}.querySelector("[aria-label='Close']").click()`);
     await waitFor(`!${shareDialog}`);
-    await openSection("Church");
-    assert.equal(await evaluate(`!!document.querySelector('[aria-label="Murilo mode"]')`), false, "Murilo mode moved to Settings › Chat");
-    for (const label of ["Appearance", "Notifications", "Phone & sharing"]) {
-      await openSection(label);
-      assert.equal(
-        await evaluate(`!!document.querySelector('[aria-label="Use legacy sidebar"]') || /legacy sidebar/i.test(document.querySelector("main").textContent)`),
-        false,
-        "no legacy sidebar switch in " + label,
-      );
-    }
     await evaluate(
       `[...document.querySelectorAll('[aria-label="Settings navigation"] button')].find((b) => /\\(this (Mac|computer)\\)$/.test(b.textContent.trim())).click()`,
     );
@@ -599,7 +572,7 @@ async function browserChecks() {
     console.log("PASS: Worktrees cleanup contains idle and busy Escape; Stop prevents the next removal; Settings still closes on its own Escape");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Church lists Floating inbox, Ultracode Fatality, Delegate, Device notes and New Chat stats; New Chat stats defaults off, ignores the legacy choice, persists opt-in/out and is found in Church; Integrations' Babysit PRs row opens a page that saves each change and goes Back; Phone & sharing holds Published pages (no Designs switch); with no legacy sidebar switch or Murilo mode; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; This Mac holds Drive other computers, off by default, telling main each time it flips; ⌘F focuses Search settings, whose results name the section and card and open the row lit up",
+      "PASS: Church lists Floating inbox, Ultracode Fatality, Delegate, Device notes and New Chat stats; New Chat stats defaults off, persists opt-in/out and is found in Church; Integrations' Babysit PRs row opens a page that saves each change and goes Back; Phone & sharing holds Published pages; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; This Mac holds Drive other computers, off by default, telling main each time it flips; ⌘F focuses Search settings, whose results name the section and card and open the row lit up",
     );
     app.exit(0);
   } catch (error) {

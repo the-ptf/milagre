@@ -6,6 +6,8 @@ const { createOrchestrator } = require("../orchestrator/service.cjs");
 const { createAutopilot } = require("../orchestrator/autopilot.cjs");
 const { createMemorySync } = require("../orchestrator/memory-sync.cjs");
 const { createTaskImages } = require("../orchestrator/images.cjs");
+const { createTaskSweep } = require("../orchestrator/task-sweep.cjs");
+const { SWEEP_MS } = require("../done-sweep.cjs");
 const { ROUTE_SCHEMA } = require("../orchestrator/router.cjs");
 const { claudeModel, codexModel } = require("../git-text.cjs");
 
@@ -66,7 +68,7 @@ function taskAccountsFor({ states, accounts, routing, agentCli }) {
 }
 
 function registerOrchestrator(
-  { commands, dataDir, emit, chats, states, accounts, routing, agentCli, version },
+  { commands, dataDir, emit, chats, states, accounts, routing, agentCli, version, doneSettings, shutdown },
   { projectRegistry, projectName, updateProject, defaultProjectBase, stopChat, archiveChat, respondPermission, answerQuestion, remote, git },
 ) {
   let memorySync = null;
@@ -80,10 +82,12 @@ function registerOrchestrator(
   memorySync = createMemorySync({ store, remote, schedule: (run, ms) => setTimeout(run, ms).unref() });
   setTimeout(() => void memorySync.pushNow().catch(() => {}), 15_000).unref();
   const routerCall = routerModels({ agentCli, clientVersion: version });
+  const withTimeout = (promise, ms) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms).unref?.())]);
+  const images = createTaskImages({ dir: path.join(dataDir, "orchestrator-images") });
   const orchestrator = createOrchestrator({
     store,
     ports: {
-      images: createTaskImages({ dir: path.join(dataDir, "orchestrator-images") }),
+      images,
       projects: async () => (await projectRegistry().list()).map((project) => ({ path: project.path, name: project.name || projectName(project.path) })),
       selectedAccount: (provider, projectPath) => accounts.selected(provider, projectPath) ?? null,
       accountUsage: async () => {
@@ -128,7 +132,7 @@ function registerOrchestrator(
         };
       },
       wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms).unref()),
-      withTimeout: (promise, ms) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms).unref?.())]),
+      withTimeout,
     },
   });
   commands.handle("orchestrator:read", () => orchestrator.snapshot());
@@ -147,6 +151,21 @@ function registerOrchestrator(
   commands.handle("orchestrator:memory:save", (_event, notes) => orchestrator.saveMemoryNotes(notes));
   commands.handle("orchestrator:memory:forget", () => orchestrator.forgetMemory());
   commands.handle("orchestrator:memory:merge", (_event, memory) => memorySync.merge(memory));
+  const taskSweep = createTaskSweep({
+    store,
+    ports: {
+      doneSettings: () => doneSettings.read(),
+      busy: () => chats.busyChats?.() ?? new Set(),
+      heldState: (projectPath) => states.states.get(projectPath),
+      chatKey,
+      archive: (projectPath, sessionId) => archiveChat(projectPath, sessionId),
+      images,
+      remote,
+      withTimeout,
+    },
+  });
+  taskSweep.start(SWEEP_MS);
+  shutdown?.stop(() => taskSweep.stop());
   const autopilot = createAutopilot({
     store,
     ports: {

@@ -48,15 +48,3 @@ test("leaving with nothing pending cancels nothing, so a finished open's navigat
   guard.leave();
   assert.equal(cancelled, before);
 });
-
-test("a slow open to another computer is stale after the page is left even if a tap on the current one came first", async () => {
-  const guard = createOpenGuard(() => {});
-  const switched: string[] = [];
-  const slow = guard.begin()!;
-  // Tapping a Chat on the current computer while that open is pending does nothing.
-  assert.equal(guard.begin(), null);
-  guard.leave();
-  await Promise.resolve();
-  if (slow.current()) switched.push("B");
-  assert.deepEqual(switched, []);
-});

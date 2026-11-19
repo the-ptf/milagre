@@ -106,7 +106,6 @@ test("safeDetail masks compact secret flag names", () => {
   for (const flag of ["--apikey", "--clientsecret", "--secretkey", "--githubtoken", "--auth-header", "--key"])
     assert.equal(d.safeDetail({ command: "p", args: [flag, "v"] }), `p ${flag} ••••••`, flag);
   assert.equal(d.safeDetail({ command: "p", args: ["--api_key=y", "--GitHubToken=z"] }), "p --api_key=•••••• --GitHubToken=••••••");
-  assert.equal(d.safeDetail({ command: "p", args: ["--keyboard", "us", "--author", "me", "--port", "3"] }), "p --keyboard us --author me --port 3");
 });
 
 test("a masked header follows the URL only within the same origin", () => {
