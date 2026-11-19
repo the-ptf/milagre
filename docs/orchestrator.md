@@ -31,6 +31,24 @@ for `orchestrator:capacity` (CPU, free memory, busy Chats, Projects by Git origi
 Project with more room, starts it there with `orchestrator:start-here`. The local task keeps `remoteComputerId` and
 `remoteTaskId`; Move to sidebar and Undo go to that computer. That computer's own Orchestrator settings decide its autopilot.
 
+## Completion
+
+Settings › Church › Orchestrator › Completion sets the required outcome for new tasks: **PR created** (the default),
+**PR merged**, or **Agent finished** for requests that need no PR. Each task records the selection when sent, before
+routing, so later settings edits, rerouting, account fallback and placement on another computer cannot change its
+requirement. The receiving computer keeps the sender's outcome while using its own autopilot settings. Agents can
+change the default through `orchestrator_outcome`, backed by `orchestrator:settings:save` like both Settings screens.
+
+Every provider receives the outcome in its task prompt. The board verifies PR state through the host's GitHub reads;
+a URL in a reply alone is insufficient. Ending a turn cannot bypass a PR requirement: missing PR evidence puts
+finished work in Needs you, an open PR satisfies PR created but stays In review for PR merged, and a closed, unmerged
+PR needs attention. Marking the task's Chat Done accepts it as it is, for work that turned out to need no PR. Tasks
+saved before outcomes existed count as Agent finished, so upgrading doesn't move them. Running work, background tasks, approvals, failed turns and stopped turns take
+precedence over completion. PR merged does not authorize an automatic merge: autopilot still asks the owner.
+
+Tasks saved before this setting existed require PR created, so a reply without a verified PR no longer appears Done.
+Without available PR evidence (including an unavailable computer), the board cannot infer successful completion.
+
 ## Autopilot
 
 `orchestrator/autopilot.cjs` watches approvals and questions in task Chats only. Anything `isIrreversible` (merging,
@@ -63,7 +81,7 @@ flowchart TD
   orch --> board["Board: autopilot takes the safe asks,<br/>anything irreversible waits in Needs you"]
   board --> grows{Turned into long work?}
   grows -- yes --> move["Move to sidebar"] --> chat
-  grows -- no --> done([Done, or In review while its PR is open])
+  grows -- no --> done([Done when its outcome is met; In review while awaiting merge])
 ```
 
 Use the Orchestrator for self-contained work you hand off and check later; open a Chat in the Project's Worktree for work

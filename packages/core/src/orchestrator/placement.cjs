@@ -32,6 +32,7 @@ function createPlacement({ store, ports, settings, projectList, addTask, imagesO
         role: route.role,
         reason: route.reason ?? null,
         permissionMode: task.permissionMode,
+        outcome: task.outcome,
         images: imagesOf(task),
       },
     ]);
@@ -60,6 +61,7 @@ function createPlacement({ store, ports, settings, projectList, addTask, imagesO
           remoteComputerId: _from,
           remoteTaskId: _task,
           images: _images,
+          outcome: _outcome,
           ...fields
         } = remoteTask;
         store.updateTask(taskId, () => ({ ...fields, reason: { ...fields.reason, computer: computerReason } }));
@@ -77,13 +79,13 @@ function createPlacement({ store, ports, settings, projectList, addTask, imagesO
       projects: projects.map((project, index) => ({ path: project.path, name: project.name, origin: origins[index] })).filter((entry) => entry.origin),
     };
   }
-  async function startHere({ prompt, title, origin, role, reason, permissionMode, images }) {
+  async function startHere({ prompt, title, origin, role, reason, permissionMode, images, outcome }) {
     const checked = checkedImages(images);
     const projects = await projectList();
     const origins = await Promise.all(projects.map((project) => ports.originOf(project.path).catch(() => null)));
     const project = projects.find((_, index) => origins[index] === origin);
     if (!project) throw new Error("That Project isn't on this computer.");
-    const taskId = addTask(String(prompt), permissionMode, checked);
+    const taskId = addTask(String(prompt), permissionMode, checked, outcome);
     void start(taskId, { projectPath: project.path, role, title, reason }).catch((error) =>
       store.updateTask(taskId, () => ({ state: "failed", error: String(error?.message ?? error).slice(0, 300) })),
     );

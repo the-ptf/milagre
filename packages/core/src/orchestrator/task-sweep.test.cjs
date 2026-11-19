@@ -43,14 +43,15 @@ function setup(t, { tasks, sessions = {}, held = ["/p/a"], busy = [], retentionH
 
 const finished = (lastAt) => ({ summary: { lastOutcome: "completed", lastAt }, orchestrator: { hidden: true } });
 
-test("tasks leave the board on the sidebar's Done clock, and their hidden Chats are archived", async (t) => {
+test("tasks leave the board on the sidebar's Done clock, and their hidden Chats are archived; idle tasks still owing a PR stay", async (t) => {
   const { sweep, archived, dropped, left } = setup(t, {
     tasks: [
       { id: "marked", sessionId: 1 },
       { id: "fresh-mark", sessionId: 2 },
-      { id: "idle-hidden", sessionId: 3 },
-      { id: "idle-shown", sessionId: 4 },
-      { id: "working", sessionId: 5 },
+      { id: "idle-hidden", sessionId: 3, outcome: "reply" },
+      { id: "idle-shown", sessionId: 4, outcome: "reply" },
+      { id: "working", sessionId: 5, outcome: "reply" },
+      { id: "needs-pr", sessionId: 8, outcome: "pull-request" },
       { id: "archived", sessionId: 6 },
       { id: "deleted", sessionId: 7 },
       { id: "routing", state: "routing", sessionId: null, projectPath: null },
@@ -63,11 +64,12 @@ test("tasks leave the board on the sidebar's Done clock, and their hidden Chats 
       4: { ...finished(NOW - 25 * HOUR), orchestrator: { hidden: false } },
       5: finished(NOW - 25 * HOUR),
       6: { archived: true },
+      8: finished(NOW - 25 * HOUR),
     },
     busy: ["/p/a#5"],
   });
   assert.deepEqual((await sweep.sweep()).sort(), ["archived", "deleted", "idle-hidden", "idle-shown", "marked"]);
-  assert.deepEqual(left(), ["fresh-mark", "working", "routing", "unloaded"]);
+  assert.deepEqual(left(), ["fresh-mark", "working", "needs-pr", "routing", "unloaded"]);
   assert.deepEqual(archived, ["/p/a#3"], "only the hidden idle Chat is archived here; the Done sweep archives marked ones");
   assert.deepEqual(dropped.sort(), ["archived", "deleted", "idle-hidden", "idle-shown", "marked"]);
 });

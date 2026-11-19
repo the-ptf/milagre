@@ -2,11 +2,13 @@ import { chatKey } from "@milagre/shared/agent-runs";
 import { qualifyKey } from "@milagre/shared/chat-scopes";
 import type { AgentRun, AgentRuns } from "@milagre/shared/agent-runs";
 import { chatPullRequests } from "@milagre/shared/chats";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import {
   autopilotPending,
   boardColumn,
   pullRequestState,
   taskLimitText,
+  taskOutcomeDetail,
   type BoardColumn,
   type BoardPullRequest,
   type OrchestratorTask,
@@ -72,10 +74,14 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
   const state = subchatState({ key: key ?? task.id, title: task.title, session: session ?? {}, run }, now);
   const autopilot = state.kind === "needs-you" ? autopilotPending(task, run, now) : null;
   const limit = run ? null : taskLimitText(task, new Date(now));
+  const needsYou = (state.kind === "needs-you" && !autopilot) || state.kind === "failed" || state.kind === "stopped" || Boolean(limit);
+  const active = Boolean(run) || chatActivity(session, undefined).activity === "background";
   const pullRequest = taskPullRequest(task, session, states, snapshots);
   const column = boardColumn({
+    outcome: task.outcome,
+    active,
     done: Boolean(session?.done_at || session?.archived),
-    needsYou: (state.kind === "needs-you" && !autopilot) || state.kind === "failed" || Boolean(limit),
+    needsYou,
     pullRequest,
     finished: !run && (state.kind === "stopped" || (state.kind === "done" && (Boolean(session?.summary?.lastOutcome) || (session?.summary?.count ?? 0) > 1))),
   });
@@ -90,7 +96,7 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
     pullRequest,
     detail: autopilot
       ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
-      : (limit ?? state.detail),
+      : (limit ?? (!needsYou && (column === "needs" || column === "review") ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),
     inSidebar: session ? !session.orchestrator?.hidden : false,
   };
 }

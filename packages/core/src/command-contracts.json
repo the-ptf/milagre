@@ -4816,6 +4816,9 @@
         "notify": {
           "enum": [false, true]
         },
+        "outcome": {
+          "enum": ["pull-request", "merged", "reply"]
+        },
         "mascotColor": {
           "type": "string"
         },

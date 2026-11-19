@@ -72,14 +72,34 @@ test("keyword routing matches a Project by name first, then by its hints", () =>
   assert.equal(keywordRoute("write me a poem", projects), null);
 });
 
-test("board columns follow done, needs you and the pull request", () => {
-  assert.equal(boardColumn({ done: false, needsYou: false }), "running");
-  assert.equal(boardColumn({ done: false, needsYou: true, pullRequest: "open" }), "needs");
-  assert.equal(boardColumn({ done: false, needsYou: false, pullRequest: "open" }), "review");
-  assert.equal(boardColumn({ done: false, needsYou: false, pullRequest: "merged" }), "done");
-  assert.equal(boardColumn({ done: true, needsYou: true }), "done");
-  assert.equal(boardColumn({ done: false, needsYou: false, finished: true }), "done", "finished work without a pull request is done");
-  assert.equal(boardColumn({ done: false, needsYou: false, finished: true, pullRequest: "open" }), "review", "an open pull request waits in review");
+test("a finished reply cannot bypass the required PR, but marking the Chat Done accepts the task", () => {
+  const base = { done: false, needsYou: false, outcome: "pull-request" };
+  assert.equal(boardColumn(base), "running");
+  assert.equal(boardColumn({ ...base, finished: true }), "needs");
+  assert.equal(boardColumn({ ...base, done: true }), "done");
+  assert.equal(boardColumn({ ...base, pullRequest: "open" }), "done");
+  assert.equal(boardColumn({ ...base, pullRequest: "merged" }), "done");
+  assert.equal(boardColumn({ ...base, pullRequest: "closed" }), "needs");
+  assert.equal(boardColumn({ ...base, done: true, needsYou: true, pullRequest: "merged" }), "needs");
+  assert.equal(boardColumn({ ...base, active: true, pullRequest: "open" }), "running");
+  assert.equal(boardColumn({ ...base, outcome: "reply", finished: true }), "done");
+  assert.equal(boardColumn({ ...base, outcome: "reply", done: true }), "done");
+  assert.equal(boardColumn({ ...base, outcome: "merged", pullRequest: "open" }), "review");
+  assert.equal(boardColumn({ ...base, outcome: "merged", pullRequest: "merged" }), "done");
+  assert.equal(boardColumn({ ...base, outcome: "merged", pullRequest: "closed", done: true }), "done");
+  assert.equal(boardColumn({ ...base, outcome: "merged", pullRequest: "closed" }), "needs");
+  assert.equal(boardColumn({ done: false, needsYou: false, finished: true }), "done", "no recorded outcome finishes with its agent");
+});
+
+test("outcomes persist; unknown settings require a PR and tasks saved without one finish with their agent", () => {
+  for (const outcome of ["pull-request", "merged", "reply"]) {
+    assert.equal(normalizeOrchestratorSettings({ outcome }).outcome, outcome);
+    assert.equal(normalizeOrchestratorTask({ id: "t", prompt: "fix", outcome }).outcome, outcome);
+  }
+  for (const outcome of [undefined, "invented", null]) {
+    assert.equal(normalizeOrchestratorSettings({ outcome }).outcome, "pull-request");
+    assert.equal(normalizeOrchestratorTask({ id: "t", prompt: "fix", outcome }).outcome, "reply");
+  }
 });
 
 test("a Chat's pull requests read as one board state: open wins, then merged", () => {
@@ -222,10 +242,15 @@ test("a task leaves the board when its Chat is gone, or after the Done retention
   assert.equal(taskSwept({ archived: true }, { retentionHours: 0, now }), true);
   assert.equal(taskSwept({ done_at: now - 24 * HOUR }, { retentionHours: 24, now }), true);
   assert.equal(taskSwept({ done_at: now - 23 * HOUR }, { retentionHours: 24, now }), false);
-  assert.equal(taskSwept(finished(now - 2 * HOUR), { retentionHours: 1, now }), true);
-  assert.equal(taskSwept(finished(now - 2 * HOUR), { retentionHours: 0, now }), false);
-  assert.equal(taskSwept(finished(now - 2 * HOUR), { busy: true, retentionHours: 1, now }), false);
-  assert.equal(taskSwept(finished(now - 2 * HOUR, { pullRequests: ["https://x/pull/1"] }), { retentionHours: 1, now }), false);
+  assert.equal(taskSwept(finished(now - 2 * HOUR), { retentionHours: 1, now, outcome: "reply" }), true);
+  assert.equal(taskSwept(finished(now - 2 * HOUR), { retentionHours: 0, now, outcome: "reply" }), false);
+  assert.equal(taskSwept(finished(now - 2 * HOUR), { busy: true, retentionHours: 1, now, outcome: "reply" }), false);
+  assert.equal(taskSwept(finished(now - 2 * HOUR, { pullRequests: ["https://x/pull/1"] }), { retentionHours: 1, now, outcome: "reply" }), false);
+  assert.equal(
+    taskSwept(finished(now - 2 * HOUR), { retentionHours: 1, now, outcome: "pull-request" }),
+    false,
+    "a task that still needs its PR stays on the board",
+  );
   assert.equal(taskSwept({ summary: { lastOutcome: "failed", lastAt: 1 } }, { retentionHours: 1, now }), false);
   assert.equal(taskDoneAt({ summary: { lastOutcome: "cancelled", lastAt: 5 } }), 5);
   assert.equal(taskDoneAt({ done_at: 9, summary: { lastOutcome: "completed", lastAt: 5 } }, true), 9);

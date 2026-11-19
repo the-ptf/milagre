@@ -1,5 +1,7 @@
 export type AutopilotMode = "answer" | "ask" | "off";
 export type ComputerPreference = "prefer" | "normal" | "less" | "manual" | "never";
+export type TaskOutcome = "pull-request" | "merged" | "reply";
+export type BoardPullRequest = "open" | "merged" | "closed" | null;
 export type BoardColumn = "running" | "needs" | "review" | "done";
 export type MemoryGroup = "work" | "projects" | "tools" | "other";
 export type OrchestratorProvider = "claude" | "codex" | "antigravity" | "kiro";
@@ -27,6 +29,7 @@ export interface OrchestratorSettings {
   projects: Record<string, { included: boolean; hints: string | null }>;
   hideTaskChats: boolean;
   notify: boolean;
+  outcome: TaskOutcome;
   mascotColor: string;
   name: string;
   boardHidden: boolean;
@@ -46,6 +49,7 @@ export interface OrchestratorAnswer {
 export interface OrchestratorTask {
   id: string;
   prompt: string;
+  outcome: TaskOutcome;
   title: string;
   projectPath: string | null;
   worktreeId: string | null;
@@ -123,6 +127,12 @@ export const ORCHESTRATOR_MAX_IMAGES: number;
 export const AUTOPILOT_MODES: readonly AutopilotMode[];
 export const COMPUTER_PREFERENCES: readonly ComputerPreference[];
 export const VETO_SECONDS: readonly number[];
+export const TASK_OUTCOMES: readonly { value: TaskOutcome; label: string }[];
+export const TASK_OUTCOME_DESCRIPTION: string;
+export function normalizeTaskOutcome(value: unknown, fallback?: TaskOutcome): TaskOutcome;
+export function taskOutcomePrompt(outcome: TaskOutcome): string;
+export function taskOutcomeDetail(outcome: TaskOutcome, pullRequest: BoardPullRequest): string | null;
+export function pullRequestState(states: readonly ("OPEN" | "MERGED" | "CLOSED")[]): BoardPullRequest;
 export const BOARD_COLUMNS: readonly BoardColumn[];
 export const MEMORY_GROUPS: readonly MemoryGroup[];
 export const DEFAULT_ROLES: readonly OrchestratorRole[];
@@ -146,11 +156,19 @@ export interface TaskChatSession {
   summary?: { lastOutcome?: "completed" | "failed" | "cancelled"; lastAt?: number; pullRequests?: string[] };
 }
 export function taskDoneAt(session: TaskChatSession | null | undefined, busy?: boolean): number | null;
-export function taskSwept(session: TaskChatSession | null | undefined, options: { busy?: boolean; retentionHours: number; now?: number }): boolean;
+export function taskSwept(
+  session: TaskChatSession | null | undefined,
+  options: { busy?: boolean; retentionHours: number; now?: number; outcome?: TaskOutcome },
+): boolean;
 export function roleById(roles: readonly OrchestratorRole[], id: string): OrchestratorRole | null;
-export type BoardPullRequest = "open" | "merged" | "closed" | null;
-export function pullRequestState(states: readonly ("OPEN" | "MERGED" | "CLOSED")[]): BoardPullRequest;
-export function boardColumn(input: { done: boolean; needsYou: boolean; pullRequest?: BoardPullRequest; finished?: boolean }): BoardColumn;
+export function boardColumn(input: {
+  done: boolean;
+  needsYou: boolean;
+  pullRequest?: BoardPullRequest;
+  finished?: boolean;
+  active?: boolean;
+  outcome?: TaskOutcome;
+}): BoardColumn;
 export function isIrreversible(input?: { tool?: string; command?: string; text?: string }): boolean;
 export function autopilotPending(
   task: OrchestratorTask | null | undefined,
