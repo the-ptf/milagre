@@ -20,3 +20,7 @@ new_sqlite_classes = ["Room"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["HookDirectory"]
+
+[[analytics_engine_datasets]]
+binding = "DIAG"
+dataset = "relay_room_events"
