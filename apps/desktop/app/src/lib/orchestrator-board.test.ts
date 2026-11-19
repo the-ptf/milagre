@@ -237,6 +237,10 @@ test("the board uses verified PR state and explains unmet outcomes", () => {
   assert.equal(waiting.column, "review");
   assert.equal(waiting.detail, "Waiting for the PR to merge.");
   assert.equal(boardCards([task("t1", { outcome: "reply" })], states, {}, NOW)[0]!.column, "done");
+  const marked = { "/p/app": { sessions: { 1: { id: 1, done_at: NOW - 10, summary: { lastOutcome: "completed" } } } } };
+  const accepted = boardCards([task("t1")], marked, {}, NOW)[0]!;
+  assert.equal(accepted.column, "done", "marking the Chat Done accepts it without a PR");
+  assert.doesNotMatch(accepted.detail, /no PR verified/);
   assert.equal(boardCards([task("t1")], withPr as never, { "/p/app#1": run() } as AgentRuns, NOW, prSnapshot("OPEN") as never)[0]!.column, "running");
 });
 

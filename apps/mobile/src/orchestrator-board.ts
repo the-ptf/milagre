@@ -70,7 +70,7 @@ export function boardItem(task: OrchestratorTask, chat: TaskChat | undefined, pu
     mark: autopilot ? null : mark,
     detail: autopilot
       ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
-      : (limit ?? (!needsYou && !active && column !== "running" ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),
+      : (limit ?? (!needsYou && (column === "needs" || column === "review") ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),
   };
 }
 

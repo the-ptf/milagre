@@ -96,7 +96,7 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
     pullRequest,
     detail: autopilot
       ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
-      : (limit ?? (!needsYou && !active && column !== "running" ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),
+      : (limit ?? (!needsYou && (column === "needs" || column === "review") ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),
     inSidebar: session ? !session.orchestrator?.hidden : false,
   };
 }

@@ -129,7 +129,7 @@ export const COMPUTER_PREFERENCES: readonly ComputerPreference[];
 export const VETO_SECONDS: readonly number[];
 export const TASK_OUTCOMES: readonly { value: TaskOutcome; label: string }[];
 export const TASK_OUTCOME_DESCRIPTION: string;
-export function normalizeTaskOutcome(value: unknown): TaskOutcome;
+export function normalizeTaskOutcome(value: unknown, fallback?: TaskOutcome): TaskOutcome;
 export function taskOutcomePrompt(outcome: TaskOutcome): string;
 export function taskOutcomeDetail(outcome: TaskOutcome, pullRequest: BoardPullRequest): string | null;
 export function pullRequestState(states: readonly ("OPEN" | "MERGED" | "CLOSED")[]): BoardPullRequest;

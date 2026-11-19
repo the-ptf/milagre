@@ -60,7 +60,7 @@ test("a started task follows its Chat: running, needing you, in review, then don
   assert.deepEqual([asking.column, asking.mark, asking.detail], ["needs", "waiting", "Asks to run: npm test"]);
   assert.equal(boardItem(task({ outcome: "merged" }), { chat: chat() }, "open", 0).column, "review");
   assert.equal(boardItem(task(), { chat: chat() }, "merged", 0).column, "done");
-  assert.equal(boardItem(task(), { chat: chat({ done_at: 5 }) }, null, 0).column, "needs");
+  assert.equal(boardItem(task(), { chat: chat({ done_at: 5 }) }, null, 0).column, "done");
   assert.equal(boardItem(task(), { chat: chat({ orchestrator: { taskId: "t1", hidden: false } }) }, null, 0).inSidebar, true);
 });
 
@@ -93,6 +93,9 @@ test("completed replies require the recorded outcome on the phone", () => {
   assert.equal(boardItem(task(), finished, "open", 0).column, "done");
   assert.equal(boardItem(task(), finished, "closed", 0).column, "needs");
   assert.equal(boardItem(task({ outcome: "reply" }), finished, null, 0).column, "done");
+  const accepted = boardItem(task(), { chat: chat({ done_at: 1, summary: finished.chat.summary }) }, null, 0);
+  assert.equal(accepted.column, "done", "marking the Chat Done accepts it without a PR");
+  assert.doesNotMatch(accepted.detail, /no PR verified/);
   assert.equal(boardItem(task({ outcome: "merged" }), finished, "open", 0).detail, "Waiting for the PR to merge.");
   assert.equal(boardItem(task(), { ...finished, run: run() }, "merged", 0).column, "running");
   assert.equal(boardItem(task(), { chat: chat() }, null, 0).column, "running");

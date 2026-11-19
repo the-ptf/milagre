@@ -175,7 +175,7 @@ export function normalizeOrchestratorTask(raw) {
   return {
     id: raw.id,
     prompt: raw.prompt.slice(0, 20000),
-    outcome: normalizeTaskOutcome(raw.outcome),
+    outcome: normalizeTaskOutcome(raw.outcome, "reply"),
     title: text(raw.title, 120) ?? titleFromPrompt(raw.prompt),
     projectPath: typeof raw.projectPath === "string" ? raw.projectPath : null,
     worktreeId: typeof raw.worktreeId === "string" ? raw.worktreeId : null,
@@ -317,12 +317,12 @@ export function roleById(roles, id) {
   return active.find((role) => role.id === id) ?? active.find((role) => role.id === "build") ?? active[0] ?? null;
 }
 
-/** Unknown and legacy outcomes require a PR. */
-export function normalizeTaskOutcome(value) {
+/** Unknown settings require a PR; a task saved before outcomes existed keeps finishing when its agent does. */
+export function normalizeTaskOutcome(value, fallback = ORCHESTRATOR_DEFAULTS.outcome) {
   return oneOf(
     value,
     TASK_OUTCOMES.map((option) => option.value),
-    ORCHESTRATOR_DEFAULTS.outcome,
+    fallback,
   );
 }
 
@@ -351,15 +351,16 @@ export function taskOutcomeDetail(outcome, pullRequest) {
   return null;
 }
 
-/** The board waits for the task's recorded outcome, even if its Chat was marked Done. */
-export function boardColumn({ done, needsYou, pullRequest, finished = false, active = false, outcome = ORCHESTRATOR_DEFAULTS.outcome }) {
+/** A finished turn waits for the task's recorded outcome; marking the Chat Done accepts the task as it is. */
+export function boardColumn({ done, needsYou, pullRequest, finished = false, active = false, outcome = "reply" }) {
   if (needsYou) return "needs";
   if (active) return "running";
-  if (outcome === "reply") return done || finished ? "done" : "running";
+  if (done) return "done";
+  if (outcome === "reply") return finished ? "done" : "running";
   if (pullRequest === "merged") return "done";
   if (pullRequest === "closed") return "needs";
   if (pullRequest === "open") return outcome === "merged" ? "review" : "done";
-  if (done || finished) return "needs";
+  if (finished) return "needs";
   return "running";
 }
 
@@ -373,7 +374,7 @@ export function taskDoneAt(session, busy = false) {
 }
 
 /** Whether a task leaves the board: its Chat is archived or gone, or it has been Done as long as a Done Chat stays in the sidebar. */
-export function taskSwept(session, { busy = false, retentionHours, now = Date.now(), outcome = ORCHESTRATOR_DEFAULTS.outcome }) {
+export function taskSwept(session, { busy = false, retentionHours, now = Date.now(), outcome = "reply" }) {
   if (!session || session.archived) return true;
   const doneAt = outcome === "reply" ? taskDoneAt(session, busy) : (session.done_at ?? null);
   if (doneAt === null) return false;

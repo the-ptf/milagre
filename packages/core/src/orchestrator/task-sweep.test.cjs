@@ -51,7 +51,7 @@ test("tasks leave the board on the sidebar's Done clock, and their hidden Chats 
       { id: "idle-hidden", sessionId: 3, outcome: "reply" },
       { id: "idle-shown", sessionId: 4, outcome: "reply" },
       { id: "working", sessionId: 5, outcome: "reply" },
-      { id: "needs-pr", sessionId: 8 },
+      { id: "needs-pr", sessionId: 8, outcome: "pull-request" },
       { id: "archived", sessionId: 6 },
       { id: "deleted", sessionId: 7 },
       { id: "routing", state: "routing", sessionId: null, projectPath: null },

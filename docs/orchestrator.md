@@ -40,9 +40,10 @@ requirement. The receiving computer keeps the sender's outcome while using its o
 change the default through `orchestrator_outcome`, backed by `orchestrator:settings:save` like both Settings screens.
 
 Every provider receives the outcome in its task prompt. The board verifies PR state through the host's GitHub reads;
-a URL in a reply alone is insufficient. Ending a turn or marking its Chat Done cannot bypass a PR requirement. Missing
-PR evidence puts finished work in Needs you; an open PR satisfies PR created, but stays In review for PR merged.
-A closed, unmerged PR needs attention. Running work, background tasks, approvals, failed turns and stopped turns take
+a URL in a reply alone is insufficient. Ending a turn cannot bypass a PR requirement: missing PR evidence puts
+finished work in Needs you, an open PR satisfies PR created but stays In review for PR merged, and a closed, unmerged
+PR needs attention. Marking the task's Chat Done accepts it as it is, for work that turned out to need no PR. Tasks
+saved before outcomes existed count as Agent finished, so upgrading doesn't move them. Running work, background tasks, approvals, failed turns and stopped turns take
 precedence over completion. PR merged does not authorize an automatic merge: autopilot still asks the owner.
 
 Tasks saved before this setting existed require PR created, so a reply without a verified PR no longer appears Done.
