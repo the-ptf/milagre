@@ -178,7 +178,7 @@ export function ChatComposer({
   const root = useRef<HTMLDivElement>(null);
   const chatId = messages[0]?.session_id ?? "new";
   const isNewChat = messages.length === 0 && !loading && !loadError;
-  const { topBandRef, dockRef } = useComposerLayout(isNewChat, root);
+  const { topBandRef, dockRef, captureLaunch } = useComposerLayout(isNewChat, root);
   const reviewPill = !isNewChat && !!pullRequestReview && pullRequestReview.count > 0 && pullRequestReview;
   const {
     headingOpen,
@@ -216,7 +216,6 @@ export function ChatComposer({
     root.current?.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
     newChatChange?.(key, home);
   });
-  const artifactChat = runtimeChat;
   const compactionFeedback = useCompactionFeedback(
     messages.findLast((item) => compactionContext(item)),
     runtimeChat,
@@ -245,6 +244,7 @@ export function ChatComposer({
 
   const send = useEvent((delivery?: MessageDelivery, background?: boolean) => {
     if (sideQuestions.intercept(store.text())) return;
+    if (!background) captureLaunch();
     onSend(delivery, background);
   });
 
@@ -262,7 +262,7 @@ export function ChatComposer({
   return (
     <ReplyProviders
       mentionContext={mentionContext}
-      chatId={artifactChat}
+      chatId={runtimeChat}
       steps={artifactSteps}
       userMessages={userMessages}
       onSend={onSendDesignMessage}

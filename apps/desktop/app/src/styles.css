@@ -906,7 +906,8 @@ a {
   content-visibility: auto;
   contain-intrinsic-size: auto 160px;
 }
-[data-measuring] [data-slot="message"] {
+[data-measuring] [data-slot="message"],
+[data-slot="message"][data-send-launch] {
   content-visibility: visible;
 }
 

@@ -1,6 +1,7 @@
 import { TranscriptDivider } from "./ui";
 import { GitForkIcon } from "@hugeicons/core-free-icons";
 import { MessageToolbar } from "./message-toolbar";
+import { SendLaunch } from "./send-launch";
 import { memo, useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
 import { Image, Pressable, Text, View, type ViewInstance } from "react-native";
 import { activityDuration, stepDisplayTitle, waitingStepIds } from "@milagre/shared/tool-activity";
@@ -396,7 +397,7 @@ export const ChatReply = memo(function ChatReply({
     const parts = userParts;
     const lineHeight = Math.round(textPx * 1.4667);
     return (
-      <View style={{ alignSelf: "flex-end", alignItems: "flex-end", gap: 6, maxWidth: "88%" }}>
+      <SendLaunch clientMessageId={message.clientMessageId} style={{ alignSelf: "flex-end", alignItems: "flex-end", gap: 6, maxWidth: "88%" }}>
         <Photos message={message} media={media} />
         {message.files
           ?.filter((file) => !inline.has(file) && !message.images?.some((image) => image.path === file || image.sourcePath === file))
@@ -471,7 +472,7 @@ export const ChatReply = memo(function ChatReply({
           )
         )}
         <MessageToolbar text={userText} message={message} onFork={onFork} align="end" />
-      </View>
+      </SendLaunch>
     );
   }
   const marker = linked && message?.role === "assistant" && !run ? reportMarker(linked) : null;
