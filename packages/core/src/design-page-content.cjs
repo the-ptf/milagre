@@ -1,4 +1,11 @@
-const { validateDesignDocument, designColor } = require("@milagre/shared/design");
+const { validateDesignDocument, designColor, designFontSubstitute } = require("@milagre/shared/design");
+
+const publicFamily = (fontFamily) => {
+  const substitute = designFontSubstitute(fontFamily);
+  if (!substitute) return fontFamily;
+  const rest = fontFamily.split(",").slice(1);
+  return [substitute, ...rest.filter((family) => !designFontSubstitute(family))].join(",");
+};
 
 function publicPageContent(snapshot) {
   return {
@@ -44,6 +51,7 @@ function publicPageContent(snapshot) {
               ...(node.parentId ? { parentId: ids.get(node.parentId) } : {}),
               ...(node.fill ? { fill: literal(node.fill) } : {}),
               ...(node.stroke ? { stroke: literal(node.stroke) } : {}),
+              ...(node.fontFamily ? { fontFamily: publicFamily(node.fontFamily) } : {}),
             };
           }),
         },

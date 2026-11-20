@@ -396,6 +396,8 @@
       "default": "./src/design-page.mjs"
     },
     "./design-schemas": "./src/design-schemas.mjs",
+    "./design-font-file": "./src/design-font-file.mjs",
+    "./design-font-characters": "./src/design-font-characters.mjs",
     "./design": {
       "types": "./src/design.d.mts",
       "default": "./src/design.mjs"

@@ -4,7 +4,7 @@ import * as Clipboard from "expo-clipboard";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { createDesignPageSharing } from "./design-page-sharing";
 import type { Client } from "./client";
-import type { DesignPageShare } from "@milagre/shared/artifact";
+import { designPageShareNotice, type DesignPageShare } from "@milagre/shared/artifact";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { CircleButton, EmptyState, ErrorNotice, PageScroll, PillButton, SheetHeader, useStyles } from "./ui";
 import { useTheme } from "./theme";
@@ -190,9 +190,7 @@ export function DesignPageShareSheet({
                 {current.pending && <Text style={styles.muted}>Not confirmed yet. Update to retry.</Text>}
               </View>
             )}
-            <Text style={styles.muted}>
-              {kind === "artifacts" ? "Anyone with the link can view it, hidden HTML included." : "Anyone with the link can view it."}
-            </Text>
+            <Text style={styles.muted}>{designPageShareNotice(kind)}</Text>
             {state.checking ? (
               <Text style={styles.muted}>Checking the sharing service…</Text>
             ) : !state.availability?.available ? (

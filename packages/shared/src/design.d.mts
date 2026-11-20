@@ -137,9 +137,29 @@ export function designDiagnostics(document: DesignDocument): {
 /** At most 20 warning lines plus "…and N more", or "" when there are none. */
 export function designWarningText(warnings: DesignWarning[]): string;
 export function designColor(document: DesignDocument, value?: string, fallback?: string): string;
-export function designFontFamily(value?: string): string;
-/** CSS @font-face rules (data URIs) for the Inter and loaded catalog weights a document's visible text uses, or "". */
-export function designFontFaces(document: DesignDocument): string;
+export function designFontFamily(value?: string, fontSize?: number): string;
+/** CSS @font-face rules (data URIs) for the Inter, catalog and installed faces a document's visible text uses, or "". `localFonts: false` leaves installed faces out. */
+export function designFontFaces(document: DesignDocument, options?: { localFonts?: boolean }): string;
+export interface DesignLocalFamily {
+  family: string;
+  apple: boolean;
+  wght?: { min: number; max: number };
+  opsz?: { min: number; max: number; fixed?: number };
+  weights: number[];
+}
+export interface DesignLocalFontSource {
+  ready?: () => Promise<void>;
+  family: (name: string) => DesignLocalFamily | null;
+  load: (
+    requests: Array<{ key: string; family: string; cssFamily: string; weight: number; opsz: number | null }>,
+  ) => Promise<Array<{ key: string; data: string; advances: number[] } | null>>;
+}
+/** The host's installed fonts, for local previews only. */
+export function setDesignLocalFonts(source: DesignLocalFontSource | null): void;
+export function designLocalFamily(fontFamily?: string): DesignLocalFamily | null;
+export function designAppleFamily(fontFamily: string): boolean;
+export function designFontSubstitute(fontFamily: string): string | null;
+export function designBundledFont(fontFamily?: string): Promise<{ family: string; weights: number[]; faces: Record<number, string> } | null>;
 export const DESIGN_CATALOG_FAMILIES: string[];
 export function designCatalogFont(fontFamily?: string): { family: string; weights: number[]; advances: Record<string, number[]> } | undefined;
 export function loadDesignFonts(document: DesignDocument): Promise<void>;

@@ -15,6 +15,12 @@ export type ArtifactSummary = ArtifactRef & {
   consistency?: { mode: "advisory" | "strict" };
 };
 
+/** The public-page notice before publishing, with what a page draws instead of what is licensed for local previews only. */
+export const designPageShareNotice = (kind: "designs" | "artifacts") =>
+  kind === "artifacts"
+    ? "Anyone with the link can view it, hidden HTML included."
+    : "Anyone with the link can view it. Apple's SF and New York fonts show as Inter and Source Serif there.";
+
 export const isInteractiveDesign = (design: { format?: string; interactive?: boolean } | null | undefined): boolean =>
   design?.format === "design" && design.interactive === true;
 

@@ -15,7 +15,12 @@ import { z } from "zod";
 import { designFontFamily, designFontFaces } from "./design-fonts.mjs";
 export {
   DESIGN_CATALOG_FAMILIES,
+  designAppleFamily,
+  designBundledFont,
   designCatalogFont,
+  designFontSubstitute,
+  designLocalFamily,
+  setDesignLocalFonts,
   designFontBuffers,
   designFontFamily,
   designFontFaces,
@@ -297,7 +302,7 @@ function nodeStyles(document, node, box, parentBox, parentNode) {
       ? [
           `color:${designColor(document, node.fill, designDefaultFill(node))}`,
           `font-size:${node.fontSize ?? 16}px`,
-          `font-family:${designFontFamily(node.fontFamily)}`,
+          `font-family:${designFontFamily(node.fontFamily, node.fontSize ?? 16)}`,
           `font-weight:${node.fontWeight ?? 400}`,
           `text-align:${node.textAlign ?? "left"}`,
           `line-height:${node.lineHeight ?? 1.35}`,

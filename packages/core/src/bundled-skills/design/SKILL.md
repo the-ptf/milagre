@@ -26,7 +26,7 @@ Keep replies short: say what differs between variants or what changed. The card 
 ## Craft
 
 - **Icons.** An `icon` layer with a Lucide name (lucide.dev/icons) for every icon, never a Unicode glyph or image. `fill` is its color, `strokeWidth` its weight (2 default, 1.5 reads like SF Symbols). Common: `chevron-left`, `chevron-right`, `x`, `check`, `search`, `plus`, `ellipsis`, `sliders-horizontal`, `signal`, `wifi`, `battery-full`.
-- **Type.** Inter by default. One scale per screen; for iOS: 34 large title (700), 22 title (600), 17 body and row labels (400), 15 secondary, 13 captions and section headers. Set secondary text apart with a lighter color too, not size alone.
+- **Type.** Inter by default. For a native Apple app use Apple's families (`SF Pro`, `SF Pro Rounded`, `SF Compact` on watchOS, `SF Mono`, `New York`) and call `design_font_info` first for the weights the font really has (SF Pro Semibold is 590, Medium 510). One scale per screen; for iOS: 34 large title (700), 22 title (600), 17 body and row labels (400), 15 secondary, 13 captions and section headers. Set secondary text apart with a lighter color too, not size alone.
 - **Spacing.** A 4 px grid, 16 to 20 px phone margins, 44 px touch targets, 12 to 16 px inside grouped rows, equal gaps between siblings of a kind.
 - **Phone chrome.** A 54 px status bar: time at 17/600 left, `signal`, `wifi`, `battery-full` at 17 px right. Nav buttons are 44 px circles with a 20 px icon.
 - **Density.** Match the app. A booking row shows date, title, time and status; don't drop columns to ease the layout.
@@ -54,13 +54,15 @@ Keep replies short: say what differs between variants or what changed. The card 
 - **Frames:** `layout` (`free`, `horizontal`, `vertical`; the last two place children), `gap`, `padding`, `align` (`start`, `center`, `end`), `justify` (`start`, `center`, `end`, `space-between`).
 - **Other types:** `rectangle`, `ellipse`, `image` (`src`), `icon` (`icon` name; no stroke, radius, text, src or children; an unknown name fails with the closest matches).
 
-**Sizing.** `widthMode`/`heightMode` take `fixed` (default), `hug` (fits text or children) or `fill` (shares the parent's remaining space). Keep numeric `width`/`height` as fallbacks; a fill child in a hug parent uses its fallback. For a vertical card, `heightMode: "hug"` on the frame and `widthMode: "fill", heightMode: "hug"` on its text, so longer copy pushes content down. Prefer hug text in new screens. Inter (400 to 700), Arial, Georgia, Times New Roman and Courier New are measured; other fonts and non-Latin scripts use approximate metrics.
+**Sizing.** `widthMode`/`heightMode` take `fixed` (default), `hug` (fits text or children) or `fill` (shares the parent's remaining space). Keep numeric `width`/`height` as fallbacks; a fill child in a hug parent uses its fallback. For a vertical card, `heightMode: "hug"` on the frame and `widthMode: "fill", heightMode: "hug"` on its text, so longer copy pushes content down. Prefer hug text in new screens. Inter (400 to 700), the bundled families and the fonts installed on the user's computer are measured with the real font; other fonts and non-Latin scripts use approximate metrics.
 
 ## Fonts
 
 Besides Inter, these families are bundled (measured and embedded in previews, exports and your image). Name one first in `fontFamily` with a fallback of the same kind (`Bebas Neue, Arial, sans-serif`); missing weights render with the nearest drawn one.
 
 Albert Sans, Anton, Archivo, Barlow, Barlow Condensed, Bebas Neue, Besley, Big Shoulders, Bodoni Moda, Bricolage Grotesque, Chivo, EB Garamond, Epilogue, Figtree, Hanken Grotesk, Imbue, Jost, League Spartan, Libre Franklin, Literata, Newsreader, Onest, Public Sans, Red Hat Display, Red Hat Text, Rokkitt, Schibsted Grotesk, Source Serif 4, Stack Sans Headline, Stack Sans Text, STIX Two Text, TikTok Sans, Unbounded, Work Sans, Young Serif, Zilla Slab.
+
+**Installed fonts.** A family installed on the computer running Milagre draws and measures with the real font in the canvas, the phone and your image: on a Mac that includes `SF Pro` (optical size follows `fontSize`; `SF Pro Text` and `SF Pro Display` pin it), `SF Pro Rounded`, `SF Compact`, `SF Mono` and `New York`. `design_font_info {family}` returns its source, named weights, axes and metrics, or without `family` lists what is available. Apple's fonts render only in local previews: shared pages, and computers without them, draw a close substitute (Inter for SF, Source Serif 4 for New York), so keep a fallback of the same kind in `fontFamily`.
 
 ## Project visual kit
 

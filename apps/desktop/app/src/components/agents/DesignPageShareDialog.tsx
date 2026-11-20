@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DesignPageShare } from "@milagre/shared/artifact";
+import { designPageShareNotice, type DesignPageShare } from "@milagre/shared/artifact";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { confirmDesignSharingAvailability } from "../../lib/design-sharing-available";
@@ -228,7 +228,7 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
               </div>
             )}
             <p id="design-page-share-warning" className="text-12 text-ink-3">
-              {kind === "artifacts" ? "Anyone with the link can view it, hidden HTML included." : "Anyone with the link can view it."}
+              {designPageShareNotice(kind)}
             </p>
             {checking ? (
               <p role="status" className="mt-3 text-12 text-ink-3">

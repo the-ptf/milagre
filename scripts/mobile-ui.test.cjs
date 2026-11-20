@@ -16743,6 +16743,7 @@ test("mobile publishing checks availability, retries, and keeps history availabl
     },
     "expo-clipboard": { setStringAsync: async (url) => calls.push(["copy", url]) },
     "@hugeicons/core-free-icons": { ArrowLeft01Icon: "back" },
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
     "./design-page-sharing": { createDesignPageSharing: () => store },
     "./ui": {
       CircleButton: "CircleButton",
@@ -16762,7 +16763,7 @@ test("mobile publishing checks availability, retries, and keeps history availabl
   assert.ok(find(tree, (n) => n.type === "SheetHeader" && n.props.title === "Share"));
   assert.equal(find(tree, (n) => n.props?.title === "Publish").props.disabled, true);
   assert.ok(find(tree, (n) => n.props?.children === "Checking the sharing service…"));
-  assert.ok(text(tree, "Anyone with the link can view it."));
+  assert.ok(text(tree, "Anyone with the link can view it. Apple's SF and New York fonts show as Inter and Source Serif there."));
   state = {
     ...state,
     checking: false,

@@ -2,6 +2,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
 const { z } = require("zod");
+const { designFontToolDefinitions } = require("./design-font-tools.cjs");
 const { designKitDataSchema } = require("@milagre/shared/design-schemas");
 const ID = /^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/;
 
@@ -78,6 +79,7 @@ function designKitToolDefinitions(chatId, kits) {
       readOnly: false,
       run: async (args) => JSON.stringify(await kits.save({ chatId, ...args })),
     },
+    ...designFontToolDefinitions(),
   ];
 }
 module.exports = { createDesignKits, designKitToolDefinitions };

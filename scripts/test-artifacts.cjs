@@ -464,7 +464,10 @@ async function browserChecks() {
     assert.match(await evaluate(shareText), /^Share/, "a short title");
     assert.match(await evaluate(shareText), /Anyone with the link can view it\./);
     assert.equal(await evaluate(`!!${shareDialog}.querySelector("input")`), false, "no title field: the host names the page after its Chat");
-    assert.equal(await evaluate(`document.getElementById(${shareDialog}.getAttribute("aria-describedby")).textContent`), "Anyone with the link can view it.");
+    assert.equal(
+      await evaluate(`document.getElementById(${shareDialog}.getAttribute("aria-describedby")).textContent`),
+      "Anyone with the link can view it. Apple's SF and New York fonts show as Inter and Source Serif there.",
+    );
     assert.equal(await evaluate(publishLabel), "Publish");
     assert.doesNotMatch(await evaluate(shareText), /Published snapshots|frozen|Public access/);
     await screenshot("share-page-warning");

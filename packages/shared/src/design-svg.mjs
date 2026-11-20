@@ -55,13 +55,13 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
     const x = box.x + border + (anchor === "middle" ? contentWidth / 2 : anchor === "end" ? contentWidth : 0);
     const baseline = box.y + border + (lineHeight - fontSize) / 2 + fontSize * 0.8;
     // Renderers that match by weight alone (resvg) would round 650 up to Bold, wider than the layout measured.
-    const fontWeight = designDrawnWeight(node.fontFamily, node.fontWeight);
+    const fontWeight = designDrawnWeight(node.fontFamily, node.fontWeight, fontSize);
     const spans = visibleDesignTextLines(node, box, layout)
       .map((line, index) => take(`<tspan x="${number(x)}" y="${number(baseline + index * lineHeight)}">${xml(line)}</tspan>`, node))
       .join("");
     return (
       take(
-        `<text ${colorAttributes("fill", node.fill, designDefaultFill(node))} font-family="${xml(designFontFamily(node.fontFamily))}" font-size="${number(fontSize)}" font-weight="${fontWeight}" text-anchor="${anchor}" xml:space="preserve" style="font-kerning:none;font-variant-ligatures:none;font-feature-settings:&quot;calt&quot; 0">`,
+        `<text ${colorAttributes("fill", node.fill, designDefaultFill(node))} font-family="${xml(designFontFamily(node.fontFamily, fontSize))}" font-size="${number(fontSize)}" font-weight="${fontWeight}" text-anchor="${anchor}" xml:space="preserve" style="font-kerning:none;font-variant-ligatures:none;font-feature-settings:&quot;calt&quot; 0">`,
         node,
       ) +
       spans +

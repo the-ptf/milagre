@@ -26,6 +26,12 @@ An interactive version is `v<N>.html` beside `meta.json`, with `interactive: tru
 
 Deploy `apps/design-share` before a desktop release that changes what a design may contain, or publishing fails validation on the old Worker.
 
+## Fonts
+
+Layer designs draw Inter and the catalog families from `packages/shared` everywhere. Fonts installed on the host computer also draw in its local previews: `design-host-fonts.cjs` indexes the system and user font folders (on a Mac, Apple's hidden `SFNS*.ttf`, `SFCompact*.ttf` and `NewYork*.ttf` under their public names), and `loadDesignFonts` asks it for each text layer's face. A face is the font instanced by HarfBuzz (`subset-font`) at the layer's weight and, for an optical-size axis, its font size, cut to the bundled character set and renamed so resvg finds it. Its advances feed `designTextLayout`, so hug text measures with the real font, and the saved HTML embeds it, so the desktop canvas and the phone draw it. `design_font_info` reads the same index for agents: named weights, axes and OS/2 metrics.
+
+License rule: Apple's families (SF Pro, SF Compact, SF Mono, New York and their variants) render only in local previews. `publicPageContent` renames them to their substitute (`designFontSubstitute`: Inter, Courier New, Source Serif 4) before upload, the share notice says so, and a host without them measures and draws the substitute. No installed font data ever leaves in a published page: the Worker renders with the bundled faces only. `MILAGRE_DESIGN_SYSTEM_FONTS=0` turns installed fonts off (tests use it for stable layouts).
+
 ## Publishing
 
 Share publishes every saved structured design in the Chat as one read-only page, or for Artifacts (`kind: "artifacts"`) the Chat's one current HTML page. There is no per-design selection. Each publication is a new immutable URL; later edits never change an old link. Share histories are kept per kind.

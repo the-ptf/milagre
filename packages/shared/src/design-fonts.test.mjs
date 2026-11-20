@@ -9,6 +9,7 @@ import {
   designFontFaces,
   designInterHasGlyph,
   loadDesignFonts,
+  setDesignLocalFonts,
 } from "./design-fonts.mjs";
 
 const screen = (fontFamily) => ({
@@ -152,4 +153,53 @@ test("catalog families wrap with their own measured advances, and only as the fi
   assert.equal(designCatalogFont("bebas neue, Arial").family, "Bebas Neue");
   assert.equal(designCatalogFont("Arial, Bebas Neue"), undefined);
   assert.ok(DESIGN_CATALOG_FAMILIES.includes("EB Garamond"));
+});
+
+test("an Apple family this computer lacks is measured and drawn as its substitute", async () => {
+  const sf = { id: "a", type: "text", width: 200, height: 40, text: "Settings", fontFamily: "SF Pro, sans-serif", fontSize: 17, fontWeight: 600 };
+  const inter = { ...sf, fontFamily: "Inter, sans-serif" };
+  assert.equal(designFontFamily("SF Pro, sans-serif"), '"Inter", sans-serif');
+  assert.equal(designFontFamily("New York"), '"Source Serif 4"');
+  assert.deepEqual(designTextLayout(sf), designTextLayout(inter));
+  assert.equal(designDrawnWeight("SF Pro", 590), 600);
+});
+
+test("an installed family is measured with its loaded face and embedded for local previews only", async () => {
+  const requested = [];
+  setDesignLocalFonts({
+    family: (name) =>
+      name.toLowerCase() === "sf pro" ? { family: "SF Pro", apple: true, wght: { min: 1, max: 1000 }, opsz: { min: 17, max: 96 }, weights: [400, 590] } : null,
+    load: async (requests) => {
+      requested.push(...requests);
+      return requests.map((request) => ({ key: request.key, data: "AAEAAA==", advances: Array(206).fill(0.5) }));
+    },
+  });
+  try {
+    const document = validateDesignDocument({
+      schemaVersion: 1,
+      width: 390,
+      height: 844,
+      nodes: [
+        { id: "title", type: "text", width: 300, height: 50, text: "Inbox", fontFamily: "SF Pro", fontSize: 34, fontWeight: 590 },
+        { id: "body", type: "text", width: 300, height: 30, text: "Today", fontFamily: "SF Pro", fontSize: 13 },
+      ],
+    });
+    await loadDesignFonts(document);
+    assert.deepEqual(
+      requested.map(({ cssFamily, weight, opsz }) => [cssFamily, weight, opsz]),
+      [
+        ["SF Pro@34", 590, 34],
+        ["SF Pro@17", 400, 17],
+      ],
+    );
+    assert.equal(designTextLayout(document.nodes[0]).width, 5 * 0.5 * 34);
+    assert.equal(designFontFamily("SF Pro, sans-serif", 34), '"SF Pro@34", sans-serif');
+    assert.equal(designDrawnWeight("SF Pro", 590, 34), 590);
+    assert.match(designFontFaces(document), /@font-face\{font-family:"SF Pro@34";font-weight:1 1000;/);
+    assert.doesNotMatch(designFontFaces(document, { localFonts: false }), /SF Pro/);
+    assert.equal(designFontBuffers(document).filter((data) => data === "AAEAAA==").length, 2);
+    assert.match(designHtml(document), /font-family:&quot;SF Pro@34&quot;/);
+  } finally {
+    setDesignLocalFonts(null);
+  }
 });
