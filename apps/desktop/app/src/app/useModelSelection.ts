@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { cliName } from "@milagre/shared/providers";
+import { PROVIDERS_UPDATED } from "../components/UpdateNotice";
 import { chatKey } from "../lib/agent-runs";
 import { requiredCliVersion } from "../lib/cli-status";
 import { bridgeForKey } from "../lib/computer-bridge";
@@ -109,6 +110,10 @@ function useCliUpdate(cliStatus: AgentCliStatus | null, refreshCliStatus: () => 
     staleProvidersRef.current();
     refreshCliStatusRef.current();
   }, []);
+  useEffect(() => {
+    window.addEventListener(PROVIDERS_UPDATED, handleProvidersUpdated);
+    return () => window.removeEventListener(PROVIDERS_UPDATED, handleProvidersUpdated);
+  }, [handleProvidersUpdated]);
   return { updatingCli, handleUpdateCli, handleProvidersUpdated };
 }
 

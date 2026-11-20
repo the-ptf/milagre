@@ -568,7 +568,17 @@ function registerChatStatus({
     options.agentCliStatus?.invalidate?.(provider);
   };
   const providerUpdates = options.providerUpdates ?? createProviderUpdates({ ready: () => environmentReady, antigravity });
-  commands.handle("agent:provider-updates", () => providerUpdates());
+  const cliProgress = new Map();
+  let progressSignal = null;
+  const signalProgress = () => {
+    progressSignal ??= setTimeout(() => {
+      progressSignal = null;
+      emit("provider-updates:changed", {});
+    }, 250);
+  };
+  commands.handle("agent:provider-updates", async () =>
+    (await providerUpdates()).map((update) => (cliProgress.has(update.provider) ? { ...update, progress: cliProgress.get(update.provider) } : update)),
+  );
   const cliUpdates = new Map();
   commands.handle("agent:cli-status", async (_event, scope) => agentCliStatus(await validateAccountScope(scope, true)));
   commands.handle("agent:update-cli", async (_event, provider, targetVersion) => {
@@ -580,7 +590,14 @@ function registerChatStatus({
       const result = await (options.runCliUpdate ?? runCliUpdate)(provider, {
         targetVersion,
         antigravity,
-        onProgress: (progress) => emit("agent:cli-progress", { provider, ...progress }),
+        onProgress: (progress) => {
+          cliProgress.set(provider, progress);
+          signalProgress();
+          emit("agent:cli-progress", { provider, ...progress });
+        },
+      }).finally(() => {
+        cliProgress.delete(provider);
+        signalProgress();
       });
       agentCli.invalidate(provider);
       agentCliStatus.invalidate(provider);
