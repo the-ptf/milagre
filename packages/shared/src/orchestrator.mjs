@@ -326,13 +326,30 @@ export function normalizeTaskOutcome(value, fallback = ORCHESTRATOR_DEFAULTS.out
   );
 }
 
+export const TASK_BLOCKED_TOOL = "task_blocked";
+const BLOCKED_PROMPT = `If you can't finish without the owner (an MCP server that needs sign-in, a missing credential or permission, an error only they can fix, a decision only they can make), call the milagre ${TASK_BLOCKED_TOOL} tool with what they must do before you end your turn, and say the same in your reply. The task then waits in Needs you instead of counting as finished.`;
+
 export function taskOutcomePrompt(outcome) {
-  if (outcome === "reply") return "Complete the requested work and report the result, including validation and any remaining blockers.";
+  if (outcome === "reply") return `Complete the requested work and report the result, including validation and any remaining blockers. ${BLOCKED_PROMPT}`;
   const requirement =
     outcome === "merged"
       ? "The task is Done only after its pull request is merged. Open a pull request with the completed work, then ask the owner before merging. An open PR stays In review."
       : "The task is Done only after a pull request exists for the completed work. Commit the changes, push the task branch and open a pull request.";
-  return `${requirement} Include the PR URL in your final reply. Do not stop at local changes or a summary. If a PR cannot be created or the request needs no code changes, explain the blocker to the owner. Never make an empty or unrelated PR to satisfy this requirement. Merging, deploying and publishing still require the owner's approval.`;
+  return `${requirement} Include the PR URL in your final reply. Do not stop at local changes or a summary. If a PR cannot be created or the request needs no code changes, explain the blocker to the owner. ${BLOCKED_PROMPT} Never make an empty or unrelated PR to satisfy this requirement. Merging, deploying and publishing still require the owner's approval.`;
+}
+
+export const TASK_BLOCKED_MAX = 300;
+
+/** A task_blocked reason as stored: one line, at most TASK_BLOCKED_MAX characters; null when empty. */
+export function taskBlockedReason(value) {
+  return oneLine(value, TASK_BLOCKED_MAX);
+}
+
+/** Why a task waits on its owner, as its agent said with task_blocked; null while a turn runs or once its Chat is Done. */
+export function taskBlockedText(session, running = false) {
+  if (running || !session || session.done_at || session.archived) return null;
+  const reason = taskBlockedReason(session.orchestrator?.blocked?.reason);
+  return reason ? `Blocked: ${reason}` : null;
 }
 
 /** A Chat's pull requests as one state for the board: an open one wins, then a merged one. */
@@ -364,12 +381,19 @@ export function boardColumn({ done, needsYou, pullRequest, finished = false, act
   return "running";
 }
 
+/** The sidebar's line for tasks in Needs you: the task and why when only one is, else how many; null when none is. */
+export function needsYouLine(needs) {
+  if (needs.length === 0) return null;
+  if (needs.length === 1) return `${needs[0].task.title}. ${needs[0].detail}`;
+  return `${needs.length} need you`;
+}
+
 /** When a task's Chat became Done on the board's clock (ms): marked Done, or idle after a turn that ended with no pull request; null while it isn't. */
 export function taskDoneAt(session, busy = false) {
   if (!session) return null;
   if (session.done_at) return session.done_at;
   const summary = session.summary;
-  if (busy || summary?.pullRequests?.length) return null;
+  if (busy || summary?.pullRequests?.length || taskBlockedText(session)) return null;
   return summary?.lastOutcome === "completed" || summary?.lastOutcome === "cancelled" ? (summary.lastAt ?? null) : null;
 }
 

@@ -1,6 +1,6 @@
 import { Text, View } from "react-native";
 import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
-import type { OrchestratorTask } from "@milagre/shared/orchestrator";
+import { needsYouLine, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { Icon, SpinnerRing } from "./icons";
 import { Mascot } from "./mascot";
@@ -9,6 +9,7 @@ import { promptText } from "./text-prompt";
 import { useTheme } from "./theme";
 import { ListRow } from "./ui";
 import { useOrchestrator } from "./use-orchestrator";
+import { columnItems } from "./orchestrator-board";
 import { useOrchestratorBoard } from "./use-orchestrator-board";
 
 const NO_TASKS: OrchestratorTask[] = [];
@@ -40,19 +41,16 @@ export function OrchestratorRow({ onOpen }: { onOpen: () => void }) {
   const session = useSession();
   const { snapshot, store } = useOrchestrator(session.client);
   const enabled = !!snapshot?.settings.enabled;
-  const { counts } = useOrchestratorBoard(enabled ? snapshot.tasks : NO_TASKS);
+  const { items, counts } = useOrchestratorBoard(enabled ? snapshot.tasks : NO_TASKS);
   if (!enabled) return null;
-  const subtitle =
-    counts.needs > 0
-      ? `${counts.needs} need${counts.needs === 1 ? "s" : ""} you`
-      : counts.running > 0
-        ? `${counts.running} running`
-        : "Ask anything, I'll route it";
+  const needs = needsYouLine(columnItems(items, "needs"));
+  const subtitle = needs ?? (counts.running > 0 ? `${counts.running} running` : "Ask anything, I'll route it");
   return (
     <View style={{ paddingHorizontal: space.gutter }}>
       <ListRow
         title={snapshot.settings.name}
         subtitle={subtitle}
+        subtitleLines={needs ? 2 : 1}
         onPress={onOpen}
         onLongPress={() =>
           void promptText("Rename", { value: snapshot.settings.name }).then((name) => {

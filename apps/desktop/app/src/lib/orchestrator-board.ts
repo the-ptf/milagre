@@ -7,6 +7,7 @@ import {
   autopilotPending,
   boardColumn,
   pullRequestState,
+  taskBlockedText,
   taskLimitText,
   taskOutcomeDetail,
   type BoardColumn,
@@ -74,7 +75,8 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
   const state = subchatState({ key: key ?? task.id, title: task.title, session: session ?? {}, run }, now);
   const autopilot = state.kind === "needs-you" ? autopilotPending(task, run, now) : null;
   const limit = run ? null : taskLimitText(task, new Date(now));
-  const needsYou = (state.kind === "needs-you" && !autopilot) || state.kind === "failed" || state.kind === "stopped" || Boolean(limit);
+  const blocked = taskBlockedText(session, Boolean(run));
+  const needsYou = (state.kind === "needs-you" && !autopilot) || state.kind === "failed" || state.kind === "stopped" || Boolean(limit) || Boolean(blocked);
   const active = Boolean(run) || chatActivity(session, undefined).activity === "background";
   const pullRequest = taskPullRequest(task, session, states, snapshots);
   const column = boardColumn({
@@ -92,11 +94,11 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
     kind: "chat",
     session,
     run,
-    state: autopilot ? "working" : state.kind,
+    state: autopilot ? "working" : blocked ? "needs-you" : state.kind,
     pullRequest,
     detail: autopilot
       ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
-      : (limit ?? (!needsYou && (column === "needs" || column === "review") ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),
+      : (blocked ?? limit ?? (!needsYou && (column === "needs" || column === "review") ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),
     inSidebar: session ? !session.orchestrator?.hidden : false,
   };
 }

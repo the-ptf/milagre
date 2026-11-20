@@ -7,6 +7,7 @@ const { createAutopilot } = require("../orchestrator/autopilot.cjs");
 const { createMemorySync } = require("../orchestrator/memory-sync.cjs");
 const { createTaskImages } = require("../orchestrator/images.cjs");
 const { createTaskSweep } = require("../orchestrator/task-sweep.cjs");
+const { createTaskTools } = require("../orchestrator/task-tools.cjs");
 const { SWEEP_MS } = require("../done-sweep.cjs");
 const { ROUTE_SCHEMA } = require("../orchestrator/router.cjs");
 const { claudeModel, codexModel } = require("../git-text.cjs");
@@ -46,10 +47,12 @@ function routerModels({ agentCli, clientVersion }) {
   };
 }
 
+/** An undefined field is removed: a state patch can't carry undefined, so the Chat's viewers would keep the old value. */
 function withTaskChat(state, sessionId, orchestrator) {
   const session = state.sessions[sessionId];
   if (!session) return state;
-  return { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, orchestrator: { ...session.orchestrator, ...orchestrator } } } };
+  const merged = Object.fromEntries(Object.entries({ ...session.orchestrator, ...orchestrator }).filter(([, value]) => value !== undefined));
+  return { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, orchestrator: merged } } };
 }
 
 function markTaskChat(updateProject, projectPath, sessionId, orchestrator) {
@@ -177,11 +180,17 @@ function registerOrchestrator(
       questionCall: (router) => routerCall(router, QUESTION_SCHEMA),
     },
   });
+  const taskTools = createTaskTools({
+    taskOf: (chatId) => states.states.get(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)]?.orchestrator ?? null,
+    setBlocked: (chatId, blocked) => markTaskChat(updateProject, projectOfKey(chatId), sessionIdFromKey(chatId), { blocked: blocked ?? undefined }),
+  });
   const watcher = {
     observe(chatId, event) {
       autopilot.observe(chatId, event);
       orchestrator.observe(chatId, event);
+      taskTools.observe(chatId, event);
     },
+    tools: (chatId) => taskTools.definitions(chatId),
     close: () => autopilot.close(),
   };
   return { taskAccounts: taskAccountsFor({ states, accounts, routing, agentCli }), autopilot: watcher };
