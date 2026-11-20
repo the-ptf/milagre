@@ -6,9 +6,12 @@ export function ProgressBar({
   size = 4,
   label,
   valueText,
+  indeterminate = false,
   className = "",
 }: {
   value: number;
+  /** Work with no measurable progress: a band sweeps the track instead of filling it. */
+  indeterminate?: boolean;
   tone?: keyof typeof FILL;
   size?: 4 | 6;
   label?: string;
@@ -19,14 +22,20 @@ export function ProgressBar({
   return (
     <div
       {...(label
-        ? { role: "progressbar", "aria-label": label, "aria-valuemin": 0, "aria-valuemax": 100, "aria-valuenow": percent, "aria-valuetext": valueText }
+        ? indeterminate
+          ? { role: "progressbar", "aria-label": label, "aria-valuetext": valueText }
+          : { role: "progressbar", "aria-label": label, "aria-valuemin": 0, "aria-valuemax": 100, "aria-valuenow": percent, "aria-valuetext": valueText }
         : { "aria-hidden": true })}
       className={`relative w-full shrink-0 overflow-hidden rounded-full bg-line-strong ${size === 6 ? "h-1.5" : "h-1"} ${className}`}
     >
-      <div
-        className={`absolute inset-y-0 left-0 rounded-full transition-[width,background-color] duration-slow motion-reduce:transition-none ${FILL[tone]}`}
-        style={{ width: `${percent}%` }}
-      />
+      {indeterminate ? (
+        <div className={`progress-sweep absolute inset-y-0 w-2/5 rounded-full ${FILL[tone]}`} />
+      ) : (
+        <div
+          className={`absolute inset-y-0 left-0 rounded-full transition-[width,background-color] duration-slow motion-reduce:transition-none ${FILL[tone]}`}
+          style={{ width: `${percent}%` }}
+        />
+      )}
     </div>
   );
 }

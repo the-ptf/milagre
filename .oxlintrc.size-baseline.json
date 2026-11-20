@@ -34,7 +34,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 391,
+            "max": 390,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -145,7 +145,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2857,
+            "max": 2854,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -153,7 +153,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2646,
+            "max": 2643,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -273,7 +273,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 606,
+            "max": 605,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -541,7 +541,7 @@
     {
       "files": ["apps/desktop/app/src/components/UpdateNotice.tsx"],
       "rules": {
-        "complexity": ["error", 72]
+        "complexity": ["error", 69]
       }
     },
     {
@@ -622,7 +622,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2456,
+            "max": 2451,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -630,12 +630,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2204,
+            "max": 2198,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 518]
+        "complexity": ["error", 513]
       }
     },
     {
@@ -736,12 +736,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 281,
+            "max": 254,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 84]
+        "complexity": ["error", 79]
       }
     },
     {
@@ -1516,7 +1516,7 @@
         "max-lines": [
           "error",
           {
-            "max": 930,
+            "max": 926,
             "skipBlankLines": true,
             "skipComments": true
           }

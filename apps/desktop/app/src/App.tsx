@@ -295,7 +295,6 @@ function App() {
     chooseModel,
     updatingCli,
     handleUpdateCli,
-    handleProvidersUpdated,
   } = useModelSelection({ accountScope, selectedSessionRef, selectedLinkRef, projectRef, setNotice });
 
   useEffect(() => {
@@ -2447,8 +2446,6 @@ function App() {
             restartingHost={restartingHost}
             setRestartingHost={setRestartingHost}
             setNotice={setNotice}
-            onSettings={openAccounts}
-            onProvidersUpdated={handleProvidersUpdated}
           />
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
           <PanelToggles hidden={chatPanelsHidden(view, runPaneOpen)} split={splitOn} right={12 + trailingCorner * CORNER_PITCH} {...panelButtons} />

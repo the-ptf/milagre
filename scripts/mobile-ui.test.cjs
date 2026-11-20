@@ -402,6 +402,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // One row per repository in New Chat's Project picker (new-chat-project.ts) is pure.
       if (base === "new-chat-project" && !(id in modules)) return require("../apps/mobile/src/new-chat-project.ts");
       if (base === "project-icon" && !(id in modules)) return { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" };
+      // The update chip and its card (provider-update-notice.tsx) read the computer's CLI updates; none in these screens.
+      if (base === "provider-update-notice" && !(id in modules)) return { ProviderUpdatePill: () => null, ProviderUpdatesProvider: ({ children }) => children };
       // A phone-width window: no pinned sidebar and no reading column (split-context.tsx); the width helpers are pure.
       if (base === "split-context" && !(id in modules))
         return { useSplit: () => phoneSplit, useSplitLayout: () => phoneSplit, SplitProvider: ({ children }) => children };
@@ -3575,6 +3577,13 @@ function find(node, predicate) {
     if (found) return found;
   }
 }
+// A reply's activity rows (ReplyActivity in chat-reply.tsx) drawn in place, as React would.
+function drawReplyActivity(node) {
+  if (Array.isArray(node)) return node.map(drawReplyActivity);
+  if (!node || typeof node !== "object" || !node.props) return node;
+  if (typeof node.type === "function" && node.type.name === "ReplyActivity") return drawReplyActivity(node.type(node.props));
+  return "children" in node.props ? { ...node, props: { ...node.props, children: drawReplyActivity(node.props.children) } } : node;
+}
 // The routed Chat's native header (ChatStackOptions in app/chat.tsx) as its Stack.Screen publishes it, with the header
 // its slot draws in place of the HeaderSlot the navigator gets.
 function chatScreen(tree) {
@@ -3885,7 +3894,8 @@ function chatHost({
       useReanimatedKeyboardAnimation: () => ({ height: { get: () => 0 }, progress: { get: () => 0 } }),
       useKeyboardState: (select) => select({ isVisible: false, height: 0 }),
     },
-    "../running-logo": { ThinkingIndicator: "ThinkingIndicator", BackgroundIndicator: "BackgroundIndicator" },
+    "../running-logo": { BackgroundIndicator: "BackgroundIndicator" },
+    "../run-indicator": { RunIndicator: "RunIndicator" },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
     "@milagre/shared/model": require("@milagre/shared/model"),
     "@milagre/shared/agent-runs": { ...require("@milagre/shared/agent-runs"), lastUserModel: () => "" },
@@ -9456,7 +9466,7 @@ test("first send immediately shows input and a running Chat in the drawer before
   const reply = find(screen.render(), (node) => node.type === "ChatReply" && node.props.message?.role === "user");
   assert.equal(reply.props.message.body, "first message");
   assert.deepEqual(Array.from(reply.props.message.files), ["notes.txt"]);
-  assert.ok(find(screen.render(), (node) => node.type === "ThinkingIndicator"));
+  assert.ok(find(screen.render(), (node) => node.type === "RunIndicator"));
   const nav = navigationHost(Promise.resolve(), { session: { ...screen.session, recent: [{ path: "/p" }] } });
   const row = nav.rows().props.data.find((row) => row.kind === "chat");
   assert.equal(row.chat.title, "first message");
@@ -13053,8 +13063,8 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
 
 test("mobile tool display keeps compact progress specific and Full detail in order", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
-  const reply = (display) =>
-    load("chat-reply.tsx", {
+  const reply = (display) => {
+    const ChatReply = load("chat-reply.tsx", {
       "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
       "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
       "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
@@ -13089,6 +13099,8 @@ test("mobile tool display keeps compact progress specific and Full detail in ord
       "./viewer-store": { showImages() {} },
       "./ui": { colors: {}, styles: { card: {}, row: {}, muted: {} } },
     }).ChatReply;
+    return (props) => drawReplyActivity(ChatReply(props));
+  };
   const body = "Running the tests.Tests pass, reading the config.Done.";
   const steps = [
     { id: "a", kind: "shell", title: "Ran `npm test`", status: "done", offset: 18 },
@@ -13129,13 +13141,68 @@ test("mobile tool display keeps compact progress specific and Full detail in ord
     const row = find(tree, (node) => typeof node.type === "function" && node.type.name === "ActivityRow");
     return row.type(row.props);
   };
-  const parallel = compactRow([command, thought]);
-  assert.ok(find(parallel, (node) => node.type === "Text" && node.props.children === "Running 2 calls"));
-  const thinking = compactRow([{ ...command, status: "done" }, thought]);
-  assert.equal(find(thinking, (node) => node.type === "ActivityTitle").props.title, "Thinking");
+  const loaderHolds = reply("compact")({ ...props, message: undefined, run: { ...live, steps: [command, thought], approvals: [] } });
+  assert.ok(!find(loaderHolds, (node) => typeof node.type === "function" && node.type.name === "ActivityRow"), "the loader shows running calls, not a row");
   const waiting = compactRow([command, thought], [{ stepId: command.id }]);
   assert.equal(find(waiting, (node) => node.type === "ActivityTitle").props.title, "Run `npm test`");
   assert.equal(find(waiting, (node) => node.type === "ActivityTitle").props.shimmer, false);
+});
+
+test("the phone's loader shows the running calls and opens them in the activity sheet", () => {
+  const routes = [];
+  let run;
+  let display = "compact";
+  const { RunIndicator } = load("run-indicator.tsx", {
+    react: { useMemo: (compute) => compute() },
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { router: { push: (route) => routes.push(route) } },
+    "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"),
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "@milagre/shared/tool-activity": require("@milagre/shared/tool-activity"),
+    "./activity-item": { ActivityTitle: "ActivityTitle" },
+    "./chat-display-setting": { useToolCallDisplay: () => [display, () => {}] },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "./running-logo": { ThinkingIndicator: "ThinkingIndicator" },
+    "./session": { useRun: () => run },
+    "./theme": { useTheme: () => ({ colors: { ink2: "ink2", ink3: "ink3", ink4: "ink4" } }) },
+  });
+  const command = { id: "loader-command", kind: "shell", title: "Ran `npm test`", status: "running", offset: 9 };
+  const read = { id: "loader-read", kind: "read", title: "Read `a.ts`", status: "done", offset: 9 };
+  const draw = (props = {}) => RunIndicator({ chatKey: "/p#7", model: "Opus", ...props });
+  run = { text: "Checking.", steps: [read, command], approvals: [], questions: [], startedAt: 5 };
+  const loader = draw();
+  assert.equal(find(loader.props.detail, (node) => node.type === "ActivityTitle").props.title, "Running `npm test`");
+  assert.ok(find(loader.props.detail, (node) => node.type === "Text" && node.props.children === "2 calls"));
+  assert.equal(loader.props.startedAt, 5);
+  loader.props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(routes)), [{ pathname: "/activity", params: { id: "7", message: "run" } }]);
+  run = { ...run, steps: [read, command, { ...command, id: "loader-second" }] };
+  assert.equal(find(draw().props.detail, (node) => node.type === "ActivityTitle").props.title, "Running 2 calls");
+  assert.ok(
+    find(draw().props.detail, (node) => node.type === "Text" && node.props.children === "3 calls"),
+    "the count adds what the title doesn't say",
+  );
+  run = { ...run, steps: [command, { ...command, id: "loader-second" }] };
+  assert.ok(
+    !find(draw().props.detail, (node) => node.type === "Text" && String(node.props.children).endsWith("calls")),
+    "every call running: the title says the count",
+  );
+  run = { ...run, steps: [read, command, { ...command, id: "loader-second" }] };
+  run = { ...run, text: "Checking.\n\nFound it." };
+  assert.equal(draw().props.detail, undefined, "text after the calls lands them in the reply");
+  run = { ...run, text: "Checking.", approvals: [{ stepId: "loader-command" }] };
+  assert.equal(draw().props.detail, undefined, "a call waiting for approval stays in the reply beside its card");
+  run = { ...run, approvals: [] };
+  assert.equal(draw().props.detail, undefined, "approved, the group stays beside where its card was");
+  run = { ...run, steps: [{ ...command, id: "loader-next" }] };
+  assert.ok(draw().props.detail, "the next group goes back to the loader");
+  display = "full";
+  assert.equal(draw().props.detail, undefined, "Full detail keeps every call inline");
+  display = "compact";
+  const phase = draw({ phase: "Running Worktree setup" });
+  assert.equal(phase.props.showLabel, true);
+  assert.equal(phase.props.label, "Running Worktree setup");
 });
 
 test("mobile activity sheet opens the selected call without paging and keeps approval asks in Chat", () => {
@@ -19015,7 +19082,7 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
     { id: "s2", kind: "other", title: 'Set Heartbeat "Babysit PR #473"', status: "done", routine: { id: "hb1", name: "Babysit PR #473" } },
   ];
   const message = { id: 9, session_id: 7, role: "assistant", body: "Opened #473. I'll check every 15 minutes.", steps };
-  const tree = ChatReply({ message, media: () => null, onActivity() {}, chatId: "/p#7" });
+  const tree = drawReplyActivity(ChatReply({ message, media: () => null, onActivity() {}, chatId: "/p#7" }));
   const card = find(tree, (node) => node.type === "HeartbeatCard");
   assert.ok(card, "the card shows");
   assert.equal(card.props.step.routine.id, "hb1");
@@ -19305,24 +19372,25 @@ test("a Linear comment Routine on the phone form drops the Each Run rows: commen
   assert.deepEqual(create[1][0].target, { kind: "new-chat", projectPath: "/p", workspace: "worktree" }, "it carries the Project open on the phone");
 });
 
-test("provider update cards on the phone install the advertised release on the connected computer", async () => {
+test("the phone's update chip installs the advertised release on the connected computer and hears its progress", async () => {
   const react = hookHost();
   const calls = [];
+  const lives = [];
   let transport;
   let refreshed = 0;
-  const state = { current: { provider: "codex", version: "0.163.0", installedVersion: "0.160.0" }, working: false, error: "", dismiss() {}, install() {} };
-  const { ProviderUpdateNotice } = load("provider-update-notice.tsx", {
+  const { ProviderUpdatesProvider } = load("provider-update-notice.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Text: "Text", View: "View" },
-    "expo-router": { router: { push: (path) => calls.push(path) } },
-    "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View", useWindowDimensions: () => ({ width: 390, height: 844 }) },
+    "expo-clipboard": { setStringAsync: async () => {} },
+    "@hugeicons/core-free-icons": {},
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
     "@milagre/shared/providers": require("@milagre/shared/providers"),
+    "@milagre/shared/provider-update-view": require("../packages/shared/src/provider-update-view.ts"),
     "@milagre/shared/use-provider-updates": {
       useProviderUpdates: (value) => {
         transport = value;
-        return state;
+        return { items: [], clearDone() {} };
       },
     },
     "./hosts-native": {
@@ -19339,32 +19407,37 @@ test("provider update cards on the phone install the advertised release on the c
             calls.push(args);
             return { ok: true };
           },
+          live: (projectPath, options) => {
+            lives.push({ projectPath, options, closed: false });
+            return { close: () => (lives.at(-1).closed = true) };
+          },
         },
         hostName: "Studio Mac",
         refreshProviders: () => refreshed++,
       }),
     },
-    "./icons": { ProviderLogo: "ProviderLogo" },
-    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
+    "./icons": { Icon: "Icon", ProviderLogo: "ProviderLogo", SpinnerRing: "SpinnerRing" },
+    "./progress-sweep": { ProgressSweep: "ProgressSweep" },
+    "./status-pill": { StatusPill: "StatusPill" },
+    "./ui": { IconButton: "IconButton", InlineError: "InlineError", PillButton: "PillButton", ProgressBar: "ProgressBar", announce() {}, useAnnounce() {} },
+    "./design-tokens": { lineHeight: {}, radius: {}, space: {}, type: {} },
+    "./theme": { useTheme: () => ({ colors: {} }) },
   });
   react.begin();
-  const tree = ProviderUpdateNotice();
-  find(tree, (node) => node.type === "PillButton" && node.props.title === "Settings").props.onPress();
-  assert.equal(calls[0], "/accounts");
-  await transport.install(state.current);
+  ProviderUpdatesProvider({ children: null });
+  await transport.read();
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ["agent:provider-updates"]);
+  const result = await transport.install({ provider: "codex", version: "0.163.0", installedVersion: "0.160.0" });
+  assert.equal(result.ok, true);
   assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), ["agent:update-cli", ["codex", "0.163.0"]]);
-  assert.equal(refreshed, 1);
-  state.working = true;
-  react.begin();
-  const pending = ProviderUpdateNotice();
-  assert.equal(find(pending, (node) => node.type === "PillButton" && node.props.title === "Updating…").props.disabled, true);
-  assert.equal(find(pending, (node) => node.type === "IconButton").props.disabled, true);
-  state.error = "Permission denied";
-  state.working = false;
-  react.begin();
-  const failed = ProviderUpdateNotice();
-  assert.equal(find(failed, (node) => node.props?.accessibilityRole === "alert").props.children, "Permission denied");
-  assert.equal(find(failed, (node) => node.type === "PillButton" && node.props.title === "Retry").props.disabled, false);
+  assert.equal(refreshed, 1, "the model picker reads the CLIs again after an install");
+  let heard = 0;
+  const stop = transport.watch(() => heard++);
+  lives[0].options.onSignal("usage");
+  lives[0].options.onSignal("provider-updates");
+  assert.equal(heard, 1, "progress on the computer reaches the phone as a provider-updates signal");
+  stop();
+  assert.equal(lives[0].closed, true);
   await transport.dismissals.add("codex:0.163.0");
   await transport.dismissals.load();
   assert.deepEqual(
@@ -19398,17 +19471,22 @@ test("a provider update dismissed on the phone stays dismissed when the connecti
     react.begin();
     return exports.useProviderUpdates(current);
   };
-  assert.equal(render().current, undefined, "nothing shows before the saved dismissals are read");
+  // The hook runs in its own realm, so its arrays are compared as text.
+  const providers = () =>
+    render()
+      .items.map((item) => item.provider)
+      .join(",");
+  assert.equal(providers(), "", "nothing shows before the saved dismissals are read");
   await settle();
   const first = render();
-  assert.equal(first.current.provider, "codex");
+  assert.equal(first.items.map((item) => item.provider).join(","), "claude,codex");
   first.dismiss();
-  assert.equal(render().current.provider, "claude");
-  assert.deepEqual([...saved], ["codex:0.165.0"]);
+  assert.equal(providers(), "");
+  assert.deepEqual([...saved].sort(), ["claude:2.1.312", "codex:0.165.0"]);
   current = transport(); // a reconnect builds a new client and so a new transport
-  assert.equal(render().current, undefined);
+  assert.equal(providers(), "");
   await settle();
-  assert.equal(render().current.provider, "claude", "the dismissed Codex release does not come back");
+  assert.equal(providers(), "", "the dismissed releases do not come back");
   react.unmount();
 });
 

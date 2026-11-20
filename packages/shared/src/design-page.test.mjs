@@ -26,7 +26,7 @@ test("public HTML isolates generated SVG images, escapes labels and carries no s
   input.designs[0].title = '"><img src=x onerror=alert(1)>';
   input.designs[0].document.nodes[0].text = '</script><script>alert("node")</script>';
   const html = renderDesignPage(input);
-  assert.equal((html.match(/<script>/g) ?? []).length, 1);
+  assert.equal((html.match(/<script>/g) ?? []).length, 0, "the service adds the viewer when the page is read");
   assert.equal((html.match(/<figure /g) ?? []).length, 2);
   assert.match(html, /&lt;\/title&gt;/);
   assert.doesNotMatch(html, /onerror=alert\(1\)>|"schemaVersion"|"nodes"/);

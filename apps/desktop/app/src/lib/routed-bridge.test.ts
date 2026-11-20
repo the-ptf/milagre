@@ -123,8 +123,8 @@ const ALLOWED: Record<string, string[]> = {
   "components/sidebar/SidebarLinks.tsx": ["onLinksChanged"],
   "components/LinkWorkspace.tsx": ["syncNotifications", "revealInFolder"],
   "components/ComputerAllowPrompt.tsx": ["onDevicesPending", "listPendingDevices", "allowDevice", "denyDevice"],
-  "components/ProviderUpdateNotice.tsx": ["getProviderUpdates", "updateCli"],
-  "components/UpdateNotice.tsx": ["onUpdateState", "getUpdateState", "installUpdate", "checkForUpdates"],
+  // The update pill updates this computer's own app and CLIs.
+  "components/UpdateNotice.tsx": ["onUpdateState", "getUpdateState", "installUpdate", "checkForUpdates", "getProviderUpdates", "updateCli", "onCliProgress"],
   "components/UpdateReleaseNotes.tsx": ["getUpdateReleaseNotes"],
   // The Dock or taskbar icon is this computer's own.
   "components/settings/AppIconPicker.tsx": ["getAppIcon", "setAppIcon"],

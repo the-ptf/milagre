@@ -38,7 +38,7 @@ import { NewChatHeading } from "./NewChatHeading";
 import Tooltip from "./primitives/Tooltip";
 import { PillSlot, StatusPill } from "./primitives/StatusPill";
 import { AnimatePresence, LayoutGroup } from "motion/react";
-import { ThinkingIndicator } from "./ThinkingIndicator";
+import { RunIndicator } from "./ThinkingIndicator";
 import { BackgroundWork } from "./agents/BackgroundWork";
 import { backgroundItems } from "@milagre/shared/chat-activity";
 import { ChatMarkDotInline } from "./sidebar/ChatMarks";
@@ -413,13 +413,12 @@ export function ChatComposer({
                       </div>
                     )}
                     {isSending && !stepApproval && !asking && (
-                      <div className="w-full" style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" }}>
-                        <ThinkingIndicator
-                          startedAt={runStartedAt}
-                          label={phase ?? (waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`)}
-                          showLabel={Boolean(phase)}
-                        />
-                      </div>
+                      <RunIndicator
+                        run={{ key: streamingKey, text: streamingText, steps: streamingSteps, waitingStepIds, scope: messageScope }}
+                        startedAt={runStartedAt}
+                        label={phase ?? (waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`)}
+                        showLabel={Boolean(phase)}
+                      />
                     )}
                     <BackgroundWork
                       key={runtimeChat}

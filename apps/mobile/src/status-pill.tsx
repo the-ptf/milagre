@@ -6,6 +6,7 @@ import {
   View,
   useWindowDimensions,
   type ColorValue,
+  type GestureResponderEvent,
   type LayoutChangeEvent,
   type TextStyle,
   type ViewInstance,
@@ -106,6 +107,7 @@ export function StatusPill({
   label,
   count,
   total,
+  suffix,
   icon,
   leading,
   tone = "ink2",
@@ -122,6 +124,8 @@ export function StatusPill({
   label?: string;
   count?: number;
   total?: number;
+  /** Text after the count, such as "%". */
+  suffix?: string;
   icon?: IconData;
   leading?: ReactNode;
   tone?: Tone;
@@ -132,14 +136,16 @@ export function StatusPill({
   hidden?: boolean;
   chipRef?: Ref<ViewInstance>;
   onLayout?: (event: LayoutChangeEvent) => void;
-  onPress: () => void;
+  onPress: (event: GestureResponderEvent) => void;
   disabled?: boolean;
 }) {
   const { colors } = useTheme();
   const kit = useKit();
   const ink = INK_TONES.has(tone) ? inkFor(colors, tone as Parameters<typeof inkFor>[1]) : colors[tone];
   const text: TextStyle = { color: ink, fontSize: FONT_SIZE, lineHeight: LINE_HEIGHT, fontVariant: ["tabular-nums"] };
-  const spoken = [label, count === undefined ? undefined : total === undefined ? count : `${count}/${total}`].filter((part) => part !== undefined).join(" ");
+  const spoken = [label, count === undefined ? undefined : total === undefined ? `${count}${suffix ?? ""}` : `${count}/${total}`]
+    .filter((part) => part !== undefined)
+    .join(" ");
   return (
     <Animated.View entering={kit.pillIn} exiting={kit.pillOut} layout={kit.layout} onLayout={onLayout} style={hidden ? { opacity: 0 } : undefined}>
       <Pressable
@@ -181,6 +187,7 @@ export function StatusPill({
                   {count !== undefined && (
                     <Animated.View entering={kit.countIn} exiting={kit.countOut} style={{ flexDirection: "row", alignItems: "center" }}>
                       <RollingNumber value={count} style={text} />
+                      {suffix && <Text style={text}>{suffix}</Text>}
                       {total !== undefined && (
                         <>
                           <Text style={text}>/</Text>

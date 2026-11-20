@@ -194,6 +194,7 @@ test("a Codex release upgrade runs codex update through its own install first, w
   const result = await runCliUpdate("codex", {
     targetVersion: "0.165.0",
     platform: "darwin",
+    channelOf: () => ({ kind: "npm" }),
     inspect: async () => ({ command: "/opt/homebrew/bin/codex", version }),
     execImpl: (cmd, opts, callback) => {
       calls.push({ cmd, first: opts.env.PATH.split(path.delimiter)[0] });
@@ -291,4 +292,85 @@ test("Windows installs a missing CLI with the official PowerShell installer from
     assert.equal(calls[0].options.env.CODEX_NON_INTERACTIVE, "1");
     assert.ok(!calls[0].options.shell);
   }
+});
+
+const CASK = { kind: "homebrew-cask", token: "codex", brew: "/opt/homebrew/bin/brew" };
+
+test("a Codex from a Homebrew cask updates only through Homebrew, never npm over Homebrew's file", async () => {
+  let version = "0.170.0";
+  const commands = [];
+  const progress = [];
+  const result = await runCliUpdate("codex", {
+    targetVersion: "0.171.0",
+    platform: "darwin",
+    channelOf: () => CASK,
+    inspect: async () => ({ command: "/opt/homebrew/bin/codex", version }),
+    release: async () => ({ version: "0.171.0", url: "https://example.test/codex.tar.gz" }),
+    sizeOf: async () => 1000,
+    watch: ({ onProgress }) => {
+      onProgress({ phase: "download", received: 400, total: 1000 });
+      return () => progress.push("stopped");
+    },
+    onProgress: (event) => progress.push(event),
+    execImpl: (cmd, opts, callback) => {
+      commands.push({ cmd, env: opts.env.HOMEBREW_NO_ENV_HINTS });
+      version = "0.171.0";
+      callback(null, "", "");
+    },
+  });
+  assert.deepEqual(result, { ok: true, version: "0.171.0" });
+  assert.deepEqual(commands, [{ cmd: "/opt/homebrew/bin/brew upgrade --cask codex", env: "1" }]);
+  assert.deepEqual(progress, [{ phase: "download", received: 0, total: 1000 }, { phase: "download", received: 400, total: 1000 }, "stopped"]);
+});
+
+test("a failed Homebrew update reports Homebrew's error line and the end of its output", async () => {
+  const commands = [];
+  const stderr = "==> Downloading codex\ncurl: (28) Operation timed out\nError: codex: Download failed\nWarning: something else";
+  const result = await runCliUpdate("codex", {
+    targetVersion: "0.171.0",
+    platform: "darwin",
+    channelOf: () => CASK,
+    inspect: async () => ({ command: "/opt/homebrew/bin/codex", version: "0.170.0" }),
+    release: async () => ({ version: "0.171.0", url: null }),
+    execImpl: (cmd, _opts, callback) => {
+      commands.push(cmd);
+      callback(Object.assign(new Error(`Command failed: ${cmd}\n${stderr}`), { code: 1 }), "", stderr);
+    },
+  });
+  assert.equal(commands.length, 1);
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "Error: codex: Download failed");
+  assert.match(result.log, /Operation timed out/);
+});
+
+test("a Homebrew run that leaves the old version says so instead of naming npm", async () => {
+  const result = await runCliUpdate("codex", {
+    targetVersion: "0.171.0",
+    platform: "darwin",
+    channelOf: () => CASK,
+    inspect: async () => ({ command: "/opt/homebrew/bin/codex", version: "0.170.0" }),
+    release: async () => ({ version: "0.171.0", url: null }),
+    execImpl: (_cmd, _opts, callback) => callback(null, "Warning: Not upgrading codex, the latest version is already installed", ""),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "Homebrew didn't install Codex 0.171.0. Codex is still 0.170.0.");
+});
+
+test("an outdated Codex from Homebrew is brought up to date by Homebrew alone", async () => {
+  let version = "0.150.0";
+  const commands = [];
+  const result = await runCliUpdate("codex", {
+    platform: "darwin",
+    channelOf: () => CASK,
+    refresh: () => {},
+    inspect: async () =>
+      version === "0.150.0" ? { command: "/opt/homebrew/bin/codex", version, problem: "too old" } : { command: "/opt/homebrew/bin/codex", version },
+    execImpl: (cmd, _opts, callback) => {
+      commands.push(cmd);
+      version = "0.171.0";
+      callback(null, "", "");
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(commands, ["/opt/homebrew/bin/brew upgrade --cask codex"]);
 });

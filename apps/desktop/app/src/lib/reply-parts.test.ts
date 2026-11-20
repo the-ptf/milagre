@@ -2,7 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ChatStep } from "../model";
 import { desktopStepApps, desktopStepLabel } from "@milagre/shared/desktop-steps";
-import { activitySummary, isHeartbeatCard, replyActivity, replyImageFile, viewedImageName, replyParts, titleSpans, unspokenThought } from "./reply-parts.ts";
+import {
+  activitySummary,
+  isHeartbeatCard,
+  liveActivity,
+  loaderActivity,
+  replyActivity,
+  replyImageFile,
+  viewedImageName,
+  replyParts,
+  titleSpans,
+  unspokenThought,
+} from "./reply-parts.ts";
 
 const step = (id: string, offset?: number): ChatStep => ({
   id,
@@ -130,6 +141,33 @@ test("text before steps that end the reply is still its answer", () => {
     // The step came after the text: it reads after the answer.
     answerAt: 0,
   });
+});
+
+test("the live calls are the ones after the reply's last text, until text follows them", () => {
+  assert.deepEqual(
+    liveActivity("", [step("a", 0), step("b", 0)]).map((s) => s.id),
+    ["a", "b"],
+  );
+  assert.deepEqual(
+    liveActivity("Checking.\n\n", [step("a", 0), step("b", 9), step("c", 9)]).map((s) => s.id),
+    ["b", "c"],
+  );
+  assert.deepEqual(liveActivity("Checking.\n\nFound it.", [step("a", 0), step("b", 9)]), []);
+  assert.deepEqual(liveActivity("Hello"), []);
+  assert.deepEqual(liveActivity("", [{ ...step("setup", 0), kind: "setup" }]), []);
+});
+
+test("a live call that waits or waited for approval keeps its group out of the loader", () => {
+  assert.deepEqual(
+    loaderActivity("", [step("l1", 0), step("l2", 0)], ["other"]).map((s) => s.id),
+    ["l1", "l2"],
+  );
+  assert.deepEqual(loaderActivity("", [step("l1", 0), step("l2", 0)], ["l2"]), []);
+  assert.deepEqual(loaderActivity("", [step("l1", 0), step("l2", 0)], []), [], "approved, the group stays where its card was");
+  assert.deepEqual(
+    loaderActivity("", [step("l3", 0)], []).map((s) => s.id),
+    ["l3"],
+  );
 });
 
 test("the summary counts thinking time, files, searches, commands and tools", () => {

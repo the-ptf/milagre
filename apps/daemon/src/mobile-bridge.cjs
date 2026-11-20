@@ -48,8 +48,23 @@ function chatLiveSignal(channel, payload) {
   if (payload.state || payload.stateTooLarge || typeof payload.version === "number") return ["project", LIVE_DELAY.runs];
   return [payload.event?.type === "subagent-update" ? "project" : "runs"];
 }
-const SIGNAL_ORDER = ["accounts", "usage", "token-usage", "mcp", "designs", "library", "keybindings", "links", "routines", "orchestrator", "pulls", "btw"];
 const SIGNALS = { "designs:enabled-changed": "designs", "keybindings:changed": "keybindings", "routines:changed": "routines" };
+const SIGNAL_ORDER = [
+  "accounts",
+  "usage",
+  "token-usage",
+  "mcp",
+  "designs",
+  "library",
+  "keybindings",
+  "links",
+  "routines",
+  "orchestrator",
+  "provider-updates",
+  "pulls",
+  "btw",
+];
+const librarySignal = (channel, payload, entry) => (channel === "design-library:changed" && payload?.projectPath === entry.projectPath ? "library" : undefined);
 const OWNER_SIGNALS = {
   "accounts:changed": "accounts",
   "usage:changed": "usage",
@@ -58,6 +73,7 @@ const OWNER_SIGNALS = {
   "local-mcp:changed": "mcp",
   "canvas:links-changed": "links",
   "orchestrator:changed": "orchestrator",
+  "provider-updates:changed": "provider-updates",
 };
 
 async function startMobileBridge({
@@ -273,10 +289,9 @@ async function startMobileBridge({
     hostRuns.changed();
     followState(channel, payload);
     for (const entry of live) {
-      const immediate = SIGNALS[channel] ?? (confine ? undefined : OWNER_SIGNALS[channel]);
+      const immediate = SIGNALS[channel] ?? (confine ? undefined : OWNER_SIGNALS[channel]) ?? librarySignal(channel, payload, entry);
       if (immediate) signal(entry, immediate, 0);
       if (channel === "pull-requests:changed") signal(entry, "pulls", LIVE_DELAY.project);
-      if (channel === "design-library:changed" && payload?.projectPath === entry.projectPath) signal(entry, "library", 0);
       if (
         (channel === "project:state" && payload?.path === entry.projectPath) ||
         (channel === "link:state" && isLinkScopeKey(entry.projectPath) && payload?.linkId === scopeFromKey(entry.projectPath).linkId)
