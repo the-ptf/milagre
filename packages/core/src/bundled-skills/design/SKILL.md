@@ -50,11 +50,15 @@ Keep replies short: say what differs between variants or what changed. The card 
 ```
 
 - **All layers:** `id`, `name`, `type`, `parentId`, `x`, `y`, `width`, `height`, `widthMode`, `heightMode`, `minWidth`, `minHeight`, `fill`, `stroke`, `strokeWidth`, `radius`, `opacity`, `hidden`, `locked`.
-- **Text:** `text`, `fontSize`, `fontFamily`, `fontWeight`, `lineHeight` (unitless, such as `1.35`), `textAlign` (`left`, `center`, `right`). `fill` is the text color.
+- **Text:** `text`, `fontSize`, `fontFamily`, `fontWeight`, `lineHeight` (unitless, such as `1.35`), `letterSpacing` (px, negative tightens), `textAlign` (`left`, `center`, `right`). `fill` is the text color.
 - **Frames:** `layout` (`free`, `horizontal`, `vertical`; the last two place children), `gap`, `padding`, `align` (`start`, `center`, `end`), `justify` (`start`, `center`, `end`, `space-between`).
 - **Other types:** `rectangle`, `ellipse`, `image` (`src`), `icon` (`icon` name; no stroke, radius, text, src or children; an unknown name fails with the closest matches).
 
 **Sizing.** `widthMode`/`heightMode` take `fixed` (default), `hug` (fits text or children) or `fill` (shares the parent's remaining space). Keep numeric `width`/`height` as fallbacks; a fill child in a hug parent uses its fallback. For a vertical card, `heightMode: "hug"` on the frame and `widthMode: "fill", heightMode: "hug"` on its text, so longer copy pushes content down. Prefer hug text in new screens. Inter (400 to 700), the bundled families and the fonts installed on the user's computer are measured with the real font; other fonts and non-Latin scripts use approximate metrics.
+
+## Color modes
+
+One design, one layer tree, every mode: never duplicate a screen or invent `inkDark` tokens for dark mode. A token is one color for all modes or `{"light": "#111", "dark": "#f2f2f2", "contrast": "#000"}` (`light` required; a mode it leaves out uses light). A color field takes a CSS color, `$name`, `$name/0.4` (the token at 40% alpha) or `color-mix(in srgb, $accent 30%, $paper)`; token values may refer to other tokens. The canvas and the phone switch each design between Light, Dark and Increased contrast; shared pages show light. Your image shows light: pass `mode` to `design_show` or `design_inspect` to see and contrast-check another mode, and check every mode the design defines.
 
 ## Fonts
 
@@ -68,7 +72,7 @@ Albert Sans, Anton, Archivo, Barlow, Barlow Condensed, Bebas Neue, Besley, Big S
 
 `design_kit_read` returns the latest kit (default id `project`) or a given version; `null` means none. Create or revise one with `design_kit_save` (`expectedVersion: 0` for new, else the latest) from the app's `DESIGN.md` when it has one, its existing style and confirmed choices. Never invent a new identity for an existing app without the user's direction.
 
-A kit has `title`, `colors`, `textStyles` (`fontSize`, optional `fontFamily`, `fontWeight`, `lineHeight`), `spacing`, `radii` (all four required, may be empty), optional `components` (layer arrays with one main frame whose id is the map key) and `references` (`{title, source}`). Pass the snapshot, with `id` and `version`, as `document.kit`. Use `$color`, `textStyle: "body"` on text and `bindings: {padding: "md", gap: "sm", radius: "card"}` on frames (`radius` from `radii`; `padding`, `gap`, `minWidth`, `minHeight` from `spacing`). A numeric edit drops that binding; a typography edit drops `textStyle`; `unset` removes them explicitly.
+A kit has `title`, `colors` (one color or one per mode, as tokens), `textStyles` (`fontSize`, optional `fontFamily`, `fontWeight`, `lineHeight`, `letterSpacing`), `spacing`, `radii` (all four required, may be empty), optional `tracking` (letter-spacing px) and `opacity` (0 to 1) tokens, optional `components` (layer arrays with one main frame whose id is the map key) and `references` (`{title, source}`). Pass the snapshot, with `id` and `version`, as `document.kit`. Use `$color` (or `$color/0.5`), `textStyle: "body"` on text and `bindings: {padding: "md", gap: "sm", radius: "card"}` on frames (`radius` from `radii`; `padding`, `gap`, `minWidth`, `minHeight` from `spacing`; `letterSpacing` from `tracking`; `opacity` from `opacity`). A numeric edit drops that binding; a typography edit drops `textStyle`; `unset` removes them explicitly.
 
 Kit revisions don't change existing screens. To adopt one, `design_apply` `{op: "document", patch: {kit: <snapshot>}}` and review. Copied component trees are not replaced silently.
 

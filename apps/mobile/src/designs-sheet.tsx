@@ -26,7 +26,7 @@ import type { ArtifactRef } from "@milagre/shared/model";
 import { postDesignMessage, sendDesignMessageNow } from "./design-outbox";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
-import { CircleButton, ErrorNotice, PullDown, SheetHeader, tap, useStyles, type MenuSection } from "./ui";
+import { CircleButton, ErrorNotice, PullDown, SheetHeader, tap, useStyles } from "./ui";
 import { confirmSheet } from "./confirm-store";
 import { duration } from "./design-tokens";
 import { useReducedMotion } from "./motion";
@@ -34,6 +34,8 @@ import { markDesignDeleted } from "./use-design-catalog";
 import { onShareAvailability } from "./share-availability";
 import { loadCanvasDesign } from "./design-font-cache";
 import { CommentBox } from "./viewer-chrome";
+import { designActionsMenu, designHtmlIn, designModeLabel, shownDesignMode } from "./design-modes-menu";
+import type { DesignMode } from "@milagre/shared/design-modes";
 import { useVisibleRunChatKeys } from "./visible-run-chats";
 
 type Note = DesignComment & { key: string };
@@ -234,6 +236,7 @@ export function DesignsSheet({
   const [commenting, setCommenting] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
   const [room, setRoom] = useState({ width: 0, height: 0 });
+  const [modes, setModes] = useState<Record<string, DesignMode>>({});
   const command = useCallback((message: CanvasCommand) => {
     if (!ready.current || !canvas.current) return;
     canvas.current.injectJavaScript(`window.milagreCanvas&&window.milagreCanvas.run(${JSON.stringify(message)});true;`);
@@ -279,13 +282,19 @@ export function DesignsSheet({
     for (const artifact of Object.values(loaded)) {
       if (artifact.format === "design" && artifact.fontKey && artifact.fontCss) sendFont(artifact.fontKey, artifact.fontCss);
       const font = artifact.format === "design" ? artifact.fontKey : undefined;
-      const key = `${artifact.version}:${artifact.html.length}:${font ?? ""}`;
+      const key = `${artifact.version}:${artifact.html.length}:${font ?? ""}:${shownDesignMode(artifact, modes[artifact.id])}`;
       if (sentDocs.current.get(artifact.id) === key) continue;
       sentDocs.current.set(artifact.id, key);
       const code = isInteractiveDesign(artifact);
-      command({ t: "html", id: artifact.id, doc: artifactDocument(artifact.html, { code }), ...(code ? { run: true } : {}), ...(font ? { font } : {}) });
+      command({
+        t: "html",
+        id: artifact.id,
+        doc: artifactDocument(designHtmlIn(artifact, modes[artifact.id]), { code }),
+        ...(code ? { run: true } : {}),
+        ...(font ? { font } : {}),
+      });
     }
-  }, [loaded, command, epoch, layoutKey]);
+  }, [loaded, modes, command, epoch, layoutKey]);
 
   const numbers = useMemo(() => sentNumbers(sent), [sent]);
   const pins = useMemo(() => {
@@ -459,32 +468,14 @@ export function DesignsSheet({
 
   const canvasMode = view.mode === "canvas";
   const latest = shown && "latest" in shown ? shown.latest : (summary?.versions ?? 1);
-  const menu: MenuSection[] = shown
-    ? [
-        { items: [{ id: "resolved", title: "Show resolved comments", checked: showResolved }] },
-        { items: [{ id: "choose", title: pendingHere || sentHere ? "Chosen" : "Choose this design", checked: pendingHere || sentHere, disabled: sentHere }] },
-        ...(latest > 1
-          ? [
-              {
-                title: "Versions",
-                items: Array.from({ length: latest }, (_, index) => latest - index).map((number) => ({
-                  id: `version:${number}`,
-                  title: `Version ${number}${number === latest ? " (latest)" : ""}`,
-                  checked: number === shown.version,
-                })),
-              },
-            ]
-          : []),
-        ...(sharing ? [{ items: [{ id: "share", title: "Share page", systemImage: "square.and.arrow.up" }] }] : []),
-        { items: [{ id: "delete", title: "Delete design", systemImage: "trash", destructive: true }] },
-      ]
-    : [];
+  const menu = designActionsMenu({ shown, latest, showResolved, chosen: pendingHere || sentHere, sent: sentHere, sharing, mode: shown && modes[shown.id] });
   const choose = (action: string) => {
     if (!shown) return;
     if (action === "resolved") setShowResolved(!showResolved);
     else if (action === "choose") setChoice(pendingHere ? null : refOf(shown));
     else if (action === "share") openShare();
     else if (action === "delete") remove(shown);
+    else if (action.startsWith("mode:")) setModes((current) => ({ ...current, [shown.id]: action.slice("mode:".length) as DesignMode }));
     else if (action.startsWith("version:")) {
       const number = Number(action.slice("version:".length));
       setVersions((current) => ({ ...current, [shown.id]: number >= latest ? null : number }));
@@ -498,7 +489,14 @@ export function DesignsSheet({
   const title = canvasMode ? "All designs" : (summary?.title ?? shown?.title ?? "Designs");
   const subtitle = canvasMode
     ? `${ordered.length} ${ordered.length === 1 ? "design" : "designs"}${rows.length > 1 ? ` · ${rows.length} screens` : ""}`
-    : [row?.group, position, shown ? `v${shown.version}` : "", isInteractiveDesign(shown) ? "Interactive" : "", designKitLabel(shown)]
+    : [
+        row?.group,
+        position,
+        shown ? `v${shown.version}` : "",
+        isInteractiveDesign(shown) ? "Interactive" : "",
+        designModeLabel(shown, shown && modes[shown.id]),
+        designKitLabel(shown),
+      ]
         .filter(Boolean)
         .join(" · ");
   const tryable = !canvasMode && isInteractiveDesign(shown);

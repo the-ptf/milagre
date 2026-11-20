@@ -218,6 +218,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (relative === "undo-history" && !(id in modules)) return undoHistoryModule();
       if (relative === "design-font-cache")
         return load("design-font-cache.ts", { "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts") }, "", cache);
+      if (relative === "design-modes-menu")
+        return load("design-modes-menu.ts", { "@milagre/shared/design-modes": require("../packages/shared/src/design-modes.mjs") }, "", cache);
       if (relative === "secret-question")
         return load(
           "secret-question.tsx",

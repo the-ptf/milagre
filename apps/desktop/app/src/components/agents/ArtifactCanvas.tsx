@@ -1,14 +1,6 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  ArrowLeft01Icon,
-  ArrowRight01Icon,
-  CheckmarkCircle02Icon,
-  Delete02Icon,
-  Download04Icon,
-  MoreHorizontalIcon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Delete02Icon, Download04Icon, MoreHorizontalIcon } from "@hugeicons/core-free-icons";
 import {
   ARTIFACT_CSP,
   DESIGN_CODE_CSP,
@@ -39,10 +31,14 @@ import { DESIGN_DELETED, type DesignDeleted } from "./design-events";
 import { DesignExportDialog } from "./DesignExportDialog";
 import { MenuRow, Popover } from "../primitives/Popover";
 import { designLayout, designNodeAt } from "@milagre/shared/design";
+import { DESIGN_MODE_LABELS, designModesOf } from "@milagre/shared/design-modes";
+import { CanvasDesignBody, downloadHtml } from "./CanvasDesignBody";
+import { useDesignMode } from "./design-mode";
+import { DesignFrameChips } from "./DesignFrameChips";
 import { CommentLayer, CommentPin } from "./CommentPin";
 import { LiveDesignLayer, LiveDesignWaiting, LiveDraftFrames } from "./LiveDesignFrame";
 import { useLiveDesign } from "./design-live";
-import { designPreviews, designPreviewKey, designLiveZoom, designPreviewScale } from "./design-preview-cache";
+import { designPreviews, designPreviewKey, designLiveZoom } from "./design-preview-cache";
 import { createDesignVisibility, designDensity, subscribeDesignDensity } from "./design-visibility";
 
 export type DesignPin = {
@@ -141,6 +137,7 @@ export function readArtifact(chatId: string, id: string, version: number | null)
   }
   return read;
 }
+export const designVersionKept = (key: string) => versionsKept.has(key);
 const keptArtifact = (chatId: string | null, id: string, version: number | null) =>
   (chatId && version !== null && versionsKept.get(`${chatId}\n${id}\n${version}`)) || null;
 
@@ -704,6 +701,9 @@ const DesignFrame = memo(function DesignFrame({
     format: artifact?.format ?? design.format,
   };
   const last = Math.max(artifact?.latest ?? 1, design.version);
+  const [chosenMode, setMode] = useDesignMode(chatId, design.id);
+  const modes = artifact?.format === "design" && artifact.document ? designModesOf(artifact.document) : ["light" as const];
+  const mode = modes.includes(chosenMode) ? chosenMode : "light";
   const pendingHere = choice.pending?.id === design.id && choice.pending.version === shown.version;
   const sentHere = !choice.pending && choice.sent?.id === design.id && choice.sent.version === shown.version;
   const isChosen = pendingHere || sentHere;
@@ -779,6 +779,20 @@ const DesignFrame = memo(function DesignFrame({
           </Tooltip>
           {moreOpen && (
             <Popover anchor={moreAnchor} label={`${shown.title} actions`} onClose={() => setMoreOpen(false)}>
+              {modes.length > 1 &&
+                modes.map((item) => (
+                  <MenuRow
+                    key={item}
+                    data-slot="artifact-mode"
+                    role="menuitemradio"
+                    checked={item === mode}
+                    title={DESIGN_MODE_LABELS[item]}
+                    onClick={() => {
+                      setMoreOpen(false);
+                      setMode(item);
+                    }}
+                  />
+                ))}
               <MenuRow
                 data-slot="artifact-export"
                 icon={Download04Icon}
@@ -838,40 +852,6 @@ const DesignFrame = memo(function DesignFrame({
     </>
   );
   // has more than one, and chosen. The actions stay out of the way until the pointer or focus is on the frame.
-  const chips = (
-    <>
-      {isInteractiveDesign(artifact) && (
-        <span
-          data-slot="artifact-interactive"
-          title={active ? "Live: clicks go to the design. Click outside it to let go." : "Interactive: click the design to try it"}
-          aria-label={active ? "Live" : "Interactive"}
-          className={`flex h-5 shrink-0 items-center gap-1 rounded-chip bg-field text-11 font-medium text-ink-2 ${tight ? "w-5 justify-center" : "px-1.5"}`}
-        >
-          <span aria-hidden className={`size-1.5 rounded-full ${active ? "bg-green" : "bg-ink-4"}`} />
-          {!tight && (active ? "Live" : "Interactive")}
-        </span>
-      )}
-      {last > 1 && (
-        <span
-          data-slot="artifact-version-chip"
-          title={`Version ${shown.version} of ${last}`}
-          className="flex h-5 shrink-0 items-center rounded-chip bg-field px-1.5 text-11 font-medium text-ink-2 tabular-nums"
-        >
-          v{shown.version}
-        </span>
-      )}
-      {isChosen && (
-        <span
-          data-slot={sentHere ? "artifact-chosen" : undefined}
-          title={sentHere ? undefined : "Chosen here; Send tells the agent"}
-          className={`flex h-5 shrink-0 items-center gap-1 rounded-chip px-1.5 text-11 font-semibold ${sentHere ? "bg-ink text-on-ink" : "text-ink ring-1 ring-ink ring-inset"}`}
-        >
-          <Icon icon={Tick02Icon} size={12} />
-          Chosen
-        </span>
-      )}
-    </>
-  );
   return (
     <div
       ref={frame}
@@ -892,9 +872,19 @@ const DesignFrame = memo(function DesignFrame({
           <span className={`min-w-0 flex-1 truncate font-medium ${dimmed ? "text-ink-2" : "text-ink"}`} title={shown.title}>
             {shown.title}
           </span>
-          {compact
-            ? isChosen && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} strokeWidth={1.8} aria-label="Chosen" className="shrink-0 text-ink" />
-            : chips}
+          {compact ? (
+            isChosen && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} strokeWidth={1.8} aria-label="Chosen" className="shrink-0 text-ink" />
+          ) : (
+            <DesignFrameChips
+              interactive={isInteractiveDesign(artifact)}
+              active={active}
+              tight={tight}
+              mode={mode}
+              version={shown.version}
+              last={last}
+              chosen={isChosen ? (sentHere ? "sent" : "pending") : null}
+            />
+          )}
           <div
             data-slot="artifact-frame-controls"
             className={`absolute top-full left-1.5 mt-1.5 flex items-center gap-1 whitespace-nowrap rounded-control bg-surface p-1 text-ink shadow-raised ${deleting || moreOpen ? "" : "pointer-events-none opacity-0 transition-opacity group-focus-within/frame:pointer-events-auto group-focus-within/frame:opacity-100 group-hover/frame:pointer-events-auto group-hover/frame:opacity-100"}`}
@@ -921,6 +911,7 @@ const DesignFrame = memo(function DesignFrame({
               allowLive={allowLive}
               scale={scale}
               live={active || (liveZoom && inView) || artifact.format === "html"}
+              mode={mode}
               onPainted={markPainted}
             />
           ) : (
@@ -979,155 +970,3 @@ const DesignFrame = memo(function DesignFrame({
     </div>
   );
 });
-
-function downloadHtml(html: string, filename: string) {
-  const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-  const link = window.document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function CanvasDesignBody({
-  artifact,
-  files,
-  title,
-  previewKey,
-  scale,
-  pixelRatio,
-  allowLive,
-  live,
-  onPainted,
-}: {
-  artifact: Artifact;
-  files?: PageFiles;
-  title: string;
-  previewKey: string;
-  scale: number;
-  pixelRatio: number;
-  allowLive: boolean;
-  live: boolean;
-  onPainted: (ready: boolean) => void;
-}) {
-  type Preview = { key: string; result: NonNullable<ReturnType<typeof designPreviews.get>> };
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [readyPreview, setReadyPreview] = useState<{ key: string; src: string } | null>(null);
-  const [settledScale, setSettledScale] = useState<number | null>(null);
-  const previewScale = readyPreview && settledScale !== null ? settledScale : designPreviewScale(scale);
-  useEffect(() => {
-    const timer = setTimeout(() => setSettledScale(designPreviewScale(scale)), 150);
-    return () => clearTimeout(timer);
-  }, [scale]);
-  const cacheKey = `${previewKey}\n${pixelRatio}\n${previewScale}`;
-  const [imageFailed, setImageFailed] = useState<string | null>(null);
-  const [framePainted, setFramePainted] = useState(false);
-  const [document] = useState(() => (artifact.format === "design" ? artifact.document : undefined));
-  const decoded = !!readyPreview;
-  const useFrame = (allowLive && (live || !document || (preview && "error" in preview.result) || imageFailed === cacheKey)) || (!decoded && framePainted);
-  useLayoutEffect(() => {
-    if (!document) return;
-    return designPreviews.request(
-      cacheKey,
-      document,
-      (result) => setPreview({ key: cacheKey, result }),
-      () => versionsKept.has(previewKey),
-      pixelRatio,
-      previewScale,
-      previewKey,
-    );
-  }, [cacheKey, document, previewKey, pixelRatio, previewScale]);
-  const painted = useFrame ? framePainted || decoded : decoded;
-  useEffect(() => {
-    onPainted(painted);
-  }, [painted, onPainted]);
-  if (artifact.format === "html")
-    return allowLive ? <ArtifactFrame html={artifact.html} title={title} format="html" files={files} onLoad={() => setFramePainted(true)} /> : null;
-  return (
-    <div className="relative size-full" data-painted={painted || undefined} data-slot="design-renderer">
-      {readyPreview && readyPreview.key !== preview?.key && <img src={readyPreview.src} alt="" aria-hidden draggable={false} className="block size-full" />}
-      {preview && "src" in preview.result && (
-        <DecodedPreviewImage
-          key={preview.key}
-          resourceKey={preview.key}
-          src={preview.result.src}
-          title={title}
-          hidden={framePainted}
-          painted={readyPreview?.key === preview.key}
-          onDecoded={setReadyPreview}
-          onFailed={setImageFailed}
-        />
-      )}
-      {useFrame && <PaintedFrame key={previewKey} artifact={artifact} title={title} onPainted={setFramePainted} />}
-    </div>
-  );
-}
-
-const DecodedPreviewImage = memo(function DecodedPreviewImage({
-  resourceKey,
-  src,
-  title,
-  hidden,
-  painted,
-  onDecoded,
-  onFailed,
-}: {
-  resourceKey: string;
-  src: string;
-  title: string;
-  hidden: boolean;
-  painted: boolean;
-  onDecoded: (value: { key: string; src: string }) => void;
-  onFailed: (key: string) => void;
-}) {
-  const receive = useCallback(
-    (image: HTMLImageElement | null) => {
-      if (!image) return;
-      void image.decode().then(
-        () => {
-          if (image.isConnected) onDecoded({ key: resourceKey, src });
-          return null;
-        },
-        () => {
-          if (image.isConnected) onFailed(resourceKey);
-          return null;
-        },
-      );
-    },
-    [resourceKey, src, onDecoded, onFailed],
-  );
-  return (
-    <img
-      ref={receive}
-      src={src}
-      alt={title}
-      aria-hidden={hidden || undefined}
-      draggable={false}
-      decoding="async"
-      className="absolute inset-0 block size-full"
-      style={{ opacity: painted ? 1 : 0 }}
-      onError={(event) => {
-        if (event.currentTarget.isConnected) onFailed(resourceKey);
-      }}
-    />
-  );
-});
-
-/** Unmount on the way back to an image. Every new iframe starts hidden and fades over the decoded preview. */
-function PaintedFrame({ artifact, title, onPainted }: { artifact: Artifact; title: string; onPainted: (painted: boolean) => void }) {
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    onPainted(ready);
-    return () => onPainted(false);
-  }, [ready, onPainted]);
-  return (
-    <div
-      inert={!ready}
-      aria-hidden={!ready || undefined}
-      className="absolute inset-0 transition-opacity duration-[120ms] motion-reduce:transition-none"
-      style={{ opacity: ready ? 1 : 0 }}
-    >
-      <ArtifactFrame html={artifact.html} title={title} format={artifact.format} code={isInteractiveDesign(artifact)} onLoad={() => setReady(true)} />
-    </div>
-  );
-}

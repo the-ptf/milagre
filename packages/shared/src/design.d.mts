@@ -1,4 +1,9 @@
 import type { z } from "zod";
+import type { DesignMode } from "./design-modes.mjs";
+export type { DesignMode } from "./design-modes.mjs";
+export { DESIGN_MODES, DESIGN_MODE_LABELS, designHtmlForMode, designModesOf } from "./design-modes.mjs";
+/** A color token: one color for every mode, or one per mode (light required). */
+export type DesignColorToken = string | { light: string; dark?: string; contrast?: string };
 export const designIcons: Record<string, string>;
 export const DESIGN_INK: "#202720";
 export const DESIGN_PLACEHOLDER: "#d8ded8";
@@ -14,7 +19,7 @@ export interface DesignDocument {
     mode: "advisory" | "strict";
     exceptions?: Array<{ nodeId: string; field: string; value: string | number | Record<string, string | number>; reason: string }>;
   };
-  tokens?: Record<string, string>;
+  tokens?: Record<string, DesignColorToken>;
   nodes: DesignNode[];
 }
 
@@ -22,10 +27,12 @@ export interface DesignKit {
   id: string;
   version: number;
   title: string;
-  colors: Record<string, string>;
-  textStyles: Record<string, { fontFamily?: string; fontSize: number; fontWeight?: number; lineHeight?: number }>;
+  colors: Record<string, DesignColorToken>;
+  textStyles: Record<string, { fontFamily?: string; fontSize: number; fontWeight?: number; lineHeight?: number; letterSpacing?: number }>;
   spacing: Record<string, number>;
   radii: Record<string, number>;
+  tracking?: Record<string, number>;
+  opacity?: Record<string, number>;
   components?: Record<string, DesignNode[]>;
   references?: Array<{ title: string; source: string }>;
 }
@@ -56,6 +63,7 @@ export interface DesignNode {
   fontFamily?: string;
   fontWeight?: number;
   lineHeight?: number;
+  letterSpacing?: number;
   textAlign?: "left" | "center" | "right";
   src?: string;
   icon?: string;
@@ -70,7 +78,7 @@ export interface DesignNode {
   componentId?: string;
   componentSourceId?: string;
   textStyle?: string;
-  bindings?: Partial<Record<"padding" | "gap" | "minWidth" | "minHeight" | "radius", string>>;
+  bindings?: Partial<Record<"padding" | "gap" | "minWidth" | "minHeight" | "radius" | "letterSpacing" | "opacity", string>>;
   componentProperties?: Record<string, { nodeId: string; field: "text" | "icon" | "hidden" | "fill" | "opacity"; options?: Array<string | boolean | number> }>;
   componentValues?: Record<string, string | boolean | number>;
 }
@@ -137,6 +145,11 @@ export function designDiagnostics(document: DesignDocument): {
 /** At most 20 warning lines plus "…and N more", or "" when there are none. */
 export function designWarningText(warnings: DesignWarning[]): string;
 export function designColor(document: DesignDocument, value?: string, fallback?: string): string;
+/** A color field or token value as one CSS color in a mode, or null. */
+export function resolveDesignColor(tokens: Record<string, DesignColorToken> | undefined, value: DesignColorToken | undefined, mode?: DesignMode): string | null;
+export function designColorReferences(value: DesignColorToken | undefined): string[];
+/** The document with color tokens flattened to one mode, for previews and diagnostics. */
+export function designDocumentForMode(document: DesignDocument, mode?: DesignMode): DesignDocument;
 export function designFontFamily(value?: string, fontSize?: number): string;
 /** CSS @font-face rules (data URIs) for the Inter, catalog and installed faces a document's visible text uses, or "". `localFonts: false` leaves installed faces out. */
 export function designFontFaces(document: DesignDocument, options?: { localFonts?: boolean }): string;
@@ -182,7 +195,10 @@ export function designLiveParts(document: DesignDocument): {
   bounds: Map<string, DesignBounds>;
 };
 /** A portable SVG with native shapes, text and image elements. Inter and loaded catalog faces are embedded unless `embedFonts` is false. JSON is the lossless design export. */
-export function designSvg(document: DesignDocument, options?: { embedFonts?: boolean; onCanvasOnly?: boolean; renderByteLimit?: number }): string;
+export function designSvg(
+  document: DesignDocument,
+  options?: { embedFonts?: boolean; onCanvasOnly?: boolean; renderByteLimit?: number; mode?: DesignMode },
+): string;
 export function createExampleDesign(): DesignDocument;
 
 export function designErrorIssues(error: unknown): Array<{ path: Array<string | number>; message: string }>;

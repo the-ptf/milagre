@@ -1,15 +1,10 @@
 import { z } from "zod";
-import { designPaint } from "./design-colors.mjs";
 import { validDesignFontFamily } from "./design-font-family.mjs";
-import { designKitSchema, designBindingsSchema, designConsistencySchema } from "./design-kit.mjs";
+import { designKitSchema, designBindingsSchema, designConsistencySchema, designColorSchema, designColorTokenSchema } from "./design-kit.mjs";
 export { designKitDataSchema } from "./design-kit.mjs";
 
 const id = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/, "Use a stable layer id with letters, numbers, dots, underscores or dashes.");
-const literalColor = z
-  .string()
-  .max(100)
-  .refine((value) => designPaint(value) !== null, "Use a valid CSS color.");
-const color = z.union([literalColor, z.string().regex(/^\$[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/)]);
+const color = designColorSchema;
 const coordinate = z.number().finite().min(-32000).max(32000);
 const dimension = z.number().finite().min(1).max(16000);
 const size = z.number().finite().min(0).max(2000);
@@ -44,6 +39,7 @@ export const nodeSchema = z
     fontFamily: z.string().max(160).refine(validDesignFontFamily, "Use non-empty font family names separated by commas.").optional(),
     fontWeight: z.number().int().min(100).max(900).optional(),
     lineHeight: z.number().finite().min(0.5).max(5).optional().describe("Unitless line-height multiplier, such as 1.35 or 1.5, never pixels. Default 1.35."),
+    letterSpacing: z.number().finite().min(-100).max(100).optional().describe("Tracking in pixels added after each character; negative tightens."),
     textAlign: z.enum(["left", "center", "right"]).optional(),
     src: z
       .string()
@@ -107,14 +103,14 @@ export const designDocumentSchema = z
     kit: designKitSchema.optional(),
     consistency: designConsistencySchema.optional(),
     tokens: z
-      .record(id, literalColor)
+      .record(id, designColorTokenSchema)
       .refine((value) => Object.keys(value).length <= 200, "Use at most 200 color tokens.")
       .optional(),
     nodes: z.array(nodeSchema).max(1000),
   })
   .strict();
 
-const plainColor = z.string().max(100);
+const plainColor = z.string().max(400);
 const { componentSourceId: _generated, ...wireNodeShape } = { ...nodeSchema.shape, fill: plainColor.optional(), stroke: plainColor.optional() };
 export const designDocumentInputSchema = z
   .object({
@@ -128,7 +124,12 @@ export const designDocumentInputSchema = z
         "Strict mode blocks saves with kit drift. Exceptions require nodeId, field, exact diagnostic actual value and a reason. Never disable strict mode or add exceptions unless the user intends that change.",
       ),
     kit: designKitSchema.optional().describe("Pinned project kit snapshot returned by design_kit_read. Read the project kit before creating screens."),
-    tokens: z.record(z.string(), z.string()).optional().describe("Color tokens by name. A color field takes a CSS color or a $name token reference."),
+    tokens: z
+      .record(z.string(), z.union([z.string(), z.object({ light: z.string(), dark: z.string().optional(), contrast: z.string().optional() })]))
+      .optional()
+      .describe(
+        "Color tokens by name: one color, or {light, dark, contrast} for one design that switches modes. A color field takes a CSS color, $name, $name/0.4 for alpha, or color-mix(in srgb, $a 40%, $b).",
+      ),
     nodes: z.array(z.looseObject(wireNodeShape)).max(1000),
   })
   .strict();

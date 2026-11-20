@@ -1,4 +1,10 @@
+const { z } = require("zod");
 const { withDesignHostFonts } = require("./design-host-fonts.cjs");
+
+const DESIGN_MODE_INPUT = z
+  .enum(["light", "dark", "contrast"])
+  .optional()
+  .describe("The color mode your image and warnings show, for a design whose tokens have dark or contrast values. Defaults to light.");
 
 const designImplementation = () => withDesignHostFonts(require("@milagre/shared/design"));
 
@@ -60,9 +66,11 @@ const namedLayers = (ids) =>
     .map((id) => `"${id}"`)
     .join(", ") + (ids.length > MAX_NAMED_LAYERS ? ` and ${ids.length - MAX_NAMED_LAYERS} more` : "");
 
-async function designFeedback(saved, document, { renderPng, warnings: findWarnings, intent }) {
+async function designFeedback(saved, source, { renderPng, warnings: findWarnings, intent, mode }) {
   const problems = [];
   let warnings = [];
+  const document = mode ? designImplementation().designDocumentForMode(source, mode) : source;
+  const modes = designImplementation().designModesOf(source);
   try {
     warnings = findWarnings(document);
   } catch (error) {
@@ -81,6 +89,10 @@ async function designFeedback(saved, document, { renderPng, warnings: findWarnin
           ? "Look at the image and verify the text fits. Keep this fit-text intent and its declared scope for any correction; preserve styles and other copy. Report problems that need a wider scope."
           : "Look at the image: check icons, spacing, alignment and density against the brief, fix what looks wrong and every item under Warnings within the user's requested scope with design_apply, then reply.",
     );
+    if (modes.length > 1)
+      notes.push(
+        `This design switches between ${modes.join(", ")} modes; your image and the warnings show ${mode ?? "light"}. Check the others with design_inspect mode.`,
+      );
     const fonts = unbundledFamilies(document);
     if (fonts.length) notes.push(`Your image shows ${fonts.join(", ")} in Inter; the user sees the real font.`);
     const apple = appleFamilies(document);
@@ -131,4 +143,29 @@ async function interactiveFeedback(saved, html, { screenshot, crop }) {
   return { text: notes.join("\n"), images };
 }
 
-module.exports = { designFeedback, interactiveFeedback, unbundledFamilies, undrawableTextLayers, INTERACTIVE_GUIDE };
+/** design_inspect for a layer design: the image, plus bounds, diagnostics in the chosen mode and what the preview can't draw. */
+async function inspectLayerDesign(saved, document, { renderPng, warnings, nodeId, mode }) {
+  const design = designImplementation();
+  await design.loadDesignFonts(document);
+  const bounds = design.designLayout(document, design.designTextLayout);
+  const crop = nodeId ? bounds.get(nodeId) : undefined;
+  if (nodeId && !crop) throw Error(`Layer "${nodeId}" is missing or hidden.`);
+  let diagnostics;
+  try {
+    diagnostics = { status: "checked", ...design.designDiagnostics(design.designDocumentForMode(document, mode)) };
+  } catch (error) {
+    diagnostics = { status: "failed", error: error.message };
+  }
+  const rendered = await designFeedback(saved, document, { warnings, mode, renderPng: (doc) => renderPng(doc, { crop }) });
+  const preview = {
+    renderer: "resvg",
+    remoteImages: "placeholder",
+    unbundledFonts: unbundledFamilies(document),
+    undrawableText: undrawableTextLayers(document),
+    crop,
+  };
+  const inspection = { version: saved.version, nodeId, mode: mode ?? "light", bounds: Object.fromEntries(bounds), diagnostics, preview };
+  return { ...rendered, text: `${rendered.text}\n${JSON.stringify({ inspection })}` };
+}
+
+module.exports = { designFeedback, interactiveFeedback, inspectLayerDesign, unbundledFamilies, undrawableTextLayers, INTERACTIVE_GUIDE, DESIGN_MODE_INPUT };

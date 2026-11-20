@@ -61,7 +61,7 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
       .join("");
     return (
       take(
-        `<text ${colorAttributes("fill", node.fill, designDefaultFill(node))} font-family="${xml(designFontFamily(node.fontFamily, fontSize))}" font-size="${number(fontSize)}" font-weight="${fontWeight}" text-anchor="${anchor}" xml:space="preserve" style="font-kerning:none;font-variant-ligatures:none;font-feature-settings:&quot;calt&quot; 0">`,
+        `<text ${colorAttributes("fill", node.fill, designDefaultFill(node))} font-family="${xml(designFontFamily(node.fontFamily, fontSize))}" font-size="${number(fontSize)}" font-weight="${fontWeight}"${node.letterSpacing ? ` letter-spacing="${number(node.letterSpacing)}"` : ""} text-anchor="${anchor}" xml:space="preserve" style="font-kerning:none;font-variant-ligatures:none;font-feature-settings:&quot;calt&quot; 0">`,
         node,
       ) +
       spans +

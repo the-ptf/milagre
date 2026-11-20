@@ -65,8 +65,10 @@ export function designTextLayout(node, width = Infinity) {
   );
   const metrics = measured[weight];
   const size = node.fontSize ?? 16;
+  const tracking = node.letterSpacing ?? 0;
   const advances = new Map();
-  const advance = (character) => {
+  const advance = (character) => glyphAdvance(character) + tracking;
+  const glyphAdvance = (character) => {
     if (advances.has(character)) return advances.get(character);
     const point = character.codePointAt(0);
     const measuredExtra = measured.extra && String.fromCodePoint(point) === character ? measured.extra[weight]?.[point] : undefined;

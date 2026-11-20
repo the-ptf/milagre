@@ -1133,3 +1133,34 @@ test("design_validate draws an interactive design without saving it", async (t) 
   );
   assert.equal(refused.valid, false);
 });
+
+test("one design carries every color mode; the agent previews and checks the mode it names", async (t) => {
+  const { api } = await fixture(t);
+  const drawn = [];
+  const tools = Object.fromEntries(
+    artifactToolDefinitions(CHAT, api, undefined, {
+      renderPng: async (document) => {
+        drawn.push(document.tokens);
+        return { mime: "image/png", base64: "" };
+      },
+    }).map((tool) => [tool.name, tool]),
+  );
+  const document = designDocument();
+  document.tokens = { ink: { light: "#16261f", dark: "#1b1b1b" }, paper: { light: "#f5f4ef", dark: "#121212" } };
+  document.background = "$paper";
+  const shown = await tools.design_show.run({ id: "modes", title: "Modes", document });
+  assert.match(shown.text, /switches between light, dark modes; your image and the warnings show light/);
+  const saved = await api.get({ chatId: CHAT, id: "modes" });
+  assert.match(saved.html, /:root\[data-design-mode="dark"\]\{/);
+  assert.deepEqual(saved.document.tokens.ink, { light: "#16261f", dark: "#1b1b1b" });
+  const dark = await tools.design_inspect.run({ id: "modes", mode: "dark" });
+  const inspection = JSON.parse(dark.text.split("\n").at(-1)).inspection;
+  assert.equal(inspection.mode, "dark");
+  assert.deepEqual(
+    inspection.diagnostics.warnings.map((warning) => warning.kind),
+    ["low-contrast"],
+  );
+  assert.deepEqual(drawn.at(-1), { ink: "#1b1b1b", paper: "#121212" });
+  const light = JSON.parse((await tools.design_inspect.run({ id: "modes" })).text.split("\n").at(-1)).inspection;
+  assert.deepEqual(light.diagnostics.warnings, []);
+});

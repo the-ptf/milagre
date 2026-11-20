@@ -26,6 +26,10 @@ An interactive version is `v<N>.html` beside `meta.json`, with `interactive: tru
 
 Deploy `apps/design-share` before a desktop release that changes what a design may contain, or publishing fails validation on the old Worker.
 
+## Color modes
+
+A color token is one color or `{light, dark?, contrast?}`; a plain value is every mode, so older documents are unchanged. Color fields add `$token/alpha` and `color-mix(in srgb, …)`, resolved by `resolveDesignColor` (`design-tokens.mjs`) to one CSS color per mode, so no renderer depends on `color-mix` support. `designHtml` writes every token-based color as a CSS variable with one value per mode under `:root[data-design-mode]`, so one saved page serves every mode: the desktop canvas and the phone add the attribute with `designHtmlForMode` when the user picks a mode (desktop: the frame's More menu; phone: the design's actions menu), and the desktop's preview images draw `designDocumentForMode`. Agents preview and contrast-check a mode with `mode` on `design_show` and `design_inspect`. Shared pages draw light: `publicPageContent` writes literal colors. Kits add `tracking` and `opacity` tokens, bound like spacing.
+
 ## Fonts
 
 Layer designs draw Inter and the catalog families from `packages/shared` everywhere. Fonts installed on the host computer also draw in its local previews: `design-host-fonts.cjs` indexes the system and user font folders (on a Mac, Apple's hidden `SFNS*.ttf`, `SFCompact*.ttf` and `NewYork*.ttf` under their public names), and `loadDesignFonts` asks it for each text layer's face. A face is the font instanced by HarfBuzz (`subset-font`) at the layer's weight and, for an optical-size axis, its font size, cut to the bundled character set and renamed so resvg finds it. Its advances feed `designTextLayout`, so hug text measures with the real font, and the saved HTML embeds it, so the desktop canvas and the phone draw it. `design_font_info` reads the same index for agents: named weights, axes and OS/2 metrics.

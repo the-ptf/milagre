@@ -397,6 +397,10 @@
     },
     "./design-schemas": "./src/design-schemas.mjs",
     "./design-font-file": "./src/design-font-file.mjs",
+    "./design-modes": {
+      "types": "./src/design-modes.d.mts",
+      "default": "./src/design-modes.mjs"
+    },
     "./design-font-characters": "./src/design-font-characters.mjs",
     "./design": {
       "types": "./src/design.d.mts",

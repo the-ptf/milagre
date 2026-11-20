@@ -131,7 +131,8 @@ const phone = {
   schemaVersion: 1,
   width: 390,
   height: 844,
-  background: "#1f2a24",
+  tokens: { screen: { light: "#1f2a24", dark: "#050806" } },
+  background: "$screen",
   nodes: [
     {
       id: "greeting",
@@ -1204,6 +1205,20 @@ async function browserChecks() {
     await screenshot("frame-export-dialog");
     await evaluate("document.querySelector(\"[aria-label='Cancel export']\").click()");
     await waitFor('!document.querySelector("[data-slot=design-export-dialog]")');
+    // A design whose tokens have dark values switches the frame's mode from the same menu, and the choice stays.
+    await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-more]").click()`);
+    await waitFor('document.querySelectorAll("[role=menu] [data-slot=artifact-mode]").length === 2');
+    await evaluate('[...document.querySelectorAll("[data-slot=artifact-mode]")].find((row) => row.textContent === "Dark").click()');
+    await waitFor('!document.querySelector("[role=menu] [data-slot=artifact-mode]")');
+    await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-more]").click()`);
+    await waitFor('!!document.querySelector("[role=menu] [data-slot=artifact-mode]")');
+    assert.equal(
+      await evaluate('[...document.querySelectorAll("[data-slot=artifact-mode]")].find((row) => row.textContent === "Dark").getAttribute("aria-checked")'),
+      "true",
+    );
+    await screenshot("frame-mode-menu");
+    await evaluate('[...document.querySelectorAll("[data-slot=artifact-mode]")].find((row) => row.textContent === "Light").click()');
+    await waitFor('!document.querySelector("[role=menu] [data-slot=artifact-mode]")');
     await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-delete]").click()`);
     await waitFor(`!!${frame("home")}.querySelector("[data-slot=artifact-delete-confirm]")`);
     await screenshot("delete-confirm");

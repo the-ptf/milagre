@@ -12,7 +12,7 @@ const { openAttachment } = require("./attachment-preview.cjs");
 const { diagramScript } = require("@milagre/shared/diagram-script");
 const { renderDesignPng } = require("./design-raster.cjs");
 const { screenshotDesign } = require("./html-render.cjs");
-const { designFeedback, interactiveFeedback, unbundledFamilies, undrawableTextLayers, INTERACTIVE_GUIDE } = require("./design-feedback.cjs");
+const { designFeedback, interactiveFeedback, inspectLayerDesign, INTERACTIVE_GUIDE, DESIGN_MODE_INPUT } = require("./design-feedback.cjs");
 const { BUNDLED_SKILLS_DIRECTORY } = require("./bundled-skills.cjs");
 const DESIGN_SKILL = path.join(BUNDLED_SKILLS_DIRECTORY, "design", "SKILL.md");
 
@@ -834,9 +834,10 @@ function artifactToolDefinitions(
         edits: editsInput.optional().describe("With from, for an interactive design: the edits that turn the copy into the variant."),
         id: z.string().regex(ID).optional(),
         expectedVersion: z.number().int().nonnegative().optional(),
+        mode: DESIGN_MODE_INPUT,
       },
       readOnly: false,
-      run: async (args) => {
+      run: async ({ mode, ...args }) => {
         if ([args.document, args.html, args.from].filter((value) => value !== undefined).length !== 1)
           throw Error("Send document (layers), html (interactive) OR from (with operations or edits).");
         const design = await api.showDesign({ chatId, ...args }, authorization);
@@ -848,7 +849,7 @@ function artifactToolDefinitions(
           args.from || (!args.document.consistency && design.consistency)
             ? (await api.get({ chatId, id: design.id, version: design.version, format: "design" })).document
             : designImplementation().validateDesignDocument(args.document);
-        return designFeedback(design, document, feedback);
+        return designFeedback(design, document, { ...feedback, mode });
       },
     },
     {
@@ -866,46 +867,20 @@ function artifactToolDefinitions(
       name: "design_inspect",
       description:
         "Inspect a saved design without creating a version. Returns its image; for a layer design also computed layer bounds, contrast coverage and preview limitations, for an interactive design its console messages. Use this when taking over from another model or checking a design before you change it. nodeId crops a layer design's image to a visible layer; diagnostics still cover the whole screen.",
-      input: { id: z.string().regex(ID), version: z.number().int().positive().optional(), nodeId: z.string().regex(LAYER_ID).optional() },
+      input: {
+        id: z.string().regex(ID),
+        version: z.number().int().positive().optional(),
+        nodeId: z.string().regex(LAYER_ID).optional(),
+        mode: DESIGN_MODE_INPUT,
+      },
       readOnly: true,
-      run: async ({ nodeId, ...args }) => {
+      run: async ({ nodeId, mode, ...args }) => {
         const { html, document, ...saved } = await api.get({ chatId, ...args, format: "design" });
         if (saved.interactive) {
           if (nodeId) throw Error("An interactive design has no layers; inspect it without nodeId.");
           return interactiveFeedback(saved, html, { screenshot });
         }
-        await designImplementation().loadDesignFonts(document);
-        const bounds = designImplementation().designLayout(document, designImplementation().designTextLayout);
-        const crop = nodeId ? bounds.get(nodeId) : undefined;
-        if (nodeId && !crop) throw Error(`Layer "${nodeId}" is missing or hidden.`);
-        let diagnostics;
-        try {
-          diagnostics = { status: "checked", ...designImplementation().designDiagnostics(document) };
-        } catch (error) {
-          diagnostics = { status: "failed", error: error.message };
-        }
-        const rendered = await designFeedback(saved, document, { ...feedback, renderPng: (doc) => renderPng(doc, { crop }) });
-        return {
-          ...rendered,
-          text:
-            rendered.text +
-            "\n" +
-            JSON.stringify({
-              inspection: {
-                version: saved.version,
-                nodeId,
-                bounds: Object.fromEntries(bounds),
-                diagnostics,
-                preview: {
-                  renderer: "resvg",
-                  remoteImages: "placeholder",
-                  unbundledFonts: unbundledFamilies(document),
-                  undrawableText: undrawableTextLayers(document),
-                  crop,
-                },
-              },
-            }),
-        };
+        return inspectLayerDesign(saved, document, { ...feedback, nodeId, mode });
       },
     },
     {
