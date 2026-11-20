@@ -15,6 +15,7 @@ import {
   GitBranchIcon,
   GitForkIcon,
   GitPullRequestIcon,
+  LibraryIcon,
   Link04Icon,
   PencilEdit02Icon,
   PinIcon,
@@ -220,6 +221,9 @@ function chatEntries(
             onSelect: copy(details.branch ?? ""),
             disabled: !details.branch,
           },
+          ...(actions.onDesignLibrary
+            ? [{ key: "design-library", label: "Design library", icon: LibraryIcon, onSelect: run(() => actions.onDesignLibrary?.()) }]
+            : []),
         ]),
     {
       key: "rename",

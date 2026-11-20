@@ -5711,7 +5711,7 @@ test("a linked Chat shows the Link icon, and its ⋯ menu links with another Cha
     undefined,
   );
   same(ids(login), [
-    ["copy-path", "copy-branch"],
+    ["copy-path", "copy-branch", "design-library"],
     ["rename", "fork", "unread"],
     ["pin"],
     ["link-with", "link-remove"],
@@ -23669,6 +23669,15 @@ test("the phone project menu opens its Design library page", async () => {
   await settleAll();
   assert.deepEqual(JSON.parse(JSON.stringify(nav.routes.at(-1))), { pathname: "/design-library", params: { hostId: "mac", path: "/last", name: "last" } });
   assert.equal(nav.secondaryRoutes.at(-1), true, "a page, pushed after the sidebar closes, as Routines is");
+});
+
+test("a phone Chat row's menu opens its Project's Design library page, in any list view", async () => {
+  const nav = withTwoWorktrees(navigationHost(deferred().promise));
+  const menu = nav.more(nav.row("chat", 0));
+  assert.equal(menu.props.sections.flatMap((section) => section.items).find((item) => item.id === "design-library")?.title, "Design library");
+  menu.props.onSelect("design-library");
+  await settleAll();
+  assert.deepEqual(JSON.parse(JSON.stringify(nav.routes.at(-1))), { pathname: "/design-library", params: { hostId: "mac", path: "/last", name: "web" } });
 });
 
 test("a library page opened from the Design library page starts on all its designs, a design on that design", async (t) => {
