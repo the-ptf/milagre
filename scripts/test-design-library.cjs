@@ -21,12 +21,14 @@ const screen = (title, fill) => ({
 });
 
 const fixture = `
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { designHtml } from "@milagre/shared/design";
 import { ScopeHeader } from "/src/components/sidebar/ScopeHeader";
 import { projectMenu } from "/src/components/sidebar/project-menu";
-import { DesignLibraryHost } from "/src/components/design-library/DesignLibraryHost";
+import { DesignLibraryView } from "/src/components/design-library/DesignLibraryView";
+import { leavesOnEscape } from "/src/lib/run-pane";
+import { isModalOpen } from "/src/lib/modal";
 import "/src/styles.css";
 const docs = { home: ${JSON.stringify(screen("Home", "#2f6f4f"))}, watch: ${JSON.stringify(screen("Rings", "#c2410c"))}, kit: ${JSON.stringify(screen("Buttons", "#6d28d9"))} };
 const entry = (id, title, page, version, edits) => ({ id: "library:" + id, title, page, version, versions: version, format: "design", width: 390, height: 844, edits });
@@ -86,13 +88,32 @@ window.milagre = {
     },
   },
 };
-function Sidebar() {
-  return <aside style={{ width: 260, padding: "56px 0 0" }}>
-    <ScopeHeader name="Habits" icon={<span>H</span>} open current attention={false} onToggle={() => {}} menu={projectMenu({ key: "/repo", name: "Habits" }, () => {})} />
-  </aside>;
+// The app's layout: the sidebar beside the main area, where the Design library is a view like Canvas or Routines and
+// Escape leaves it as the app's shortcut does.
+function Fixture() {
+  const [view, setView] = useState("chat");
+  window.appView = view;
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (leavesOnEscape(view, isModalOpen() || document.documentElement.hasAttribute("data-popover-open"))) setView("chat");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [view]);
+  return <div style={{ display: "flex", height: "100vh" }}>
+    <aside style={{ width: 260, flexShrink: 0, padding: "56px 0 0" }}>
+      <ScopeHeader name="Habits" icon={<span>H</span>} open current attention={false} onToggle={() => {}} menu={projectMenu({ key: "/repo", name: "Habits" }, () => {})} />
+      <button data-fixture-chat onClick={() => setView("chat")}>Login screens</button>
+    </aside>
+    <main data-workspace-main style={{ display: "flex", flex: 1, minWidth: 0, position: "relative" }}>
+      <DesignLibraryView view={view} onShow={setView} />
+      {view === "chat" && <div data-fixture-chat-pane style={{ flex: 1 }}>Chat</div>}
+    </main>
+  </div>;
 }
 document.documentElement.classList.add("dark");
-createRoot(document.getElementById("root")).render(<><Sidebar /><DesignLibraryHost /></>);
+createRoot(document.getElementById("root")).render(<Fixture />);
 `;
 
 async function browserChecks() {
@@ -146,7 +167,12 @@ async function browserChecks() {
     await waitFor(`${cards}?.length === 2 && [...${cards}].every((node) => !!node.querySelector("iframe"))`);
     assert.deepEqual(await evaluate('window.calls.find(([kind]) => kind === "list")[1]'), { projectPath: "/repo" });
     assert.deepEqual(await evaluate('window.calls.find(([kind]) => kind === "get")[1]'), { projectPath: "/repo", id: "library:home", version: 2 });
-    assert.match(await evaluate(`${page}.querySelector("header").textContent`), /Habits.*Design library/);
+    assert.equal(await evaluate("window.appView"), "design-library", "a view of the main area, not a dialog");
+    assert.equal(
+      await evaluate('!!document.querySelector("[data-workspace-main] [data-slot=design-library-page]") && !document.querySelector("dialog[open]")'),
+      true,
+    );
+    assert.equal(await evaluate(`${page}.querySelector("[data-slot=library-title]").textContent`), "Habits · Design library");
     assert.deepEqual(await evaluate(`[...${page}.querySelectorAll("[role=tab]")].map((node) => node.textContent)`), ["All2", "iPhone1", "Watch1"]);
     assert.match(await evaluate(`${card("home")}.textContent`), /Home.*iPhone · 390 × 844.*v2 · Edited in Polish · Codex · 2 h ago/);
     await screenshot("all");
@@ -177,7 +203,7 @@ async function browserChecks() {
     const frame = `${page}.querySelector('[data-slot=artifact-frame][data-artifact="library:home"]')`;
     await waitFor(`!!${frame}?.querySelector("[data-design-body][data-painted]")`);
     assert.match(await evaluate(`${frame}.textContent`), /v2 of 2.*Edited in Polish · Codex/);
-    assert.equal(await evaluate(`${page}.querySelector("[data-slot=library-heading]").textContent`), "Home");
+    assert.equal(await evaluate(`${page}.querySelector("[data-slot=library-title]").textContent`), "Habits · Design library");
     await screenshot("open");
     await evaluate(`${frame}.querySelector("[aria-label='Previous version of Home']").click()`);
     await waitFor(`/v1 of 2.*Edited in Onboarding · Claude/.test(${frame}.textContent)`);
@@ -219,13 +245,31 @@ async function browserChecks() {
     await waitFor(`${cards}.length === 1 && !${card("watch")}`);
     assert.deepEqual(await evaluate('window.calls.findLast(([kind]) => kind === "delete")[1]'), { projectPath: "/repo", id: "library:watch" });
 
+    // Escape over a dialog closes the dialog, not the page; then it leaves the page for the Chat, as other views do.
+    await cardAction("home", "library-rename-design");
+    await waitFor('!!document.querySelector("[data-slot=library-rename]")');
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    await waitFor('!document.querySelector("[data-slot=library-rename]")');
+    assert.equal(await evaluate("window.appView"), "design-library");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    await waitFor('window.appView === "chat" && !document.querySelector("[data-slot=design-library-page]")');
+    // The palette and the Artifact panel open it the same way; choosing a Chat in the sidebar leaves it.
+    await evaluate('window.dispatchEvent(new CustomEvent("milagre:design-library", { detail: { projectKey: "/repo", name: "Habits" } }))');
+    await waitFor(`window.appView === "design-library" && ${cards}?.length === 1`);
+    await click("[data-fixture-chat]");
+    await waitFor('window.appView === "chat" && !document.querySelector("[data-slot=design-library-page]")');
+    await click("[data-scope-menu]");
+    await waitFor('!!document.querySelector("[data-scope-menu-item=design-library]")');
+    await click("[data-scope-menu-item=design-library]");
+    await waitFor(`${cards}?.length === 1`);
+
     // With nothing left the page says how designs get here.
     await evaluate("window.designs = []; window.changed();");
     await waitFor(`!!${page}.querySelector("[data-slot=library-empty]")`);
     assert.match(await evaluate(`${page}.querySelector("[data-slot=library-empty]").textContent`), /Add to Project library.*ask an agent/);
     await screenshot("empty");
     console.log(
-      "PASS: the Project menu opens the Design library page with no Chat; page tabs after All, cards with previews, size and who saved them when; a card opens on the library canvas with versions; rename, move, page rename and delete go through the host; changes from any Chat show; an empty library says how designs get there",
+      "PASS: the Project menu opens the Design library as a view of the main area with no Chat, titled in the top bar; Escape (past a dialog) or a Chat leaves it; page tabs after All, cards with previews, size and who saved them when; a card opens on the library canvas with versions; rename, move, page rename and delete go through the host; changes from any Chat show; an empty library says how designs get there",
     );
     app.exit(0);
   } catch (error) {

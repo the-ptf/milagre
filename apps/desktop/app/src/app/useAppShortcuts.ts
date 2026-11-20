@@ -7,7 +7,7 @@ import { appShortcutsBlocked, isModalOpen } from "../lib/modal";
 import { toggleTheme } from "../lib/settings";
 import { useEvent } from "../lib/stable";
 import { newTerminal } from "../lib/terminal-actions";
-import type { AppView } from "../lib/run-pane";
+import { leavesOnEscape, type AppView } from "../lib/run-pane";
 
 type FamilySessions = Parameters<typeof chatBookmark>[0];
 
@@ -143,12 +143,12 @@ function handleEscape(ctx: EscapeContext, event: KeyboardEvent) {
     ctx.setRoutineId(null);
     return;
   }
-  if (ctx.view === "canvas" || ctx.view === "routines") {
+  if (leavesOnEscape(ctx.view, isModalOpen() || document.documentElement.hasAttribute("data-popover-open"))) {
     event.preventDefault();
     ctx.setView("chat");
     return;
   }
-  if (ctx.view === "orchestrator") return;
+  if (ctx.view === "orchestrator" || ctx.view === "design-library") return;
   ctx.escapeOpenChat(event);
 }
 

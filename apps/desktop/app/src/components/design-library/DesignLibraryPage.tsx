@@ -7,7 +7,7 @@ import { EmptyState } from "../primitives/EmptyState";
 import { MenuRow, Popover } from "../primitives/Popover";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Tabs } from "../primitives/Tabs";
-import { SettingsModal } from "../settings/SettingsModal";
+import { useControlsClearance } from "../../lib/window-chrome";
 import { useDesignLibrary } from "../agents/design-library";
 import { DESIGN_DELETED, type DesignDeleted } from "../agents/design-events";
 import { LibraryCard } from "./LibraryCard";
@@ -25,11 +25,28 @@ function useNow() {
   return now;
 }
 
+function TopBar({ title, onBack }: { title: string; onBack: (() => void) | null }) {
+  const { bar, inset } = useControlsClearance<HTMLDivElement>(true);
+  return (
+    <div ref={bar} style={inset} data-slot="library-top-bar" className="absolute inset-x-3 top-[var(--window-chrome-top)] z-[55] flex h-8 items-center gap-1.5">
+      {onBack && (
+        <span className="no-drag flex">
+          <IconButton data-slot="library-back" label="All designs" icon={ArrowLeft01Icon} size={28} onClick={onBack} />
+        </span>
+      )}
+      <span data-slot="library-title" className="min-w-0 truncate text-13 font-medium text-ink select-none">
+        {title}
+      </span>
+    </div>
+  );
+}
+
 /**
- * A Project's Design library: its library pages as tabs after All, a card per design, and one design open large on
- * the canvas. Reads the library by the Project, so it opens without a Chat and follows every change from any Chat.
+ * A Project's Design library, a page of the window's main area: its library pages as tabs after All, a card per
+ * design, and one design open large on the canvas. Reads the library by the Project, so it opens without a Chat and
+ * follows every change from any Chat.
  */
-export function DesignLibraryPage({ target, onClose }: { target: DesignLibraryTarget; onClose: () => void }) {
+export function DesignLibraryPage({ target }: { target: DesignLibraryTarget }) {
   const { projectKey } = target;
   const library = useDesignLibrary(projectKey);
   const pages = library?.pages ?? [];
@@ -51,17 +68,9 @@ export function DesignLibraryPage({ target, onClose }: { target: DesignLibraryTa
     return () => window.removeEventListener(DESIGN_DELETED, deleted);
   }, [projectKey]);
   return (
-    <SettingsModal label="Design library" onClose={onClose}>
-      <div className="flex h-full min-h-0 flex-col" data-slot="design-library-page">
-        <header className="flex shrink-0 items-center gap-2 border-b border-line py-3 pr-14 pl-5">
-          {opened && <IconButton data-slot="library-back" label="All designs" icon={ArrowLeft01Icon} size={28} onClick={() => setOpenId(null)} />}
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-12 text-ink-3">{opened ? `${target.name} · Design library` : target.name}</div>
-            <h1 className="truncate text-17 font-semibold" data-slot="library-heading">
-              {opened ? opened.title : "Design library"}
-            </h1>
-          </div>
-        </header>
+    <section data-slot="design-library-page" aria-label={`${target.name} · Design library`} className="relative flex min-h-0 flex-1 flex-col">
+      <TopBar title={`${target.name} · Design library`} onBack={opened ? () => setOpenId(null) : null} />
+      <div className="flex min-h-0 flex-1 flex-col pt-[var(--window-chrome-height)]">
         {opened ? (
           <LibraryDesignView key={opened.id} projectKey={projectKey} design={opened} />
         ) : (
@@ -106,7 +115,7 @@ export function DesignLibraryPage({ target, onClose }: { target: DesignLibraryTa
         )}
       </div>
       {action && <LibraryActionDialog projectKey={projectKey} pages={pages} action={action} onClose={() => setAction(null)} />}
-    </SettingsModal>
+    </section>
   );
 }
 
