@@ -3,7 +3,7 @@ import { createDesignDraft, designReplay, parsePartialJson, type DesignDraft } f
 import type { DesignDocument } from "@milagre/shared/design";
 import type { ArtifactRef, Subagent } from "../../model";
 import { stateEvents, type AgentEventUpdate } from "../../lib/state-events";
-import { readArtifact } from "./ArtifactCanvas";
+import { readArtifact } from "./artifact-read";
 
 export type LiveDesign = {
   key: string;

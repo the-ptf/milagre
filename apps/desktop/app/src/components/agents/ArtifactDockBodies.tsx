@@ -10,9 +10,9 @@ import { ArtifactCanvas, type CanvasHandle, type CanvasView } from "./ArtifactCa
 import { ArtifactPage, type PageHandle } from "./ArtifactPage";
 import { CommentOptions } from "./CommentOptions";
 import { COMMENT_KEY } from "./comment-key";
-import type { DockFeedback } from "./dock-feedback";
+import type { DockFeedback, DockPage } from "./dock-feedback";
 
-export const commentLabel = (feedback: DockFeedback, page: "canvas" | "page") =>
+export const commentLabel = (feedback: DockFeedback, page: DockPage) =>
   feedback.commenting ? "Stop commenting" : page === "page" ? "Comment on the page" : "Comment on a design";
 
 export function PageBody({
@@ -79,6 +79,7 @@ export function PageBody({
 export function CanvasBody({
   chatId,
   allowLive,
+  library = false,
   designs,
   versions,
   onVersion,
@@ -87,9 +88,12 @@ export function CanvasBody({
   feedback,
   canComment,
   onShare,
+  onAddToLibrary,
 }: {
   chatId: string;
   allowLive: boolean;
+  /** A page of the Project library: no comments, choices or live drafts. */
+  library?: boolean;
   designs: ArtifactRef[];
   versions: Record<string, number | null>;
   onVersion: (id: string, version: number | null) => void;
@@ -98,16 +102,19 @@ export function CanvasBody({
   feedback: DockFeedback;
   canComment: boolean;
   onShare?: (design: ArtifactRef) => void;
+  onAddToLibrary?: (design: ArtifactRef) => void;
 }) {
   const canvas = useRef<CanvasHandle>(null);
   const [view, setView] = useState<CanvasView | null>(null);
-  const { commenting, toggleComment, choice, setChoice } = feedback;
+  const { toggleComment, choice, setChoice } = feedback;
+  const commenting = feedback.commenting && canComment;
   const label = commentLabel(feedback, "canvas");
   return (
     <div className="relative flex min-h-0 flex-1 flex-col" data-slot="artifact-dock-canvas">
       <ArtifactCanvas
         ref={canvas}
         allowLive={allowLive}
+        library={library}
         chatId={chatId}
         designs={designs}
         versions={versions}
@@ -122,6 +129,7 @@ export function CanvasBody({
         }}
         onView={setView}
         onShare={onShare}
+        onAddToLibrary={onAddToLibrary}
       />
       <ZoomBar
         data-slot="artifact-zoom-bar"

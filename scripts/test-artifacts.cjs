@@ -254,12 +254,33 @@ window.milagre = {
       return added;
     },
     comments: async () => window.kept ?? [],
+    // Like the host's Project library: its own copy of a design, on a named page, with who saved each version.
+    library: async ({ chatId }) => {
+      window.libraryCalls.push(["list", chatId]);
+      const pages = [...new Set(window.libraryDesigns.map((entry) => entry.page))];
+      return { pages: pages.map((page) => ({ id: page, name: window.libraryPages[page], designs: window.libraryDesigns.filter((entry) => entry.page === page) })) };
+    },
+    addToLibrary: async (request) => {
+      window.libraryCalls.push(["add", request]);
+      const page = request.page.toLowerCase();
+      window.libraryPages[page] = request.page;
+      const entry = { id: "library:" + request.designId, version: 1, versions: 1, title: "Home", format: "design", width: 390, height: 844, page, edits: [{ version: 1, chatId: request.chatId, chat: "Login screens", agent: "Claude", at: 1 }] };
+      window.libraryDesigns = [...window.libraryDesigns, entry];
+      window.libraryListeners.forEach((listener) => listener({ projectPath: "milagre-link:fixture" }));
+      return entry;
+    },
+    onLibraryChanged: (listener) => {
+      window.libraryListeners.add(listener);
+      return () => window.libraryListeners.delete(listener);
+    },
     get: async ({ chatId, id, version }) => {
       window.calls.push([chatId, id, version ?? null]);
       // As the daemon: a key under a Worktree's path is no open Chat.
       if (chatId !== "milagre-link:fixture#1") throw new Error("Open an existing Chat before showing a design.");
       if (window.designsEnabled === false && id !== "legacy" && id !== "current-artifact") throw new Error("Designs is disabled.");
       if (id === "home") return { id, version: 1, title: "Home", versions: 1, latest: 1, width: 390, height: 844, format: "design", document: home, html: designHtml(home) };
+      const kept = window.libraryDesigns.find((entry) => entry.id === id);
+      if (kept) return { ...kept, version: version ?? kept.version, latest: kept.version, document: home, html: designHtml(home) };
       if (id === "legacy" || id === "current-artifact") return { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, latest: window.htmlVersion ?? 1, width: 1280, height: 800, ...(window.htmlTabs ? { tabs: window.htmlTabs } : {}), html: "<!doctype html><h1>How this works " + (window.htmlVersion ?? 1) + "</h1>" };
       const latest = window.latest;
       const shown = version ?? latest;
@@ -269,6 +290,15 @@ window.milagre = {
 };
 window.latest = 2;
 window.sent = [];
+window.libraryCalls = [];
+window.libraryDesigns = [];
+window.libraryPages = {};
+window.libraryListeners = new Set();
+// An agent in another Chat of the Project saves a new version of a library design; the host says the library changed.
+window.libraryEdit = (id) => {
+  window.libraryDesigns = window.libraryDesigns.map((entry) => entry.id === id ? { ...entry, version: entry.version + 1, versions: entry.version + 1, edits: [...entry.edits, { version: entry.version + 1, chatId: "milagre-link:fixture#2", chat: "Polish", agent: "Codex", at: 2 }] } : entry);
+  window.libraryListeners.forEach((listener) => listener({ projectPath: "milagre-link:fixture" }));
+};
 const step = (version, offset) => ({ id: "s" + version, kind: "artifact", title: "Showed \`Login screen\`", status: "done", offset, artifact: { id: "login", format: "design", version, title: version === 1 ? "Login screen" : "Login screen, warmer" } });
 function Fixture() {
   const [revised, setRevised] = useState(false);
@@ -649,6 +679,40 @@ async function browserChecks() {
     await waitFor(`${dock}.dataset.page === "canvas" && ${frames}?.length === 2`);
     assert.equal(await evaluate(`${dock} === window.dockNode && window.dockSlides === 0`), true, "and back, still the same panel");
     await evaluate("window.dockWatch.disconnect()");
+
+    // A design goes to the Project library from its frame's menu, onto a page named in the dialog; the panel then shows
+    // that library page, a section of the same page menu, on the same canvas with library ids.
+    const libraryFrame = `${dock}.querySelector('[data-slot=artifact-frame][data-artifact="library:home"]')`;
+    await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-more]").click()`);
+    await waitFor('!!document.querySelector("[role=menu] [data-slot=artifact-add-library]")');
+    await evaluate('document.querySelector("[data-slot=artifact-add-library]").click()');
+    await waitFor('!!document.querySelector("[data-slot=add-to-library] [data-slot=library-page-name]")');
+    assert.equal(await evaluate('document.querySelector("[data-slot=library-add]").disabled'), true, "a page needs a name");
+    await evaluate(
+      'const input = document.querySelector("[data-slot=library-page-name]"); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "iPhone"); input.dispatchEvent(new Event("input", { bubbles: true })); true',
+    );
+    await waitFor('!document.querySelector("[data-slot=library-add]").disabled');
+    await screenshot("library-add");
+    await evaluate('document.querySelector("[data-slot=library-add]").click()');
+    await waitFor(`!document.querySelector("[data-slot=add-to-library]") && ${dock}.dataset.page === "library:iphone" && !!${libraryFrame}`);
+    assert.deepEqual(await evaluate('window.libraryCalls.find(([kind]) => kind === "add")[1]'), {
+      chatId: "milagre-link:fixture#1",
+      designId: "home",
+      page: "iPhone",
+    });
+    assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-dock-title]").textContent`), "Project library · iPhone");
+    assert.equal(await evaluate(`${frames}.length`), 1, "the library page holds only its own designs");
+    assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-mode-comment]").disabled`), true, "library designs take no comments yet");
+    assert.match(await evaluate(`${libraryFrame}.textContent`), /v1 of 1.*Edited in Login screens · Claude/);
+    await screenshot("library-page");
+    // An agent in another Chat of the Project revises it: the host's change event reads the library again, and the frame
+    // follows the new version and says who saved it.
+    await evaluate('window.libraryEdit("library:home")');
+    await waitFor(`/v2 of 2.*Edited in Polish · Codex/.test(${libraryFrame}?.textContent ?? "")`);
+    assert.deepEqual(await evaluate('window.calls.filter(([, id]) => id === "library:home").map(([chatId]) => chatId).at(-1)'), "milagre-link:fixture#1");
+    await screenshot("library-edited-elsewhere");
+    await chooseInMenu("Canvas");
+    await waitFor(`${dock}.dataset.page === "canvas" && ${frames}?.length === 2`);
 
     // The group card's Open frames every design it showed.
     await evaluate(`${group}.querySelector(":scope > div:last-child button").click()`);

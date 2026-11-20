@@ -7,11 +7,12 @@ import {
   Cancel01Icon,
   Comment01Icon,
   File01Icon,
+  LibraryIcon,
   MoreHorizontalIcon,
   PaintBoardIcon,
   Share08Icon,
 } from "@hugeicons/core-free-icons";
-import { ARTIFACT_SEND, artifactTab, type ArtifactComment, type HtmlArtifact, type PageShareScope } from "@milagre/shared/artifact";
+import { ARTIFACT_SEND, artifactTab, type ArtifactComment, type DesignLibraryPage, type HtmlArtifact, type PageShareScope } from "@milagre/shared/artifact";
 import { isModalOpen } from "../../lib/modal";
 import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
@@ -23,12 +24,15 @@ import { useDesignSharingAvailable } from "../../lib/design-sharing-available";
 import { ARTIFACT_EXPANDED, dockLayer, useDockArea } from "./dock-area";
 import { ResizableDockSlide } from "./DockSlide";
 import { MIN_CHAT_WIDTH, usePanelWidth } from "./panel-width";
-import { useArtifact, type DesignPin } from "./ArtifactCanvas";
+import type { DesignPin } from "./ArtifactCanvas";
+import { useArtifact } from "./artifact-read";
 import { DesignPageShareDialog } from "./DesignPageShareDialog";
 import { CommentOptions } from "./CommentOptions";
 import { COMMENT_KEY, useCommentKey } from "./comment-key";
 import { CanvasBody, PageBody, commentLabel } from "./ArtifactDockBodies";
 import { useDockFeedback, type DockFeedback, type DockPage } from "./dock-feedback";
+import { libraryDockPage, libraryPageId, libraryRefs } from "./design-library";
+import { AddToLibraryDialog, type LibrarySource } from "./AddToLibraryDialog";
 
 /** The panel's accessible name: the Cmd+Enter handler finds its own panel by it. */
 const ARTIFACT_DOCK_LABEL = "Artifact";
@@ -40,6 +44,7 @@ type DockProps = {
   chatId: string;
   designs: ArtifactRef[];
   htmlRef: ArtifactRef | undefined;
+  library: DesignLibraryPage[];
   revision: string;
   focus: { id: string | null; nonce: number };
   versions: Record<string, number | null>;
@@ -92,11 +97,13 @@ function useSendShortcut(onSend: DockProps["onSend"], active: DockFeedback) {
  * switches between them in place, without the panel sliding in again or changing width.
  */
 export function ArtifactDock(props: DockProps) {
-  const { page, onPage, hasCanvas, chatId, designs, htmlRef, onSend, onClose } = props;
+  const { page, onPage, hasCanvas, chatId, designs, htmlRef, library, onSend, onClose } = props;
   const { artifact, error: pageError } = useArtifact(htmlRef ? chatId : null, htmlRef?.id ?? "", null, htmlRef?.version);
   const html = artifact?.format === "html" ? artifact : null;
   const [expanded, setExpanded] = useState(false);
   const [sharing, setSharing] = useState<PageShareScope | null>(null);
+  const [adding, setAdding] = useState<LibrarySource | null>(null);
+  const libraryPage = library.find((item) => item.id === libraryPageId(page));
   const sharingAvailable = useDesignSharingAvailable(chatId);
   const area = useDockArea();
   const reduced = useReducedMotion();
@@ -123,9 +130,9 @@ export function ArtifactDock(props: DockProps) {
   };
   const canvasFeedback = useDockFeedback({ ...shared, page: "canvas", openComment: page === "canvas" ? props.openComment : undefined });
   const pageFeedback = useDockFeedback({ ...shared, page: "page", openComment: page === "page" ? props.openComment : undefined });
-  const active = page === "canvas" ? canvasFeedback : pageFeedback;
+  const active = page === "page" ? pageFeedback : canvasFeedback;
   const escape = () => {
-    if (document.querySelector("[data-slot=design-editor], [data-slot=design-page-share]")) return;
+    if (document.querySelector("[data-slot=design-editor], [data-slot=design-page-share], [data-slot=add-to-library]")) return;
     if (active.commenting) active.setCommenting(false);
     else onClose();
   };
@@ -141,6 +148,12 @@ export function ArtifactDock(props: DockProps) {
   useCommentKey(!!onSend, active.toggleComment);
   useSendShortcut(onSend, active);
   const shareDesign = useCallback((design: ArtifactRef) => setSharing({ kind: "design", designId: design.id }), []);
+  const addDesign = useCallback((design: ArtifactRef) => setAdding({ designId: design.id, title: design.title }), []);
+  const addPage =
+    html && !html.assets?.length
+      ? () =>
+          setAdding({ designId: html.id, title: artifactTab(html, pageTab)?.title ?? html.title, tab: html.tabs ? artifactTab(html, pageTab)?.id : undefined })
+      : undefined;
   return createPortal(
     <ResizableDockSlide
       panel="artifacts"
@@ -176,6 +189,7 @@ export function ArtifactDock(props: DockProps) {
         hasCanvas={hasCanvas}
         html={html}
         htmlRef={htmlRef}
+        library={library}
         tab={pageTab}
         onChoose={(next, tab) => {
           if (next === "page") setPageTab(tab);
@@ -189,21 +203,25 @@ export function ArtifactDock(props: DockProps) {
           if (!expanded) window.dispatchEvent(new Event(ARTIFACT_EXPANDED));
           setExpanded(!expanded);
         }}
-        onShare={sharingAvailable ? setSharing : undefined}
+        onShare={sharingAvailable && !libraryPage ? setSharing : undefined}
+        onAddPage={addPage}
         onClose={onClose}
       />
-      {page === "canvas" ? (
+      {page !== "page" ? (
         <CanvasBody
+          key={libraryPage ? page : "canvas"}
           chatId={chatId}
-          allowLive={entered}
-          designs={designs}
+          allowLive={entered && !libraryPage}
+          library={!!libraryPage}
+          designs={libraryPage ? libraryRefs(libraryPage) : designs}
           versions={props.versions}
           onVersion={props.onVersion}
           focus={props.focus}
           chosen={props.chosen}
           feedback={canvasFeedback}
-          canComment={!!onSend}
-          onShare={sharingAvailable ? shareDesign : undefined}
+          canComment={!!onSend && !libraryPage}
+          onShare={sharingAvailable && !libraryPage ? shareDesign : undefined}
+          onAddToLibrary={libraryPage ? undefined : addDesign}
         />
       ) : entered ? (
         <PageBody
@@ -218,6 +236,18 @@ export function ArtifactDock(props: DockProps) {
         />
       ) : (
         <div className="min-h-0 flex-1 bg-canvas" />
+      )}
+      {adding && (
+        <AddToLibraryDialog
+          chatId={chatId}
+          pages={library}
+          source={adding}
+          onClose={() => setAdding(null)}
+          onAdded={(entry) => {
+            setAdding(null);
+            onPage(libraryDockPage(entry.page));
+          }}
+        />
       )}
       {sharing && (
         <DesignPageShareDialog
@@ -238,6 +268,7 @@ function PageMenu({
   hasCanvas,
   html,
   htmlRef,
+  library,
   tab,
   onChoose,
 }: {
@@ -245,6 +276,7 @@ function PageMenu({
   hasCanvas: boolean;
   html: HtmlArtifact | null;
   htmlRef: ArtifactRef | undefined;
+  library: DesignLibraryPage[];
   tab: string | null;
   onChoose: (page: DockPage, tab: string | null) => void;
 }) {
@@ -253,6 +285,7 @@ function PageMenu({
   const shownTab = html ? artifactTab(html, tab) : null;
   const canvasIcon = <Icon icon={PaintBoardIcon} size={16} />;
   const pageIcon = <Icon icon={File01Icon} size={16} />;
+  const libraryIcon = <Icon icon={LibraryIcon} size={16} />;
   const titled = (text: string, detail?: string) => (
     <span data-slot="artifact-dock-title" className="min-w-0 truncate text-13">
       {text}
@@ -266,9 +299,20 @@ function PageMenu({
         ? tabs.map((item) => ({ value: `page:${item.id}`, label: item.title, icon: pageIcon, group: title, display: titled(title, item.title) }))
         : [{ value: "page:", label: title, icon: pageIcon, display: titled(title) }]
       : []),
+    ...library.map((item) => ({
+      value: libraryDockPage(item.id),
+      label: item.name,
+      icon: libraryIcon,
+      group: "Project library",
+      display: titled("Project library", item.name),
+    })),
   ];
-  const value = page === "canvas" ? "canvas" : `page:${tabs && shownTab ? shownTab.id : ""}`;
-  if (options.length < 2) return titled(page === "canvas" ? "Canvas" : title, page === "page" && tabs && shownTab ? shownTab.title : undefined);
+  const value = page === "page" ? `page:${tabs && shownTab ? shownTab.id : ""}` : page;
+  const shownLibrary = library.find((item) => item.id === libraryPageId(page));
+  if (options.length < 2)
+    return shownLibrary
+      ? titled("Project library", shownLibrary.name)
+      : titled(page === "canvas" ? "Canvas" : title, page === "page" && tabs && shownTab ? shownTab.title : undefined);
   const current = options.find((option) => option.value === value) ?? options[0]!;
   return (
     <Select
@@ -277,7 +321,7 @@ function PageMenu({
       width={240}
       value={current.value}
       options={options}
-      onChange={(next) => (next === "canvas" ? onChoose("canvas", null) : onChoose("page", next.slice("page:".length) || null))}
+      onChange={(next) => (next.startsWith("page:") ? onChoose("page", next.slice("page:".length) || null) : onChoose(next as DockPage, null))}
     />
   );
 }
@@ -287,6 +331,7 @@ function DockHeader({
   hasCanvas,
   html,
   htmlRef,
+  library,
   tab,
   onChoose,
   feedback,
@@ -295,12 +340,14 @@ function DockHeader({
   expanded,
   onExpand,
   onShare,
+  onAddPage,
   onClose,
 }: {
   page: DockPage;
   hasCanvas: boolean;
   html: HtmlArtifact | null;
   htmlRef: ArtifactRef | undefined;
+  library: DesignLibraryPage[];
   tab: string | null;
   onChoose: (page: DockPage, tab: string | null) => void;
   feedback: DockFeedback;
@@ -309,6 +356,7 @@ function DockHeader({
   expanded: boolean;
   onExpand: () => void;
   onShare?: (scope: PageShareScope) => void;
+  onAddPage?: () => void;
   onClose: () => void;
 }) {
   const more = useRef<HTMLSpanElement>(null);
@@ -316,9 +364,9 @@ function DockHeader({
   const label = commentLabel(feedback, page);
   return (
     <header className="flex shrink-0 items-center gap-1 border-b border-line px-3 py-2">
-      <Icon icon={page === "canvas" ? PaintBoardIcon : File01Icon} size={14} />
+      <Icon icon={page === "canvas" ? PaintBoardIcon : page === "page" ? File01Icon : LibraryIcon} size={14} />
       <div className="ml-1 flex min-w-0 flex-1 items-center gap-2">
-        <PageMenu page={page} hasCanvas={hasCanvas} html={html} htmlRef={htmlRef} tab={tab} onChoose={onChoose} />
+        <PageMenu page={page} hasCanvas={hasCanvas} html={html} htmlRef={htmlRef} library={library} tab={tab} onChoose={onChoose} />
       </div>
       {feedback.count > 0 && (
         <Tooltip label={feedback.error || "Send to the agent"}>
@@ -340,7 +388,7 @@ function DockHeader({
           <IconButton label="Share" icon={Share08Icon} size={24} data-slot="artifact-share" onClick={() => onShare({ kind: "workspace" })} />
         </Tooltip>
       )}
-      {onShare && page === "page" && hasCanvas && (
+      {page === "page" && ((onShare && hasCanvas) || onAddPage) && (
         <span ref={more} className="inline-flex">
           <IconButton
             label="More actions for the page"
@@ -352,15 +400,28 @@ function DockHeader({
           />
           {moreOpen && (
             <Popover anchor={more} label="Page actions" onClose={() => setMoreOpen(false)}>
-              <MenuRow
-                data-slot="artifact-share-page"
-                icon={Share08Icon}
-                title="Share this page…"
-                onClick={() => {
-                  setMoreOpen(false);
-                  onShare({ kind: "artifacts" });
-                }}
-              />
+              {onShare && hasCanvas && (
+                <MenuRow
+                  data-slot="artifact-share-page"
+                  icon={Share08Icon}
+                  title="Share this page…"
+                  onClick={() => {
+                    setMoreOpen(false);
+                    onShare({ kind: "artifacts" });
+                  }}
+                />
+              )}
+              {onAddPage && (
+                <MenuRow
+                  data-slot="artifact-add-library"
+                  icon={LibraryIcon}
+                  title="Add to Project library…"
+                  onClick={() => {
+                    setMoreOpen(false);
+                    onAddPage();
+                  }}
+                />
+              )}
             </Popover>
           )}
         </span>

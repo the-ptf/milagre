@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Download04Icon, MoreHorizontalIcon, Share08Icon } from "@hugeicons/core-free-icons";
+import { Download04Icon, LibraryIcon, MoreHorizontalIcon, Share08Icon } from "@hugeicons/core-free-icons";
 import { isInteractiveDesign, type DesignArtifact } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
@@ -16,19 +16,21 @@ function downloadHtml(html: string, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** A design frame's ⋯ menu on the canvas: export it, and share it on its own link. */
+/** A design frame's ⋯ menu on the canvas: export it, share it on its own link, and add it to the Project library. */
 export function DesignFrameMenu({
   artifact,
   shown,
   open,
   onOpen,
   onShare,
+  onAddToLibrary,
 }: {
   artifact: DesignArtifact;
   shown: ArtifactRef;
   open: boolean;
   onOpen: (open: boolean) => void;
   onShare?: (design: ArtifactRef) => void;
+  onAddToLibrary?: (design: ArtifactRef) => void;
 }) {
   const anchor = useRef<HTMLSpanElement>(null);
   const [exporting, setExporting] = useState(false);
@@ -65,6 +67,17 @@ export function DesignFrameMenu({
               onClick={() => {
                 onOpen(false);
                 onShare(shown);
+              }}
+            />
+          )}
+          {onAddToLibrary && (
+            <MenuRow
+              data-slot="artifact-add-library"
+              icon={LibraryIcon}
+              title="Add to Project library…"
+              onClick={() => {
+                onOpen(false);
+                onAddToLibrary(shown);
               }}
             />
           )}
