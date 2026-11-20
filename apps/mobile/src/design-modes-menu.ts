@@ -3,7 +3,7 @@ import { DESIGN_MODE_LABELS, designHtmlForMode, designModesOf, type DesignMode }
 import type { MenuSection } from "./ui";
 
 /** The modes a loaded design can show in; one entry when its tokens define no dark or contrast values. */
-export const designModesFor = (artifact: Artifact | undefined): DesignMode[] =>
+const designModesFor = (artifact: Artifact | undefined): DesignMode[] =>
   artifact?.format === "design" && artifact.document ? designModesOf(artifact.document) : ["light"];
 
 /** The mode a design is shown in: the chosen one while the design still defines it, otherwise light. */
