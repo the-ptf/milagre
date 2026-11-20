@@ -131,29 +131,23 @@ export function LibrarySheet({
       command({ t: "html", id: artifact.id, doc, ...(code ? { run: true } : {}), ...(font ? { font } : {}) });
     }
   }, [loaded, modes, command, epoch, layoutKey]);
-  const onMessage = useCallback(
-    (data: string) => {
-      let message: Record<string, unknown>;
-      try {
-        message = JSON.parse(data);
-      } catch {
-        return;
-      }
-      if (message?.t === "ready") {
-        ready.current = true;
-        sent.current.clear();
-        fonts.current.clear();
-        setPlaying(null);
-        setEpoch((value) => value + 1);
-      } else if (message?.t === "play") setPlaying(typeof message.id === "string" ? message.id : null);
-      else if (message?.t === "view" && (message.mode === "design" || message.mode === "canvas") && typeof message.id === "string") {
-        setView({ mode: message.mode, id: message.id });
-        if (!overviewed.current) command({ t: "overview" });
-        overviewed.current = true;
-      }
-    },
-    [command],
-  );
+  const onMessage = useCallback((data: string) => {
+    let message: Record<string, unknown>;
+    try {
+      message = JSON.parse(data);
+    } catch {
+      return;
+    }
+    if (message?.t === "ready") {
+      ready.current = true;
+      sent.current.clear();
+      fonts.current.clear();
+      setPlaying(null);
+      setEpoch((value) => value + 1);
+    } else if (message?.t === "play") setPlaying(typeof message.id === "string" ? message.id : null);
+    else if (message?.t === "view" && (message.mode === "design" || message.mode === "canvas") && typeof message.id === "string")
+      setView({ mode: message.mode, id: message.id });
+  }, []);
 
   const shownId = view.id ?? id ?? null;
   const shown = shownId ? loaded[shownId] : undefined;
