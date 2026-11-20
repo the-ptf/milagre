@@ -2,6 +2,7 @@ import { Delete02Icon } from "@hugeicons/core-free-icons";
 import Tooltip from "../primitives/Tooltip";
 import { Button, IconButton } from "../primitives/Button";
 import { bridgeForKey } from "../../lib/computer-bridge";
+import { designScope } from "@milagre/shared/artifact";
 import { DESIGN_DELETED, type DesignDeleted } from "./design-events";
 
 export type Deleting = "confirm" | "busy" | null;
@@ -31,7 +32,7 @@ export function DesignDeleteButton({
     onDeleting("busy");
     onError("");
     try {
-      await bridgeForKey(chatId).artifacts.delete({ chatId, id });
+      await bridgeForKey(chatId).artifacts.delete({ ...designScope(chatId), id });
       window.dispatchEvent(new CustomEvent<DesignDeleted>(DESIGN_DELETED, { detail: { chatId, id } }));
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : String(cause));

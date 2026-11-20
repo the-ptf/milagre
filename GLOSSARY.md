@@ -47,7 +47,7 @@ An archived **Chat** stays readable from a linked side but is never chosen to re
 _Avoid_: session, thread (the providers' names for the agent process behind a **Chat**)
 
 **Project library**:
-The designs a **Project** keeps past its **Chats**, on named pages (such as iPhone, Watch, Kit). A design or the HTML page is added from a **Chat**'s Artifact panel as a copy, and agents in any **Chat** of the **Project** revise it by its `library:<id>`; every save is a version recorded with its **Chat** ([designs](docs/designs.md)).
+The designs a **Project** keeps past its **Chats**, on named pages (such as iPhone, Watch, Kit). A design or the HTML page is added from a **Chat**'s Artifact panel as a copy, and agents in any **Chat** of the **Project** revise it by its `library:<id>`; every save is a version recorded with its **Chat** ([designs](docs/designs.md)). The **Project**'s Design library page shows the whole library and renames, moves and deletes its designs without a **Chat**.
 _Avoid_: shared designs, global canvas
 
 **Background task**:

@@ -266,7 +266,7 @@ document.addEventListener("gesturestart",function(e){e.preventDefault()});
 new ResizeObserver(function(){if(!placed)return;stop();track=[];var b=boards.get(current),v=mode==="design"&&b?focusView(b):overview();x=v.x;y=v.y;s=v.s;paint()}).observe(port);
 window.milagreCanvas={run:function(c){if(!c||typeof c!=="object")return;
 if(c.t==="set"){if(c.ink)ink=String(c.ink);if(c.accent)accent=String(c.accent);if(c.pad)pad={top:+c.pad.top||0,bottom:+c.pad.bottom||0};var was=boards.get(current),wx=was&&was.x,wy=was&&was.y;layout(Array.isArray(c.rows)?c.rows:[]);if(was&&boards.get(current)===was){x-=(was.x-wx)*s;y-=(was.y-wy)*s}if(Array.isArray(c.pins))setPins(c.pins);
-var b=boards.get(String(c.focus||""))||boards.get(current)||order[0];if(b&&(!placed||!boards.has(current))){current=b.id;var v=focusView(b);x=v.x;y=v.y;s=v.s;placed=true}paint()}
+var b=boards.get(String(c.focus||""))||boards.get(current)||order[0];if(b&&(!placed||!boards.has(current))){current=b.id;if(c.overview&&!placed)mode="canvas";var v=mode==="canvas"?overview():focusView(b);x=v.x;y=v.y;s=v.s;placed=true}paint()}
 else if(c.t==="fonts"){if(typeof c.key==="string"&&typeof c.css==="string"&&c.css)fonts.set(c.key,c.css)}
 else if(c.t==="html")setDoc(String(c.id),String(c.doc||""),c.font,c.run===true);
 else if(c.t==="play")setPlay(c.id==null?null:String(c.id));

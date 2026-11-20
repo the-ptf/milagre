@@ -11,6 +11,7 @@ import type { RecentProject } from "./project-list";
 import { getSettings, updateSettings } from "./settings";
 import { settingsCommands, settingsPageCommands } from "./settings-commands";
 import { orchestratorEnabled } from "./orchestrator-store";
+import { openDesignLibrary } from "./design-library-page";
 import type { AppView } from "./run-pane";
 
 type Run = void | Promise<unknown>;
@@ -183,6 +184,19 @@ function actionCommands(ctx: AppCommandContext): Command[] {
       keywords: "appearance switch color mode",
       run: actions.toggleTheme,
     },
+    ...(ctx.projectSettings && ctx.current.path
+      ? [
+          {
+            id: "design-library",
+            label: "Design library",
+            group: "Actions",
+            icon: "library" as const,
+            detail: ctx.current.name,
+            keywords: "designs project library pages mockups",
+            run: () => openDesignLibrary(ctx.current.path, ctx.current.name),
+          },
+        ]
+      : []),
     ...(ctx.projectSettings
       ? [
           {

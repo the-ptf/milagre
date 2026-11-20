@@ -7,6 +7,7 @@ import { Cancel01Icon, DashboardSquare01Icon, MoreHorizontalIcon, PlayIcon } fro
 import {
   artifactDocument,
   designGroups,
+  designScope,
   isInteractiveDesign,
   libraryEditLabel,
   type Artifact,
@@ -15,10 +16,11 @@ import {
   type DesignLibraryPage,
 } from "@milagre/shared/artifact";
 import { ArtifactPageTitle, artifactPageMenu, useChatDesigns, usePageTabs } from "./artifact-page-menu";
-import { versionSections } from "./artifact-pages";
+import { artifactPageSections, readPageChoice, versionSections } from "./artifact-pages";
+import { allComputers } from "./all-computers";
 import { confirmSheet } from "./confirm-store";
 import { loadCanvasDesign } from "./design-font-cache";
-import { useDesignLibrary } from "./design-library";
+import { editLibraryDesign, libraryEditSections, useDesignLibrary } from "./design-library";
 import { DesignsCanvas } from "./designs-sheet";
 import { designHtmlIn, designModeLabel, designModeMenu, shownDesignMode } from "./design-modes-menu";
 import type { DesignMode } from "@milagre/shared/design-modes";
@@ -32,11 +34,14 @@ type CanvasCommand = Record<string, unknown> & { t: string };
 /**
  * A page of the Project library on the phone's Artifact sheet (or the iPad's panel tab): its designs on the same canvas
  * as the Chat's, always the latest library version unless a version is picked. Library designs take no comments or
- * choices yet; the actions pick a color mode, step through versions and remove a design from the library for every Chat.
+ * choices yet; the actions pick a color mode, step through versions, rename a design, move it to another page and remove
+ * it from the library for every Chat.
+ * Opened from the Project's Design library page it has `projectPath` instead of a Chat, and reads any paired computer.
  */
 export function LibrarySheet({
   hostId,
   chatId,
+  projectPath,
   page: pageId,
   id,
   onClose,
@@ -44,6 +49,7 @@ export function LibrarySheet({
 }: {
   hostId?: string;
   chatId?: string;
+  projectPath?: string;
   page?: string;
   id?: string;
   onClose?: () => void;
@@ -54,9 +60,11 @@ export function LibrarySheet({
   const { client, designs: feature, reconnects } = useSession();
   const insets = useSafeAreaInsets();
   const close = useCallback(() => (onClose ? onClose() : router.back()), [onClose]);
-  const matching = client && chatId && (!hostId || hostId === client.url) ? client : null;
+  const scopeKey = chatId ?? projectPath;
+  const own = client && (!hostId || hostId === client.url) ? client : null;
+  const matching = chatId ? own : projectPath ? (own ?? (hostId ? allComputers.clientFor(hostId) : null)) : null;
   const source = feature.enabled === true ? matching : null;
-  const library = useDesignLibrary(source, chatId, reconnects);
+  const library = useDesignLibrary(source, scopeKey, reconnects);
   const page = library?.pages.find((item) => item.id === pageId);
   const rows = useMemo(() => designGroups(page?.designs ?? []), [page]);
   const ordered = useMemo(() => rows.flatMap((row) => row.designs), [rows]);
@@ -77,7 +85,7 @@ export function LibrarySheet({
 
   const [versions, setVersions] = useState<Record<string, number | null>>({});
   const [modes, setModes] = useState<Record<string, DesignMode>>({});
-  const loaded = useLoadedDesigns(source, chatId, ordered, versions, reconnects);
+  const loaded = useLoadedDesigns(source, scopeKey, ordered, versions, reconnects);
 
   const canvas = useRef<DomWebViewRef>(null);
   const ready = useRef(false);
@@ -93,7 +101,15 @@ export function LibrarySheet({
   );
   useEffect(() => {
     if (!ordered.length) return;
-    command({ t: "set", rows: JSON.parse(layoutKey), focus: view.id ?? id, pad: { top: 0, bottom: insets.bottom }, ink: colors.ink3, accent: colors.accent });
+    command({
+      t: "set",
+      rows: JSON.parse(layoutKey),
+      focus: view.id ?? id,
+      overview: !id,
+      pad: { top: 0, bottom: insets.bottom },
+      ink: colors.ink3,
+      accent: colors.accent,
+    });
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- a new focus moves the canvas through "focus", not a new layout.
   }, [layoutKey, insets.bottom, colors.ink3, colors.accent, command, epoch]);
   const sent = useRef(new Map<string, string>());
@@ -144,11 +160,11 @@ export function LibrarySheet({
         text: "Remove",
         style: "destructive",
         onPress: () => {
-          if (!source || !chatId) return;
+          if (!source || !scopeKey) return;
           const index = ordered.findIndex((item) => item.id === design.id);
           const next = ordered[index + 1] ?? ordered[index - 1];
           source
-            .call("artifact:delete", [{ chatId, id: design.id }])
+            .call("artifact:delete", [{ ...designScope(scopeKey), id: design.id }])
             .then(() => (next ? command({ t: "focus", id: next.id }) : close()))
             .catch((error: unknown) => Alert.alert("Could not remove the design", error instanceof Error ? error.message : String(error)));
         },
@@ -159,9 +175,13 @@ export function LibrarySheet({
     ? [
         ...designModeMenu(shown, modes[shown.id]),
         ...versionSections(latest, shown.version),
+        ...libraryEditSections(library, summary),
         { items: [{ id: "remove", title: "Remove from Project library", systemImage: "trash", destructive: true }] },
       ]
     : [];
+  const edit = (action: string) => {
+    if (source && scopeKey && library && summary) void editLibraryDesign(source, scopeKey, library.pages, summary, action);
+  };
   const act = (action: string) => {
     if (!shown) return;
     if (action === "remove") remove(shown);
@@ -169,17 +189,19 @@ export function LibrarySheet({
     else if (action.startsWith("version:")) {
       const number = Number(action.slice("version:".length));
       setVersions((current) => ({ ...current, [shown.id]: number >= latest ? null : number }));
-    }
+    } else edit(action);
   };
-  const pages = artifactPageMenu({
-    hostId,
-    chatId,
-    designs: chatDesigns,
-    page: htmlPage && { id: htmlPage.id, title: htmlPage.title, tabs: pageTabs },
-    library,
-    current: { kind: "library", page: pageId ?? "" },
-    onPage,
-  });
+  const pages = chatId
+    ? artifactPageMenu({
+        hostId,
+        chatId,
+        designs: chatDesigns,
+        page: htmlPage && { id: htmlPage.id, title: htmlPage.title, tabs: pageTabs },
+        library,
+        current: { kind: "library", page: pageId ?? "" },
+        onPage,
+      })
+    : projectPageMenu(library, pageId);
   const { title, subtitle } = libraryTitles({ page, count: ordered.length, summary, shown, canvasMode, chatId, mode: modes[shownId ?? ""] });
   const tryable = !canvasMode && shown && isInteractiveDesign(shown);
 
@@ -235,12 +257,25 @@ export function LibrarySheet({
   );
 }
 
+/** The Design library page's sheet: its title menu moves between the library's pages in place. */
+function projectPageMenu(library: { pages: DesignLibraryPage[] } | null, pageId: string | undefined) {
+  const pages = library?.pages ?? [];
+  return {
+    sections: artifactPageSections({ canvas: false, page: null, library: pages, current: { kind: "library", page: pageId ?? "" } }),
+    choose: (id: string) => {
+      const picked = readPageChoice(id);
+      const shown = picked?.kind === "library" ? pages.find((item) => item.id === picked.page) : undefined;
+      if (shown?.designs[0] && shown.id !== pageId) router.setParams({ library: shown.id, id: shown.designs[0].id });
+    },
+  };
+}
+
 type Source = Parameters<typeof loadCanvasDesign>[0];
 
 /** The library designs on the page as the canvas draws them: each one's picked version, else its latest. */
 function useLoadedDesigns(
   source: Source | null,
-  chatId: string | undefined,
+  scopeKey: string | undefined,
   ordered: DesignLibraryEntry[],
   versions: Record<string, number | null>,
   reconnects: number,
@@ -248,18 +283,18 @@ function useLoadedDesigns(
   const [loaded, setLoaded] = useState<Record<string, Artifact>>({});
   const inFlight = useRef(new Set<string>());
   useEffect(() => {
-    if (!source || !chatId) return;
+    if (!source || !scopeKey) return;
     for (const design of ordered) {
       const target = versions[design.id] ?? design.version;
       const key = `${design.id}@${target}`;
       if (loaded[design.id]?.version === target || inFlight.current.has(key)) continue;
       inFlight.current.add(key);
-      loadCanvasDesign(source, { chatId, id: design.id, version: target }, reconnects)
+      loadCanvasDesign(source, { ...designScope(scopeKey), id: design.id, version: target }, reconnects)
         .then((artifact) => setLoaded((current) => ({ ...current, [design.id]: artifact })))
         .catch(() => {})
         .finally(() => inFlight.current.delete(key));
     }
-  }, [source, chatId, ordered, versions, loaded, reconnects]);
+  }, [source, scopeKey, ordered, versions, loaded, reconnects]);
   return loaded;
 }
 

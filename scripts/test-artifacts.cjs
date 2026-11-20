@@ -713,6 +713,12 @@ async function browserChecks() {
     await waitFor(`/v2 of 2.*Edited in Polish · Codex/.test(${libraryFrame}?.textContent ?? "")`);
     assert.deepEqual(await evaluate('window.calls.filter(([, id]) => id === "library:home").map(([chatId]) => chatId).at(-1)'), "milagre-link:fixture#1");
     await screenshot("library-edited-elsewhere");
+    // The Project library section ends with a way to the Project's whole Design library page.
+    await evaluate('window.addEventListener("milagre:design-library", (event) => { window.openedLibrary = event.detail; }, { once: true }); true');
+    await chooseInMenu("Open Design library");
+    await waitFor("!!window.openedLibrary");
+    assert.equal(await evaluate("window.openedLibrary.projectKey"), "milagre-link:fixture");
+    assert.equal(await evaluate(`${dock}.dataset.page`), "library:iphone", "the panel stays where it was");
     await chooseInMenu("Canvas");
     await waitFor(`${dock}.dataset.page === "canvas" && ${frames}?.length === 2`);
 

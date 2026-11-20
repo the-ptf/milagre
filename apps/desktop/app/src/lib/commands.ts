@@ -22,6 +22,7 @@ export type Command = {
     | "message"
     | "reload"
     | "routines"
+    | "library"
     | "usage"
     | "newChat"
     | "storage"

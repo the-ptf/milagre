@@ -146,6 +146,7 @@ import { CommandPalette, DiffView, GitActionsDialog, QuestionCard } from "./comp
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
 import { chatBookmark } from "@milagre/shared/subchats";
 import { ChatIdentity } from "./components/agents/ChatIdentity";
+import { DesignLibraryView } from "./components/design-library/DesignLibraryView";
 import { SubchatBookmark } from "./components/agents/SubchatBookmark";
 import { DetailsPanelHost } from "./components/agents/DetailsPanel";
 import { useChatTerminals } from "./lib/terminal-store";
@@ -2007,19 +2008,16 @@ function App() {
     });
     void openCanvasChat(scopeKey, sessionId);
   });
-  const openCanvas = useEvent(() => {
+  const showView = useEvent((next: AppView) => {
     changes.closeDiff();
-    setView("canvas");
+    setView(next);
   });
+  const openCanvas = useEvent(() => showView("canvas"));
   const openRoutines = useEvent(() => {
-    changes.closeDiff();
     setRoutineId(null);
-    setView("routines");
+    showView("routines");
   });
-  const openOrchestrator = useEvent(() => {
-    changes.closeDiff();
-    setView("orchestrator");
-  });
+  const openOrchestrator = useEvent(() => showView("orchestrator"));
   const openUsage = useEvent(() => {
     changes.closeDiff();
     setSettingsSection("usage");
@@ -2550,6 +2548,7 @@ function App() {
                   onShowAll={showFamily}
                 />
               )}
+              <DesignLibraryView view={view} onShow={showView} />
               {view === "canvas" && (
                 <CanvasView
                   states={states}

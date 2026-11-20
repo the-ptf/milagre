@@ -8,11 +8,20 @@ import {
   Comment01Icon,
   File01Icon,
   LibraryIcon,
+  LinkSquare02Icon,
   MoreHorizontalIcon,
   PaintBoardIcon,
   Share08Icon,
 } from "@hugeicons/core-free-icons";
-import { ARTIFACT_SEND, artifactTab, type ArtifactComment, type DesignLibraryPage, type HtmlArtifact, type PageShareScope } from "@milagre/shared/artifact";
+import {
+  ARTIFACT_SEND,
+  artifactTab,
+  libraryProject,
+  type ArtifactComment,
+  type DesignLibraryPage,
+  type HtmlArtifact,
+  type PageShareScope,
+} from "@milagre/shared/artifact";
 import { isModalOpen } from "../../lib/modal";
 import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
@@ -32,6 +41,9 @@ import { COMMENT_KEY, useCommentKey } from "./comment-key";
 import { CanvasBody, PageBody, commentLabel } from "./ArtifactDockBodies";
 import { useDockFeedback, type DockFeedback, type DockPage } from "./dock-feedback";
 import { libraryDockPage, libraryPageId, libraryRefs } from "./design-library";
+import { openDesignLibrary } from "../../lib/design-library-page";
+
+const OPEN_LIBRARY = "open-library";
 import { AddToLibraryDialog, type LibrarySource } from "./AddToLibraryDialog";
 
 /** The panel's accessible name: the Cmd+Enter handler finds its own panel by it. */
@@ -195,6 +207,7 @@ export function ArtifactDock(props: DockProps) {
           if (next === "page") setPageTab(tab);
           if (next !== page) onPage(next);
         }}
+        onOpenLibrary={() => openDesignLibrary(libraryProject(chatId))}
         feedback={active}
         canComment={!!onSend}
         cramped={cramped}
@@ -271,6 +284,7 @@ function PageMenu({
   library,
   tab,
   onChoose,
+  onOpenLibrary,
 }: {
   page: DockPage;
   hasCanvas: boolean;
@@ -279,6 +293,7 @@ function PageMenu({
   library: DesignLibraryPage[];
   tab: string | null;
   onChoose: (page: DockPage, tab: string | null) => void;
+  onOpenLibrary: () => void;
 }) {
   const title = html?.title ?? htmlRef?.title ?? "Page";
   const tabs = html?.tabs && html.tabs.length > 1 ? html.tabs : null;
@@ -306,6 +321,9 @@ function PageMenu({
       group: "Project library",
       display: titled("Project library", item.name),
     })),
+    ...(library.length
+      ? [{ value: OPEN_LIBRARY, label: "Open Design library", icon: <Icon icon={LinkSquare02Icon} size={16} />, group: "Project library" }]
+      : []),
   ];
   const value = page === "page" ? `page:${tabs && shownTab ? shownTab.id : ""}` : page;
   const shownLibrary = library.find((item) => item.id === libraryPageId(page));
@@ -321,7 +339,13 @@ function PageMenu({
       width={240}
       value={current.value}
       options={options}
-      onChange={(next) => (next.startsWith("page:") ? onChoose("page", next.slice("page:".length) || null) : onChoose(next as DockPage, null))}
+      onChange={(next) =>
+        next === OPEN_LIBRARY
+          ? onOpenLibrary()
+          : next.startsWith("page:")
+            ? onChoose("page", next.slice("page:".length) || null)
+            : onChoose(next as DockPage, null)
+      }
     />
   );
 }
@@ -334,6 +358,7 @@ function DockHeader({
   library,
   tab,
   onChoose,
+  onOpenLibrary,
   feedback,
   canComment,
   cramped,
@@ -350,6 +375,7 @@ function DockHeader({
   library: DesignLibraryPage[];
   tab: string | null;
   onChoose: (page: DockPage, tab: string | null) => void;
+  onOpenLibrary: () => void;
   feedback: DockFeedback;
   canComment: boolean;
   cramped: boolean;
@@ -366,7 +392,16 @@ function DockHeader({
     <header className="flex shrink-0 items-center gap-1 border-b border-line px-3 py-2">
       <Icon icon={page === "canvas" ? PaintBoardIcon : page === "page" ? File01Icon : LibraryIcon} size={14} />
       <div className="ml-1 flex min-w-0 flex-1 items-center gap-2">
-        <PageMenu page={page} hasCanvas={hasCanvas} html={html} htmlRef={htmlRef} library={library} tab={tab} onChoose={onChoose} />
+        <PageMenu
+          page={page}
+          hasCanvas={hasCanvas}
+          html={html}
+          htmlRef={htmlRef}
+          library={library}
+          tab={tab}
+          onChoose={onChoose}
+          onOpenLibrary={onOpenLibrary}
+        />
       </div>
       {feedback.count > 0 && (
         <Tooltip label={feedback.error || "Send to the agent"}>

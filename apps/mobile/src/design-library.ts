@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Alert } from "react-native";
-import type { DesignLibrary, DesignLibraryEntry, DesignLibraryPage } from "@milagre/shared/artifact";
+import { designScope, type DesignLibrary, type DesignLibraryEntry, type DesignLibraryPage } from "@milagre/shared/artifact";
 import type { MenuSection } from "./primitives/menu";
 import { promptText } from "./text-prompt";
 
@@ -22,8 +22,8 @@ function onDesignLibraryChanged(client: object, listener: () => void): () => voi
 }
 
 /**
- * The design library of the Chat's Project, read again when the computer says it changed or `revision` moves. Null
- * until it answers, and on a computer from before the library.
+ * The design library of the Chat's Project (or of the Project `chatId` names, for its Design library page), read again
+ * when the computer says it changed or `revision` moves. Null until it answers, and on a computer from before the library.
  */
 export function useDesignLibrary(source: Caller | null, chatId: string | undefined, revision?: unknown): DesignLibrary | null {
   const [state, setState] = useState<{ source: Caller | null; chatId?: string; library: DesignLibrary | null }>({ source: null, library: null });
@@ -33,7 +33,7 @@ export function useDesignLibrary(source: Caller | null, chatId: string | undefin
     if (!source || !chatId) return;
     let live = true;
     source
-      .call<DesignLibrary>("design-library:list", [{ chatId }])
+      .call<DesignLibrary>("design-library:list", [designScope(chatId)])
       .then((library) => {
         if (live && Array.isArray(library?.pages)) setState({ source, chatId, library });
       })
@@ -88,4 +88,61 @@ export async function addToLibrary(
     Alert.alert("Could not add it to the Project library", error instanceof Error ? error.message : String(error));
     return null;
   }
+}
+
+const MOVE = "move:";
+const failed = (title: string) => (error: unknown) => Alert.alert(title, error instanceof Error ? error.message : String(error));
+
+/**
+ * A library design's Rename and Move to page actions: a submenu of the library's pages, its own checked, then a new one.
+ * None until the library and the design are known.
+ */
+export function libraryEditSections(library: DesignLibrary | null, design: DesignLibraryEntry | undefined): MenuSection[] {
+  if (!library || !design) return [];
+  const { pages } = library;
+  return [
+    {
+      items: [
+        { id: "rename", title: "Rename", systemImage: "pencil" },
+        {
+          id: "move",
+          title: "Move to page",
+          systemImage: "folder",
+          submenu: [
+            ...pages.map((page) => ({ id: `${MOVE}${page.id}`, title: page.name, checked: page.id === design.page })),
+            { id: MOVE, title: "New page…", systemImage: "plus" },
+          ],
+        },
+      ],
+    },
+  ];
+}
+
+/**
+ * Renames the library design, or moves it to the page `action` names, asking for the name first, through the library
+ * of the Chat or Project `scopeKey` names. Resolves false for any other action, true once the computer has made the
+ * change or nothing was asked for.
+ */
+export async function editLibraryDesign(source: Caller, scopeKey: string, pages: DesignLibraryPage[], design: DesignLibraryEntry, action: string) {
+  const scope = designScope(scopeKey);
+  if (action === "rename") {
+    const title = (await promptText("Rename design", { value: design.title }))?.trim();
+    if (title && title !== design.title)
+      await source.call("design-library:update", [{ ...scope, id: design.id, title }]).catch(failed("Could not rename the design"));
+    return true;
+  }
+  if (!action.startsWith(MOVE)) return false;
+  const id = action.slice(MOVE.length);
+  const page = id
+    ? pages.find((item) => item.id === id)?.name
+    : (await promptText("New library page", { message: "Such as iPhone, Watch or Kit.", action: "Move" }))?.trim();
+  if (page && id !== design.page) await source.call("design-library:update", [{ ...scope, id: design.id, page }]).catch(failed("Could not move the design"));
+  return true;
+}
+
+/** Renames the library page `page` after asking for its new name. */
+export async function renameLibraryPage(source: Caller, scopeKey: string, page: DesignLibraryPage) {
+  const name = (await promptText("Rename page", { value: page.name }))?.trim();
+  if (name && name !== page.name)
+    await source.call("design-library:rename-page", [{ ...designScope(scopeKey), page: page.id, name }]).catch(failed("Could not rename the page"));
 }

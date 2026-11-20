@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createDesignFontReader, restoreDesignFonts, type Artifact } from "@milagre/shared/artifact";
+import { createDesignFontReader, designScope, restoreDesignFonts, type Artifact } from "@milagre/shared/artifact";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey, isRemoteKey, onComputerConnection } from "../../lib/computer-bridge";
 import { designPreviews } from "./design-preview-cache";
@@ -10,7 +10,7 @@ const fontReaders = new WeakMap<object, ReturnType<typeof createDesignFontReader
 const KEEP = 48;
 export function readArtifact(chatId: string, id: string, version: number | null): Promise<Artifact> {
   const api = bridgeForKey(chatId).artifacts;
-  const request = { chatId, id, ...(version === null ? {} : { version }) };
+  const request = { ...designScope(chatId), id, ...(version === null ? {} : { version }) };
   const readDesign = () => {
     if (!isRemoteKey(chatId)) return api.get(request);
     let reader = fontReaders.get(api);

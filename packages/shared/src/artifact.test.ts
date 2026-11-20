@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   artifactTab,
+  libraryCardLine,
+  libraryRecent,
+  libraryRecentLine,
   libraryEditLabel,
   onArtifactTab,
   ARTIFACT_CSP,
@@ -26,6 +29,7 @@ import {
   newCommentId,
   parseDesignFeedback,
   resolutionNotes,
+  type DesignLibraryEntry,
 } from "./artifact.ts";
 import { replyActivity } from "./reply-parts.ts";
 
@@ -393,10 +397,46 @@ test("a library version names the Chat that saved it, or says it was this one", 
     edits: [
       { version: 1, chatId: "/p#2", chat: "Login flow", agent: "Codex", at: 1 },
       { version: 2, chatId: "/p#5", agent: "Claude", at: 2 },
+      { version: 3, at: 3 },
     ],
   };
   assert.equal(libraryEditLabel(design, 1, "/p#5"), "Edited in Login flow · Codex");
   assert.equal(libraryEditLabel(design, 2, "/p#5"), "Edited here · Claude", "an untitled Chat that is the open one");
   assert.equal(libraryEditLabel(design, 2, "/p#2"), "Edited in another Chat · Claude");
-  assert.equal(libraryEditLabel(design, 3), "");
+  assert.equal(libraryEditLabel(design, 3, "/p#5"), "Edited in the Design library", "renamed on the Project's Design library page");
+  assert.equal(libraryEditLabel(design, 4), "");
+});
+
+test("a library card says its version, who saved it and when", () => {
+  const edits = [
+    { version: 1, chatId: "/p#2", chat: "Login flow", agent: "Codex", at: 0 },
+    { version: 2, at: 60_000 },
+  ];
+  assert.equal(libraryCardLine({ version: 1, edits: edits.slice(0, 1) }, 2 * 3_600_000), "v1 · Edited in Login flow · Codex · 2 h ago");
+  assert.equal(libraryCardLine({ version: 2, edits }, 90_000), "v2 · Edited in the Design library · just now");
+  assert.equal(libraryCardLine({ version: 3, edits: [] }, 0), "v3");
+});
+
+test("Recent edits list the library's designs by their last edit, newest first, with their page", () => {
+  const entry = (id: string, page: string, at: number[]) =>
+    ({ id, page, title: id, version: at.length, format: "design", edits: at.map((time, index) => ({ version: index + 1, at: time })) }) as DesignLibraryEntry;
+  const iphone = { id: "iphone", name: "iPhone", designs: [entry("home", "iphone", [10, 50]), entry("old", "iphone", [5])] };
+  const watch = { id: "watch", name: "Watch", designs: [entry("rings", "watch", [30]), entry("none", "watch", [])] };
+  const recent = libraryRecent({ pages: [iphone, watch] }, 2);
+  assert.deepEqual(
+    recent.map(({ design, page }) => [design.id, page.name]),
+    [
+      ["home", "iPhone"],
+      ["rings", "Watch"],
+    ],
+  );
+  assert.deepEqual(libraryRecent(null, 3), []);
+  const edits = [
+    { version: 1, chatId: "/p#2", chat: "Login flow", agent: "Codex", at: 0 },
+    { version: 2, at: 60_000 },
+  ];
+  assert.equal(libraryRecentLine({ edits: edits.slice(0, 1) }, 2 * 3_600_000), "Codex in Login flow · 2 h ago");
+  assert.equal(libraryRecentLine({ edits }, 90_000), "Design library · just now");
+  assert.equal(libraryRecentLine({ edits: [{ version: 1, chatId: "/p#3", at: 0 }] }, 0), "Another Chat · just now");
+  assert.equal(libraryRecentLine({ edits: [] }, 0), "");
 });

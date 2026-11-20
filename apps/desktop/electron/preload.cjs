@@ -170,6 +170,8 @@ function artifactBridge(invoke, listen) {
     comments: (request) => invoke("artifact:comments", request),
     library: (request) => invoke("design-library:list", request),
     addToLibrary: (request) => invoke("design-library:add", request),
+    updateLibraryDesign: (request) => invoke("design-library:update", request),
+    renameLibraryPage: (request) => invoke("design-library:rename-page", request),
     onLibraryChanged: (callback) => listen("design-library:changed", callback),
   };
 }

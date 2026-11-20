@@ -33,7 +33,26 @@ const slug = (text, max) =>
     .replace(/-+$/, "") || "page";
 const emptyIndex = () => ({ pages: [], designs: {} });
 
-function createDesignLibrary({ directory, projectForChat, chatInfo = async () => ({}), artifacts, readKit, onChange }) {
+async function titled(index, chatInfo) {
+  const missing = new Set(
+    Object.values(index.designs).flatMap((record) => (record.edits ?? []).filter((item) => item.chatId && !item.chat).map((item) => item.chatId)),
+  );
+  const titles = new Map();
+  for (const chatId of missing) {
+    const title = (await chatInfo(chatId).catch(() => ({})))?.title;
+    if (typeof title === "string" && title) titles.set(chatId, title.slice(0, 120));
+  }
+  if (!titles.size) return index;
+  const designs = Object.fromEntries(
+    Object.entries(index.designs).map(([id, record]) => [
+      id,
+      { ...record, edits: (record.edits ?? []).map((item) => (!item.chat && titles.has(item.chatId) ? { ...item, chat: titles.get(item.chatId) } : item)) },
+    ]),
+  );
+  return { ...index, designs };
+}
+
+function createDesignLibrary({ directory, projectForChat, projectForPath, chatInfo = async () => ({}), artifacts, readKit, onChange }) {
   const store = createChatArtifacts({
     directory: path.join(directory, "designs"),
     validateChat: async () => {},
@@ -70,9 +89,10 @@ function createDesignLibrary({ directory, projectForChat, chatInfo = async () =>
       await fs.rm(temporary, { force: true });
     }
   }
-  async function scope(chatId) {
-    const project = await projectForChat(chatId);
-    if (typeof project !== "string" || !project) throw Error("This Chat has no Project library.");
+  async function scope(request) {
+    const byPath = typeof request?.projectPath === "string";
+    const project = byPath ? await projectForPath?.(request.projectPath) : await projectForChat(request?.chatId);
+    if (typeof project !== "string" || !project) throw Error(byPath ? "Open this project in Milagre first." : "This Chat has no Project library.");
     return { project, index: await readIndex(project) };
   }
   function placePage(index, name) {
@@ -99,6 +119,7 @@ function createDesignLibrary({ directory, projectForChat, chatInfo = async () =>
     return record;
   }
   async function edit(chatId, version) {
+    if (typeof chatId !== "string") return { version, at: Date.now() };
     const info = await chatInfo(chatId).catch(() => ({}));
     return {
       version,
@@ -148,9 +169,10 @@ function createDesignLibrary({ directory, projectForChat, chatInfo = async () =>
   }
 
   return {
-    list: ({ chatId } = {}) =>
+    list: (request = {}) =>
       serial(async () => {
-        const { project, index } = await scope(chatId);
+        const { project, index: stored } = await scope(request);
+        const index = await titled(stored, chatInfo);
         const saved = new Map((await store.list({ chatId: project, format: "design" })).map((item) => [item.id, item]));
         return {
           pages: index.pages
@@ -170,7 +192,7 @@ function createDesignLibrary({ directory, projectForChat, chatInfo = async () =>
         const { designId, page, tab } = request ?? {};
         if (isLibraryRef(designId)) throw Error("This design is already in the Project library.");
         const name = pageName(page);
-        const { project, index } = await scope(request?.chatId);
+        const { project, index } = await scope({ chatId: request?.chatId });
         if (Object.keys(index.designs).length >= MAX_DESIGNS) throw Error(`The Project library holds at most ${MAX_DESIGNS} designs.`);
         const source = await artifacts.get({ chatId: request.chatId, id: designId });
         const payload = sourceRequest(source, tab);
@@ -184,7 +206,7 @@ function createDesignLibrary({ directory, projectForChat, chatInfo = async () =>
       }),
     get: (request) =>
       serial(async () => {
-        const { project, index } = await scope(request?.chatId);
+        const { project, index } = await scope(request);
         const bare = bareId(request.id);
         const record = recordOf(index, bare);
         return entryOf(await store.get({ ...request, chatId: project, id: bare }), record);
@@ -192,7 +214,7 @@ function createDesignLibrary({ directory, projectForChat, chatInfo = async () =>
     showDesign: (request, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
-        const { project, index } = await scope(request?.chatId);
+        const { project, index } = await scope({ chatId: request?.chatId });
         const bare = bareId(request.id);
         let from;
         if (request.from !== undefined) {
@@ -213,7 +235,7 @@ function createDesignLibrary({ directory, projectForChat, chatInfo = async () =>
     apply: (request, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
-        const { project, index } = await scope(request?.chatId);
+        const { project, index } = await scope({ chatId: request?.chatId });
         const bare = bareId(request.id);
         const record = recordOf(index, bare);
         const saved = await store.apply({ ...request, chatId: project, id: bare }, { assertActive });
@@ -223,7 +245,7 @@ function createDesignLibrary({ directory, projectForChat, chatInfo = async () =>
       }),
     exportDesign: (request) =>
       serial(async () => {
-        const { project, index } = await scope(request?.chatId);
+        const { project, index } = await scope(request);
         const bare = bareId(request.id);
         recordOf(index, bare);
         return { ...(await store.exportDesign({ ...request, chatId: project, id: bare })), id: LIBRARY + bare };
@@ -231,7 +253,7 @@ function createDesignLibrary({ directory, projectForChat, chatInfo = async () =>
     remove: (request, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
-        const { project, index } = await scope(request?.chatId);
+        const { project, index } = await scope(request);
         const bare = bareId(request.id);
         recordOf(index, bare);
         await store.deleteDesign({ chatId: project, id: bare }, { assertActive });
@@ -242,7 +264,7 @@ function createDesignLibrary({ directory, projectForChat, chatInfo = async () =>
     update: (request, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
-        const { project, index } = await scope(request?.chatId);
+        const { project, index } = await scope(request);
         const bare = bareId(request.id);
         const record = recordOf(index, bare);
         if (request.title === undefined && request.page === undefined) throw Error("Send a new title, a page, or both.");
@@ -262,7 +284,7 @@ function createDesignLibrary({ directory, projectForChat, chatInfo = async () =>
     renamePage: (request, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
-        const { project, index } = await scope(request?.chatId);
+        const { project, index } = await scope(request);
         const page = findPage(index, request.page);
         const name = pageName(request.name);
         if (index.pages.some((item) => item.id !== page.id && sameName(item.name, name)))

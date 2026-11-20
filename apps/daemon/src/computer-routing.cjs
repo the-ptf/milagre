@@ -189,6 +189,7 @@ const RESULTS = {
       ),
     ),
   "design-library:add": (id, result) => field(id, result, "edits", (id, edits) => each(id, edits, withChat)),
+  "design-library:update": (id, result) => field(id, result, "edits", (id, edits) => each(id, edits, withChat)),
   "accounts:scopes": (id, result) =>
     each(id, result, (id, scope) => field(id, field(id, scope, "key", key), "projects", (id, list) => each(id, list, withPath))),
 };

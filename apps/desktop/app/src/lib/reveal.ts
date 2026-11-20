@@ -1,12 +1,13 @@
 import { fileManager } from "./shortcut-hints.ts";
 
-export type ProjectMenuKey = "reveal" | "copy-path" | "copy-name" | "settings";
+export type ProjectMenuKey = "reveal" | "copy-path" | "copy-name" | "design-library" | "settings";
 
 export function projectMenuActions(isMac: boolean): Array<{ key: ProjectMenuKey; label: string }> {
   return [
     { key: "reveal", label: isMac ? "Reveal in Finder" : `Show in ${fileManager}` },
     { key: "copy-path", label: "Copy path" },
     { key: "copy-name", label: "Copy name" },
+    { key: "design-library", label: "Design library" },
     { key: "settings", label: "Project settings" },
   ];
 }

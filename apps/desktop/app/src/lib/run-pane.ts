@@ -1,6 +1,9 @@
 import { chatKey } from "@milagre/shared/agent-runs";
 
-export type AppView = "chat" | "canvas" | "routines" | "orchestrator";
+export type AppView = "chat" | "canvas" | "routines" | "orchestrator" | "design-library";
+
+/** Escape leaves this view for the Chat; on the Design library page a dialog or menu open over it takes Escape first. */
+export const leavesOnEscape = (view: AppView, overlay: boolean) => view === "canvas" || view === "routines" || (view === "design-library" && !overlay);
 
 export type RunPaneReturn = { projectPath: string; linkId: string | null; sessionId: number | null; worktreeId: number | null };
 
