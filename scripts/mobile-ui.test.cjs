@@ -23671,6 +23671,50 @@ test("the phone project menu opens its Design library page", async () => {
   assert.equal(nav.secondaryRoutes.at(-1), true, "a page, pushed after the sidebar closes, as Routines is");
 });
 
+test("a library page opened from the Design library page starts on all its designs, a design on that design", async (t) => {
+  const client = {
+    url: "mac",
+    call: async (method) => (method === "design-library:list" ? projectLibrary() : projectLibrary().pages[0].designs[0]),
+  };
+  const react = hookHost({ effects: true });
+  const source = load("library-sheet.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Alert: { alert() {} }, Text: "Text", View: "View" },
+    "expo-router": { router: { back() {}, setParams() {} } },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 47, bottom: 34 }) },
+    "@expo/dom-webview": {},
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+    "./designs-sheet": { DesignsCanvas: "DesignsCanvas" },
+    "./all-computers": { allComputers: { clientFor: () => null } },
+    "./session": { useSession: () => ({ client, designs: designsOn, reconnects: 0 }) },
+    "./ui": { PullDown: "PullDown", CircleButton: "CircleButton", SheetHeader: "SheetHeader", ErrorNotice: "ErrorNotice", useStyles: () => ({ muted: {} }) },
+    "./theme": { useTheme: () => ({ colors: { surface: "#fff", ink3: "#666", accent: "#07f" } }) },
+  });
+  t.after(() => react.cleanup());
+  const overviews = async (props) => {
+    const injected = [];
+    const render = () => {
+      react.begin();
+      const tree = source.LibrarySheet(props);
+      react.flush();
+      return tree;
+    };
+    render();
+    await settle();
+    const canvas = find(render(), (node) => node.type === "DesignsCanvas");
+    canvas.props.ref.current = { injectJavaScript: (script) => injected.push(JSON.parse(/run\((.*)\);true;$/s.exec(script)[1])) };
+    canvas.props.onMessage(JSON.stringify({ t: "ready" }));
+    render();
+    canvas.props.onMessage(JSON.stringify({ t: "view", mode: "design", id: "library:home" }));
+    canvas.props.onMessage(JSON.stringify({ t: "view", mode: "canvas", id: "library:home" }));
+    return injected.filter((command) => command.t === "overview").length;
+  };
+  assert.equal(await overviews({ hostId: "mac", projectPath: "/p", page: "iphone" }), 1, "once, after the canvas first lays the page out");
+  assert.equal(await overviews({ hostId: "mac", projectPath: "/p", page: "iphone", id: "library:home" }), 0);
+});
+
 test("a library design opened from the Design library page reads and removes it by the Project, with no Chat", async (t) => {
   const calls = [];
   const client = {

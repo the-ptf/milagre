@@ -92,6 +92,7 @@ export function LibrarySheet({
   const [epoch, setEpoch] = useState(0);
   const [view, setView] = useState<{ mode: "design" | "canvas"; id: string | null }>({ mode: "design", id: id ?? null });
   const [playing, setPlaying] = useState<string | null>(null);
+  const overviewed = useRef(Boolean(id));
   const command = useCallback((message: CanvasCommand) => {
     if (!ready.current || !canvas.current) return;
     canvas.current.injectJavaScript(`window.milagreCanvas&&window.milagreCanvas.run(${JSON.stringify(message)});true;`);
@@ -102,7 +103,6 @@ export function LibrarySheet({
   useEffect(() => {
     if (!ordered.length) return;
     command({ t: "set", rows: JSON.parse(layoutKey), focus: view.id ?? id, pad: { top: 0, bottom: insets.bottom }, ink: colors.ink3, accent: colors.accent });
-    if (!view.id && !id) command({ t: "overview" });
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- a new focus moves the canvas through "focus", not a new layout.
   }, [layoutKey, insets.bottom, colors.ink3, colors.accent, command, epoch]);
   const sent = useRef(new Map<string, string>());
@@ -124,23 +124,29 @@ export function LibrarySheet({
       command({ t: "html", id: artifact.id, doc, ...(code ? { run: true } : {}), ...(font ? { font } : {}) });
     }
   }, [loaded, modes, command, epoch, layoutKey]);
-  const onMessage = useCallback((data: string) => {
-    let message: Record<string, unknown>;
-    try {
-      message = JSON.parse(data);
-    } catch {
-      return;
-    }
-    if (message?.t === "ready") {
-      ready.current = true;
-      sent.current.clear();
-      fonts.current.clear();
-      setPlaying(null);
-      setEpoch((value) => value + 1);
-    } else if (message?.t === "play") setPlaying(typeof message.id === "string" ? message.id : null);
-    else if (message?.t === "view" && (message.mode === "design" || message.mode === "canvas") && typeof message.id === "string")
-      setView({ mode: message.mode, id: message.id });
-  }, []);
+  const onMessage = useCallback(
+    (data: string) => {
+      let message: Record<string, unknown>;
+      try {
+        message = JSON.parse(data);
+      } catch {
+        return;
+      }
+      if (message?.t === "ready") {
+        ready.current = true;
+        sent.current.clear();
+        fonts.current.clear();
+        setPlaying(null);
+        setEpoch((value) => value + 1);
+      } else if (message?.t === "play") setPlaying(typeof message.id === "string" ? message.id : null);
+      else if (message?.t === "view" && (message.mode === "design" || message.mode === "canvas") && typeof message.id === "string") {
+        setView({ mode: message.mode, id: message.id });
+        if (!overviewed.current) command({ t: "overview" });
+        overviewed.current = true;
+      }
+    },
+    [command],
+  );
 
   const shownId = view.id ?? id ?? null;
   const shown = shownId ? loaded[shownId] : undefined;
