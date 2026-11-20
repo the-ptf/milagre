@@ -13,6 +13,17 @@ function typedText(range: Range) {
   return fragment.textContent;
 }
 
+const element = (node: Node | null | undefined) => (node instanceof Element ? node : node?.parentElement);
+
+function quotableRange(range: Range) {
+  const root = element(range.startContainer)?.closest("[data-quotable]") ?? element(range.endContainer)?.closest("[data-quotable]");
+  if (!root) return null;
+  const inside = range.cloneRange();
+  if (!root.contains(inside.startContainer)) inside.setStart(root, 0);
+  if (!root.contains(inside.endContainer)) inside.setEnd(root, root.childNodes.length);
+  return inside.toString().trim() === range.toString().trim() ? { root, inside } : null;
+}
+
 export function MessageSelection({
   container,
   provider,
@@ -39,13 +50,11 @@ export function MessageSelection({
     const read = () => {
       const selection = window.getSelection();
       const root = container.current;
-      const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-      const element = (node: Node | null | undefined) => (node instanceof Element ? node : node?.parentElement);
-      const start = element(range?.startContainer)?.closest("[data-quotable]");
-      const end = element(range?.endContainer)?.closest("[data-quotable]");
-      const message = start?.closest<HTMLElement>('[data-slot="message"]');
-      const text = (range && start?.getAttribute("data-quotable") === "typed" && typedText(range)) || (selection?.toString() ?? "");
-      if (!root || !range || !start || start !== end || !message || !root.contains(start) || !text.trim()) {
+      const quotable = selection?.rangeCount ? quotableRange(selection.getRangeAt(0)) : null;
+      const range = quotable?.inside;
+      const message = quotable?.root.closest<HTMLElement>('[data-slot="message"]');
+      const text = (range && quotable.root.getAttribute("data-quotable") === "typed" && typedText(range)) || (selection?.toString() ?? "");
+      if (!root || !range || !message || !root.contains(quotable.root) || !text.trim()) {
         setPassage(null);
         return;
       }

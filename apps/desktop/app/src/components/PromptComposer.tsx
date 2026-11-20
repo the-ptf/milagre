@@ -19,7 +19,7 @@ import { useSettings } from "../lib/settings";
 import { shortcutCommand } from "../lib/keybindings";
 import { ProviderLogo } from "./ProviderLogo";
 import { Attachments } from "./Attachments";
-import { QuoteChips } from "./QuoteChips";
+import { QuotedField } from "./QuoteChips";
 import { useProjectFiles } from "./useProjectFiles";
 import { promptToken, fileMentionPath, insertImageMentions, insertPromptToken } from "../lib/file-mentions";
 import { mentionedImages, shiftImageMentions } from "../lib/prompt-mentions";
@@ -791,19 +791,14 @@ export function PromptComposer({
           ) : null}
 
           <div className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,max-content)_auto] items-end gap-x-1 gap-y-1.5">
-            <div className="relative col-span-full row-start-1 flex w-full min-w-0 flex-wrap items-start">
-              {onRemoveQuote && quotes.length > 0 && (
-                <span className="contents text-[length:calc(var(--chat-size)+1px)] leading-5 [&>[data-quote-chip]]:mt-2 [&>[data-quote-chip]]:ml-2 [&>[data-quote-chip]]:top-0">
-                  <QuoteChips
-                    quotes={quotes}
-                    onRemove={(id) => {
-                      onRemoveQuote(id);
-                      inputRef.current?.focus();
-                    }}
-                  />
-                </span>
-              )}
-              <div className="relative min-w-40 flex-1 basis-40">
+            <QuotedField
+              quotes={onRemoveQuote ? quotes : NO_QUOTES}
+              onRemove={(id) => {
+                onRemoveQuote?.(id);
+                inputRef.current?.focus();
+              }}
+            >
+              {(spacer) => (
                 <PromptEditor
                   ref={inputRef}
                   resetKey={imageDraft.scope}
@@ -836,10 +831,10 @@ export function PromptComposer({
                       : (running ? (queuesFollowUp ? "Queue a message for the next turn…" : "Steer the agent…") : (placeholder ?? PROMPT_PLACEHOLDER)) +
                         (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
                   }
-                  className="min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
+                  className={`min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5 ${spacer}`}
                 />
-              </div>
-            </div>
+              )}
+            </QuotedField>
             <Tooltip label="Attach files" asChild>
               <button
                 type="button"
