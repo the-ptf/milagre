@@ -2,8 +2,8 @@ import { Delete02Icon } from "@hugeicons/core-free-icons";
 import Tooltip from "../primitives/Tooltip";
 import { Button, IconButton } from "../primitives/Button";
 import { bridgeForKey } from "../../lib/computer-bridge";
+import { designScope } from "@milagre/shared/artifact";
 import { DESIGN_DELETED, type DesignDeleted } from "./design-events";
-import { designScope } from "./design-library";
 
 export type Deleting = "confirm" | "busy" | null;
 

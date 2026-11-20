@@ -51,7 +51,7 @@ function fixture() {
     restoreDesignFonts,
     bridgeForKey: (key) => ({ artifacts: key.includes("|") ? remote : local }),
     isRemoteKey: (key) => key.includes("|"),
-    designScope: (key) => (/#\d+$/.test(key) ? { chatId: key } : { projectPath: key }),
+    designScope: require("../packages/shared/src/artifact.ts").designScope,
     onComputerConnection,
   });
   return {

@@ -2,6 +2,7 @@ import type { ArtifactRef } from "./model.ts";
 import type { DesignDocument } from "./design.mjs";
 import type { ArtifactAsset } from "./artifact-assets.mjs";
 import { ago } from "./main-sync.ts";
+import { projectOfKey, sessionIdFromKey } from "./agent-runs.mjs";
 export { createDesignFontReader, restoreDesignFonts } from "./design-font-cache.mjs";
 
 export type { ArtifactAsset };
@@ -132,6 +133,12 @@ export interface ArtifactApi {
 
 /** Whose designs: a Chat's, or, for Project library designs, the Project's own by its path. */
 export type DesignScope = { chatId: string } | { projectPath: string };
+
+const isChatKey = (key: string) => Number.isSafeInteger(sessionIdFromKey(key));
+/** The scope a canvas key names: a Chat's key, or a Project's key on its Design library page. */
+export const designScope = (key: string): DesignScope => (isChatKey(key) ? { chatId: key } : { projectPath: key });
+/** The Project whose library a Chat or Project key reads. */
+export const libraryProject = (key: string) => (isChatKey(key) ? projectOfKey(key) : key);
 
 /** One saved version of a Project library design: the Chat that saved it, that Chat's title and its agent then. No
  * `chatId` when it was saved from the Design library page itself. */

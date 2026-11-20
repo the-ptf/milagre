@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import type { DesignLibrary, DesignLibraryPage, DesignScope } from "@milagre/shared/artifact";
+import { designScope, libraryProject, type DesignLibrary, type DesignLibraryPage } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import { bridgeForKey } from "../../lib/computer-bridge";
 
@@ -10,12 +9,6 @@ export const libraryDockPage = (pageId: string): LibraryDockPage => `${LIBRARY_P
 export const libraryPageId = (page: string | null | undefined): string | null => (page?.startsWith(LIBRARY_PAGE) ? page.slice(LIBRARY_PAGE.length) : null);
 
 const kept = new Map<string, DesignLibrary>();
-
-const isChatKey = (key: string) => Number.isSafeInteger(sessionIdFromKey(key));
-/** Who owns a design `key` names on the canvas: a Chat (its key), or a Project (its key) for its own library page. */
-export const designScope = (key: string): DesignScope => (isChatKey(key) ? { chatId: key } : { projectPath: key });
-/** The Project whose library a Chat or Project key reads. */
-export const libraryProject = (key: string) => (isChatKey(key) ? projectOfKey(key) : key);
 
 /**
  * The design library of the Chat's Project (or of the Project `chatId` names, for its Design library page), read again

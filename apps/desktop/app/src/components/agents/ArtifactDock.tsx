@@ -13,7 +13,15 @@ import {
   PaintBoardIcon,
   Share08Icon,
 } from "@hugeicons/core-free-icons";
-import { ARTIFACT_SEND, artifactTab, type ArtifactComment, type DesignLibraryPage, type HtmlArtifact, type PageShareScope } from "@milagre/shared/artifact";
+import {
+  ARTIFACT_SEND,
+  artifactTab,
+  libraryProject,
+  type ArtifactComment,
+  type DesignLibraryPage,
+  type HtmlArtifact,
+  type PageShareScope,
+} from "@milagre/shared/artifact";
 import { isModalOpen } from "../../lib/modal";
 import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
@@ -32,7 +40,7 @@ import { CommentOptions } from "./CommentOptions";
 import { COMMENT_KEY, useCommentKey } from "./comment-key";
 import { CanvasBody, PageBody, commentLabel } from "./ArtifactDockBodies";
 import { useDockFeedback, type DockFeedback, type DockPage } from "./dock-feedback";
-import { libraryDockPage, libraryPageId, libraryProject, libraryRefs } from "./design-library";
+import { libraryDockPage, libraryPageId, libraryRefs } from "./design-library";
 import { openDesignLibrary } from "../../lib/design-library-page";
 
 const OPEN_LIBRARY = "open-library";

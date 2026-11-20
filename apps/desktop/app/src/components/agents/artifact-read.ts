@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { createDesignFontReader, restoreDesignFonts, type Artifact } from "@milagre/shared/artifact";
+import { createDesignFontReader, designScope, restoreDesignFonts, type Artifact } from "@milagre/shared/artifact";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey, isRemoteKey, onComputerConnection } from "../../lib/computer-bridge";
 import { designPreviews } from "./design-preview-cache";
-import { designScope } from "./design-library";
 
 const versionsRead = new Map<string, Promise<Artifact>>();
 const versionsKept = new Map<string, Artifact>();

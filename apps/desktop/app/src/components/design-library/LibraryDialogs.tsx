@@ -1,11 +1,10 @@
 import { useState } from "react";
-import type { DesignLibraryEntry, DesignLibraryPage } from "@milagre/shared/artifact";
+import { designScope, type DesignLibraryEntry, type DesignLibraryPage } from "@milagre/shared/artifact";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { Button } from "../primitives/Button";
 import { Dialog } from "../primitives/Dialog";
 import { FIELD_LABEL, Input } from "../primitives/Field";
 import { InlineError } from "../primitives/InlineError";
-import { designScope } from "../agents/design-library";
 import { DESIGN_DELETED, type DesignDeleted } from "../agents/design-events";
 import { LibraryPagePicker, useLibraryPageChoice } from "./LibraryPagePicker";
 
