@@ -1,4 +1,12 @@
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import type { ChatStep } from "../model";
+import { currentActivityStep } from "@milagre/shared/tool-activity";
+import { activityBoundary, earlierStepsLabel } from "../lib/activity-window";
+import { ActivityTitle } from "./agents/ActivityBlock";
+import { StepRow } from "./agents/StepRow";
+import { Button } from "./primitives/Button";
+import { useLiveActivity } from "../lib/live-activity";
+import { StepDetailsScope } from "./agents/step-details";
 import { formatElapsed } from "@milagre/shared/display-clock";
 import { useDisplayValue } from "../lib/display-clock";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
@@ -35,9 +43,50 @@ function useElapsed(startedAt?: number) {
   return useDisplayValue(250, (now) => formatElapsed(now - (startedAt ?? mountedAt)));
 }
 
-export function ThinkingIndicator({ label, showLabel = false, startedAt }: { label: string; showLabel?: boolean; startedAt?: number }) {
+export function ThinkingIndicator({
+  label,
+  showLabel = false,
+  startedAt,
+  steps = NO_STEPS,
+}: {
+  label: string;
+  showLabel?: boolean;
+  startedAt?: number;
+  steps?: ChatStep[];
+}) {
   const elapsed = useElapsed(startedAt);
   const sweep = useStepTitleSweep(showLabel);
+  const [open, setOpen] = useState(false);
+  if (steps.length && !showLabel)
+    return (
+      <div className="flex min-w-0 flex-col">
+        {open && <LiveSteps steps={steps} />}
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={`${label}. ${open ? "Hide" : "Show"} running calls`}
+          onClick={() => setOpen((value) => !value)}
+          data-live-activity={steps.length}
+          className="group/live flex w-fit max-w-full min-w-0 items-center gap-2 rounded-control py-1 pr-1.5 pl-[var(--row-inset,0px)] text-left text-12 text-ink-3 transition-colors duration-fast hover:bg-hover"
+        >
+          <RunningLogo />
+          <LiveTitle steps={steps} />
+          {!allRunning(steps) && (
+            <>
+              <span aria-hidden className="size-[3px] shrink-0 rounded-full bg-ink-4" />
+              <span className="shrink-0">{steps.length === 1 ? "1 call" : `${steps.length} calls`}</span>
+            </>
+          )}
+          <span aria-hidden className="size-[3px] shrink-0 rounded-full bg-ink-4" />
+          <span className="shrink-0 tabular-nums">{elapsed}</span>
+          <Icon
+            icon={ArrowDown01Icon}
+            size={12}
+            className={`shrink-0 transition-[color,rotate] duration-base ease-enter group-hover/live:text-ink ${open ? "rotate-180" : ""}`}
+          />
+        </button>
+      </div>
+    );
 
   return (
     <div role="status" aria-label={label} className="flex w-fit items-center gap-2 py-1 pr-1 pl-[var(--row-inset,0px)]">
@@ -50,6 +99,74 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
       <span aria-hidden className="text-12 tabular-nums text-ink-3">
         {elapsed}
       </span>
+    </div>
+  );
+}
+
+export function RunIndicator({
+  run,
+  ...indicator
+}: {
+  run: { key?: string; text?: string; steps?: ChatStep[]; waitingStepIds?: string[]; scope?: string };
+  label: string;
+  showLabel?: boolean;
+  startedAt?: number;
+}) {
+  const steps = useLiveActivity(run.key, run.text, run.steps, run.waitingStepIds ?? NO_WAITING);
+  return (
+    <div className="w-full" style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" }}>
+      <StepDetailsScope scope={run.scope}>
+        <ThinkingIndicator {...indicator} steps={steps} />
+      </StepDetailsScope>
+    </div>
+  );
+}
+
+const NO_STEPS: ChatStep[] = [];
+const allRunning = (steps: ChatStep[]) => steps.length > 1 && steps.every((step) => step.status === "running");
+const NO_WAITING: string[] = [];
+
+function LiveTitle({ steps }: { steps: ChatStep[] }) {
+  const running = steps.filter((step) => step.status === "running").length;
+  const current = currentActivityStep(steps) ?? steps.at(-1);
+  return (
+    <span role="status" className="min-w-0 truncate text-ink-2">
+      {running > 1 ? `Running ${running} calls` : current && <ActivityTitle key={current.id} step={current} running={current.status === "running"} />}
+    </span>
+  );
+}
+
+function LiveSteps({ steps }: { steps: ChatStep[] }) {
+  const entries = steps.map((step) => ({ type: "step" as const, step }));
+  const [boundary, setBoundary] = useState(() => activityBoundary(entries, NO_WAITING, true));
+  const body = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => lockToBeat(body.current), []);
+  return (
+    <div
+      ref={body}
+      tabIndex={-1}
+      role="group"
+      aria-label="Running calls"
+      aria-live="off"
+      data-slot="activity-body"
+      className="flex min-w-0 flex-col outline-none"
+    >
+      {boundary > 0 && (
+        <Button
+          variant="secondary"
+          size={24}
+          className="ml-[var(--row-inset,0px)] self-start"
+          onClick={() => {
+            setBoundary(0);
+            body.current?.focus({ preventScroll: true });
+          }}
+        >
+          {earlierStepsLabel(entries, boundary)}
+        </Button>
+      )}
+      {steps.slice(boundary).map((step) => (
+        <StepRow key={step.id} step={step} />
+      ))}
     </div>
   );
 }

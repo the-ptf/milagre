@@ -19,7 +19,7 @@ import { Button } from "../primitives/Button";
 
 const NO_WAITING_STEPS: string[] = [];
 
-function Title({ step, running, waiting = false }: { step: ChatStep; running: boolean; waiting?: boolean }) {
+export function ActivityTitle({ step, running, waiting = false }: { step: ChatStep; running: boolean; waiting?: boolean }) {
   const sweep = useStepTitleSweep(running);
   return (
     <SweepText running={sweep.running} className="block min-w-0 truncate">
@@ -111,7 +111,7 @@ export function ActivityBlock({
           steps.filter((step) => step.status === "running").length > 1 && !waiting ? (
             `Running ${steps.filter((step) => step.status === "running").length} calls`
           ) : (
-            <Title key={current.id} step={current} running={!waiting} waiting={waiting} />
+            <ActivityTitle key={current.id} step={current} running={!waiting} waiting={waiting} />
           )
         ) : streaming ? (
           "Working"

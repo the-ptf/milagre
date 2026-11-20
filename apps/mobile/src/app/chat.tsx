@@ -117,7 +117,8 @@ import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
 import { accountSwitchText, isAccountSwitch, isLimitReset, limitResetText } from "@milagre/shared/usage-limit";
 import { isWorktreeLinked, worktreeLinkText } from "@milagre/shared/worktree-link";
-import { BackgroundIndicator, ThinkingIndicator } from "../running-logo";
+import { BackgroundIndicator } from "../running-logo";
+import { RunIndicator } from "../run-indicator";
 import { EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
 import { answersWithImages } from "../questions";
@@ -2282,13 +2283,7 @@ function ChatPane({
                   ])}
                   {!pendingInput && liveReply}
                   {answerPreview && <ChatReply key="answers" message={answerPreview} media={media} chatId={chatId} onActivity={openActivity} />}
-                  {(run || pending) && (
-                    <ThinkingIndicator
-                      startedAt={pending?.preview.startedAt ?? run?.startedAt}
-                      label={phase ?? (run?.waitingForSubagents ? "Waiting on subagents" : `Working with ${model.name}`)}
-                      showLabel={Boolean(phase)}
-                    />
-                  )}
+                  {(run || pending) && <RunIndicator chatKey={chatId} startedAt={pending?.preview.startedAt} phase={phase} model={model.name} />}
                   {!run && !pending && activity?.activity === "background" && background.length > 0 && (
                     <BackgroundIndicator
                       count={background.length}
