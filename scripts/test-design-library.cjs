@@ -225,6 +225,10 @@ async function browserChecks() {
     await waitFor(`/v1 of 2.*Edited in Onboarding · Claude/.test(${frame("home")}.textContent)`);
     assert.deepEqual(await evaluate('window.calls.findLast(([kind]) => kind === "get")[1]'), { projectPath: "/repo", id: "library:home", version: 1 });
     await screenshot("page");
+    // Zoomed in, the canvas pans only by its own transform: focus moving to a frame's menu can't scroll it aside.
+    for (let step = 0; step < 4; step++) await click('[data-slot=library-board] [aria-label="Zoom in"]');
+    const canvasEl = 'document.querySelector("[data-slot=library-board] [data-slot=artifact-canvas]")';
+    assert.equal(await evaluate(`(() => { const c = ${canvasEl}; c.scrollLeft = 200; c.scrollTop = 200; return c.scrollLeft + c.scrollTop; })()`), 0);
     await evaluate(`${row("All designs")}.querySelector("button").click()`);
     await waitFor(`${frames}.length === 2`);
 

@@ -474,7 +474,7 @@ export const ArtifactCanvas = forwardRef<
       ref={viewport}
       data-slot="artifact-canvas"
       tabIndex={-1}
-      className={`relative min-h-0 flex-1 touch-none overflow-hidden bg-canvas outline-none ${drag.current ? "cursor-grabbing" : "cursor-grab"}`}
+      className={`relative min-h-0 flex-1 touch-none overflow-clip bg-canvas outline-none ${drag.current ? "cursor-grabbing" : "cursor-grab"}`}
       style={{
         backgroundImage: "radial-gradient(var(--color-line) 1px, transparent 1px)",
         backgroundSize: `${dotStep(view.scale)}px ${dotStep(view.scale)}px`,
