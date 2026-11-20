@@ -5,14 +5,12 @@ import { Button } from "../primitives/Button";
 import { Dialog } from "../primitives/Dialog";
 import { FIELD_LABEL, Input } from "../primitives/Field";
 import { InlineError } from "../primitives/InlineError";
-import { DESIGN_DELETED, type DesignDeleted } from "../agents/design-events";
 import { LibraryPagePicker, useLibraryPageChoice } from "./LibraryPagePicker";
 
 /** A change asked for on the Design library page, each with its own dialog. */
 export type LibraryAction =
   | { kind: "rename"; design: DesignLibraryEntry }
   | { kind: "move"; design: DesignLibraryEntry }
-  | { kind: "delete"; design: DesignLibraryEntry }
   | { kind: "rename-page"; page: DesignLibraryPage };
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
@@ -50,43 +48,6 @@ export function LibraryActionDialog({
   const api = bridgeForKey(projectKey).artifacts;
   const scope = designScope(projectKey);
   const { busy, error, run } = useRun(onClose);
-  if (action.kind === "delete") {
-    const { design } = action;
-    return (
-      <Dialog
-        role="alertdialog"
-        data-slot="library-delete"
-        title={`Delete ${design.title}?`}
-        description="It leaves the Project library for every Chat in this Project, with every version. Chats' own designs stay."
-        onClose={busy ? undefined : onClose}
-        width={400}
-        actions={
-          <>
-            <Button variant="ghost" disabled={busy} onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              data-slot="library-delete-confirm"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => {
-                  await api.delete({ ...scope, id: design.id });
-                  window.dispatchEvent(new CustomEvent<DesignDeleted>(DESIGN_DELETED, { detail: { chatId: projectKey, id: design.id } }));
-                })
-              }
-            >
-              {busy ? "Deleting…" : "Delete"}
-            </Button>
-          </>
-        }
-      >
-        <InlineError size={12} className="mt-3">
-          {error}
-        </InlineError>
-      </Dialog>
-    );
-  }
   if (action.kind === "move")
     return (
       <MoveDialog

@@ -164,6 +164,23 @@ export function libraryCardLine(design: Pick<DesignLibraryEntry, "version" | "ed
   return [`v${design.version}`, libraryEditLabel(design, edit?.version), edit ? ago(edit.at, now) : ""].filter(Boolean).join(" · ");
 }
 
+/** A Recent edits row's caption on the Design library page: "Codex in Login flow · 2 h ago", "Design library · just now". */
+export function libraryRecentLine(design: Pick<DesignLibraryEntry, "edits">, now: number): string {
+  const edit = design.edits.at(-1);
+  if (!edit) return "";
+  const who = !edit.chatId ? "Design library" : edit.agent && edit.chat ? `${edit.agent} in ${edit.chat}` : (edit.agent ?? edit.chat ?? "Another Chat");
+  return `${who} · ${ago(edit.at, now)}`;
+}
+
+/** The library's designs by their last edit, newest first, at most `limit`, with the page each is on: the Design library page's Recent edits. */
+export function libraryRecent(library: DesignLibrary | null | undefined, limit: number): { design: DesignLibraryEntry; page: DesignLibraryPage }[] {
+  const at = (design: DesignLibraryEntry) => design.edits.at(-1)?.at ?? 0;
+  return (library?.pages ?? [])
+    .flatMap((page) => page.designs.filter((design) => design.edits.length).map((design) => ({ design, page })))
+    .sort((a, b) => at(b.design) - at(a.design))
+    .slice(0, limit);
+}
+
 /**
  * Designs as the canvas lays them out: one row per group, the groups and the designs in each in the order they first
  * appear. Designs without a group share a row of their own, where the first of them appears.

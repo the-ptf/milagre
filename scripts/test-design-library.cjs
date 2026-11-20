@@ -1,8 +1,9 @@
 // Run with node scripts/test-design-library.cjs. Checks the Project's Design library page: the sidebar Project menu
-// opens it with no Chat, its library pages are tabs after All, each design is a card with a drawn preview, title, size
-// and who saved it when; a card opens on the library canvas with versions, and its ⋯ menu renames, moves and deletes
-// it through the host; a page renames; the page follows the host's change event; and an empty library says how
-// designs get there. Set MILAGRE_SCREENSHOT_DIR to keep screenshots.
+// opens it with no Chat; its library pages and most recent edits run down the left, and the chosen page's designs lie
+// side by side on the library canvas (All has a row per page) with versions and who saved each; a recent edit shows its
+// design, moving to its page; a frame's ⋯ menu renames and moves it, its delete removes it, through the host; a page
+// renames; the page follows the host's change event; and an empty library says how designs get there. Set
+// MILAGRE_SCREENSHOT_DIR to keep screenshots.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
@@ -143,16 +144,20 @@ async function browserChecks() {
     throw new Error(`Timed out: ${source}`);
   }
   const page = 'document.querySelector("[data-slot=design-library-page]")';
-  const cards = 'document.querySelectorAll("[data-slot=design-library-page] [data-slot=library-card]")';
-  const card = (id) => `document.querySelector('[data-slot=design-library-page] [data-slot=library-card][data-design="library:${id}"]')`;
+  const frames = `${page}?.querySelectorAll("[data-slot=artifact-frame]")`;
+  const frame = (id) => `${page}.querySelector('[data-slot=artifact-frame][data-artifact="library:${id}"]')`;
+  const painted = (id) => `!!${frame(id)}?.querySelector("[data-design-body][data-painted]")`;
+  const rows = `[...${page}.querySelectorAll("[data-slot=library-page-row]")]`;
+  const row = (name) => `${rows}.find((node) => node.querySelector("button").textContent.startsWith(${JSON.stringify(name)}))`;
+  const current = `${rows}.find((node) => node.querySelector("[aria-current=page]"))?.querySelector("button").textContent`;
+  const recent = `[...${page}.querySelectorAll("[data-slot=library-recent-edit]")]`;
   const click = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
-  const tab = (name) => `[...${page}.querySelectorAll("[role=tab]")].find((node) => node.textContent.startsWith(${JSON.stringify(name)}))`;
   const type = (selector, text) =>
     evaluate(
       `(() => { const input = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(text)}); input.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`,
     );
-  const cardAction = async (id, slot) => {
-    await evaluate(`${card(id)}.querySelector("[data-slot=library-card-more]").click()`);
+  const frameAction = async (id, slot) => {
+    await evaluate(`${frame(id)}.querySelector("[data-slot=artifact-more]").click()`);
     await waitFor(`!!document.querySelector("[role=menu] [data-slot=${slot}]")`);
     await click(`[role=menu] [data-slot=${slot}]`);
   };
@@ -164,63 +169,75 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[data-scope-menu-item=design-library]")');
     assert.equal(await evaluate('document.querySelector("[data-scope-menu-item=design-library]").textContent'), "Design library");
     await click("[data-scope-menu-item=design-library]");
-    await waitFor(`${cards}?.length === 2 && [...${cards}].every((node) => !!node.querySelector("iframe"))`);
+    await waitFor(`${frames}?.length === 2 && ${painted("home")} && ${painted("watch")}`);
     assert.deepEqual(await evaluate('window.calls.find(([kind]) => kind === "list")[1]'), { projectPath: "/repo" });
-    assert.deepEqual(await evaluate('window.calls.find(([kind]) => kind === "get")[1]'), { projectPath: "/repo", id: "library:home", version: 2 });
+    assert.equal(
+      await evaluate(
+        'window.calls.some(([kind, request]) => kind === "get" && request.projectPath === "/repo" && request.id === "library:home" && request.version === 2)',
+      ),
+      true,
+    );
     assert.equal(await evaluate("window.appView"), "design-library", "a view of the main area, not a dialog");
     assert.equal(
       await evaluate('!!document.querySelector("[data-workspace-main] [data-slot=design-library-page]") && !document.querySelector("dialog[open]")'),
       true,
     );
     assert.equal(await evaluate(`${page}.querySelector("[data-slot=library-title]").textContent`), "Habits · Design library");
-    assert.deepEqual(await evaluate(`[...${page}.querySelectorAll("[role=tab]")].map((node) => node.textContent)`), ["All2", "iPhone1", "Watch1"]);
-    assert.match(await evaluate(`${card("home")}.textContent`), /Home.*iPhone · 390 × 844.*v2 · Edited in Polish · Codex · 2 h ago/);
+    // The pages down the left, All first; All lays the designs out in a row per page, with who saved each version.
+    assert.deepEqual(await evaluate(`${rows}.map((node) => node.querySelector("button").textContent)`), ["All designs2", "iPhone1", "Watch1"]);
+    assert.equal(await evaluate(current), "All designs2");
+    assert.deepEqual(await evaluate(`[...${page}.querySelectorAll("[data-slot=artifact-canvas-group]")].map((node) => node.dataset.group)`), [
+      "iPhone",
+      "Watch",
+    ]);
+    assert.match(await evaluate(`${frame("home")}.textContent`), /v2 of 2.*Edited in Polish · Codex/);
+    // Recent edits, newest first, name the page, the version, who saved it and when.
+    assert.deepEqual(await evaluate(`${recent}.map((node) => node.dataset.design)`), ["library:watch", "library:home"]);
+    assert.equal(await evaluate(`${recent}[1].textContent`), "HomeCodex in Polish · 2 h ago");
+    assert.equal(await evaluate(`${recent}[1].getAttribute("aria-label")`), "Show Home. iPhone · v2 · Edited in Polish · Codex · 2 h ago");
     await screenshot("all");
 
-    // A page tab shows only its designs, without naming the page on each card.
-    await evaluate(`${tab("Watch")}.click()`);
-    await waitFor(`${cards}.length === 1 && !!${card("watch")}`);
-    assert.doesNotMatch(await evaluate(`${card("watch")}.textContent`), /Watch ·/);
-    // Renaming the page goes to the host and the tab follows its change event.
-    await click("[data-slot=library-page-more]");
+    // A page shows only its designs.
+    await evaluate(`${row("Watch")}.querySelector("button").click()`);
+    await waitFor(`${frames}.length === 1 && ${painted("watch")}`);
+    assert.equal(await evaluate(current), "Watch1");
+    // Renaming the page goes to the host and the row follows its change event.
+    await evaluate(`${row("Watch")}.querySelector("[data-slot=library-page-more]").click()`);
     await waitFor('!!document.querySelector("[role=menu] [data-slot=library-rename-page]")');
     await click("[role=menu] [data-slot=library-rename-page]");
     await waitFor('!!document.querySelector("[data-slot=library-rename] [data-slot=library-name]")');
     await type("[data-slot=library-name]", "Apple Watch");
     await waitFor('!document.querySelector("[data-slot=library-rename-save]").disabled');
     await click("[data-slot=library-rename-save]");
-    await waitFor(`!document.querySelector("[data-slot=library-rename]") && !!${tab("Apple Watch")}`);
+    await waitFor(`!document.querySelector("[data-slot=library-rename]") && !!${row("Apple Watch")}`);
     assert.deepEqual(await evaluate('window.calls.findLast(([kind]) => kind === "rename-page")[1]'), {
       projectPath: "/repo",
       page: "watch",
       name: "Apple Watch",
     });
-    await evaluate(`${tab("All")}.click()`);
-    await waitFor(`${cards}.length === 2`);
+    // A recent edit of a design on another page moves to its page and shows it.
+    await evaluate(`${recent}.find((node) => node.dataset.design === "library:home").click()`);
+    await waitFor(`${frames}.length === 1 && ${painted("home")}`);
+    assert.equal(await evaluate(current), "iPhone1");
 
-    // A card opens the design large on the library canvas, with its versions and who saved each.
-    await evaluate(`${card("home")}.querySelector("button").click()`);
-    const frame = `${page}.querySelector('[data-slot=artifact-frame][data-artifact="library:home"]')`;
-    await waitFor(`!!${frame}?.querySelector("[data-design-body][data-painted]")`);
-    assert.match(await evaluate(`${frame}.textContent`), /v2 of 2.*Edited in Polish · Codex/);
-    assert.equal(await evaluate(`${page}.querySelector("[data-slot=library-title]").textContent`), "Habits · Design library");
-    await screenshot("open");
-    await evaluate(`${frame}.querySelector("[aria-label='Previous version of Home']").click()`);
-    await waitFor(`/v1 of 2.*Edited in Onboarding · Claude/.test(${frame}.textContent)`);
+    // The frame steps back through its versions, naming who saved each.
+    await evaluate(`${frame("home")}.querySelector("[aria-label='Previous version of Home']").click()`);
+    await waitFor(`/v1 of 2.*Edited in Onboarding · Claude/.test(${frame("home")}.textContent)`);
     assert.deepEqual(await evaluate('window.calls.findLast(([kind]) => kind === "get")[1]'), { projectPath: "/repo", id: "library:home", version: 1 });
-    await click("[data-slot=library-back]");
-    await waitFor(`${cards}?.length === 2`);
+    await screenshot("page");
+    await evaluate(`${row("All designs")}.querySelector("button").click()`);
+    await waitFor(`${frames}.length === 2`);
 
-    // Rename: a new library version the page made, read back on the change event.
-    await cardAction("home", "library-rename-design");
+    // Rename from the frame's ⋯ menu: a new library version the page made, read back on the change event.
+    await frameAction("home", "library-rename-design");
     await waitFor('!!document.querySelector("[data-slot=library-rename] [data-slot=library-name]")');
     await type("[data-slot=library-name]", "Start");
     await click("[data-slot=library-rename-save]");
-    await waitFor(`/Start.*v3 · Edited in the Design library · just now/.test(${card("home")}?.textContent ?? "")`);
+    await waitFor(`/v3 of 3.*Edited in the Design library/.test(${frame("home")}?.textContent ?? "") && /Start/.test(${recent}[0]?.textContent ?? "")`);
     assert.deepEqual(await evaluate('window.calls.findLast(([kind]) => kind === "update")[1]'), { projectPath: "/repo", id: "library:home", title: "Start" });
 
-    // Move to a new page: the tab appears.
-    await cardAction("home", "library-move-design");
+    // Move to a new page: its row appears and the emptied page's goes.
+    await frameAction("home", "library-move-design");
     await waitFor('!!document.querySelector("[data-slot=library-move] [data-slot=library-page-name]")');
     assert.equal(await evaluate('document.querySelector("[data-slot=library-move-save]").disabled'), true, "staying on its page is no move");
     await click('[data-slot=library-move] [aria-label="New page"]');
@@ -228,25 +245,25 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-slot=library-move-save]").disabled');
     await screenshot("move");
     await click("[data-slot=library-move-save]");
-    await waitFor(`!!${tab("Kit")} && !${tab("iPhone")}`);
+    await waitFor(`!!${row("Kit")} && !${row("iPhone")}`);
     assert.deepEqual(await evaluate('window.calls.findLast(([kind]) => kind === "update")[1]'), { projectPath: "/repo", id: "library:home", page: "Kit" });
 
     // An agent in a Chat of the Project saves a new version: the page reads the library again.
     await evaluate(
       `window.designs = window.designs.map((d) => d.id === "library:watch" ? { ...d, version: 2, versions: 2, edits: [...d.edits, { version: 2, chatId: "/repo#6", chat: "Night mode", agent: "Codex", at: Date.now() }] } : d); window.changed();`,
     );
-    await waitFor(`/v2 · Edited in Night mode · Codex/.test(${card("watch")}?.textContent ?? "")`);
+    await waitFor(`/v2 of 2.*Edited in Night mode · Codex/.test(${frame("watch")}?.textContent ?? "") && ${recent}[0]?.dataset.design === "library:watch"`);
 
-    // Delete asks first, then removes it for every Chat.
-    await cardAction("watch", "library-delete-design");
-    await waitFor('!!document.querySelector("[data-slot=library-delete]")');
+    // The frame's delete asks first, then removes it for every Chat.
+    await evaluate(`${frame("watch")}.querySelector("[data-slot=artifact-delete]").click()`);
+    await waitFor('!!document.querySelector("[data-slot=artifact-delete-confirm]")');
     await screenshot("delete");
-    await click("[data-slot=library-delete-confirm]");
-    await waitFor(`${cards}.length === 1 && !${card("watch")}`);
+    await click("[data-slot=artifact-delete-confirm]");
+    await waitFor(`${frames}.length === 1 && !${frame("watch")}`);
     assert.deepEqual(await evaluate('window.calls.findLast(([kind]) => kind === "delete")[1]'), { projectPath: "/repo", id: "library:watch" });
 
     // Escape over a dialog closes the dialog, not the page; then it leaves the page for the Chat, as other views do.
-    await cardAction("home", "library-rename-design");
+    await frameAction("home", "library-rename-design");
     await waitFor('!!document.querySelector("[data-slot=library-rename]")');
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     await waitFor('!document.querySelector("[data-slot=library-rename]")');
@@ -255,13 +272,13 @@ async function browserChecks() {
     await waitFor('window.appView === "chat" && !document.querySelector("[data-slot=design-library-page]")');
     // The palette and the Artifact panel open it the same way; choosing a Chat in the sidebar leaves it.
     await evaluate('window.dispatchEvent(new CustomEvent("milagre:design-library", { detail: { projectKey: "/repo", name: "Habits" } }))');
-    await waitFor(`window.appView === "design-library" && ${cards}?.length === 1`);
+    await waitFor(`window.appView === "design-library" && ${frames}?.length === 1`);
     await click("[data-fixture-chat]");
     await waitFor('window.appView === "chat" && !document.querySelector("[data-slot=design-library-page]")');
     await click("[data-scope-menu]");
     await waitFor('!!document.querySelector("[data-scope-menu-item=design-library]")');
     await click("[data-scope-menu-item=design-library]");
-    await waitFor(`${cards}?.length === 1`);
+    await waitFor(`${frames}?.length === 1`);
 
     // With nothing left the page says how designs get here.
     await evaluate("window.designs = []; window.changed();");
@@ -269,7 +286,7 @@ async function browserChecks() {
     assert.match(await evaluate(`${page}.querySelector("[data-slot=library-empty]").textContent`), /Add to Project library.*ask an agent/);
     await screenshot("empty");
     console.log(
-      "PASS: the Project menu opens the Design library as a view of the main area with no Chat, titled in the top bar; Escape (past a dialog) or a Chat leaves it; page tabs after All, cards with previews, size and who saved them when; a card opens on the library canvas with versions; rename, move, page rename and delete go through the host; changes from any Chat show; an empty library says how designs get there",
+      "PASS: the Project menu opens the Design library as a view of the main area with no Chat, titled in the top bar; Escape (past a dialog) or a Chat leaves it; pages and recent edits down the left, the page's designs on the library canvas with versions and who saved each; a recent edit moves to its page; rename, move, page rename and delete go through the host; changes from any Chat show; an empty library says how designs get there",
     );
     app.exit(0);
   } catch (error) {

@@ -519,7 +519,7 @@ export const ArtifactCanvas = forwardRef<
                   key={`${chatId}\n${design.id}`}
                   chatId={chatId}
                   design={design}
-                  label={optionLabel(offset)}
+                  label={library ? "" : optionLabel(offset)}
                   dimmed={dimmedInRow(row.designs, design.id, choice)}
                   version={versions[design.id] ?? null}
                   onVersion={onVersion}
@@ -763,7 +763,7 @@ const DesignFrame = memo(function DesignFrame({
           className="absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1.5 pb-1.5 text-12"
           style={{ width: width * scale, height: HEADER, transform: `scale(${1 / scale})` }}
         >
-          <span className="shrink-0 font-semibold text-ink-3" data-slot="artifact-frame-label">
+          <span className="shrink-0 font-semibold text-ink-3 empty:hidden" data-slot="artifact-frame-label">
             {label}
           </span>
           <span className={`min-w-0 flex-1 truncate font-medium ${dimmed ? "text-ink-2" : "text-ink"}`} title={shown.title}>

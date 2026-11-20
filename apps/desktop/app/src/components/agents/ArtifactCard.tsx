@@ -121,7 +121,7 @@ function usePinColors() {
   return colors;
 }
 
-export function ScaledPreview({
+function ScaledPreview({
   html,
   title,
   width = 1280,

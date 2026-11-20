@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { Download04Icon, LibraryIcon, MoreHorizontalIcon, Share08Icon } from "@hugeicons/core-free-icons";
+import { createContext, useContext, useRef, useState } from "react";
+import { Download04Icon, FolderTransferIcon, LibraryIcon, MoreHorizontalIcon, PencilEdit02Icon, Share08Icon } from "@hugeicons/core-free-icons";
 import { isInteractiveDesign, type DesignArtifact } from "@milagre/shared/artifact";
 import { DESIGN_MODE_LABELS, type DesignMode } from "@milagre/shared/design-modes";
 import type { ArtifactRef } from "../../model";
@@ -17,7 +17,15 @@ function downloadHtml(html: string, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** A design frame's ⋯ menu on the canvas: pick its color mode, export it, share it on its own link, and add it to the Project library. */
+/** Renames a Project library design, or moves it to another library page, from its frame on the Design library page. */
+export type LibraryEdit = (design: ArtifactRef, kind: "rename" | "move") => void;
+/** Set by the Design library page around its canvas, so its frames' menus rename and move. */
+export const LibraryEditContext = createContext<LibraryEdit | null>(null);
+
+/**
+ * A design frame's ⋯ menu on the canvas: pick its color mode, export it, share it on its own link, add it to the Project
+ * library, and, on the Design library page, rename it or move it to another page.
+ */
 export function DesignFrameMenu({
   artifact,
   shown,
@@ -39,6 +47,7 @@ export function DesignFrameMenu({
   onShare?: (design: ArtifactRef) => void;
   onAddToLibrary?: (design: ArtifactRef) => void;
 }) {
+  const onLibraryEdit = useContext(LibraryEditContext);
   const anchor = useRef<HTMLSpanElement>(null);
   const [exporting, setExporting] = useState(false);
   return (
@@ -90,6 +99,28 @@ export function DesignFrameMenu({
                 onShare(shown);
               }}
             />
+          )}
+          {onLibraryEdit && (
+            <>
+              <MenuRow
+                data-slot="library-rename-design"
+                icon={PencilEdit02Icon}
+                title="Rename…"
+                onClick={() => {
+                  onOpen(false);
+                  onLibraryEdit(shown, "rename");
+                }}
+              />
+              <MenuRow
+                data-slot="library-move-design"
+                icon={FolderTransferIcon}
+                title="Move to page…"
+                onClick={() => {
+                  onOpen(false);
+                  onLibraryEdit(shown, "move");
+                }}
+              />
+            </>
           )}
           {onAddToLibrary && (
             <MenuRow
