@@ -18,26 +18,46 @@ const title = (value) => {
 /** Only design content crosses this boundary. Unknown envelope fields are never retained. */
 export function validateDesignPageSnapshot(value) {
   if (value?.kind === "artifacts") return validateArtifactPageSnapshot(value);
+  if (value?.kind === "workspace") return validateWorkspaceSnapshot(value);
   if (!value || value.schemaVersion !== 1 || !Array.isArray(value.designs) || !value.designs.length)
     throw Error("A shared page must contain at least one design.");
-  const snapshot = {
-    schemaVersion: 1,
-    title: title(value.title),
-    designs: value.designs.map((design) => {
-      const group = typeof design?.group === "string" ? design.group.trim().slice(0, 60) : "";
-      if (design?.interactive !== undefined)
-        return { title: title(design?.title), ...(group ? { group } : {}), interactive: interactiveDesign(design.interactive) };
-      const document = validateDesignDocument(design?.document);
-      for (const node of document.nodes) {
-        if (node.type === "image" && node.src && !isSnapshotRaster(node.src)) throw Error("Shared page images must be embedded PNG, JPEG, GIF or WebP files.");
-      }
-      return { title: title(design?.title), ...(group ? { group } : {}), document };
-    }),
-  };
+  return seal({ schemaVersion: 1, title: title(value.title), designs: validateDesigns(value.designs) });
+}
+
+function seal(snapshot) {
   freeze(snapshot);
   validatedSnapshots.add(snapshot);
   return snapshot;
 }
+
+function validateDesigns(designs) {
+  return designs.map((design) => {
+    const group = typeof design?.group === "string" ? design.group.trim().slice(0, 60) : "";
+    if (design?.interactive !== undefined)
+      return { title: title(design?.title), ...(group ? { group } : {}), interactive: interactiveDesign(design.interactive) };
+    const document = validateDesignDocument(design?.document);
+    for (const node of document.nodes) {
+      if (node.type === "image" && node.src && !isSnapshotRaster(node.src)) throw Error("Shared page images must be embedded PNG, JPEG, GIF or WebP files.");
+    }
+    return { title: title(design?.title), ...(group ? { group } : {}), document };
+  });
+}
+
+function validateWorkspaceSnapshot(value) {
+  if (value.schemaVersion !== 1 || !Array.isArray(value.designs)) throw Error("A shared workspace lists its designs.");
+  if (!value.designs.length && !value.page) throw Error("A shared workspace must contain a design or its page.");
+  return seal({
+    schemaVersion: 1,
+    kind: "workspace",
+    title: title(value.title),
+    designs: validateDesigns(value.designs),
+    ...(value.page ? { page: validatePage(value.page) } : {}),
+  });
+}
+
+/** The files a published page names, which the host uploads before the snapshot and the service serves beside it. */
+export const pageAssets = (snapshot) =>
+  (snapshot?.kind === "artifacts" ? snapshot.artifacts?.[0]?.assets : snapshot?.kind === "workspace" ? snapshot.page?.assets : null) ?? [];
 
 function interactiveDesign(value) {
   const dimension = (number) => {
@@ -79,25 +99,34 @@ const decodeEntities = (value) =>
     return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
   });
 
-function summary(text, pageTitle) {
+function summary(text, pageTitle, limit = DESIGN_PAGE_DESCRIPTION_CHARACTERS) {
   let value = text.replace(/\s+/g, " ").trim();
   if (pageTitle && value.toLowerCase().startsWith(pageTitle.toLowerCase())) value = value.slice(pageTitle.length).replace(/^[\s:·|.,-]+/, "");
-  if (value.length <= DESIGN_PAGE_DESCRIPTION_CHARACTERS) return value;
-  const cut = value.slice(0, DESIGN_PAGE_DESCRIPTION_CHARACTERS - 1);
+  if (value.length <= limit) return value;
+  const cut = value.slice(0, limit - 1);
   const space = cut.lastIndexOf(" ");
-  return (space > DESIGN_PAGE_DESCRIPTION_CHARACTERS / 2 ? cut.slice(0, space) : cut).replace(/[\s:·|.,-]+$/, "") + "…";
+  return (space > limit / 2 ? cut.slice(0, space) : cut).replace(/[\s:·|.,-]+$/, "") + "…";
 }
 
-function artifactDescription(artifact, pageTitle) {
+function workspaceDescription(page) {
+  const names = page.designs.map((design) => design.title);
+  const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0];
+  const designs = names.length ? summary(`${names.length} design${names.length > 1 ? "s" : ""}: ${list}.`, "") : "";
+  const room = DESIGN_PAGE_DESCRIPTION_CHARACTERS - designs.length - 1;
+  const text = page.page && room > 40 ? artifactDescription(page.page, page.page.title, room) : "";
+  return [text, designs].filter(Boolean).join(" ");
+}
+
+function artifactDescription(artifact, pageTitle, limit) {
   const meta = /<meta\s[^>]*(?:name|property)\s*=\s*["'](?:description|og:description)["'][^>]*>/i.exec(artifact.html);
   const content = meta && /\scontent\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(meta[0]);
-  const declared = content ? summary(decodeEntities(content[1] ?? content[2]), "") : "";
+  const declared = content ? summary(decodeEntities(content[1] ?? content[2]), "", limit) : "";
   if (declared) return declared;
   const text = artifact.html
     .replace(/<(script|style|template|noscript|title|svg|head)\b[\s\S]*?<\/\1\s*>/gi, " ")
     .replace(/<!--[\s\S]*?-->/g, " ")
     .replace(/<[^>]*>/g, " ");
-  return summary(decodeEntities(text), pageTitle);
+  return summary(decodeEntities(text), pageTitle, limit);
 }
 
 function designsDescription(page) {
@@ -160,21 +189,31 @@ const ZOOM_BAR = `<nav class="bar" aria-label="Canvas zoom"><button id="out" cla
 export function renderDesignPage(input, { files } = {}) {
   const page = validatedSnapshots.has(input) ? input : validateDesignPageSnapshot(input);
   if (page.kind === "artifacts") return renderArtifactPage(page, files);
-  const rows = designRows(page.designs);
-  const grouped = rows.some((row) => row.group);
+  const sheet = page.page && {
+    title: page.page.title,
+    page: files ? { ...page.page, html: rewriteAssetUrls(page.page.html, page.page.assets, files) } : page.page,
+  };
+  const items = sheet ? [sheet, ...page.designs] : page.designs;
+  const groups = designRows(page.designs);
+  const grouped = groups.some((row) => row.group);
+  const rows = grouped ? [...(sheet ? [{ group: sheet.title, designs: [sheet] }] : []), ...groups] : [{ group: null, designs: items }];
   const pad = grouped ? GROUP_PADDING : 0;
-  const screen = (item) => item.document ?? item.interactive;
+  const screen = (item) => item.document ?? item.interactive ?? item.page;
   const rowWidth = (row) => row.designs.reduce((sum, item) => sum + screen(item).width, 0) + GAP * (row.designs.length - 1) + 2 * pad;
   const rowHeight = (row) => row.designs.reduce((maximum, item) => Math.max(maximum, screen(item).height), 0) + CAPTION + 2 * pad;
   const width = Math.max(...rows.map(rowWidth));
   const height = rows.reduce((sum, row) => sum + rowHeight(row), 0) + GAP * (rows.length - 1);
   const labels = grouped ? rows.length : 0;
   const renderFrames = (embedFonts) => {
-    const frame = ({ title: name, document, interactive }) =>
-      interactive
-        ? `<figure style="width:${interactive.width}px"><figcaption>${escape(name)}</figcaption><iframe class="live" title="${escape(name)}" width="${interactive.width}" height="${interactive.height}" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${escape(artifactDocument(interactive.html, { code: true }))}"></iframe></figure>`
-        : `<figure style="width:${document.width}px"><figcaption>${escape(name)}</figcaption><img draggable="false" width="${document.width}" height="${document.height}" alt="${escape(name)}" src="data:image/svg+xml,${encodeURIComponent(designSvg(document, { embedFonts, renderByteLimit: Infinity }))}"></figure>`;
-    if (!grouped) return page.designs.map(frame).join("");
+    const live = (name, { width: w, height: h }, srcdoc) =>
+      `<figure style="width:${w}px"><figcaption>${escape(name)}</figcaption><iframe class="live" title="${escape(name)}" width="${w}" height="${h}" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${escape(srcdoc)}"></iframe></figure>`;
+    const frame = ({ title: name, document, interactive, page: sheetPage }) =>
+      sheetPage
+        ? live(name, sheetPage, sheetPage.html)
+        : interactive
+          ? live(name, interactive, artifactDocument(interactive.html, { code: true }))
+          : `<figure style="width:${document.width}px"><figcaption>${escape(name)}</figcaption><img draggable="false" width="${document.width}" height="${document.height}" alt="${escape(name)}" src="data:image/svg+xml,${encodeURIComponent(designSvg(document, { embedFonts, renderByteLimit: Infinity }))}"></figure>`;
+    if (!grouped) return items.map(frame).join("");
     return rows
       .map(
         (row) =>
@@ -182,7 +221,7 @@ export function renderDesignPage(input, { files } = {}) {
       )
       .join("");
   };
-  const description = descriptionMeta(designsDescription(page));
+  const description = descriptionMeta(page.kind === "workspace" ? workspaceDescription(page) : designsDescription(page));
   const render = (embedFonts) => {
     const frames = renderFrames(embedFonts);
     const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>${escape(page.title)} | Milagre Designs</title>${description}<style>
@@ -198,7 +237,10 @@ export function renderDesignPage(input, { files } = {}) {
 function validateArtifactPageSnapshot(value) {
   if (value.schemaVersion !== 1 || !Array.isArray(value.artifacts) || value.artifacts.length !== 1)
     throw Error("An Artifact snapshot contains exactly one page.");
-  const item = value.artifacts[0];
+  return seal({ schemaVersion: 1, kind: "artifacts", title: title(value.title), artifacts: [validatePage(value.artifacts[0])] });
+}
+
+function validatePage(item) {
   if (typeof item?.html !== "string" || !item.html.trim()) throw Error("An Artifact snapshot needs its HTML.");
   const dimension = (number) => {
     if (!Number.isInteger(number) || number < 240 || number > 3840) throw Error("Invalid Artifact page dimensions.");
@@ -219,23 +261,13 @@ function validateArtifactPageSnapshot(value) {
     return { name, hash, size, type };
   });
   if (total > MAX_PAGE_ASSET_BYTES) throw Error("An Artifact page's files are too large.");
-  const snapshot = {
-    schemaVersion: 1,
-    kind: "artifacts",
-    title: title(value.title),
-    artifacts: [
-      {
-        title: title(item.title),
-        html: item.html,
-        width: dimension(item.width),
-        height: dimension(item.height),
-        ...(files.length ? { assets: files } : {}),
-      },
-    ],
+  return {
+    title: title(item.title),
+    html: item.html,
+    width: dimension(item.width),
+    height: dimension(item.height),
+    ...(files.length ? { assets: files } : {}),
   };
-  freeze(snapshot);
-  validatedSnapshots.add(snapshot);
-  return snapshot;
 }
 
 function renderArtifactPage(page, files) {

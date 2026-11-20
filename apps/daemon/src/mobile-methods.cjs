@@ -149,6 +149,7 @@ const METHODS = new Set([
   "artifact:revoke-saved-page-share",
   "artifact:share-page",
   "artifact:revoke-page-share",
+  "artifact:set-page-share-paused",
   "artifact:add-comments",
   "artifact:comments",
   "browser-comments:list",

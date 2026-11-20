@@ -117,6 +117,7 @@ function createDesignTools({ options, dataDir, commands, existingChat, scopeStat
     directory: path.join(dataDir, "artifacts"),
     validateChat: existingChat("showing a design"),
     readKit: (request) => designKits.read(request),
+    onChange: ({ chatId }) => designPageSharing().changed(chatId),
   });
   let pageSharing;
   const designPageSharing = () =>
@@ -136,6 +137,12 @@ function createDesignTools({ options, dataDir, commands, existingChat, scopeStat
   commands.handle("artifact:revoke-saved-page-share", (_context, request) => designPageSharing().revokeSaved(request));
   commands.handle("artifact:share-page", (_context, request) => designPageSharing().publish(request));
   commands.handle("artifact:revoke-page-share", (_context, request) => designPageSharing().revoke(request));
+  commands.handle("artifact:set-page-share-paused", (_context, request) => designPageSharing().setPaused(request));
+  setImmediate(() =>
+    designPageSharing()
+      .resumeStale()
+      .catch((error) => console.warn("Milagre couldn't retry live page links:", error.message)),
+  );
   commands.handle("designs:enabled:read", () => ({ enabled: true }));
   commands.handle("designs:enabled:save", () => ({ enabled: true }));
   commands.handle("artifact:get", (_context, request) => artifacts.get(request));
@@ -144,7 +151,7 @@ function createDesignTools({ options, dataDir, commands, existingChat, scopeStat
   commands.handle("artifact:delete", (_context, request) => artifacts.deleteDesign(request));
   commands.handle("artifact:add-comments", (_context, request) => artifacts.addComments(request));
   commands.handle("artifact:comments", (_context, request) => artifacts.comments(request));
-  return { designKits, artifacts };
+  return { designKits, artifacts, closePageSharing: () => pageSharing?.close() };
 }
 
 const PAGE_COMMENTS_PER_SEND = 50;
@@ -304,6 +311,7 @@ function createToolServices({ options, dataDir, emit, commands, existingChat, ag
       browserTools.panelForwarders.closeAll(),
       design.artifacts.close(),
       design.designKits.close(),
+      design.closePageSharing(),
       pageComments.close(),
       terminals.dispose(),
     ]);

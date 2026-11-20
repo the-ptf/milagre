@@ -22,7 +22,7 @@ import { SpinnerRing } from "../primitives/SpinnerRing";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { radioKeys } from "../primitives/Segmented";
-import { dockLayer, useCloseWhenDesignsExpand, useDockArea, useSidePanelRoom } from "./dock-area";
+import { dockLayer, useCloseWhenArtifactExpands, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
 import { ResizableDockSlide } from "./DockSlide";
 import { MIN_CHAT_WIDTH, usePanelWidth } from "./panel-width";
@@ -106,7 +106,7 @@ export function BrowserPanel({
   const width = dock ? Math.max(resize.min, Math.min(resize.width, dock.width - dock.simulator - 12 - MIN_CHAT_WIDTH)) : resize.width;
   const full = expanded;
   const close = useCallback(() => setBrowserOpen(chatKey, false), [chatKey]);
-  useCloseWhenDesignsExpand(close);
+  useCloseWhenArtifactExpands(close);
   useSidePanelRoom("browser", chat.open && !full, width + 12, close);
   const hasStreamed = streamed.targets.length > 0;
   const open = () => (!chatBrowser(chatKey).tabs.length && (hasStreamed || streamed.loading) ? showBrowserPanel(chatKey) : setBrowserOpen(chatKey, true));

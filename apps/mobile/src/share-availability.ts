@@ -1,16 +1,18 @@
-import type { ArtifactPageKind } from "@milagre/shared/artifact";
+const listeners = new Map<string, Set<(available: boolean | null) => void>>();
+const keyOf = (hostId: string, chatId: string) => `${hostId}|${chatId}`;
 
-const listeners = new Map<string, (available: boolean | null) => void>();
-const keyOf = (hostId: string, chatId: string, kind: ArtifactPageKind) => `${hostId}|${chatId}|${kind}`;
-
-export function shareAvailabilityChanged(hostId: string, chatId: string, available: boolean | null, kind: ArtifactPageKind = "designs") {
-  listeners.get(keyOf(hostId, chatId, kind))?.(available);
+/** What a Share sheet learned about the sharing service, for the Artifact's Share entries of the same Chat. */
+export function shareAvailabilityChanged(hostId: string, chatId: string, available: boolean | null) {
+  for (const listener of listeners.get(keyOf(hostId, chatId)) ?? []) listener(available);
 }
 
-export function onShareAvailability(hostId: string, chatId: string, kind: ArtifactPageKind, listener: (available: boolean | null) => void) {
-  const key = keyOf(hostId, chatId, kind);
-  listeners.set(key, listener);
+export function onShareAvailability(hostId: string, chatId: string, listener: (available: boolean | null) => void) {
+  const key = keyOf(hostId, chatId);
+  const set = listeners.get(key) ?? new Set();
+  set.add(listener);
+  listeners.set(key, set);
   return () => {
-    if (listeners.get(key) === listener) listeners.delete(key);
+    set.delete(listener);
+    if (!set.size && listeners.get(key) === set) listeners.delete(key);
   };
 }

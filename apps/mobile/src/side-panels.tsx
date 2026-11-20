@@ -15,7 +15,7 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { ArrowLeft01Icon, BrowserIcon, Cancel01Icon, File01Icon, FileDiffIcon, PaintBoardIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, BrowserIcon, Cancel01Icon, FileDiffIcon, PaintBoardIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import { useSession } from "./session";
 import { ProjectNavigation } from "./project-navigation";
 import { ClosesLeftContext, hideRevealed } from "./chat-swipe-row";
@@ -693,14 +693,14 @@ export function SidePanelsHost() {
 
 /**
  * The right panel, sliding over the Chat or docked beside it: the Worktree's Changes and the Chat's PRs, one tab each,
- * and on an iPad the Chat's simulators and designs. A file of the Changes opens in place with a Back button; a PR file
+ * and on an iPad the Chat's simulators and Artifact. A file of the Changes opens in place with a Back button; a PR file
  * opens across the whole window on an iPad (wide enough to show it side by side), in the PR sheet on a phone.
  */
 export function RightPanel({ screen, card, visible }: { screen: Screen; card: boolean; visible: boolean }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const session = useSession();
-  const { tab, setTab: onTab, pick, setPick: onPick, chatTabs, closeTab, closeRight: onClose } = usePanels();
+  const { tab, setTab: onTab, pick, setPick: onPick, chatTabs, openTab, closeTab, closeRight: onClose } = usePanels();
   const { worktreeId, pullRequest } = screen;
   const tabs = rightTabs(screen, chatTabs);
   const shownTab = tabs.includes(tab) ? tab : tabs[0];
@@ -757,15 +757,7 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
             <PanelTab label="Simulator" icon={SmartphoneIcon} tone="ink2" selected={shownTab === "simulator"} onPress={() => onTab("simulator")} />
           )}
           {own?.browser && <PanelTab label="Browser" icon={BrowserIcon} tone="ink2" selected={shownTab === "browser"} onPress={() => onTab("browser")} />}
-          {designs && (
-            <PanelTab
-              label={designs.html ? "Artifact" : "Designs"}
-              icon={designs.html ? File01Icon : PaintBoardIcon}
-              tone="ink2"
-              selected={shownTab === "designs"}
-              onPress={() => onTab("designs")}
-            />
-          )}
+          {designs && <PanelTab label="Artifact" icon={PaintBoardIcon} tone="ink2" selected={shownTab === "designs"} onPress={() => onTab("designs")} />}
         </PageScroll>
         <GlassIconButton label={closeLabel} systemImage="xmark" icon={Cancel01Icon} onPress={onClose} />
       </View>
@@ -854,6 +846,7 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
               comment={designs.comment}
               requestId={designs.requestId}
               onClose={() => closeTab("designs")}
+              onPage={(target) => openTab({ kind: "designs", target })}
             />
           ) : (
             <DesignsSheet
@@ -866,6 +859,7 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
               comment={designs.comment}
               requestId={designs.requestId}
               onClose={() => closeTab("designs")}
+              onPage={(target) => openTab({ kind: "designs", target })}
             />
           )}
         </View>

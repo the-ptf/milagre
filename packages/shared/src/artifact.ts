@@ -55,17 +55,34 @@ export type HtmlArtifact = ArtifactSummary & {
 /** Part of a file of the Chat's Artifact page, as `artifact:asset` returns it: up to 256 KB from `offset`, in base64. */
 export type ArtifactAssetChunk = ArtifactAsset & { offset: number; base64: string };
 export type Artifact = DesignArtifact | HtmlArtifact;
-export type ArtifactPageKind = "designs" | "artifacts";
+/**
+ * What a published page holds. `workspace` is the Artifact panel's Share: every design and the HTML page. `design` is
+ * one design (`designId`), `artifacts` the HTML page alone. `designs` (every design, no page) is only for links made
+ * before workspaces; it is never created again.
+ */
+export type ArtifactPageKind = "workspace" | "design" | "designs" | "artifacts";
+export type PageShareScope = { kind?: ArtifactPageKind; designId?: string };
 
 export interface DesignPageShare {
   kind?: ArtifactPageKind;
+  /** For `kind: "design"`: the design the link shows. */
+  designId?: string;
   id: string;
   url: string;
   title: string;
   createdAt: number;
-  /** When the snapshot behind the link was last replaced; absent until the first update. */
+  /** When the page behind the link was last replaced; absent until the first update. */
   updatedAt?: number;
   designCount: number;
+  /** The link follows the agent's saves: each one republishes it a few seconds later. Links without it are frozen
+   * snapshots and never change on their own. */
+  live?: boolean;
+  /** A live link whose updates the owner paused. Resuming publishes the current state at once. */
+  paused?: boolean;
+  /** A live link has saves it has not published yet (offline, or the last attempt failed). It keeps retrying. */
+  stale?: boolean;
+  /** Why the last automatic update failed, while `stale`. */
+  lastError?: string;
   revoked?: boolean;
   /** The upload was never confirmed. Sharing again retries the same link. */
   pending?: boolean;
@@ -75,14 +92,17 @@ export interface DesignPageShare {
 }
 
 export interface ArtifactApi {
-  sharingStatus(request?: { kind?: ArtifactPageKind }): Promise<{ available: boolean; reason?: string }>;
+  sharingStatus(request?: PageShareScope & { chatId?: string }): Promise<{ available: boolean; reason?: string }>;
   allPageShares(): Promise<DesignPageShare[]>;
   revokeSavedPageShare(request: { id: string }): Promise<void>;
-  /** The page's current link, or none: at most one entry. */
-  pageShares(request: { chatId: string; kind?: ArtifactPageKind }): Promise<DesignPageShare[]>;
-  /** The page is named after its Chat on the host; `title` only satisfies hosts from before that, which require one. */
-  sharePage(request: { chatId: string; title?: string; acknowledgePublic: true; kind?: ArtifactPageKind }): Promise<DesignPageShare>;
-  revokePageShare(request: { chatId: string; id: string; kind?: ArtifactPageKind }): Promise<void>;
+  /** The scope's current link, or none: at most one entry. */
+  pageShares(request: { chatId: string } & PageShareScope): Promise<DesignPageShare[]>;
+  /** Publishes the scope now, under its current link when it has one; a new link is live. The page is named after its
+   * Chat on the host; `title` only satisfies hosts from before that, which require one. */
+  sharePage(request: { chatId: string; title?: string; acknowledgePublic: true } & PageShareScope): Promise<DesignPageShare>;
+  /** Pauses or resumes a live link's automatic updates. Resuming publishes the current state at once. */
+  setPageSharePaused(request: { chatId: string; id: string; paused: boolean }): Promise<DesignPageShare>;
+  revokePageShare(request: { chatId: string; id: string } & PageShareScope): Promise<void>;
   get(request: { chatId: string; id: string; version?: number; fonts?: { have: string[] } }): Promise<Artifact>;
   /** Part of a file of the Chat's Artifact page, by its name; `length` caps the bytes (256 KB at most). */
   asset(request: { chatId: string; name: string; offset?: number; length?: number }): Promise<ArtifactAssetChunk>;

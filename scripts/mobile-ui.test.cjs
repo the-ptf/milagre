@@ -461,6 +461,11 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // A phone's width: simulators and designs open full screen, never in the panel docked beside the Chat (panel-tabs.tsx).
       if (base === "panel-tabs" && !(id in modules)) return { PanelTabsContext: ({ children }) => children, usePanelTabs: () => null };
       if (base === "side-panels" && !(id in modules)) return { useChatPanelTabs: () => null };
+      // The Artifact's page menu and its Share entries load with the sheet's own fakes; the pages each Chat last viewed
+      // (artifact-pages.ts) and a link's status copy (page-share-status.ts) are pure, one copy for every sheet.
+      if (["artifact-page-menu", "use-share-available"].includes(base) && !(id in modules))
+        return load(base === "artifact-page-menu" ? `${base}.tsx` : `${base}.ts`, modules, "", cache);
+      if (["artifact-pages", "page-share-status"].includes(base) && !(id in modules)) return require(`../apps/mobile/src/${base}.ts`);
       if (base === "browser-setting" && !(id in modules)) return { useInternalBrowser: () => [globalThis.internalBrowser !== false, async () => {}] };
       // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
       if (base === "hardware-keys" && !(id in modules))
@@ -12428,7 +12433,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
           },
         },
       },
-      "expo-router": { router: { back: () => router.back(), push: (route) => pushes.push(route) } },
+      "expo-router": { router: { back: () => router.back(), push: (route) => pushes.push(route), setParams: (params) => pushes.push({ setParams: params }) } },
       "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 47, bottom: 34 }) },
       "@expo/dom-webview": { DomWebView: "DomWebView" },
       "expo-file-system": { File, Paths: { cache: "/cache" } },
@@ -12547,7 +12552,7 @@ function designsHost(client, router = { back() {} }, feature = designsOn, pushes
           },
         },
       },
-      "expo-router": { router: { back: () => router.back(), push: (route) => pushes.push(route) } },
+      "expo-router": { router: { back: () => router.back(), push: (route) => pushes.push(route), setParams: (params) => pushes.push({ setParams: params }) } },
       "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 47, bottom: 34 }) },
       "react-native-reanimated": {
         __esModule: true,
@@ -16603,10 +16608,14 @@ test("mobile page sharing opens the Chat's Share sheet over the designs, regardl
   const props = { hostId: "mac", chatId: "/p#7", id: "one", version: "1" };
   let tree = await h.open(props);
   find(tree, (node) => node.type === "PullDown").props.onSelect("share");
+  find(tree, (node) => node.type === "PullDown").props.onSelect("share-design");
   assert.deepEqual(
     JSON.parse(JSON.stringify(pushes)),
-    [{ pathname: "/design-share-sheet", params: { hostId: "mac", chatId: "/p#7" } }],
-    "no design id or version: sharing captures the whole page",
+    [
+      { pathname: "/design-share-sheet", params: { hostId: "mac", chatId: "/p#7", kind: "workspace" } },
+      { pathname: "/design-share-sheet", params: { hostId: "mac", chatId: "/p#7", kind: "design", designId: "one" } },
+    ],
+    "Share publishes every design and the page; Share this design names the one shown",
   );
   // The sheet's own health check reaches the designs it opened from.
   h.shareAvailabilityChanged("mac", "/p#7", false);
@@ -16696,7 +16705,7 @@ test("mobile Share stays hidden until the current host is healthy and refreshes 
   h.cleanup();
 });
 
-test("mobile publishing checks availability, retries, and keeps history available in the global manager", async () => {
+test("mobile sharing checks availability, follows a live link through pause, stale and stop, and names each link's scope and state", async (t) => {
   const react = hookHost({ effects: true });
   let state = {
     shares: [],
@@ -16721,8 +16730,15 @@ test("mobile publishing checks availability, retries, and keeps history availabl
     },
     async publish(title) {
       calls.push(["publish", title]);
-      const updated = state.shares.length ? { updatedAt: 2 } : {};
-      state = { ...state, shares: [{ id: "snapshot", title, url: "https://share.milagre.cloud/s/snapshot", designCount: 2, createdAt: 1, ...updated }] };
+      const updated = state.shares.length ? { updatedAt: Date.now(), paused: state.shares[0].paused } : {};
+      state = {
+        ...state,
+        shares: [{ id: "snapshot", title, url: "https://share.milagre.cloud/s/snapshot", designCount: 2, createdAt: Date.now(), live: true, ...updated }],
+      };
+    },
+    async setPaused(id, paused) {
+      calls.push(["paused", id, paused]);
+      state = { ...state, shares: state.shares.map((share) => (share.id === id ? { ...share, paused } : share)) };
     },
     async revoke(id) {
       calls.push(["revoke", id]);
@@ -16752,82 +16768,128 @@ test("mobile publishing checks availability, retries, and keeps history availabl
   });
   const availability = [];
   const onAvailabilityChange = (available) => availability.push(available);
+  let scope;
   const render = (chatId) => {
     react.begin();
-    return DesignPageShareSheet({ client: {}, chatId, onClose() {}, onAvailabilityChange });
+    return DesignPageShareSheet({ client: {}, chatId, scope, onClose() {}, onAvailabilityChange });
   };
   const text = (tree, value) => find(tree, (n) => typeof n.props?.children === "string" && n.props.children.includes(value));
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+  t.after(() => react.cleanup());
   let tree = render("chat");
   assert.equal(availability.at(-1), null);
   assert.ok(find(tree, (n) => n.type === "SheetHeader" && n.props.title === "Share"));
-  assert.equal(find(tree, (n) => n.props?.title === "Publish").props.disabled, true);
+  assert.equal(find(tree, (n) => n.type === "PillButton" && n.props.title === "Share").props.disabled, true);
   assert.ok(find(tree, (n) => n.props?.children === "Checking the sharing service…"));
-  assert.ok(text(tree, "Anyone with the link can view it."));
+  assert.ok(text(tree, "The link keeps updating as the agent works"), "the first share says the link is live");
+  assert.ok(text(tree, "every design and the page, hidden HTML included"), "the workspace holds every design and the page");
   state = {
     ...state,
     checking: false,
     availability: { available: false, reason: "Not deployed" },
   };
   tree = render("chat");
-  assert.equal(find(tree, (n) => n.props?.title === "Publish").props.disabled, true);
+  assert.equal(find(tree, (n) => n.type === "PillButton" && n.props.title === "Share").props.disabled, true);
   assert.ok(find(tree, (n) => n.props?.children === "Not deployed"));
   assert.equal(availability.at(-1), false, "dialog health failure updates the entry gate");
   find(tree, (n) => n.props?.title === "Retry check").props.onPress();
   assert.equal(calls.at(-1), "status");
   state = { ...state, availability: { available: true } };
-  assert.equal(find(render("chat"), (n) => n.props?.title === "Publish").props.disabled, false);
+  assert.equal(find(render("chat"), (n) => n.type === "PillButton" && n.props.title === "Share").props.disabled, false);
   assert.equal(availability.at(-1), true);
-  find(render("chat"), (n) => n.props?.title === "Publish").props.onPress();
-  await new Promise((resolve) => setImmediate(resolve));
+  find(render("chat"), (n) => n.type === "PillButton" && n.props.title === "Share").props.onPress();
+  await tick();
   tree = render("chat");
-  assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"], "publishing copies the link right away");
-  assert.ok(toastPill(tree, "Published. Link copied."), "a toast says what happened");
+  assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"], "sharing copies the link right away");
+  assert.ok(toastPill(tree, "Shared. Link copied."), "a toast says what happened");
   assert.equal(
-    find(tree, (n) => n.props?.title === "Publish"),
+    find(tree, (n) => n.type === "PillButton" && n.props.title === "Share"),
     undefined,
-    "a shared page offers an update instead",
+    "a shared scope shows its link instead",
   );
-  assert.ok(find(tree, (n) => n.props?.title === "Update snapshot"));
-  assert.ok(find(tree, (n) => n.props?.accessibilityLabel === "Snapshot link"));
-  assert.ok(text(tree, "Published "));
-  assert.equal(text(tree, "Published snapshots"), undefined, "no history list under the link");
-  find(tree, (n) => n.props?.title === "Copy link").props.onPress();
-  await new Promise((resolve) => setImmediate(resolve));
+  const shareLink = find(tree, (n) => n.type?.name === "ShareLink");
+  assert.equal(shareLink.props.share.url, "https://share.milagre.cloud/s/snapshot");
+  assert.ok(text(tree, "Live · published just now"));
+  assert.equal(
+    find(tree, (n) => n.props?.title === "Update now"),
+    undefined,
+    "a live link follows the agent on its own",
+  );
+  find(shareLink.type(shareLink.props), (n) => n.props?.title === "Copy link").props.onPress();
+  await tick();
   assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"]);
-  find(render("chat"), (n) => n.props?.title === "Update snapshot").props.onPress();
-  await new Promise((resolve) => setImmediate(resolve));
+  find(tree, (n) => n.props?.title === "Pause").props.onPress();
+  await tick();
   tree = render("chat");
-  assert.deepEqual(calls.at(-2), ["publish", "Designs"], "only an older host needs the title");
-  assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"]);
+  assert.deepEqual(calls.at(-1), ["paused", "snapshot", true]);
+  assert.ok(find(tree, (n) => n.props?.children === "Paused"));
+  assert.ok(toastPill(tree, "Paused. The link keeps its last update."));
+  find(tree, (n) => n.props?.title === "Update now").props.onPress();
+  await tick();
+  tree = render("chat");
+  assert.deepEqual(calls.at(-1), ["publish", "Artifact"], "only an older host needs the title, and Update now publishes without copying");
   assert.equal(state.shares.length, 1, "the update keeps one link");
-  assert.ok(toastPill(tree, "Snapshot updated. Link copied."));
-  assert.ok(text(tree, "Updated "));
-  find(tree, (n) => n.props?.title === "Revoke link").props.onPress();
+  assert.ok(toastPill(tree, "Updated."));
+  find(tree, (n) => n.props?.title === "Resume").props.onPress();
+  await tick();
+  assert.deepEqual(calls.at(-1), ["paused", "snapshot", false]);
+  state = { ...state, shares: [{ ...state.shares[0], stale: true, lastError: "Upload failed" }] };
   tree = render("chat");
-  assert.ok(find(tree, (n) => n.props?.children === "Remove this page? Copies may remain online."));
-  find(tree, (n) => n.props?.title === "Revoke link" && !n.props.secondary).props.onPress();
-  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(find(tree, (n) => n.props?.children === "Couldn't update: Upload failed. Retrying."));
+  assert.ok(
+    find(tree, (n) => n.props?.title === "Update now"),
+    "a stale link can be pushed now",
+  );
+  state = { ...state, shares: [{ ...state.shares[0], live: undefined, stale: undefined }] };
+  tree = render("chat");
+  assert.ok(text(tree, "Snapshot · "), "an old link is a frozen snapshot");
+  assert.ok(text(tree, "Share again for a link that keeps updating as the agent works."));
+  assert.equal(
+    find(tree, (n) => n.props?.title === "Pause"),
+    undefined,
+  );
+  assert.ok(find(tree, (n) => n.props?.title === "Share again"));
+  find(tree, (n) => n.props?.title === "Stop sharing").props.onPress();
+  tree = render("chat");
+  assert.ok(find(tree, (n) => n.props?.children === "Stop sharing this link? Copies may remain online."));
+  find(tree, (n) => n.props?.title === "Stop sharing" && n.props.destructive && !n.props.variant).props.onPress();
+  await tick();
   tree = render("chat");
   assert.deepEqual(calls.at(-1), ["revoke", "snapshot"]);
   assert.ok(
-    find(tree, (n) => n.props?.title === "Publish"),
-    "after revoking, Publish creates a new link",
+    find(tree, (n) => n.type === "PillButton" && n.props.title === "Share"),
+    "after stopping, Share creates a new link",
   );
   assert.equal(
-    find(tree, (n) => n.props?.accessibilityLabel === "Snapshot link"),
+    find(tree, (n) => n.type?.name === "ShareLink"),
     undefined,
   );
-  assert.ok(toastPill(tree, "Link revoked. Copies may remain online."));
+  assert.ok(toastPill(tree, "Stopped sharing. Copies may remain online."));
+  scope = { kind: "design", designId: "login" };
+  tree = render("chat");
+  assert.ok(find(tree, (n) => n.type === "SheetHeader" && n.props.title === "Share this design"));
+  assert.equal(text(tree, "hidden HTML included"), undefined);
+  scope = undefined;
+  state = {
+    ...state,
+    shares: [
+      { id: "w", title: "Chat", url: "u1", createdAt: 1, designCount: 2, kind: "workspace", live: true },
+      { id: "d", title: "Chat", url: "u2", createdAt: 1, designCount: 1, kind: "design", designId: "login", live: true, paused: true },
+      { id: "p", title: "Chat", url: "u3", createdAt: 1, designCount: 0, kind: "artifacts" },
+      { id: "o", title: "Chat", url: "u4", createdAt: 1, designCount: 3, revoked: true },
+    ],
+  };
   tree = render(undefined);
   assert.equal(
-    find(tree, (n) => n.props?.title === "Publish"),
-    undefined,
-  );
-  assert.equal(
-    find(tree, (n) => n.props?.accessibilityLabel === "Page title"),
+    find(tree, (n) => n.type === "PillButton" && n.props.title === "Share"),
     undefined,
   );
   assert.ok(find(tree, (n) => n.props?.children === "Published pages"));
+  for (const row of ["Workspace · Live", "Design · Paused", "Page · Snapshot", "Designs · Revoked"])
+    assert.ok(
+      find(tree, (n) => n.props?.children === row),
+      row,
+    );
 });
 
 test("mobile Published pages entry requires owner access", async () => {
@@ -17169,10 +17231,7 @@ test("HTML artifact opens the current single page with Designs off, without vers
   assert.equal(backs, 0);
   assert.ok(find(tree, (n) => n.props?.html === page.html));
   assert.ok(find(tree, (n) => n.props?.label === "Close artifact"));
-  assert.ok(
-    find(tree, (n) => n.props?.children === "How it works"),
-    "the header names the page",
-  );
+  assert.equal(find(tree, (n) => n.type?.name === "ArtifactPageTitle").props.title, "How it works", "the header names the page");
   assert.equal(
     find(tree, (n) => n.type === "CircleButton" && n.props.filled),
     undefined,
@@ -17199,16 +17258,30 @@ test("HTML artifact opens the current single page with Designs off, without vers
   await settle();
   tree = h.render("ArtifactSheet", props);
   assert.ok(find(tree, (n) => n.props?.html === page.html));
-  // Share is in ⋯, and opens the Chat's Share sheet for its Artifact page.
+  // Share is in ⋯: the whole Artifact (the workspace), or this page alone.
   const menu = find(tree, (n) => n.type === "PullDown");
-  assert.deepEqual(JSON.parse(JSON.stringify(menu.props.sections.flatMap((section) => section.items).map((item) => item.id))), ["resolved", "share"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(menu.props.sections.flatMap((section) => section.items).map((item) => item.id))), [
+    "resolved",
+    "share",
+    "share-page",
+  ]);
   menu.props.onSelect("share");
+  assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), {
+    pathname: "/design-share-sheet",
+    params: { hostId: client.url, chatId: "/p#7", kind: "workspace" },
+  });
+  menu.props.onSelect("share-page");
   assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), {
     pathname: "/design-share-sheet",
     params: { hostId: client.url, chatId: "/p#7", kind: "artifacts" },
   });
-  assert.ok(calls.some(([method, args]) => method === "artifact:sharing-status" && args[0]?.kind === "artifacts"));
-  h.share.shareAvailabilityChanged(client.url, "/p#7", false, "artifacts");
+  assert.ok(calls.some(([method, args]) => method === "artifact:sharing-status" && args[0]?.kind === "workspace" && args[0]?.chatId === "/p#7"));
+  assert.equal(
+    calls.some(([method]) => method === "artifact:list"),
+    false,
+    "with Designs off the page menu never asks for designs",
+  );
+  h.share.shareAvailabilityChanged(client.url, "/p#7", false);
   assert.equal(
     find(h.render("ArtifactSheet", props), (n) => n.type === "PullDown")
       .props.sections.flatMap((section) => section.items)
@@ -21591,9 +21664,13 @@ test("artifact feedback opens its tab and reveals after ready, including a repea
   find(tree, (node) => node.props?.accessibilityLabel === "Close the comment").props.onPress();
   tree = h.render("ArtifactSheet", props);
   assert.deepEqual(h.commands().findLast((cmd) => cmd.t === "pins").pins, [], "closing a resolved history comment clears it from the canvas");
-  find(tree, (node) => node.type === "PullDown" && node.props.sections.some((section) => section.items.some((item) => item.id === "overview"))).props.onSelect(
-    "overview",
+  const pages = find(tree, (node) => node.type?.name === "ArtifactPageTitle");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(pages.props.sections.flatMap((section) => section.items.map((item) => item.id)))),
+    ["page:overview", "page:headers"],
+    "no designs: the page menu lists the page's tabs",
   );
+  pages.props.onSelect("page:overview");
   tree = h.render("ArtifactSheet", props);
   assert.ok(find(tree, (node) => node.props?.html === "Overview"));
   const before = h.commands().filter((cmd) => cmd.t === "reveal").length;
@@ -21623,6 +21700,91 @@ test("artifact route forwards a feedback target to the native viewer", () => {
   const tree = Screen();
   assert.equal(tree.type, "ArtifactSheet");
   for (const field of ["tab", "comment", "requestId", "hostId", "chatId", "id"]) assert.equal(tree.props[field], params[field]);
+});
+
+test("the Artifact's page menu switches between Canvas and the HTML page in place, on a phone and in the iPad's tab", async () => {
+  const page = {
+    id: "page",
+    title: "HTTP",
+    format: "html",
+    version: 1,
+    latest: 1,
+    html: "Overview",
+    tabs: [
+      { id: "overview", title: "Overview", html: "Overview" },
+      { id: "headers", title: "Headers", html: "Headers" },
+    ],
+  };
+  const designs = [
+    { id: "login", version: 1, title: "Login", format: "design", width: 390, height: 844 },
+    { id: "signup", version: 1, title: "Signup", format: "design", width: 390, height: 844 },
+  ];
+  const client = {
+    url: "pages-host",
+    call: async (method, args) => {
+      if (method === "artifact:list") return args[0]?.format === "design" ? designs : [...designs, page];
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      if (method === "artifact:get") return args[0].id === page.id ? page : { ...designs[0], document: {}, html: "<main>Login</main>" };
+      return [];
+    },
+  };
+  const pushes = [];
+  const onPage = [];
+  const h = artifactHost(client, pushes);
+  const props = { hostId: client.url, chatId: "/p#7", id: page.id, tab: "headers" };
+  let tree = await h.open(props);
+  await settle();
+  tree = h.render("ArtifactSheet", props);
+  let title = find(tree, (node) => node.type?.name === "ArtifactPageTitle");
+  assert.deepEqual(JSON.parse(JSON.stringify(title.props.sections.flatMap((section) => section.items.map((item) => [item.id, !!item.checked])))), [
+    ["canvas", false],
+    ["page:overview", false],
+    ["page:headers", true],
+  ]);
+  assert.equal(title.props.subtitle, "Headers");
+  title.props.onSelect("canvas");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(pushes.at(-1))),
+    { setParams: { hostId: client.url, chatId: "/p#7", id: "login" } },
+    "the phone sheet replaces its params",
+  );
+  h.render("ArtifactSheet", { ...props, onPage: (target) => onPage.push(target) });
+  tree = h.render("ArtifactSheet", { ...props, onPage: (target) => onPage.push(target) });
+  find(tree, (node) => node.type?.name === "ArtifactPageTitle").props.onSelect("canvas");
+  assert.deepEqual(JSON.parse(JSON.stringify(onPage)), [{ hostId: client.url, chatId: "/p#7", id: "login" }], "the iPad's tab shows the canvas instead");
+  h.cleanup();
+
+  const d = designsHost(client, { back() {} }, designsOn, pushes);
+  const canvasProps = { hostId: client.url, chatId: "/p#7", id: "signup", version: "1" };
+  tree = await d.open(canvasProps);
+  await settle();
+  tree = d.render("DesignsSheet", canvasProps);
+  const header = find(tree, (node) => node.type === "SheetHeader");
+  title = header.props.center;
+  assert.equal(title.type.name, "ArtifactPageTitle");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(title.props.sections.flatMap((section) => section.items.map((item) => [item.id, !!item.checked])))),
+    [
+      ["canvas", true],
+      ["page:overview", false],
+      ["page:headers", false],
+    ],
+    "the canvas lists the page's tabs",
+  );
+  title.props.onSelect("page:overview");
+  assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), {
+    setParams: { hostId: client.url, chatId: "/p#7", id: page.id, kind: "html", tab: "overview" },
+  });
+  d.cleanup();
+
+  const back = artifactHost(client, pushes);
+  tree = await back.open({ hostId: client.url, chatId: "/p#7", id: page.id });
+  await settle();
+  tree = back.render("ArtifactSheet", { hostId: client.url, chatId: "/p#7", id: page.id });
+  find(tree, (node) => node.type?.name === "ArtifactPageTitle").props.onSelect("canvas");
+  assert.equal(pushes.at(-1).setParams.id, "signup", "Canvas returns to the design last viewed");
+  back.cleanup();
 });
 
 test("artifact feedback refreshes comments received after a dock was opened", async () => {

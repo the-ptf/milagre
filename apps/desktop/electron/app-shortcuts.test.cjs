@@ -7,13 +7,13 @@ const { defaultKeybindings } = require("@milagre/shared/keybindings");
 const key = (key, extra = {}) => ({ type: "keyDown", key, meta: true, control: false, shift: true, alt: false, ...extra });
 
 test("only the app's ⌘⇧ shortcuts are forwarded; other keys reach the focused frame", () => {
-  assert.equal(isAppShortcut(key("E"), "darwin"), true);
+  assert.equal(isAppShortcut(key("A"), "darwin"), true);
   assert.equal(isAppShortcut(key("s"), "darwin"), true);
   assert.equal(isAppShortcut(key("z"), "darwin"), false, "⌘⇧Z stays redo in the focused frame");
-  assert.equal(isAppShortcut(key("E", { shift: false }), "darwin"), false);
-  assert.equal(isAppShortcut(key("E", { type: "keyUp" }), "darwin"), false);
-  assert.equal(isAppShortcut(key("E", { meta: false, control: true }), "linux"), true);
-  assert.equal(isAppShortcut(key("E"), "linux"), false, "⌘ is no shortcut off macOS");
+  assert.equal(isAppShortcut(key("A", { shift: false }), "darwin"), false);
+  assert.equal(isAppShortcut(key("A", { type: "keyUp" }), "darwin"), false);
+  assert.equal(isAppShortcut(key("A", { meta: false, control: true }), "linux"), true);
+  assert.equal(isAppShortcut(key("A"), "linux"), false, "⌘ is no shortcut off macOS");
 });
 
 test("a forwarded shortcut is kept from the frame and sent to the renderer with its modifiers", () => {
@@ -23,10 +23,10 @@ test("a forwarded shortcut is kept from the frame and sent to the renderer with 
   forwardAppShortcuts(contents, "darwin", new EventEmitter());
   let prevented = 0;
   const event = { preventDefault: () => prevented++ };
-  contents.emit("before-input-event", event, key("E", { code: "KeyE" }));
+  contents.emit("before-input-event", event, key("A", { code: "KeyA" }));
   contents.emit("before-input-event", event, key("a", { shift: false }));
   assert.equal(prevented, 1);
-  assert.deepEqual(sent, [["app:shortcut", { key: "E", code: "KeyE", meta: true, control: false, alt: false, shift: true }]]);
+  assert.deepEqual(sent, [["app:shortcut", { key: "A", code: "KeyA", meta: true, control: false, alt: false, shift: true }]]);
 });
 
 test("⌘, reaches the renderer from any frame, so Settings opens with a design or HTML reply focused", () => {
@@ -48,11 +48,11 @@ test("⌘, reaches the renderer from any frame, so Settings opens with a design 
 test("the caught keys follow keybindings.json", () => {
   try {
     setForwardedRules([
-      ...defaultKeybindings().filter((rule) => rule.command !== "designs.toggle"),
-      { key: "mod+alt+g", command: "designs.toggle" },
+      ...defaultKeybindings().filter((rule) => rule.command !== "browser.toggle"),
+      { key: "mod+alt+g", command: "browser.toggle" },
       { key: "mod+shift+g", command: "chat.new" },
     ]);
-    assert.equal(isAppShortcut(key("E"), "darwin"), false, "⌘⇧E moved away");
+    assert.equal(isAppShortcut(key("B"), "darwin"), false, "⌘⇧B moved away");
     assert.equal(isAppShortcut(key("©", { code: "KeyG", shift: false, alt: true }), "darwin"), true, "⌥ letters match by physical key");
     assert.equal(isAppShortcut(key("G"), "darwin"), false, "chat.new isn't caught from frames");
   } finally {

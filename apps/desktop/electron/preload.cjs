@@ -150,6 +150,28 @@ function hostSettingsBridge(invoke, listen) {
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {import("../app/src/electron.d.ts").MilagreBridge["artifacts"]}
+ */
+function artifactBridge(invoke) {
+  return {
+    sharingStatus: (request) => invoke("artifact:sharing-status", request),
+    allPageShares: () => invoke("artifact:all-page-shares"),
+    revokeSavedPageShare: (request) => invoke("artifact:revoke-saved-page-share", request),
+    pageShares: (request) => invoke("artifact:page-shares", request),
+    sharePage: (request) => invoke("artifact:share-page", request),
+    revokePageShare: (request) => invoke("artifact:revoke-page-share", request),
+    setPageSharePaused: (request) => invoke("artifact:set-page-share-paused", request),
+    get: (request) => invoke("artifact:get", request),
+    asset: (request) => invoke("artifact:asset", request),
+    list: (request) => invoke("artifact:list", request),
+    delete: (request) => invoke("artifact:delete", request),
+    addComments: (request) => invoke("artifact:add-comments", request),
+    comments: (request) => invoke("artifact:comments", request),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @param {(channel: string, ...args: any[]) => void} send
  * @returns {import("../app/src/electron.d.ts").MilagreBridge}
@@ -207,20 +229,7 @@ function makeBridge(invoke, listen, send) {
     onDesignsEnabledChanged: (callback) => listen("designs:enabled-changed", callback),
     createArtifactPreview: (html, source) => invoke("artifact-preview:register", html, source),
     releaseArtifactPreview: (url) => invoke("artifact-preview:release", url),
-    artifacts: {
-      sharingStatus: (request) => invoke("artifact:sharing-status", request),
-      allPageShares: () => invoke("artifact:all-page-shares"),
-      revokeSavedPageShare: (request) => invoke("artifact:revoke-saved-page-share", request),
-      pageShares: (request) => invoke("artifact:page-shares", request),
-      sharePage: (request) => invoke("artifact:share-page", request),
-      revokePageShare: (request) => invoke("artifact:revoke-page-share", request),
-      get: (request) => invoke("artifact:get", request),
-      asset: (request) => invoke("artifact:asset", request),
-      list: (request) => invoke("artifact:list", request),
-      delete: (request) => invoke("artifact:delete", request),
-      addComments: (request) => invoke("artifact:add-comments", request),
-      comments: (request) => invoke("artifact:comments", request),
-    },
+    artifacts: artifactBridge(invoke),
     getRuntimeConnection: () => invoke("runtime:connection"),
     restartHost: () => invoke("runtime:restart-host"),
     onRuntimeConnection: (callback) => listen("runtime:connection", callback),

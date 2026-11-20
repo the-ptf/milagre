@@ -14,7 +14,6 @@ import {
   MoreHorizontalIcon,
   PaintBoardIcon,
   Sent02Icon,
-  UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
 import {
   artifactShell,
@@ -45,7 +44,9 @@ import { DISABLED_OPACITY } from "./primitives/press-style";
 import { CircleButton, ErrorNotice, PullDown, PillButton, tap, useStyles, type MenuSection } from "./ui";
 import { useTheme } from "./theme";
 import { PELE_SCRIPT } from "./pele-script";
-import { onShareAvailability } from "./share-availability";
+import { useShareAvailable } from "./use-share-available";
+import { ArtifactPageTitle, artifactPageMenu, openArtifactShare, useChatDesigns } from "./artifact-page-menu";
+import { rememberPage, rememberedTab } from "./artifact-pages";
 import { pageWithFiles, usePageFiles } from "./artifact-files";
 import { CommentBox } from "./viewer-chrome";
 import { useVisibleRunChatKeys } from "./visible-run-chats";
@@ -326,7 +327,7 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
   );
 }
 
-/** Opens a Chat's designs (or its HTML artifact) in the right panel docked beside it on an iPad, full screen on a phone. */
+/** Opens a page of a Chat's Artifact (its canvas, or its HTML page) in the right panel docked beside it on an iPad, full screen on a phone. */
 function openDesigns(openTab: ReturnType<typeof usePanelTabs>, target: DesignsTab) {
   if (openTab) {
     openTab({ kind: "designs", target });
@@ -405,9 +406,14 @@ type Composer = { key: string; kind: "new" | "edit" | "read"; at: { x: number; y
 
 const unsent = new Map<string, Note[]>();
 
+const pageSubtitle = (page: { tabs?: unknown[] } | null, tab: { title: string } | null) => (page?.tabs && page.tabs.length > 1 && tab ? tab.title : "Artifact");
+
 const refOf = (page: Artifact): ArtifactRef => ({ id: page.id, version: page.version, title: page.title, format: page.format });
 
-/** `onClose` is set where the page is a tab of the right panel docked beside its Chat (an iPad), and closes the tab. */
+/**
+ * `onClose` is set where the page is a tab of the right panel docked beside its Chat (an iPad), and closes the tab;
+ * `onPage` shows another page of the Artifact in that tab.
+ */
 export function ArtifactSheet({
   hostId,
   chatId,
@@ -416,6 +422,7 @@ export function ArtifactSheet({
   comment: commentId,
   requestId,
   onClose,
+  onPage,
 }: {
   hostId?: string;
   chatId?: string;
@@ -425,51 +432,16 @@ export function ArtifactSheet({
   comment?: string;
   requestId?: string;
   onClose?: () => void;
+  onPage?: (target: DesignsTab) => void;
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
-  const { client, snapshot } = useSession();
+  const { client, snapshot, designs: feature } = useSession();
   const insets = useSafeAreaInsets();
   const close = useCallback(() => (onClose ? onClose() : router.back()), [onClose]);
   const source = client && chatId && id && (!hostId || hostId === client.url) ? client : null;
   const [state, setState] = useState<{ artifact: Artifact | null; error: string }>({ artifact: null, error: "" });
-  const sharingScope = useMemo(() => ({ source, chatId }), [source, chatId]);
-  const [sharingAvailable, setSharingAvailable] = useState<typeof sharingScope | null>(null);
-  const sharingRequest = useRef(0);
-  useEffect(() => {
-    if (!source) return;
-    let live = true;
-    const refresh = () => {
-      const current = ++sharingRequest.current;
-      setSharingAvailable(null);
-      source
-        .call<{ available: boolean }>("artifact:sharing-status", [{ kind: "artifacts" }])
-        .then((status) => {
-          if (live && current === sharingRequest.current && status?.available === true) setSharingAvailable(sharingScope);
-        })
-        .catch(() => {});
-    };
-    refresh();
-    const watch = AppState.addEventListener("change", (status) => {
-      if (status === "active") refresh();
-      else {
-        sharingRequest.current++;
-        setSharingAvailable(null);
-      }
-    });
-    return () => {
-      live = false;
-      watch.remove();
-    };
-  }, [source, sharingScope]);
-  useEffect(() => {
-    if (!hostId || !chatId) return;
-    return onShareAvailability(hostId, chatId, "artifacts", (available) => {
-      sharingRequest.current++;
-      setSharingAvailable(available === true ? sharingScope : null);
-    });
-  }, [hostId, chatId, sharingScope]);
-  const sharing = !!source && sharingAvailable === sharingScope;
+  const sharing = useShareAvailable(source, hostId, chatId);
 
   const [revision, setRevision] = useState(0);
   const pageRevision = commentActivity(snapshot, chatId, "artifact");
@@ -500,10 +472,15 @@ export function ArtifactSheet({
     };
   }, [source, chatId, id, revision, pageRevision, requestId]);
   const artifact = source && state.artifact?.format === "html" ? state.artifact : null;
-  const [tabId, setTabId] = useState<string | null>(targetTab ?? null);
+  const [tabId, setTabId] = useState<string | null>(() => targetTab ?? rememberedTab(hostId, chatId, id) ?? null);
   const tab = artifact ? artifactTab(artifact, tabId) : null;
   const files = usePageFiles(source, chatId, artifact?.assets);
-  const tabs = artifact?.tabs && artifact.tabs.length > 1 ? artifact.tabs : null;
+  const designs = useChatDesigns(source, chatId, `${revision}:${pageRevision}`, feature.enabled === true);
+  const pageId = artifact?.id;
+  const shownTab = tab?.id;
+  useEffect(() => {
+    if (hostId && chatId && pageId && shownTab !== undefined) rememberPage(hostId, chatId, pageId, shownTab);
+  }, [hostId, chatId, pageId, shownTab]);
 
   const feedbackKey = hostId && chatId ? `${hostId}|${chatId}|artifacts` : null;
   const [notes, setNotes] = useState<Note[]>(() => (feedbackKey && unsent.get(feedbackKey)) || []);
@@ -707,22 +684,35 @@ export function ArtifactSheet({
     setCommenting(false);
     setNotes([]);
   };
-  const openShare = () => {
-    if (hostId && chatId) router.push({ pathname: "/design-share-sheet", params: { hostId, chatId, kind: "artifacts" } });
-  };
   const menu: MenuSection[] = [
     { items: [{ id: "resolved", title: "Show resolved comments", checked: showResolved }] },
-    ...(sharing ? [{ items: [{ id: "share", title: "Share page", systemImage: "square.and.arrow.up" }] }] : []),
+    ...(sharing
+      ? [
+          {
+            items: [
+              { id: "share", title: "Share", systemImage: "square.and.arrow.up" },
+              { id: "share-page", title: "Share this page" },
+            ],
+          },
+        ]
+      : []),
   ];
+  const pages = artifactPageMenu({
+    hostId,
+    chatId,
+    designs,
+    page: artifact && { id: artifact.id, title: artifact.title, tabs: (artifact.tabs ?? []).map((item) => ({ id: item.id, title: item.title })) },
+    current: { kind: "page", tab: tab?.id ?? "" },
+    onPage,
+    onTab: (next) => {
+      closeComposer();
+      setTabId(next);
+    },
+  });
 
   const openNote = composer && composer.kind !== "read" ? notes.find((note) => note.key === composer.key) : undefined;
   const openSent = composer?.kind === "read" ? sent.find((comment) => `sent:${comment.id}` === composer.key) : undefined;
   const [room, setRoom] = useState({ width: 0, height: 0 });
-  const heading = (
-    <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: type.subheadline, fontWeight: "600" }}>
-      {artifact?.title ?? "Artifact"}
-    </Text>
-  );
   return (
     <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.surface }}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, height: 52, gap: 8 }}>
@@ -730,35 +720,7 @@ export function ArtifactSheet({
           {/* In the panel docked beside the Chat (an iPad), the panel's own button closes it. */}
           {!onClose && <CircleButton label="Close artifact" icon={Cancel01Icon} onPress={close} />}
         </View>
-        {tabs && tab ? (
-          <PullDown
-            label={`${artifact?.title ?? "Artifact"}, ${tab.title} tab. Choose a tab`}
-            style={{ flex: 1, alignItems: "center" }}
-            sections={[{ items: tabs.map((item) => ({ id: item.id, title: item.title, checked: item.id === tab.id })) }]}
-            onSelect={(id) => {
-              if (id === tab.id) return;
-              closeComposer();
-              setTabId(id);
-            }}
-          >
-            <View style={{ alignItems: "center" }}>
-              {heading}
-              <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
-                <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.caption1 }}>
-                  {tab.title}
-                </Text>
-                <Icon icon={UnfoldMoreIcon} size={12} tone="ink3" />
-              </View>
-            </View>
-          </PullDown>
-        ) : (
-          <View style={{ flex: 1, alignItems: "center" }}>
-            {heading}
-            <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.caption1 }}>
-              Artifact
-            </Text>
-          </View>
-        )}
+        <ArtifactPageTitle title={artifact?.title ?? "Artifact"} subtitle={pageSubtitle(artifact, tab)} sections={pages.sections} onSelect={pages.choose} />
         <View style={{ flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
           {source && (
             <CircleButton
@@ -780,7 +742,8 @@ export function ArtifactSheet({
               sections={menu}
               onSelect={(action) => {
                 if (action === "resolved") setShowResolved(!showResolved);
-                else if (action === "share") openShare();
+                else if (action === "share") openArtifactShare(hostId, chatId, "workspace");
+                else if (action === "share-page") openArtifactShare(hostId, chatId, "artifacts");
               }}
             >
               <CircleButton asTrigger label="Page actions" icon={MoreHorizontalIcon} />
