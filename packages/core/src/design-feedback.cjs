@@ -1,12 +1,12 @@
 const { z } = require("zod");
-const { withDesignHostFonts } = require("./design-host-fonts.cjs");
+const { withDesignHost } = require("./design-host-fonts.cjs");
 
 const DESIGN_MODE_INPUT = z
   .enum(["light", "dark", "contrast"])
   .optional()
   .describe("The color mode your image and warnings show, for a design whose tokens have dark or contrast values. Defaults to light.");
 
-const designImplementation = () => withDesignHostFonts(require("@milagre/shared/design"));
+const designImplementation = () => withDesignHost(require("@milagre/shared/design"));
 
 const MAX_SUMMARY_WARNINGS = 20;
 const unbundledFamilies = (document) => {
@@ -31,6 +31,26 @@ const unbundledFamilies = (document) => {
 };
 
 const MAX_NAMED_LAYERS = 5;
+
+function symbolNotes(document) {
+  const design = designImplementation();
+  const names = new Map();
+  for (const node of document.nodes) {
+    const name = node.type === "icon" && !node.hidden ? design.designSymbolName(node.icon) : null;
+    if (name) names.set(name, names.get(name) ?? !!design.designSymbolImage(node));
+  }
+  if (!names.size) return [];
+  const lucide = (list) => list.map((name) => `${name} → ${design.designSymbolLucide(name).icon}`).join(", ");
+  if (!design.designSymbolsAvailable())
+    return [`SF Symbols can't render on this computer, so they draw as their closest Lucide icon here and for the user: ${lucide([...names.keys()])}.`];
+  const missing = [...names].filter(([, drawn]) => !drawn).map(([name]) => name);
+  return [
+    "SF Symbols render only in this computer's previews; a shared page draws the closest Lucide icon.",
+    ...(missing.length
+      ? [`This Mac has no SF Symbol named ${missing.join(", ")}; they draw as Lucide (${lucide(missing)}). Check the name in the SF Symbols app.`]
+      : []),
+  ];
+}
 
 function appleFamilies(document) {
   const design = designImplementation();
@@ -95,6 +115,7 @@ async function designFeedback(saved, source, { renderPng, warnings: findWarnings
       );
     const fonts = unbundledFamilies(document);
     if (fonts.length) notes.push(`Your image shows ${fonts.join(", ")} in Inter; the user sees the real font.`);
+    notes.push(...symbolNotes(document));
     const apple = appleFamilies(document);
     if (apple.local.length)
       notes.push(`${apple.local.join(", ")} render only in this computer's previews; a shared page draws ${apple.substitutes(apple.local)} instead.`);

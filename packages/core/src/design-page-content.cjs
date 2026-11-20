@@ -1,4 +1,17 @@
-const { validateDesignDocument, designColor, designFontSubstitute } = require("@milagre/shared/design");
+const {
+  validateDesignDocument,
+  designColor,
+  designFontSubstitute,
+  designSymbolName,
+  designSymbolLucide,
+  designSymbolStroke,
+} = require("@milagre/shared/design");
+
+const publicIcon = (node) => {
+  const name = designSymbolName(node.icon);
+  if (!name) return {};
+  return { icon: designSymbolLucide(name).icon, strokeWidth: node.strokeWidth ?? designSymbolStroke(node.fontWeight) };
+};
 
 const publicFamily = (fontFamily) => {
   const substitute = designFontSubstitute(fontFamily);
@@ -52,6 +65,7 @@ function publicPageContent(snapshot) {
               ...(node.fill ? { fill: literal(node.fill) } : {}),
               ...(node.stroke ? { stroke: literal(node.stroke) } : {}),
               ...(node.fontFamily ? { fontFamily: publicFamily(node.fontFamily) } : {}),
+              ...publicIcon(node),
             };
           }),
         },

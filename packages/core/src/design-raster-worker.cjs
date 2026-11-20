@@ -1,13 +1,13 @@
 const fs = require("node:fs");
 const { parentPort } = require("node:worker_threads");
-const { withDesignHostFonts } = require("./design-host-fonts.cjs");
+const { withDesignHost } = require("./design-host-fonts.cjs");
 
 const MAX_EDGE = 1568;
 let ready;
 
 async function load() {
   const [{ initWasm, Resvg }, design] = await Promise.all([import("@resvg/resvg-wasm"), import("@milagre/shared/design")]);
-  const { designSvg, designFontBuffers, loadDesignFonts } = withDesignHostFonts(design);
+  const { designSvg, designFontBuffers, loadDesignFonts } = withDesignHost(design);
   await initWasm(fs.readFileSync(require.resolve("@resvg/resvg-wasm/index_bg.wasm")));
   return { Resvg, designSvg, designFontBuffers, loadDesignFonts };
 }

@@ -3,6 +3,7 @@ export { DESIGN_DEFAULT_FONT_FAMILY, validDesignFontFamily } from "./design-font
 import { designInterFonts, DESIGN_INTER_WEIGHTS } from "./design-font-data.mjs";
 import { DESIGN_ASCII_CHARACTERS, DESIGN_EXTRA_CHARACTERS } from "./design-font-characters.mjs";
 import { DESIGN_FONT_CATALOG, designCatalogFontLoaders } from "./design-font-catalog.mjs";
+import { loadDesignSymbols } from "./design-symbols.mjs";
 import { designLocalFace, designLocalFaceRequest, designLocalFamily, designSubstitutedFamily, loadDesignLocalFaces } from "./design-local-fonts.mjs";
 export { designAppleFamily, designFontSubstitute, designLocalFamily, designLocalFace, setDesignLocalFonts } from "./design-local-fonts.mjs";
 
@@ -82,7 +83,10 @@ function weightRange(weights, weight) {
 
 const loadedCatalogFonts = new Map();
 
-/** Loads the catalog families a document names. Until it resolves, their text renders in the fallback the document names. */
+/**
+ * Loads the catalog families, installed faces and host SF Symbols a document draws. Until it resolves, its text renders
+ * in the fallback the document names and its SF Symbols as Lucide icons.
+ */
 export async function loadDesignFonts(document) {
   const keys = new Set(visibleText(document).map((node) => designCatalogFont(node.fontFamily)?.family.toLowerCase()));
   await Promise.all([
@@ -90,6 +94,7 @@ export async function loadDesignFonts(document) {
       .filter((key) => key && !loadedCatalogFonts.has(key))
       .map(async (key) => loadedCatalogFonts.set(key, (await designCatalogFontLoaders[key]()).default)),
     loadDesignLocalFaces(visibleText(document)),
+    loadDesignSymbols(document),
   ]);
 }
 

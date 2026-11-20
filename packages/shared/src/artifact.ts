@@ -19,7 +19,7 @@ export type ArtifactSummary = ArtifactRef & {
 export const designPageShareNotice = (kind: "designs" | "artifacts") =>
   kind === "artifacts"
     ? "Anyone with the link can view it, hidden HTML included."
-    : "Anyone with the link can view it. Apple's SF and New York fonts show as Inter and Source Serif there.";
+    : "Anyone with the link can view it. Apple's SF fonts, New York and SF Symbols show as Inter, Source Serif and Lucide icons there.";
 
 export const isInteractiveDesign = (design: { format?: string; interactive?: boolean } | null | undefined): boolean =>
   design?.format === "design" && design.interactive === true;

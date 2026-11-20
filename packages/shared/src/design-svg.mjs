@@ -1,7 +1,7 @@
 import { designPaint } from "./design-colors.mjs";
 import { designRenderBudget, visibleDesignTextLines } from "./design-render-limits.mjs";
 import { designDrawnWeight, designFontFamily } from "./design-fonts.mjs";
-import { designIcons } from "./design-icons.mjs";
+import { designLucideIcon, designSymbolImage } from "./design-symbols.mjs";
 import { DESIGN_INK, designDefaultFill } from "./design-paint.mjs";
 import { designPathGeometry, designPathStroked, designPathStrokeShape } from "./design-path.mjs";
 
@@ -87,8 +87,22 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
         }
         if (node.type === "icon") {
           const { color, opacity } = paint(resolveColor(node.fill, designDefaultFill(node)));
+          const head = `<g id="layer-${xml(node.id)}" opacity="${number((node.opacity ?? 1) * opacity)}"><title>${xml(node.name ?? node.id)}</title>`;
+          const frame = `x="${number(box.x)}" y="${number(box.y)}" width="${number(box.width)}" height="${number(box.height)}"`;
+          const symbol = designSymbolImage(node);
+          if (symbol) {
+            const source = `data:image/png;base64,${symbol.png}`;
+            definitions.push(
+              take(
+                `<mask id="symbol-${index}" maskUnits="userSpaceOnUse" ${frame}><image ${frame} preserveAspectRatio="xMidYMid meet" href="${source}" xlink:href="${source}"/></mask>`,
+                node,
+              ),
+            );
+            return take(`${head}<rect ${frame} fill="${xml(color)}" mask="url(#symbol-${index})"/></g>`, node);
+          }
+          const lucide = designLucideIcon(node);
           return take(
-            `<g id="layer-${xml(node.id)}" opacity="${number((node.opacity ?? 1) * opacity)}"><title>${xml(node.name ?? node.id)}</title><svg x="${number(box.x)}" y="${number(box.y)}" width="${number(box.width)}" height="${number(box.height)}" viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" fill="none" stroke="${xml(color)}" stroke-width="${number(node.strokeWidth ?? 2)}" stroke-linecap="round" stroke-linejoin="round" color="${xml(color)}">${designIcons[node.icon]}</svg></g>`,
+            `${head}<svg ${frame} viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" fill="${lucide.filled ? xml(color) : "none"}" stroke="${xml(color)}" stroke-width="${number(lucide.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round" color="${xml(color)}">${lucide.markup}</svg></g>`,
             node,
           );
         }

@@ -16765,7 +16765,7 @@ test("mobile publishing checks availability, retries, and keeps history availabl
   assert.ok(find(tree, (n) => n.type === "SheetHeader" && n.props.title === "Share"));
   assert.equal(find(tree, (n) => n.props?.title === "Publish").props.disabled, true);
   assert.ok(find(tree, (n) => n.props?.children === "Checking the sharing service…"));
-  assert.ok(text(tree, "Anyone with the link can view it. Apple's SF and New York fonts show as Inter and Source Serif there."));
+  assert.ok(text(tree, "Anyone with the link can view it. Apple's SF fonts, New York and SF Symbols show as Inter, Source Serif and Lucide icons there."));
   state = {
     ...state,
     checking: false,

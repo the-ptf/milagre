@@ -240,13 +240,14 @@ function designHostFonts() {
 }
 
 const installed = new WeakSet();
-/** Hands this process's installed fonts to the shared design renderer once; returns the module for chaining. */
-function withDesignHostFonts(design) {
+/** Hands this process's installed fonts and SF Symbols to the shared design renderer once; returns the module for chaining. */
+function withDesignHost(design) {
   if (!installed.has(design) && process.env.MILAGRE_DESIGN_SYSTEM_FONTS !== "0") {
     design.setDesignLocalFonts(designHostFonts());
+    design.setDesignSymbols(require("./design-host-symbols.cjs").designHostSymbols());
     installed.add(design);
   }
   return design;
 }
 
-module.exports = { createDesignHostFonts, designHostFonts, withDesignHostFonts, fontDirectories, faceHeaders };
+module.exports = { createDesignHostFonts, designHostFonts, withDesignHost, fontDirectories, faceHeaders };

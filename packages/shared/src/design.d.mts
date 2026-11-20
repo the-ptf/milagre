@@ -175,6 +175,22 @@ export interface DesignLocalFontSource {
     requests: Array<{ key: string; family: string; cssFamily: string; weight: number; opsz: number | null }>,
   ) => Promise<Array<{ key: string; data: string; advances: number[] } | null>>;
 }
+/** An SF Symbol's closest Lucide icon, used where SF Symbols can't render. */
+export const DESIGN_SF_SYMBOL_LUCIDE: Record<string, string>;
+export function designSymbolName(icon?: string): string | null;
+export function designSymbolLucide(name: string): { icon: string; filled: boolean; exact: boolean };
+export function designSymbolStroke(fontWeight?: number): number;
+export function designSymbolImage(node: DesignNode): { key: string; png: string; width: number; height: number } | null;
+export function designSymbolsAvailable(): boolean;
+export function loadDesignSymbols(document: DesignDocument): Promise<void>;
+/** The host's SF Symbols (a Mac), as white mask PNGs; null draws every SF Symbol as Lucide. */
+export function setDesignSymbols(
+  source: {
+    load: (
+      requests: Array<{ key: string; name: string; weight: number }>,
+    ) => Promise<Array<{ key: string; png: string; width: number; height: number } | null>>;
+  } | null,
+): void;
 /** The host's installed fonts, for local previews only. */
 export function setDesignLocalFonts(source: DesignLocalFontSource | null): void;
 export function designLocalFamily(fontFamily?: string): DesignLocalFamily | null;

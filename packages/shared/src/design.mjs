@@ -38,6 +38,17 @@ import { renderDesignSvg } from "./design-svg.mjs";
 import { DESIGN_INK, designDefaultFill } from "./design-paint.mjs";
 import { designColorProblem, designColorReferences, designDocumentForMode, resolveDesignColor } from "./design-tokens.mjs";
 import { designModesOf } from "./design-modes.mjs";
+import { designLucideIcon, designSymbolImage, designSymbolSyntax } from "./design-symbols.mjs";
+export {
+  DESIGN_SF_SYMBOL_LUCIDE,
+  designSymbolImage,
+  designSymbolLucide,
+  designSymbolName,
+  designSymbolStroke,
+  designSymbolsAvailable,
+  loadDesignSymbols,
+  setDesignSymbols,
+} from "./design-symbols.mjs";
 import { designPathGeometry, designPathProblem, designPathStroked, designPathStrokeShape } from "./design-path.mjs";
 export { designColorReferences, designDocumentForMode, resolveDesignColor } from "./design-tokens.mjs";
 export { DESIGN_MODES, DESIGN_MODE_LABELS, designHtmlForMode, designModesOf } from "./design-modes.mjs";
@@ -65,8 +76,12 @@ function checkedDesignDocument(value, synchronize = true) {
     checkColor(node.stroke, ["nodes", document.nodes.indexOf(node), "stroke"]);
     if (node.type === "icon") {
       if (!node.icon) throw new Error(`Icon layer "${node.id}" needs an icon name.`);
-      if (!Object.hasOwn(designIcons, node.icon))
-        throw new Error(`Unknown icon "${node.icon}" on layer "${node.id}". Did you mean ${designIconSuggestions(node.icon).join(", ")}?`);
+      if (node.icon.startsWith("sf:") ? !designSymbolSyntax(node.icon) : !Object.hasOwn(designIcons, node.icon))
+        throw new Error(
+          node.icon.startsWith("sf:")
+            ? `"${node.icon}" on layer "${node.id}" isn't an SF Symbol name: write sf: and the symbol's name, such as sf:heart.fill.`
+            : `Unknown icon "${node.icon}" on layer "${node.id}". Did you mean ${designIconSuggestions(node.icon).join(", ")}? Name an SF Symbol as sf:name.`,
+        );
       const unsupported = ["stroke", "radius", "text", "src"].filter((field) => node[field] !== undefined);
       if (unsupported.length)
         throw new Error(`Icon layer "${node.id}" can't use ${unsupported.join(", ")}. Use fill for its color and strokeWidth for its line weight.`);
@@ -377,8 +392,13 @@ function designMarkup(document, bounds, textLayout, take, paint = (value, fallba
         );
       } else if (node.type === "icon") {
         const color = escape(paint(node.fill, designDefaultFill(node)));
+        const symbol = designSymbolImage(node);
+        const mask = symbol && `url(data:image/png;base64,${symbol.png}) center/contain no-repeat`;
+        const lucide = designLucideIcon(node);
         append(
-          `<svg viewBox="0 0 24 24" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" fill="none" stroke="${color}" stroke-width="${node.strokeWidth ?? 2}" stroke-linecap="round" stroke-linejoin="round" color="${color}" aria-hidden="true">${designIcons[node.icon]}</svg>`,
+          symbol
+            ? `<div aria-hidden="true" style="width:100%;height:100%;background:${color};-webkit-mask:${mask};mask:${mask}"></div>`
+            : `<svg viewBox="0 0 24 24" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" fill="${lucide.filled ? color : "none"}" stroke="${color}" stroke-width="${lucide.strokeWidth}" stroke-linecap="round" stroke-linejoin="round" color="${color}" aria-hidden="true">${lucide.markup}</svg>`,
           node,
         );
       }

@@ -1164,3 +1164,11 @@ test("one design carries every color mode; the agent previews and checks the mod
   const light = JSON.parse((await tools.design_inspect.run({ id: "modes" })).text.split("\n").at(-1)).inspection;
   assert.deepEqual(light.diagnostics.warnings, []);
 });
+
+test("the agent hears how its SF Symbols draw where they can't render", async (t) => {
+  const { tools } = await fixture(t);
+  const document = designDocument();
+  document.nodes.push({ id: "like", type: "icon", x: 20, y: 300, width: 24, height: 24, icon: "sf:heart.fill" });
+  const shown = await tools.design_show.run({ id: "symbols", title: "Symbols", document });
+  assert.match(shown.text, /SF Symbols can't render on this computer, so they draw as their closest Lucide icon here and for the user: heart\.fill → heart\./);
+});

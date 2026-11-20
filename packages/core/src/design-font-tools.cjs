@@ -1,7 +1,7 @@
 const { z } = require("zod");
-const { designHostFonts, withDesignHostFonts } = require("./design-host-fonts.cjs");
+const { designHostFonts, withDesignHost } = require("./design-host-fonts.cjs");
 
-const design = () => withDesignHostFonts(require("@milagre/shared/design"));
+const design = () => withDesignHost(require("@milagre/shared/design"));
 const fontFile = () => import("@milagre/shared/design-font-file");
 const em = (value, unitsPerEm) => Math.round((value / unitsPerEm) * 1000) / 1000;
 
@@ -18,7 +18,7 @@ function metrics(info) {
 
 async function fontInfo(family, fonts = designHostFonts()) {
   const shared = design();
-  const host = { platform: process.platform, appleFonts: !!(await fonts.info("SF Pro")) };
+  const host = { platform: process.platform, appleFonts: !!(await fonts.info("SF Pro")), sfSymbols: shared.designSymbolsAvailable() };
   const bundled = await shared.designBundledFont(family);
   if (bundled) {
     const { designFontFileInfo } = await fontFile();
