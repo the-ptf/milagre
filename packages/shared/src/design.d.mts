@@ -43,7 +43,7 @@ export function validateDesignKit(value: unknown): DesignKit;
 export interface DesignNode {
   id: string;
   name?: string;
-  type: "frame" | "text" | "rectangle" | "ellipse" | "image" | "icon";
+  type: "frame" | "text" | "rectangle" | "ellipse" | "image" | "icon" | "path";
   parentId?: string;
   x?: number;
   y?: number;
@@ -67,6 +67,14 @@ export interface DesignNode {
   textAlign?: "left" | "center" | "right";
   src?: string;
   icon?: string;
+  /** A path layer's SVG path data, in viewBox units (the layer's pixels by default). */
+  path?: string;
+  viewBox?: [number, number, number, number];
+  /** Instead of path: a ring arc, start degrees clockwise from 12 o'clock for sweep degrees. */
+  arc?: { start?: number; sweep: number };
+  strokeCap?: "butt" | "round" | "square";
+  strokeJoin?: "miter" | "round" | "bevel";
+  strokeDash?: number[];
   layout?: "free" | "horizontal" | "vertical";
   gap?: number;
   padding?: number;

@@ -26,6 +26,10 @@ An interactive version is `v<N>.html` beside `meta.json`, with `interactive: tru
 
 Deploy `apps/design-share` before a desktop release that changes what a design may contain, or publishing fails validation on the old Worker.
 
+## Path layers
+
+`type: "path"` draws vector paths: `path` (SVG path data, in the layer's pixels or `viewBox` units) or `arc` (a ring stroke, `design-path.mjs`), with fill, stroke, caps, joins and dashes. `validDesignPath` accepts path commands, numbers and separators only, so no markup, quotes, URLs or entities reach a renderer; both renderers write the path into their own `<svg><path>`. Layout treats a path as a leaf box; contrast checks report text over a path as unsupported.
+
 ## Color modes
 
 A color token is one color or `{light, dark?, contrast?}`; a plain value is every mode, so older documents are unchanged. Color fields add `$token/alpha` and `color-mix(in srgb, …)`, resolved by `resolveDesignColor` (`design-tokens.mjs`) to one CSS color per mode, so no renderer depends on `color-mix` support. `designHtml` writes every token-based color as a CSS variable with one value per mode under `:root[data-design-mode]`, so one saved page serves every mode: the desktop canvas and the phone add the attribute with `designHtmlForMode` when the user picks a mode (desktop: the frame's More menu; phone: the design's actions menu), and the desktop's preview images draw `designDocumentForMode`. Agents preview and contrast-check a mode with `mode` on `design_show` and `design_inspect`. Shared pages draw light: `publicPageContent` writes literal colors. Kits add `tracking` and `opacity` tokens, bound like spacing.

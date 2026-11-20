@@ -35,9 +35,10 @@ import { designIcons, designIconSuggestions } from "./design-icons.mjs";
 export { designIcons } from "./design-icons.mjs";
 export { DESIGN_INK, DESIGN_PLACEHOLDER, designDefaultFill } from "./design-paint.mjs";
 import { renderDesignSvg } from "./design-svg.mjs";
-import { designDefaultFill } from "./design-paint.mjs";
+import { DESIGN_INK, designDefaultFill } from "./design-paint.mjs";
 import { designColorProblem, designColorReferences, designDocumentForMode, resolveDesignColor } from "./design-tokens.mjs";
 import { designModesOf } from "./design-modes.mjs";
+import { designPathGeometry, designPathProblem, designPathStroked, designPathStrokeShape } from "./design-path.mjs";
 export { designColorReferences, designDocumentForMode, resolveDesignColor } from "./design-tokens.mjs";
 export { DESIGN_MODES, DESIGN_MODE_LABELS, designHtmlForMode, designModesOf } from "./design-modes.mjs";
 import { synchronizeDesignComponents, designInstanceRoot, detachDesignInstance } from "./design-components.mjs";
@@ -70,6 +71,8 @@ function checkedDesignDocument(value, synchronize = true) {
       if (unsupported.length)
         throw new Error(`Icon layer "${node.id}" can't use ${unsupported.join(", ")}. Use fill for its color and strokeWidth for its line weight.`);
     } else if (node.icon !== undefined) throw new Error(`Only icon layers use "icon"; "${node.id}" is a ${node.type}.`);
+    const pathProblem = designPathProblem(node);
+    if (pathProblem) throw designError(pathProblem, ["nodes", document.nodes.indexOf(node)]);
     const seen = new Set([node.id]);
     let parentId = node.parentId;
     while (parentId !== undefined) {
@@ -290,7 +293,7 @@ const escape = (value) =>
   String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 
 function nodeStyles(paint, node, box, parentBox, parentNode) {
-  const background = node.type === "text" || node.type === "icon" ? "transparent" : paint(node.fill, designDefaultFill(node));
+  const background = ["text", "icon", "path"].includes(node.type) ? "transparent" : paint(node.fill, designDefaultFill(node));
   const parentStroke = parentNode?.stroke ? (parentNode.strokeWidth ?? 1) : 0;
   return [
     "position:absolute",
@@ -302,7 +305,7 @@ function nodeStyles(paint, node, box, parentBox, parentNode) {
     `background:${background}`,
     `opacity:${node.opacity ?? 1}`,
     `border-radius:${node.type === "ellipse" ? "50%" : `${node.radius ?? 0}px`}`,
-    `border:${node.stroke && node.type !== "icon" ? (node.strokeWidth ?? 1) : 0}px solid ${paint(node.stroke, "transparent")}`,
+    `border:${node.stroke && node.type !== "icon" && node.type !== "path" ? (node.strokeWidth ?? 1) : 0}px solid ${paint(node.stroke, "transparent")}`,
     "overflow:hidden",
     ...(node.type === "text"
       ? [
@@ -362,6 +365,14 @@ function designMarkup(document, bounds, textLayout, take, paint = (value, fallba
       } else if (node.type === "image" && node.src) {
         append(
           `<img src="${escape(node.src)}" alt="${escape(node.name ?? "")}" draggable="false" style="width:100%;height:100%;object-fit:cover;pointer-events:none"/>`,
+          node,
+        );
+      } else if (node.type === "path") {
+        const geometry = designPathGeometry(node, box);
+        const strokeColor = node.stroke ?? (geometry.arc ? node.fill : undefined);
+        const stroke = designPathStroked(node) ? ` stroke="${escape(paint(strokeColor, DESIGN_INK))}" ${designPathStrokeShape(node, geometry)}` : "";
+        append(
+          `<svg viewBox="${geometry.viewBox}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><path d="${escape(geometry.d)}" fill="${geometry.arc ? "none" : escape(paint(node.fill, designDefaultFill(node)))}"${stroke}/></svg>`,
           node,
         );
       } else if (node.type === "icon") {

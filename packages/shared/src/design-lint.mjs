@@ -7,6 +7,7 @@ import { resolveDesignColor } from "./design-tokens.mjs";
 
 const MAX_WARNINGS = 20;
 const SHAPE_TYPES = new Set(["frame", "rectangle", "ellipse"]);
+const PATTERNED = new Set(["image", "path"]);
 // Below 3:1 text is hard to read at any size; stricter limits are the author's call.
 const MINIMUM_CONTRAST = 3;
 const TOLERANCE = 1;
@@ -140,11 +141,11 @@ export function designDiagnostics(document) {
         const candidate = order[earlier];
         const candidateBox = bounds.get(candidate.id);
         if (!candidateBox || !overlaps(candidateBox, box)) continue;
-        if (candidate.type === "image" || (SHAPE_TYPES.has(candidate.type) && candidate.fill)) behind = { node: candidate, box: candidateBox };
+        if (PATTERNED.has(candidate.type) || (SHAPE_TYPES.has(candidate.type) && candidate.fill)) behind = { node: candidate, box: candidateBox };
       }
       let backdrop = resolve(document.background ?? "#ffffff");
       if (behind) {
-        backdrop = behind.node.type !== "image" && (behind.node.opacity ?? 1) === 1 && contains(behind.box, box) ? resolve(behind.node.fill) : null;
+        backdrop = !PATTERNED.has(behind.node.type) && (behind.node.opacity ?? 1) === 1 && contains(behind.box, box) ? resolve(behind.node.fill) : null;
       }
       const foreground = (node.opacity ?? 1) === 1 ? luminance(resolve(node.fill ?? DESIGN_INK)) : null;
       const background = luminance(backdrop);

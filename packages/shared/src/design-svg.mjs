@@ -2,7 +2,8 @@ import { designPaint } from "./design-colors.mjs";
 import { designRenderBudget, visibleDesignTextLines } from "./design-render-limits.mjs";
 import { designDrawnWeight, designFontFamily } from "./design-fonts.mjs";
 import { designIcons } from "./design-icons.mjs";
-import { designDefaultFill } from "./design-paint.mjs";
+import { DESIGN_INK, designDefaultFill } from "./design-paint.mjs";
+import { designPathGeometry, designPathStroked, designPathStrokeShape } from "./design-path.mjs";
 
 const xml = (value) =>
   String(value)
@@ -74,6 +75,16 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
         const box = bounds.get(node.id);
         if (node.hidden || !box) return "";
         if (onCanvasOnly && (box.x >= document.width || box.y >= document.height || box.x + box.width <= 0 || box.y + box.height <= 0)) return "";
+        if (node.type === "path") {
+          const geometry = designPathGeometry(node, box);
+          const strokeColor = node.stroke ?? (geometry.arc ? node.fill : undefined);
+          const stroke = designPathStroked(node) ? ` ${colorAttributes("stroke", strokeColor, DESIGN_INK)} ${designPathStrokeShape(node, geometry)}` : "";
+          const fill = geometry.arc ? 'fill="none"' : colorAttributes("fill", node.fill, designDefaultFill(node));
+          return take(
+            `<g id="layer-${xml(node.id)}" opacity="${number(node.opacity ?? 1)}"><title>${xml(node.name ?? node.id)}</title><svg x="${number(box.x)}" y="${number(box.y)}" width="${number(box.width)}" height="${number(box.height)}" viewBox="${geometry.viewBox}" preserveAspectRatio="xMidYMid meet" overflow="hidden"><path d="${xml(geometry.d)}" ${fill}${stroke}/></svg></g>`,
+            node,
+          );
+        }
         if (node.type === "icon") {
           const { color, opacity } = paint(resolveColor(node.fill, designDefaultFill(node)));
           return take(

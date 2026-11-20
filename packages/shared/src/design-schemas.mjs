@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { validDesignFontFamily } from "./design-font-family.mjs";
+import { validDesignPath } from "./design-path.mjs";
 import { designKitSchema, designBindingsSchema, designConsistencySchema, designColorSchema, designColorTokenSchema } from "./design-kit.mjs";
 export { designKitDataSchema } from "./design-kit.mjs";
 
@@ -13,7 +14,7 @@ export const nodeSchema = z
   .object({
     id,
     name: z.string().max(160).optional(),
-    type: z.enum(["frame", "text", "rectangle", "ellipse", "image", "icon"]),
+    type: z.enum(["frame", "text", "rectangle", "ellipse", "image", "icon", "path"]),
     parentId: id.optional(),
     x: coordinate.optional(),
     y: coordinate.optional(),
@@ -56,6 +57,29 @@ export const nodeSchema = z
       .describe(
         "Lucide icon name for an icon layer, such as x, check, chevron-left or battery-full. fill is its line color, strokeWidth its line weight (default 2).",
       ),
+    path: z
+      .string()
+      .max(20000)
+      .refine(validDesignPath, "Use SVG path data only: commands and numbers, starting with M.")
+      .optional()
+      .describe("A path layer's SVG path data (d), in viewBox units: the layer's own pixels unless viewBox is set."),
+    viewBox: z
+      .tuple([coordinate, coordinate, z.number().finite().positive().max(16000), z.number().finite().positive().max(16000)])
+      .optional()
+      .describe("A path layer's coordinate box [minX, minY, width, height], scaled to fit the layer, such as [0, 0, 24, 24] for a glyph."),
+    arc: z
+      .object({
+        start: z.number().finite().min(-360).max(360).optional(),
+        sweep: z.number().finite().min(-360).max(360),
+      })
+      .strict()
+      .optional()
+      .describe(
+        "Instead of path: a circular arc centred in the layer, start degrees clockwise from 12 o'clock for sweep degrees (360 is a full ring). Drawn as a stroke.",
+      ),
+    strokeCap: z.enum(["butt", "round", "square"]).optional(),
+    strokeJoin: z.enum(["miter", "round", "bevel"]).optional(),
+    strokeDash: z.array(z.number().finite().min(0).max(2000)).min(1).max(8).optional().describe("A path layer's dash pattern in pixels, such as [4, 2]."),
     layout: z.enum(["free", "horizontal", "vertical"]).optional(),
     gap: size.optional(),
     padding: size.optional(),
