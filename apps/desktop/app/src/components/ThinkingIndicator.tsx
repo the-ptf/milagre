@@ -43,7 +43,7 @@ function useElapsed(startedAt?: number) {
   return useDisplayValue(250, (now) => formatElapsed(now - (startedAt ?? mountedAt)));
 }
 
-export function ThinkingIndicator({
+function ThinkingIndicator({
   label,
   showLabel = false,
   startedAt,
@@ -131,7 +131,7 @@ function LiveTitle({ steps }: { steps: ChatStep[] }) {
   const current = currentActivityStep(steps) ?? steps.at(-1);
   return (
     <span role="status" className="min-w-0 truncate text-ink-2">
-      {running > 1 ? `Running ${running} calls` : current && <ActivityTitle key={current.id} step={current} running={current.status === "running"} />}
+      {running > 1 ? `Running ${running} calls` : current && <ActivityTitle key={current.id} step={current} running={current.status === "running"} full />}
     </span>
   );
 }

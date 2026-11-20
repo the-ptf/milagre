@@ -279,7 +279,7 @@ function ReplyActivity({
   const only = shown.length === 1 && reply.activity.every((entry) => entry.type === "step") ? shown[0] : undefined;
   if (only) return <ToolRow key={only.id} step={only} live={!!run} waiting={waitingIds.includes(only.id)} onPress={() => openActivity(only.id)} />;
   if (!shown.length) return null;
-  const live = !!run && !held.length && (!reply.answer.trim() || shown.some((step) => waitingIds.includes(step.id)));
+  const live = !!run && !held.length && (!reply.answer.trim() || shown.some((step) => step.status === "running"));
   return <ActivityRow steps={shown} live={live} waitingIds={waitingIds} onPress={() => openActivity()} credits={credits} />;
 }
 

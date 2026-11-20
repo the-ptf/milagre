@@ -157,12 +157,17 @@ test("the live calls are the ones after the reply's last text, until text follow
   assert.deepEqual(liveActivity("", [{ ...step("setup", 0), kind: "setup" }]), []);
 });
 
-test("a live call waiting for approval keeps its group out of the loader", () => {
+test("a live call that waits or waited for approval keeps its group out of the loader", () => {
   assert.deepEqual(
-    loaderActivity("", [step("a", 0), step("b", 0)], ["c"]).map((s) => s.id),
-    ["a", "b"],
+    loaderActivity("", [step("l1", 0), step("l2", 0)], ["other"]).map((s) => s.id),
+    ["l1", "l2"],
   );
-  assert.deepEqual(loaderActivity("", [step("a", 0), step("b", 0)], ["b"]), []);
+  assert.deepEqual(loaderActivity("", [step("l1", 0), step("l2", 0)], ["l2"]), []);
+  assert.deepEqual(loaderActivity("", [step("l1", 0), step("l2", 0)], []), [], "approved, the group stays where its card was");
+  assert.deepEqual(
+    loaderActivity("", [step("l3", 0)], []).map((s) => s.id),
+    ["l3"],
+  );
 });
 
 test("the summary counts thinking time, files, searches, commands and tools", () => {

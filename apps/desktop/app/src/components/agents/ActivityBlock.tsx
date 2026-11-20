@@ -19,11 +19,11 @@ import { Button } from "../primitives/Button";
 
 const NO_WAITING_STEPS: string[] = [];
 
-export function ActivityTitle({ step, running, waiting = false }: { step: ChatStep; running: boolean; waiting?: boolean }) {
+export function ActivityTitle({ step, running, waiting = false, full = false }: { step: ChatStep; running: boolean; waiting?: boolean; full?: boolean }) {
   const sweep = useStepTitleSweep(running);
   return (
     <SweepText running={sweep.running} className="block min-w-0 truncate">
-      {titleSpans(stepDisplayTitle({ ...step, description: undefined, detail: undefined }, running, waiting)).map((span, index) =>
+      {titleSpans(stepDisplayTitle(full ? step : { ...step, description: undefined, detail: undefined }, running, waiting)).map((span, index) =>
         span.code ? (
           <code key={index} className={`${CODE_CHIP} ${sweep.className ?? ""}`}>
             {span.text}

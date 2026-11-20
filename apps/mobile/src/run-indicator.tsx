@@ -26,12 +26,7 @@ export function RunIndicator({ chatKey, startedAt, phase, model }: { chatKey: st
   if (!steps.length || showLabel) return <ThinkingIndicator label={label} showLabel={showLabel} startedAt={since} />;
   const running = steps.filter((step) => step.status === "running").length;
   const current = currentActivityStep(steps) ?? steps.at(-1);
-  const title =
-    running > 1
-      ? `Running ${running} calls`
-      : current
-        ? stepDisplayTitle({ ...current, description: undefined, detail: undefined }, current.status === "running")
-        : label;
+  const title = running > 1 ? `Running ${running} calls` : current ? stepDisplayTitle(current, current.status === "running") : label;
   const caption = { color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 };
   const dot = <View style={{ width: 3, height: 3, borderRadius: radius.full, backgroundColor: colors.ink4 }} />;
   return (

@@ -93,13 +93,16 @@ export function liveActivity(body: string, steps: ChatStep[] = []): ChatStep[] {
   return (answer.trim() ? activity.slice(answerAt) : activity).flatMap((entry) => (entry.type === "step" ? [entry.step] : []));
 }
 
+const waited = new Set<string>();
+
 /**
- * The live calls the loader under the transcript shows in place of their activity row. A call waiting for approval keeps
- * its group in the transcript, beside its approval card.
+ * The live calls the loader under the transcript shows in place of their activity row. A group with a call that waits,
+ * or waited, for approval stays in the transcript beside its card and whatever was opened there while deciding.
  */
 export function loaderActivity(body: string, steps: ChatStep[] = [], waitingStepIds: readonly string[] = []): ChatStep[] {
+  for (const id of waitingStepIds) waited.add(id);
   const live = liveActivity(body, steps);
-  return live.some((step) => waitingStepIds.includes(step.id)) ? [] : live;
+  return live.some((step) => waited.has(step.id)) ? [] : live;
 }
 
 /** The last thinking, when no text came after it; shown under the answer. */

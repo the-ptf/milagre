@@ -13153,8 +13153,8 @@ test("the phone's loader shows the running calls and opens them in the activity 
     "./session": { useRun: () => run },
     "./theme": { useTheme: () => ({ colors: { ink2: "ink2", ink3: "ink3", ink4: "ink4" } }) },
   });
-  const command = { id: "command", kind: "shell", title: "Ran `npm test`", status: "running", offset: 9 };
-  const read = { id: "read", kind: "read", title: "Read `a.ts`", status: "done", offset: 9 };
+  const command = { id: "loader-command", kind: "shell", title: "Ran `npm test`", status: "running", offset: 9 };
+  const read = { id: "loader-read", kind: "read", title: "Read `a.ts`", status: "done", offset: 9 };
   const draw = (props = {}) => RunIndicator({ chatKey: "/p#7", model: "Opus", ...props });
   run = { text: "Checking.", steps: [read, command], approvals: [], questions: [], startedAt: 5 };
   const loader = draw();
@@ -13163,23 +13163,26 @@ test("the phone's loader shows the running calls and opens them in the activity 
   assert.equal(loader.props.startedAt, 5);
   loader.props.onPress();
   assert.deepEqual(JSON.parse(JSON.stringify(routes)), [{ pathname: "/activity", params: { id: "7", message: "run" } }]);
-  run = { ...run, steps: [read, command, { ...command, id: "second" }] };
+  run = { ...run, steps: [read, command, { ...command, id: "loader-second" }] };
   assert.equal(find(draw().props.detail, (node) => node.type === "ActivityTitle").props.title, "Running 2 calls");
   assert.ok(
     find(draw().props.detail, (node) => node.type === "Text" && node.props.children === "3 calls"),
     "the count adds what the title doesn't say",
   );
-  run = { ...run, steps: [command, { ...command, id: "second" }] };
+  run = { ...run, steps: [command, { ...command, id: "loader-second" }] };
   assert.ok(
     !find(draw().props.detail, (node) => node.type === "Text" && String(node.props.children).endsWith("calls")),
     "every call running: the title says the count",
   );
-  run = { ...run, steps: [read, command, { ...command, id: "second" }] };
+  run = { ...run, steps: [read, command, { ...command, id: "loader-second" }] };
   run = { ...run, text: "Checking.\n\nFound it." };
   assert.equal(draw().props.detail, undefined, "text after the calls lands them in the reply");
-  run = { ...run, text: "Checking.", approvals: [{ stepId: "command" }] };
+  run = { ...run, text: "Checking.", approvals: [{ stepId: "loader-command" }] };
   assert.equal(draw().props.detail, undefined, "a call waiting for approval stays in the reply beside its card");
   run = { ...run, approvals: [] };
+  assert.equal(draw().props.detail, undefined, "approved, the group stays beside where its card was");
+  run = { ...run, steps: [{ ...command, id: "loader-next" }] };
+  assert.ok(draw().props.detail, "the next group goes back to the loader");
   display = "full";
   assert.equal(draw().props.detail, undefined, "Full detail keeps every call inline");
   display = "compact";

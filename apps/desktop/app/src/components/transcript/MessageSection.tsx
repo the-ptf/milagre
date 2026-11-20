@@ -71,7 +71,7 @@ import { ActivityBlock } from "../agents/ActivityBlock";
 import { GeneratedImage } from "../agents/GeneratedImage";
 import { ViewedImages } from "../agents/ViewedImages";
 import { Markdown, StreamingMarkdown } from "../markdown/Markdown";
-import { loaderActivity, replyActivity, unspokenThought } from "../../lib/reply-parts";
+import { loaderActivity, replyActivity, unspokenThought, type ActivityEntry } from "../../lib/reply-parts";
 import { useSettings } from "../../lib/settings";
 import { extractOutdatedProvider } from "../../lib/cli-status";
 import { splitFences } from "../../lib/message-fences";
@@ -186,6 +186,8 @@ function UserBody({
   );
 }
 
+const isRunning = (entry: ActivityEntry) => entry.type === "step" && entry.step.status === "running";
+
 function ReplyContent({
   body,
   steps,
@@ -221,7 +223,7 @@ function ReplyContent({
       {!(loaderHolds && !answer.trim()) && (
         <ActivityBlock
           entries={before}
-          streaming={streaming && after.length === 0 && (toolCallDisplay === "full" || !answer.trim())}
+          streaming={streaming && after.length === 0 && (toolCallDisplay === "full" || !answer.trim() || before.some(isRunning))}
           waitingStepIds={waitingStepIds}
           credits={after.length ? undefined : credits}
         />
