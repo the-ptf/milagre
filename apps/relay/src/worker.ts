@@ -28,13 +28,18 @@ export default {
         lookupRoom: (hookId) => lookupRoom(env, hookId),
         forwardToRoom: (roomId, hookId, packed) =>
           roomOf(env, roomId).fetch(`${INTERNAL}/hook`, { method: "POST", headers: { "x-milagre-hook": hookId }, body: packed }),
-      });
+      }).catch(busyHook);
     const role = url.pathname === "/v1/host" ? "host" : url.pathname === "/v1/phone" ? "phone" : null;
     if (!role) return new Response("Not found", { status: 404 });
     if (!ID.test(url.searchParams.get("id") ?? "")) return new Response("Bad id", { status: 400 });
     if (request.headers.get("Upgrade") !== "websocket") return new Response("Expected a WebSocket", { status: 426 });
     const id = url.searchParams.get("id")!;
-    const answer = await roomOf(env, id).fetch(request);
+    let answer: Response;
+    try {
+      answer = await roomOf(env, id).fetch(request);
+    } catch {
+      return closedSocket(BUSY);
+    }
     const refusal = answer.status === 101 ? null : parseRefusal(answer.headers.get(REFUSAL_HEADER));
     return refusal ? closedSocket(refusal) : answer;
   },
@@ -47,6 +52,16 @@ export default {
 const REFUSAL_HEADER = "x-milagre-refusal";
 
 type Refusal = { code: number; reason: string };
+
+// A room that can't be reached throws: the account is over its daily Durable Objects limit, or Cloudflare failed. A
+// client can't read an HTTP status off a failed WebSocket handshake, so the Worker accepts the socket and closes it
+// with a code that says to wait.
+const BUSY: Refusal = { code: 4503, reason: "relay-busy" };
+const busyHook = () =>
+  new Response(JSON.stringify({ error: "relay busy" }), {
+    status: 503,
+    headers: { "content-type": "application/json", "cache-control": "no-store", "retry-after": "300" },
+  });
 
 function parseRefusal(value: string | null): Refusal | null {
   const match = /^(4\d{3}) ([a-z-]{1,40})$/.exec(value ?? "");

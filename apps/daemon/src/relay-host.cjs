@@ -17,6 +17,7 @@ const DEFAULT_TIMING = {
   jitter: true,
 };
 const REPLACED = 4409;
+const RELAY_BUSY = 4503;
 const HOOK = 4,
   HOOK_SET = 5,
   HOOK_ACK = 6,
@@ -65,10 +66,11 @@ function hookDeliveryOf(payload) {
   }
 }
 
-function retryDelay({ replaced, serverError, attempt, serverErrors }, { backoff, serverErrorBackoff, replacedMs, jitter }) {
-  if (replaced) return jitter ? replacedMs * (1 + Math.random() * 0.4) : replacedMs;
-  const ladder = serverError ? serverErrorBackoff : backoff;
-  const base = ladder[Math.min(serverError ? serverErrors : attempt, ladder.length - 1)];
+function retryDelay(code, current, { attempt, serverErrors }, { backoff, serverErrorBackoff, replacedMs, jitter }) {
+  current.serverError ||= code === RELAY_BUSY;
+  if (code === REPLACED && current.ready) return jitter ? replacedMs * (1 + Math.random() * 0.4) : replacedMs;
+  const ladder = current.serverError ? serverErrorBackoff : backoff;
+  const base = ladder[Math.min(current.serverError ? serverErrors : attempt, ladder.length - 1)];
   return jitter ? base * (0.8 + Math.random() * 0.4) : base;
 }
 
@@ -342,8 +344,7 @@ function startRelayHost({
         return;
       }
       setStatus("offline");
-      const replaced = code === REPLACED && current.ready;
-      const delay = retryDelay({ replaced, serverError: current.serverError, attempt, serverErrors }, { backoff, serverErrorBackoff, replacedMs, jitter });
+      const delay = retryDelay(code, current, { attempt, serverErrors }, { backoff, serverErrorBackoff, replacedMs, jitter });
       serverErrors = current.serverError ? serverErrors + 1 : 0;
       attempt += 1;
       retryTimer = setTimeout(connect, delay);

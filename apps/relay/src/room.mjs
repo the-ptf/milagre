@@ -197,7 +197,7 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
       } else if (type === CLOSE) {
         forgetPhone(conn, phone);
         if (payload.byteLength === HOST_OFFLINE.byteLength && payload.every((byte, index) => byte === HOST_OFFLINE[index])) drop(phone, 4404, "host-offline");
-        else drop(phone, 1000, "closed-by-host");
+        else park(phone, 1000, "closed-by-host");
       }
     },
     hostClosed(socket) {

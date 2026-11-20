@@ -62,6 +62,7 @@ function fakeMac({ hello = "accept", answer = echo } = {}) {
         socket.sent++;
         if (!channel) {
           if (hello === "full") return socket.closeWith(4429);
+          if (hello === "relay-busy") return socket.closeWith(4503);
           if (typeof hello === "object") return socket.deliver(new Uint8Array([0x04, ...encoder.encode(JSON.stringify({ t: "error", ...hello }))]));
           const accepted = hostAccept({ host, hello: bytes, isKnown: () => false, canPair: true, token: TOKEN, random });
           // A reply the pinned host did not seal: random bytes after ACCEPT, or the real reply with one byte flipped.
@@ -86,6 +87,8 @@ function fakeMac({ hello = "accept", answer = echo } = {}) {
         if (!read) return;
         const reply = answer(read.frame);
         if (reply === "close") return socket.closeWith(1000);
+        if (reply === "notice")
+          return queueMicrotask(() => socket.emit("message", { data: JSON.stringify({ t: "gone", code: 1000, reason: "closed-by-host" }) }));
         // A promise answers later, as a slow call does.
         void Promise.resolve(reply).then((value) => {
           if (value && !socket.closed) for (const text of writer.write(JSON.stringify(value))) socket.deliver(channel.sealEncoded(text));
@@ -156,6 +159,7 @@ test("each refusal reads as its code, final when retrying can't help", async () 
     [{ code: "bad-hello", reason: "kind" }, "kind", true],
     [{ code: "bad-hello" }, "bad-hello", false],
     ["full", "full", false],
+    ["relay-busy", "offline", false],
   ]) {
     await assert.rejects(dial(fakeMac({ hello })), (error) => {
       assert.ok(error instanceof PeerError, code);
@@ -168,6 +172,7 @@ test("each refusal reads as its code, final when retrying can't help", async () 
 
 test("a Mac from before paired desktops, closing on the first rpc, reads as outdated, as does one without desktop-peer-v1", async () => {
   await assert.rejects(dial(fakeMac({ answer: () => "close" })), { code: "outdated", final: false });
+  await assert.rejects(dial(fakeMac({ answer: () => "notice" })), { code: "outdated", final: false });
   const old = (frame) => ({ v: 1, id: frame.id, result: { methods: [], capabilities: ["desktop-v1"] } });
   await assert.rejects(dial(fakeMac({ answer: old })), { code: "outdated" });
 });

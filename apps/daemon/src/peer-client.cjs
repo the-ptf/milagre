@@ -15,6 +15,7 @@ const SILENCE_MS = 45_000;
 const ALLOW_MS = 11 * 60_000;
 const CLOSE_BY_HOST = 1000;
 const CLOSE_HOST_OFFLINE = 4404;
+const CLOSE_RELAY_BUSY = 4503;
 const CLOSE_ROOM_FULL = 4429;
 const DESKTOP_PEER = "desktop-peer-v1";
 const PEER_TCP = "peer-tcp-v1";
@@ -40,6 +41,21 @@ function refusalCode(refusal) {
   if (code === "bad-token") return reason === "reset" ? "reset" : "bad-token";
   if (code === "bad-hello") return reason === "kind" ? "kind" : "bad-hello";
   return "lost";
+}
+
+function closeError(code, { open, answered }) {
+  if (open) return new PeerError(!answered && code === CLOSE_BY_HOST ? "outdated" : "lost");
+  const waits = code === CLOSE_HOST_OFFLINE || code === CLOSE_RELAY_BUSY;
+  return new PeerError(code === CLOSE_ROOM_FULL ? "full" : waits ? "offline" : "lost");
+}
+
+function goneCode(text) {
+  try {
+    const notice = JSON.parse(text);
+    return notice?.t === "gone" ? notice.code : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function toBytes(data) {
@@ -229,13 +245,10 @@ async function connectPeer({
     if (!client.closed) send(hello.message);
   });
   socket.addEventListener("error", () => {});
-  socket.addEventListener("close", (event) => {
-    const code = event?.code;
-    if (!channel) end(new PeerError(code === CLOSE_ROOM_FULL ? "full" : code === CLOSE_HOST_OFFLINE ? "offline" : "lost"));
-    else end(new PeerError(!answered && code === CLOSE_BY_HOST ? "outdated" : "lost"));
-  });
+  socket.addEventListener("close", (event) => end(closeError(event?.code, { open: !!channel, answered })));
   socket.addEventListener("message", (event) => {
     if (client.closed) return;
+    if (typeof event?.data === "string") return end(closeError(goneCode(event.data), { open: !!channel, answered }));
     const bytes = toBytes(event?.data);
     if (!bytes?.length) return end(new PeerError("lost"));
     heard();
