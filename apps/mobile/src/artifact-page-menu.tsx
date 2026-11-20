@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { router } from "expo-router";
 import { UnfoldMoreIcon } from "@hugeicons/core-free-icons";
-import { designGroups, type Artifact, type ArtifactPageKind, type ArtifactSummary } from "@milagre/shared/artifact";
+import { designGroups, type Artifact, type ArtifactPageKind, type ArtifactSummary, type DesignLibrary } from "@milagre/shared/artifact";
 import {
   artifactPageSections,
   artifactRouteParams,
@@ -64,20 +64,22 @@ export function ArtifactPageTitle({
  * Shows another page of the Artifact in place: in the iPad's panel tab through `onPage`, else by replacing the phone
  * sheet's params, so it neither pushes nor pops.
  */
-function showArtifactPage(target: DesignsTab, onPage?: (target: DesignsTab) => void) {
+export function showArtifactPage(target: DesignsTab, onPage?: (target: DesignsTab) => void) {
   if (onPage) onPage(target);
   else router.setParams(artifactRouteParams(target));
 }
 
 /**
  * The page menu of a page of the Artifact (`current`): its sections, and what choosing one does. Canvas opens the
- * design last viewed there (else the first); the HTML page opens the tab chosen, else the one last viewed.
+ * design last viewed there (else the first); the HTML page opens the tab chosen, else the one last viewed; a Project
+ * library page opens its first design.
  */
 export function artifactPageMenu({
   hostId,
   chatId,
   designs,
   page,
+  library: shared,
   current,
   onPage,
   onTab,
@@ -86,15 +88,21 @@ export function artifactPageMenu({
   chatId?: string;
   designs: { id: string }[];
   page: { id: string; title: string; tabs: ArtifactPageEntry[] } | null;
+  library?: DesignLibrary | null;
   current: ArtifactPageChoice;
   onPage?: (target: DesignsTab) => void;
   onTab?: (tab: string) => void;
 }) {
-  const sections = artifactPageSections({ canvas: designs.length > 0, page, current });
+  const library = shared?.pages ?? [];
+  const sections = artifactPageSections({ canvas: designs.length > 0, page, library, current });
   const choose = (id: string) => {
     const picked = readPageChoice(id);
     if (!picked || !hostId || !chatId) return;
-    if (picked.kind === "canvas") {
+    if (picked.kind === "library") {
+      const shown = library.find((item) => item.id === picked.page);
+      if (shown?.designs[0] && (current.kind !== "library" || current.page !== picked.page))
+        showArtifactPage({ hostId, chatId, id: shown.designs[0].id, library: shown.id }, onPage);
+    } else if (picked.kind === "canvas") {
       const last = lastArtifactPage(hostId, chatId)?.design;
       const design = designs.find((item) => item.id === last) ?? designs[0];
       if (current.kind !== "canvas" && design) showArtifactPage({ hostId, chatId, id: design.id }, onPage);

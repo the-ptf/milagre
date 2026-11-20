@@ -32,8 +32,9 @@ import { duration } from "./design-tokens";
 import { useReducedMotion } from "./motion";
 import { markDesignDeleted } from "./use-design-catalog";
 import { useShareAvailable } from "./use-share-available";
-import { ArtifactPageTitle, artifactPageMenu, openArtifactShare, usePageTabs } from "./artifact-page-menu";
-import { rememberCanvas } from "./artifact-pages";
+import { ArtifactPageTitle, artifactPageMenu, openArtifactShare, showArtifactPage, usePageTabs } from "./artifact-page-menu";
+import { rememberCanvas, versionSections } from "./artifact-pages";
+import { addToLibrary, isLibraryAdd, libraryAddSections, useDesignLibrary } from "./design-library";
 import type { DesignsTab } from "./panel-tabs";
 import { loadCanvasDesign } from "./design-font-cache";
 import { CommentBox } from "./viewer-chrome";
@@ -142,6 +143,7 @@ export function DesignsSheet({
     };
   }, [source, chatId, revision, reconnects]);
   const sharing = useShareAvailable(source, hostId, chatId);
+  const library = useDesignLibrary(source, chatId, reconnects);
   const pageTabs = usePageTabs(source, chatId, htmlPage);
 
   const rows = useMemo(() => designGroups(summaries ?? []), [summaries]);
@@ -435,18 +437,7 @@ export function DesignsSheet({
     ? [
         { items: [{ id: "resolved", title: "Show resolved comments", checked: showResolved }] },
         { items: [{ id: "choose", title: pendingHere || sentHere ? "Chosen" : "Choose this design", checked: pendingHere || sentHere, disabled: sentHere }] },
-        ...(latest > 1
-          ? [
-              {
-                title: "Versions",
-                items: Array.from({ length: latest }, (_, index) => latest - index).map((number) => ({
-                  id: `version:${number}`,
-                  title: `Version ${number}${number === latest ? " (latest)" : ""}`,
-                  checked: number === shown.version,
-                })),
-              },
-            ]
-          : []),
+        ...versionSections(latest, shown.version),
         ...(sharing
           ? [
               {
@@ -457,9 +448,16 @@ export function DesignsSheet({
               },
             ]
           : []),
+        ...libraryAddSections(library),
         { items: [{ id: "delete", title: "Delete design", systemImage: "trash", destructive: true }] },
       ]
     : [];
+  const addShownToLibrary = (action: string, designId: string) => {
+    if (!source || !chatId || !hostId || !library) return;
+    void addToLibrary(source, action, library.pages, { chatId, designId }).then(
+      (entry) => entry && showArtifactPage({ hostId, chatId, id: entry.id, library: entry.page }, onPage),
+    );
+  };
   const choose = (action: string) => {
     if (!shown) return;
     if (action === "resolved") setShowResolved(!showResolved);
@@ -467,6 +465,7 @@ export function DesignsSheet({
     else if (action === "share") openArtifactShare(hostId, chatId, "workspace");
     else if (action === "share-design") openArtifactShare(hostId, chatId, "design", shown.id);
     else if (action === "delete") remove(shown);
+    else if (isLibraryAdd(action)) addShownToLibrary(action, shown.id);
     else if (action.startsWith("version:")) {
       const number = Number(action.slice("version:".length));
       setVersions((current) => ({ ...current, [shown.id]: number >= latest ? null : number }));
@@ -492,6 +491,7 @@ export function DesignsSheet({
     chatId,
     designs: ordered,
     page: htmlPage && { id: htmlPage.id, title: htmlPage.title, tabs: pageTabs },
+    library,
     current: { kind: "canvas" },
     onPage,
   });
@@ -660,7 +660,7 @@ function DrawingDesignIcon() {
  * by hash), and each design is a frame that runs none, so nothing a design holds can read the phone's files or post
  * to the app. The Expo modules bridge stays off; the app reads only the canvas script's messages, by their shape.
  */
-function DesignsCanvas({ ref, onMessage }: { ref: React.Ref<DomWebViewRef>; onMessage: (data: string) => void }) {
+export function DesignsCanvas({ ref, onMessage }: { ref: React.Ref<DomWebViewRef>; onMessage: (data: string) => void }) {
   const { colors } = useTheme();
   const [crashed, setCrashed] = useState(false);
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");

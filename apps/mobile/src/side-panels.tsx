@@ -35,8 +35,7 @@ import { dragTo, entered, settle } from "./panel-motion";
 import { useCardTop, useSplitLayout } from "./split-context";
 import { CARD_MARGIN, CHANGES_WIDTH, SIDEBAR_WIDTH, rightDocks, widthClass } from "./split-width";
 import { SimulatorSheet } from "./simulator";
-import { DesignsSheet } from "./designs-sheet";
-import { ArtifactSheet } from "./artifact";
+import { ArtifactPanel } from "./artifact-panel";
 import { BrowserSheet } from "./browser";
 import type { BrowserTab, ChatTab, DesignsTab, SimulatorTab } from "./panel-tabs";
 import { PR_ICONS } from "./pr-look";
@@ -836,32 +835,7 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
           importantForAccessibility={shownTab === "designs" ? "auto" : "no-hide-descendants"}
           style={shownTab === "designs" ? { flex: 1 } : { position: "absolute", top: insets.top + TAB_BAR_HEIGHT, left: 0, right: 0, bottom: 0, opacity: 0 }}
         >
-          {designs.html ? (
-            <ArtifactSheet
-              key={`${designs.hostId}:${designs.chatId}:${designs.id}`}
-              hostId={designs.hostId}
-              chatId={designs.chatId}
-              id={designs.id}
-              tab={designs.tab}
-              comment={designs.comment}
-              requestId={designs.requestId}
-              onClose={() => closeTab("designs")}
-              onPage={(target) => openTab({ kind: "designs", target })}
-            />
-          ) : (
-            <DesignsSheet
-              key={`${designs.hostId}:${designs.chatId}:${designs.id}:${designs.version}`}
-              hostId={designs.hostId}
-              chatId={designs.chatId}
-              id={designs.id}
-              version={designs.version}
-              chosen={designs.chosen}
-              comment={designs.comment}
-              requestId={designs.requestId}
-              onClose={() => closeTab("designs")}
-              onPage={(target) => openTab({ kind: "designs", target })}
-            />
-          )}
+          <ArtifactPanel target={designs} onClose={() => closeTab("designs")} onPage={(target) => openTab({ kind: "designs", target })} />
         </View>
       )}
     </View>

@@ -11,6 +11,7 @@ export type LiveSignal =
   | "token-usage"
   | "keybindings"
   | "pulls"
+  | "library"
   | "orchestrator";
 export const isLiveSignal = (type: unknown): type is LiveSignal =>
   type === "btw" ||
@@ -25,6 +26,7 @@ export const isLiveSignal = (type: unknown): type is LiveSignal =>
   type === "token-usage" ||
   type === "keybindings" ||
   type === "pulls" ||
+  type === "library" ||
   type === "orchestrator";
 type LiveEvents = { open: unknown; message: { data?: unknown }; error: { message?: string }; close: unknown };
 export type LiveSocket = {
@@ -147,6 +149,7 @@ export type SyncOptions = {
   links?: () => void;
   designs?: () => void;
   pulls?: () => void;
+  library?: () => void;
   liveStatus?: (open: boolean) => void;
   onError: (error: Error) => void;
   active: () => boolean;
@@ -164,6 +167,7 @@ export function syncProject({
   links,
   designs,
   pulls,
+  library,
   liveStatus,
   onError,
   active,
@@ -239,6 +243,7 @@ export function syncProject({
         else if (signal === "links") links?.();
         else if (signal === "designs") designs?.();
         else if (signal === "pulls") pulls?.();
+        else if (signal === "library") library?.();
         else if (signal === "runs" || signal === "project") void pull(signal);
       },
       onStatus: (next) => {

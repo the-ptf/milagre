@@ -9,6 +9,7 @@ import {
   rememberCanvas,
   rememberPage,
   rememberedTab,
+  versionSections,
 } from "./artifact-pages.ts";
 
 test("the page menu offers Canvas when the Chat has designs, then the page's tabs or its title", () => {
@@ -58,6 +59,7 @@ test("switching pages on the phone replaces every param, clearing a comment the 
     chatId: "/p#1",
     id: "login",
     kind: undefined,
+    library: undefined,
     version: undefined,
     chosen: undefined,
     tab: undefined,
@@ -65,4 +67,40 @@ test("switching pages on the phone replaces every param, clearing a comment the 
     requestId: undefined,
   });
   assert.equal(artifactRouteParams({ hostId: "mac", chatId: "/p#1", id: "page", html: true, tab: "headers" }).kind, "html");
+  assert.equal(artifactRouteParams({ hostId: "mac", chatId: "/p#1", id: "library:home", library: "iphone" }).library, "iphone");
+});
+
+test("the Project library's pages come after the Chat's own, and a design's versions list newest first", () => {
+  const sections = artifactPageSections({
+    canvas: true,
+    page: null,
+    library: [
+      { id: "iphone", name: "iPhone" },
+      { id: "kit", name: "Kit" },
+    ],
+    current: { kind: "library", page: "kit" },
+  });
+  assert.deepEqual(
+    sections.map((section) => [section.title ?? "", section.items.map((item) => [item.id, !!item.checked])]),
+    [
+      ["", [["canvas", false]]],
+      [
+        "Project library",
+        [
+          ["library:iphone", false],
+          ["library:kit", true],
+        ],
+      ],
+    ],
+  );
+  assert.deepEqual(readPageChoice("library:kit"), { kind: "library", page: "kit" });
+  assert.deepEqual(versionSections(1, 1), []);
+  assert.deepEqual(
+    versionSections(3, 2)[0]!.items.map((item) => [item.title, !!item.checked]),
+    [
+      ["Version 3 (latest)", false],
+      ["Version 2", true],
+      ["Version 1", false],
+    ],
+  );
 });

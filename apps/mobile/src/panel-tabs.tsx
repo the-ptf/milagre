@@ -9,6 +9,8 @@ export type DesignsTab = {
   version?: string;
   chosen?: string;
   html?: boolean;
+  /** A page of the Project library: the sheet shows its designs, `id` the one in front. */
+  library?: string;
   tab?: string;
   comment?: string;
   requestId?: string;
