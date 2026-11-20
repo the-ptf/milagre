@@ -31,16 +31,22 @@ export function rememberedTab(hostId: string | undefined, chatId: string | undef
  * The page menu of the Artifact's header: Canvas when the Chat has designs, then the HTML page as its tabs (or its title
  * when it has none), then the pages of the Project library. `current` is checked.
  */
+/** The page menu entry that opens the Project's Design library page. */
+export const OPEN_DESIGN_LIBRARY = "open-library";
+
 export function artifactPageSections({
   canvas,
   page,
   library = [],
   current,
+  openLibrary = false,
 }: {
   canvas: boolean;
   page: { title: string; tabs: ArtifactPageEntry[] } | null;
   library?: { id: string; name: string }[];
   current: ArtifactPageChoice;
+  /** The library section ends with Open Design library, the Project's whole library page. */
+  openLibrary?: boolean;
 }): MenuSection[] {
   const sections: MenuSection[] = [];
   if (canvas) sections.push({ items: [{ id: "canvas", title: "Canvas", systemImage: "square.grid.2x2", checked: current.kind === "canvas" }] });
@@ -54,12 +60,15 @@ export function artifactPageSections({
   if (library.length)
     sections.push({
       title: "Project library",
-      items: library.map((item) => ({
-        id: `library:${item.id}`,
-        title: item.name,
-        systemImage: "books.vertical",
-        checked: current.kind === "library" && current.page === item.id,
-      })),
+      items: [
+        ...library.map((item) => ({
+          id: `library:${item.id}`,
+          title: item.name,
+          systemImage: "books.vertical",
+          checked: current.kind === "library" && current.page === item.id,
+        })),
+        ...(openLibrary ? [{ id: OPEN_DESIGN_LIBRARY, title: "Open Design library", systemImage: "arrow.up.forward.square" }] : []),
+      ],
     });
   return sections;
 }

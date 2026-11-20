@@ -79,6 +79,7 @@ test("the Project library's pages come after the Chat's own, and a design's vers
       { id: "kit", name: "Kit" },
     ],
     current: { kind: "library", page: "kit" },
+    openLibrary: true,
   });
   assert.deepEqual(
     sections.map((section) => [section.title ?? "", section.items.map((item) => [item.id, !!item.checked])]),
@@ -89,6 +90,7 @@ test("the Project library's pages come after the Chat's own, and a design's vers
         [
           ["library:iphone", false],
           ["library:kit", true],
+          ["open-library", false],
         ],
       ],
     ],

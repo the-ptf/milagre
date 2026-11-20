@@ -417,6 +417,10 @@ function projectActions(ctx: NavigationActionsContext, open: ReturnType<typeof o
       await Clipboard.setStringAsync(projectPath);
       return;
     }
+    if (action === "design-library") {
+      onNavigate({ pathname: "/design-library", params: { hostId, path: projectPath, name } }, true);
+      return;
+    }
     const client = clientOf(hostId);
     if (action !== "remove" || !client) return;
     const confirmed = await confirm(

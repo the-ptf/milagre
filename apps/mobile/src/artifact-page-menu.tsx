@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { router } from "expo-router";
 import { UnfoldMoreIcon } from "@hugeicons/core-free-icons";
-import { designGroups, type Artifact, type ArtifactPageKind, type ArtifactSummary, type DesignLibrary } from "@milagre/shared/artifact";
+import { designGroups, libraryProject, type Artifact, type ArtifactPageKind, type ArtifactSummary, type DesignLibrary } from "@milagre/shared/artifact";
 import {
+  OPEN_DESIGN_LIBRARY,
   artifactPageSections,
   artifactRouteParams,
   lastArtifactPage,
@@ -14,6 +15,7 @@ import {
   type ArtifactPageEntry,
 } from "./artifact-pages";
 import type { DesignsTab } from "./panel-tabs";
+import { openDesignLibrary } from "./design-library-route";
 import type { MenuSection } from "./primitives/menu";
 import { lineHeight, space, type } from "./design-tokens";
 import { Icon } from "./icons";
@@ -94,8 +96,13 @@ export function artifactPageMenu({
   onTab?: (tab: string) => void;
 }) {
   const library = shared?.pages ?? [];
-  const sections = artifactPageSections({ canvas: designs.length > 0, page, library, current });
+  const sections = artifactPageSections({ canvas: designs.length > 0, page, library, current, openLibrary: true });
   const choose = (id: string) => {
+    if (id === OPEN_DESIGN_LIBRARY && hostId && chatId) {
+      const project = libraryProject(chatId);
+      openDesignLibrary(hostId, project, project.split("/").findLast(Boolean) ?? project);
+      return;
+    }
     const picked = readPageChoice(id);
     if (!picked || !hostId || !chatId) return;
     if (picked.kind === "library") {

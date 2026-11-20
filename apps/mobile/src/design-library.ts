@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Alert } from "react-native";
-import type { DesignLibrary, DesignLibraryEntry, DesignLibraryPage } from "@milagre/shared/artifact";
+import { designScope, type DesignLibrary, type DesignLibraryEntry, type DesignLibraryPage } from "@milagre/shared/artifact";
 import type { MenuSection } from "./primitives/menu";
 import { promptText } from "./text-prompt";
 
@@ -22,8 +22,8 @@ function onDesignLibraryChanged(client: object, listener: () => void): () => voi
 }
 
 /**
- * The design library of the Chat's Project, read again when the computer says it changed or `revision` moves. Null
- * until it answers, and on a computer from before the library.
+ * The design library of the Chat's Project (or of the Project `chatId` names, for its Design library page), read again
+ * when the computer says it changed or `revision` moves. Null until it answers, and on a computer from before the library.
  */
 export function useDesignLibrary(source: Caller | null, chatId: string | undefined, revision?: unknown): DesignLibrary | null {
   const [state, setState] = useState<{ source: Caller | null; chatId?: string; library: DesignLibrary | null }>({ source: null, library: null });
@@ -33,7 +33,7 @@ export function useDesignLibrary(source: Caller | null, chatId: string | undefin
     if (!source || !chatId) return;
     let live = true;
     source
-      .call<DesignLibrary>("design-library:list", [{ chatId }])
+      .call<DesignLibrary>("design-library:list", [designScope(chatId)])
       .then((library) => {
         if (live && Array.isArray(library?.pages)) setState({ source, chatId, library });
       })
