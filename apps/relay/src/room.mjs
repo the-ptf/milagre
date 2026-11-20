@@ -56,6 +56,12 @@ function toBytes(data, max) {
  *   { role: 'pending', challenge: '<b64url nonce>' }  a Mac still proving its key
  *   { role: 'host', next: '<decimal>' }                 the proven Mac and the last conn handed out
  *   { role: 'phone', conn: '<decimal>' }                a phone and its connection number
+ *   { role: 'parked', code, reason }                    a socket the room is done with and has not closed
+ *
+ * Parking: a Durable Object can't hibernate, and is billed, while a close it started waits on a peer that is already
+ * gone, for up to 15 minutes. Cloudflare drops connections without telling the room, so a socket the room is done with
+ * may be one of those. The room sends it a `gone` notice instead, which makes a live client close itself, and closes
+ * it only if it speaks again.
  */
 export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8Array(32)), mark = () => {}, onHostReady, onHostFrame }) {
   let host = null,
@@ -64,6 +70,7 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
     next = 0n;
   const phones = new Map();
   const connOf = new Map();
+  const parked = new Map();
   const toldGone = new Set();
   const note = (socket, state) => {
     try {
@@ -74,12 +81,28 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
   };
   const noteHost = () => note(host, { role: "host", next: next.toString() });
   const drop = (socket, code, reason) => {
+    parked.delete(socket);
     note(socket, null);
     try {
       socket.close(code, reason);
     } catch {
       /* already closed */
     }
+  };
+  const park = (socket, code, reason, tell = true) => {
+    parked.set(socket, { code, reason });
+    note(socket, { role: "parked", code, reason });
+    if (!tell) return;
+    try {
+      socket.send(JSON.stringify({ t: "gone", code, reason }));
+    } catch {
+      /* already closing */
+    }
+  };
+  const spokeWhileParked = (socket) => {
+    const exit = parked.get(socket);
+    if (exit) drop(socket, exit.code, exit.reason);
+    return !!exit;
   };
   const proves = (data) => {
     try {
@@ -92,7 +115,7 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
     }
   };
   const dropPhones = () => {
-    for (const phone of phones.values()) drop(phone, 4410, "host-gone");
+    for (const phone of phones.values()) park(phone, 4410, "host-gone");
     phones.clear();
     connOf.clear();
   };
@@ -126,7 +149,7 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
   };
   return {
     hostOpened(socket) {
-      if (pending) drop(pending, 4409, "replaced");
+      if (pending) park(pending, 4409, "replaced");
       pending = socket;
       challenge = nonce();
       note(socket, { role: "pending", challenge: b64url(challenge) });
@@ -136,12 +159,13 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
       }
     },
     hostMessage(socket, data) {
+      if (spokeWhileParked(socket)) return;
       if (socket === pending) {
         if (!proves(data)) {
           pending = null;
           return drop(socket, 4403, "bad-proof");
         }
-        if (host) drop(host, 4409, "replaced");
+        if (host) park(host, 4409, "replaced");
         dropPhones();
         host = socket;
         pending = null;
@@ -177,6 +201,7 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
       }
     },
     hostClosed(socket) {
+      parked.delete(socket);
       if (socket === pending) {
         pending = null;
         note(socket, null);
@@ -212,6 +237,7 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
       return conn;
     },
     phoneMessage(socket, data) {
+      if (spokeWhileParked(socket)) return;
       const conn = connOf.get(socket);
       if (conn === undefined || !host) return;
       const bytes = toBytes(data, MAX_FRAME);
@@ -220,6 +246,7 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
       toHost(frame(DATA, conn, bytes));
     },
     phoneClosed(socket) {
+      parked.delete(socket);
       const conn = connOf.get(socket);
       if (conn === undefined) return;
       forgetPhone(conn, socket);
@@ -228,7 +255,7 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
     /**
      * Rebuilds a fresh room from the sockets that outlived it and their last marks, in the order
      * the runtime lists them. The last host and the last pending socket win; the others were
-     * already replaced. A socket with no usable mark is closed, since the room cannot route it.
+     * already replaced. A socket the room cannot route is parked, and one already parked stays parked untold.
      */
     restore(entries) {
       const hosts = [],
@@ -239,17 +266,18 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
         if (role === "host" && decimal(state.next) !== null) hosts.push({ socket, next: decimal(state.next) });
         else if (role === "pending" && nonceOf(state.challenge)) pendings.push({ socket, challenge: nonceOf(state.challenge) });
         else if (role === "phone" && decimal(state.conn)) restored.push({ socket, conn: decimal(state.conn) });
-        else drop(socket, 1011, "lost-state");
+        else if (role === "parked" && exitOf(state)) park(socket, state.code, state.reason, false);
+        else park(socket, 1011, "lost-state");
       }
       const kept = hosts.pop(),
         waiting = pendings.pop();
-      for (const { socket } of [...hosts, ...pendings]) drop(socket, 4409, "replaced");
+      for (const { socket } of [...hosts, ...pendings]) park(socket, 4409, "replaced");
       if (waiting) {
         pending = waiting.socket;
         challenge = waiting.challenge;
       }
       if (!kept) {
-        for (const { socket } of restored) drop(socket, 4410, "host-gone");
+        for (const { socket } of restored) park(socket, 4410, "host-gone");
         return;
       }
       host = kept.socket;
@@ -258,7 +286,7 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
         const twin = phones.get(conn);
         if (twin) {
           connOf.delete(twin);
-          drop(twin, 1011, "lost-state");
+          park(twin, 1011, "lost-state");
         }
         phones.set(conn, socket);
         connOf.set(socket, conn);
@@ -273,6 +301,9 @@ function decimal(text) {
   if (typeof text !== "string" || !/^\d{1,20}$/.test(text)) return null;
   const value = BigInt(text);
   return value <= 0xffffffffffffffffn ? value : null;
+}
+function exitOf(state) {
+  return Number.isInteger(state.code) && state.code >= 1000 && state.code <= 4999 && typeof state.reason === "string" && state.reason.length <= 40;
 }
 function nonceOf(text) {
   try {

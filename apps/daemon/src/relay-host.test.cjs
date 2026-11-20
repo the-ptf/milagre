@@ -414,6 +414,44 @@ test("a host closed as replaced (4409) waits replacedMs before dialing again; ot
   }
 });
 
+test("a host the relay tells it was replaced, without closing it, hangs up and waits replacedMs like a 4409", async (t) => {
+  const bridge = await startFakeBridge(t);
+  const relay = await scriptedRelay(t, (index) => index === 0 && ((ws) => ws.send(JSON.stringify({ t: "gone", code: 4409, reason: "replaced" }))));
+  const mac = await startMac(t, { relayUrl: relay.url, bridgeUrl: bridge.url, timing: { backoff: [20], replacedMs: 400, jitter: false } });
+  await until(() => mac.host.status() === "online" && relay.dials.length === 2, "back online after the notice");
+  const gap = relay.dials[1] - relay.closes[0];
+  assert.ok(gap >= 380, `after the notice the host waited ${gap} ms`);
+});
+
+test("a relay answering the upgrade with a server error is redialed on the slower ladder; a 404 keeps the short backoff", async (t) => {
+  for (const [status, slow] of [
+    [500, true],
+    [404, false],
+  ]) {
+    const dials = [];
+    const failing = require("node:http").createServer();
+    failing.on("upgrade", (_request, socket) => {
+      dials.push(Date.now());
+      socket.end(`HTTP/1.1 ${status} Nope\r\nconnection: close\r\n\r\n`);
+    });
+    const port = await listen(failing);
+    t.after(() => {
+      failing.close();
+      failing.closeAllConnections?.();
+    });
+    const mac = await startMac(t, {
+      relayUrl: `ws://127.0.0.1:${port}`,
+      bridgeUrl: "http://127.0.0.1:1",
+      timing: { backoff: [20], serverErrorBackoff: [20, 400], jitter: false },
+    });
+    await until(() => dials.length >= 3, `three dials against a ${status}`);
+    const gap = dials[2] - dials[1];
+    if (slow) assert.ok(gap >= 380, `after two 500s the host waited ${gap} ms`);
+    else assert.ok(gap < 300, `after a ${status} the host waited only ${gap} ms`);
+    await mac.host.close();
+  }
+});
+
 test("the 4409 wait is jittered but never shorter than replacedMs", async (t) => {
   const bridge = await startFakeBridge(t);
   const relay = await scriptedRelay(t, (index) => index === 0 && ((ws) => ws.close(4409, "replaced")));
