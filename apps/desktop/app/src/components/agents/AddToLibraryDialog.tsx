@@ -3,15 +3,11 @@ import type { DesignLibraryEntry, DesignLibraryPage } from "@milagre/shared/arti
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { Button } from "../primitives/Button";
 import { Dialog } from "../primitives/Dialog";
-import { FIELD_LABEL, Input } from "../primitives/Field";
 import { InlineError } from "../primitives/InlineError";
-import { RadioGroup, RadioGroupItem } from "../primitives/RadioGroup";
-import { SectionLabel } from "../primitives/SectionLabel";
+import { LibraryPagePicker, useLibraryPageChoice } from "../design-library/LibraryPagePicker";
 
 /** What goes to the library: one of the Chat's designs, or its HTML page (one `tab` of it). */
 export type LibrarySource = { designId: string; title: string; tab?: string };
-
-const NEW_PAGE = "+new";
 
 /** Asks which page of the Project library a design goes on, an existing one or a new name, and adds it there. */
 export function AddToLibraryDialog({
@@ -27,11 +23,10 @@ export function AddToLibraryDialog({
   onClose: () => void;
   onAdded: (entry: DesignLibraryEntry) => void;
 }) {
-  const [choice, setChoice] = useState(pages[0]?.id ?? NEW_PAGE);
-  const [name, setName] = useState("");
+  const choice = useLibraryPageChoice(pages);
+  const { page } = choice;
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
-  const page = choice === NEW_PAGE ? name.trim() : (pages.find((item) => item.id === choice)?.name ?? "");
   const add = async () => {
     if (!page || adding) return;
     setAdding(true);
@@ -43,19 +38,6 @@ export function AddToLibraryDialog({
       setAdding(false);
     }
   };
-  const field = (
-    <Input
-      data-slot="library-page-name"
-      aria-label="New page name"
-      placeholder="iPhone, Watch, Kit…"
-      maxLength={60}
-      autoFocus={!pages.length}
-      value={name}
-      disabled={adding}
-      onFocus={() => setChoice(NEW_PAGE)}
-      onChange={(event) => setName(event.target.value)}
-    />
-  );
   return (
     <div
       role="presentation"
@@ -83,33 +65,7 @@ export function AddToLibraryDialog({
           </>
         }
       >
-        {pages.length ? (
-          <fieldset disabled={adding} className="mt-4">
-            <SectionLabel as="legend" className="mb-2">
-              Page
-            </SectionLabel>
-            <RadioGroup value={choice} onValueChange={setChoice}>
-              <div className="space-y-1">
-                {pages.map((item) => (
-                  <label key={item.id} className="flex h-8 cursor-pointer items-center gap-3 rounded-control px-2 transition-colors hover:bg-hover">
-                    <RadioGroupItem value={item.id} aria-label={item.name} />
-                    <span className="min-w-0 flex-1 truncate text-13">{item.name}</span>
-                    <span className="text-12 text-ink-3 tabular-nums">{item.designs.length}</span>
-                  </label>
-                ))}
-                <label className="flex cursor-pointer items-center gap-3 rounded-control px-2 py-1">
-                  <RadioGroupItem value={NEW_PAGE} aria-label="New page" />
-                  {field}
-                </label>
-              </div>
-            </RadioGroup>
-          </fieldset>
-        ) : (
-          <label className="mt-4 flex flex-col gap-1.5">
-            <span className={FIELD_LABEL}>Page</span>
-            {field}
-          </label>
-        )}
+        <LibraryPagePicker pages={pages} state={choice} disabled={adding} />
         <InlineError size={12} className="mt-3">
           {error}
         </InlineError>

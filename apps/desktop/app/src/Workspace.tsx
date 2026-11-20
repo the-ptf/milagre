@@ -1,5 +1,6 @@
 import App from "./App";
 import { BrowserPages } from "./components/agents/BrowserPanel";
+import { DesignLibraryHost } from "./components/design-library/DesignLibraryHost";
 import { AppMotionConfig } from "./components/motion/AppMotionConfig";
 
 export default function Workspace() {
@@ -7,6 +8,7 @@ export default function Workspace() {
     <AppMotionConfig>
       <App />
       <BrowserPages />
+      <DesignLibraryHost />
     </AppMotionConfig>
   );
 }

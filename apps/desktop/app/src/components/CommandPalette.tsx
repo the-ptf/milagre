@@ -22,6 +22,7 @@ import {
   Settings01Icon,
   HardDriveIcon,
   KanbanIcon,
+  LibraryIcon,
 } from "@hugeicons/core-free-icons";
 import { filterCommands, type Command } from "../lib/commands";
 import { recentCommandIds, recentCommands, rememberCommand, rememberedId } from "../lib/recent-commands";
@@ -52,6 +53,7 @@ const icons = {
   message: BubbleChatSearchIcon,
   reload: Refresh01Icon,
   routines: TimeScheduleIcon,
+  library: LibraryIcon,
   canvas: FlowConnectionIcon,
   usage: ChartColumnIcon,
   newChat: PencilEdit02Icon,

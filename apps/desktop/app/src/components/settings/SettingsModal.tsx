@@ -4,12 +4,12 @@ import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { IconButton } from "../primitives/Button";
 
 /**
- * Settings over whatever the window shows: a native modal <dialog> in the top layer, the nav on the left and the page
+ * Settings (or another page as heavy, `label` names it) over whatever the window shows: a native modal <dialog> in the top layer, the nav on the left and the page
  * on the right, at most 1120 × 800 and inset from the window's top bar so the traffic lights stay clear. Esc, the ×
  * and a press on the scrim close it; the Chat behind keeps its state. Pickers inside find the dialog as their layer
  * host (Tooltip's layerHost, Select), as in any other dialog.
  */
-export function SettingsModal({ nav, children, onClose }: { nav: ReactNode; children: ReactNode; onClose: () => void }) {
+export function SettingsModal({ label = "Settings", nav, children, onClose }: { label?: string; nav?: ReactNode; children: ReactNode; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [opener] = useState(() => document.activeElement as HTMLElement | null);
   const downInside = useRef(false);
@@ -25,7 +25,7 @@ export function SettingsModal({ nav, children, onClose }: { nav: ReactNode; chil
   return createPortal(
     <dialog
       ref={dialog}
-      aria-label="Settings"
+      aria-label={label}
       data-settings-modal
       tabIndex={-1}
       onCancel={(event) => {
@@ -53,7 +53,7 @@ export function SettingsModal({ nav, children, onClose }: { nav: ReactNode; chil
         {nav}
         <main className="relative min-w-0 flex-1">{children}</main>
         <span className="absolute top-3 right-3 z-10 flex">
-          <IconButton label="Close Settings" icon={Cancel01Icon} size={28} tooltip={false} onClick={onClose} />
+          <IconButton label={`Close ${label}`} icon={Cancel01Icon} size={28} tooltip={false} onClick={onClose} />
         </span>
       </div>
     </dialog>,

@@ -3,6 +3,7 @@ import { createDesignFontReader, restoreDesignFonts, type Artifact } from "@mila
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey, isRemoteKey, onComputerConnection } from "../../lib/computer-bridge";
 import { designPreviews } from "./design-preview-cache";
+import { designScope } from "./design-library";
 
 const versionsRead = new Map<string, Promise<Artifact>>();
 const versionsKept = new Map<string, Artifact>();
@@ -10,7 +11,7 @@ const fontReaders = new WeakMap<object, ReturnType<typeof createDesignFontReader
 const KEEP = 48;
 export function readArtifact(chatId: string, id: string, version: number | null): Promise<Artifact> {
   const api = bridgeForKey(chatId).artifacts;
-  const request = { chatId, id, ...(version === null ? {} : { version }) };
+  const request = { ...designScope(chatId), id, ...(version === null ? {} : { version }) };
   const readDesign = () => {
     if (!isRemoteKey(chatId)) return api.get(request);
     let reader = fontReaders.get(api);

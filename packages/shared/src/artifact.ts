@@ -1,6 +1,7 @@
 import type { ArtifactRef } from "./model.ts";
 import type { DesignDocument } from "./design.mjs";
 import type { ArtifactAsset } from "./artifact-assets.mjs";
+import { ago } from "./main-sync.ts";
 export { createDesignFontReader, restoreDesignFonts } from "./design-font-cache.mjs";
 
 export type { ArtifactAsset };
@@ -148,6 +149,12 @@ export function libraryEditLabel(design: Pick<ArtifactSummary, "edits"> | null |
   if (!edit.chatId) return "Edited in the Design library";
   const where = chatId && edit.chatId === chatId ? "Edited here" : `Edited in ${edit.chat ?? "another Chat"}`;
   return [where, edit.agent].filter(Boolean).join(" · ");
+}
+
+/** A library design's card caption on the Design library page: "v3 · Edited in Login flow · Codex · 2 h ago". */
+export function libraryCardLine(design: Pick<DesignLibraryEntry, "version" | "edits">, now: number): string {
+  const edit = design.edits.findLast((item) => item.version === design.version) ?? design.edits.at(-1);
+  return [`v${design.version}`, libraryEditLabel(design, edit?.version), edit ? ago(edit.at, now) : ""].filter(Boolean).join(" · ");
 }
 
 /**

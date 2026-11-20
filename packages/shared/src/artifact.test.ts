@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   artifactTab,
+  libraryCardLine,
   libraryEditLabel,
   onArtifactTab,
   ARTIFACT_CSP,
@@ -401,4 +402,14 @@ test("a library version names the Chat that saved it, or says it was this one", 
   assert.equal(libraryEditLabel(design, 2, "/p#2"), "Edited in another Chat · Claude");
   assert.equal(libraryEditLabel(design, 3, "/p#5"), "Edited in the Design library", "renamed on the Project's Design library page");
   assert.equal(libraryEditLabel(design, 4), "");
+});
+
+test("a library card says its version, who saved it and when", () => {
+  const edits = [
+    { version: 1, chatId: "/p#2", chat: "Login flow", agent: "Codex", at: 0 },
+    { version: 2, at: 60_000 },
+  ];
+  assert.equal(libraryCardLine({ version: 1, edits: edits.slice(0, 1) }, 2 * 3_600_000), "v1 · Edited in Login flow · Codex · 2 h ago");
+  assert.equal(libraryCardLine({ version: 2, edits }, 90_000), "v2 · Edited in the Design library · just now");
+  assert.equal(libraryCardLine({ version: 3, edits: [] }, 0), "v3");
 });

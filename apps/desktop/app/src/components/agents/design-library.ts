@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { projectOfKey } from "@milagre/shared/agent-runs";
-import type { DesignLibrary, DesignLibraryPage } from "@milagre/shared/artifact";
+import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
+import type { DesignLibrary, DesignLibraryPage, DesignScope } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import { bridgeForKey } from "../../lib/computer-bridge";
 
@@ -11,9 +11,16 @@ export const libraryPageId = (page: string | null | undefined): string | null =>
 
 const kept = new Map<string, DesignLibrary>();
 
+const isChatKey = (key: string) => Number.isSafeInteger(sessionIdFromKey(key));
+/** Who owns a design `key` names on the canvas: a Chat (its key), or a Project (its key) for its own library page. */
+export const designScope = (key: string): DesignScope => (isChatKey(key) ? { chatId: key } : { projectPath: key });
+/** The Project whose library a Chat or Project key reads. */
+export const libraryProject = (key: string) => (isChatKey(key) ? projectOfKey(key) : key);
+
 /**
- * The design library of the Chat's Project, read again whenever an agent in any of its Chats, or this window, changes
- * it. Null until the first read, and on a host from before the library.
+ * The design library of the Chat's Project (or of the Project `chatId` names, for its Design library page), read again
+ * whenever an agent in any of its Chats, or this window, changes it. Null until the first read, and on a host from
+ * before the library.
  */
 export function useDesignLibrary(chatId: string | null): DesignLibrary | null {
   const [state, setState] = useState<{ chatId: string | null; library: DesignLibrary | null }>(() => ({
@@ -24,7 +31,7 @@ export function useDesignLibrary(chatId: string | null): DesignLibrary | null {
   useEffect(() => {
     const api = chatId && window.milagre ? bridgeForKey(chatId).artifacts : undefined;
     if (!chatId || !api?.onLibraryChanged) return;
-    const project = projectOfKey(chatId);
+    const project = libraryProject(chatId);
     return api.onLibraryChanged((payload) => {
       if (payload?.projectPath === project) setReads((count) => count + 1);
     });
@@ -34,7 +41,7 @@ export function useDesignLibrary(chatId: string | null): DesignLibrary | null {
     if (!chatId || !api?.library) return;
     let live = true;
     api
-      .library({ chatId })
+      .library(designScope(chatId))
       .then((library) => {
         if (!live || !Array.isArray(library?.pages)) return;
         kept.set(chatId, library);
