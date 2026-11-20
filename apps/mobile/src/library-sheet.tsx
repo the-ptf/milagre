@@ -20,7 +20,7 @@ import { artifactPageSections, readPageChoice, versionSections } from "./artifac
 import { allComputers } from "./all-computers";
 import { confirmSheet } from "./confirm-store";
 import { loadCanvasDesign } from "./design-font-cache";
-import { useDesignLibrary } from "./design-library";
+import { editLibraryDesign, libraryEditSections, useDesignLibrary } from "./design-library";
 import { DesignsCanvas } from "./designs-sheet";
 import { designHtmlIn, designModeLabel, designModeMenu, shownDesignMode } from "./design-modes-menu";
 import type { DesignMode } from "@milagre/shared/design-modes";
@@ -34,7 +34,8 @@ type CanvasCommand = Record<string, unknown> & { t: string };
 /**
  * A page of the Project library on the phone's Artifact sheet (or the iPad's panel tab): its designs on the same canvas
  * as the Chat's, always the latest library version unless a version is picked. Library designs take no comments or
- * choices yet; the actions pick a color mode, step through versions and remove a design from the library for every Chat.
+ * choices yet; the actions pick a color mode, step through versions, rename a design, move it to another page and remove
+ * it from the library for every Chat.
  * Opened from the Project's Design library page it has `projectPath` instead of a Chat, and reads any paired computer.
  */
 export function LibrarySheet({
@@ -101,6 +102,7 @@ export function LibrarySheet({
   useEffect(() => {
     if (!ordered.length) return;
     command({ t: "set", rows: JSON.parse(layoutKey), focus: view.id ?? id, pad: { top: 0, bottom: insets.bottom }, ink: colors.ink3, accent: colors.accent });
+    if (!view.id && !id) command({ t: "overview" });
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- a new focus moves the canvas through "focus", not a new layout.
   }, [layoutKey, insets.bottom, colors.ink3, colors.accent, command, epoch]);
   const sent = useRef(new Map<string, string>());
@@ -166,9 +168,13 @@ export function LibrarySheet({
     ? [
         ...designModeMenu(shown, modes[shown.id]),
         ...versionSections(latest, shown.version),
+        ...libraryEditSections(library, summary),
         { items: [{ id: "remove", title: "Remove from Project library", systemImage: "trash", destructive: true }] },
       ]
     : [];
+  const edit = (action: string) => {
+    if (source && scopeKey && library && summary) void editLibraryDesign(source, scopeKey, library.pages, summary, action);
+  };
   const act = (action: string) => {
     if (!shown) return;
     if (action === "remove") remove(shown);
@@ -176,7 +182,7 @@ export function LibrarySheet({
     else if (action.startsWith("version:")) {
       const number = Number(action.slice("version:".length));
       setVersions((current) => ({ ...current, [shown.id]: number >= latest ? null : number }));
-    }
+    } else edit(action);
   };
   const pages = chatId
     ? artifactPageMenu({

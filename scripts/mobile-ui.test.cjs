@@ -169,7 +169,6 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
     "floating-inbox-button.tsx": ["landInboxButton"],
     "inbox.tsx": ["usePhoneInbox", "PhoneInboxPages"],
     "html-reply.tsx": ["HtmlWebView"],
-    "design-library-page.tsx": ["libraryDesignSections", "actOnLibraryDesign", "renameLibraryPage"],
   };
   let source = fs.readFileSync(path.join(__dirname, "..", "apps/mobile/src", file), "utf8") + extra + `\nexport { ${(locals[file] ?? []).join(",")} };`;
   if (reactCompiler)
@@ -23405,6 +23404,7 @@ test("a Project library page opens on the phone's canvas with who saved each ver
       if (method === "design-library:list") return projectLibrary();
       if (method === "artifact:list") return [];
       if (method === "artifact:delete") return { id: request.id };
+      if (method === "design-library:update") return request;
       const entry = projectLibrary().pages[0].designs[0];
       return request.version === 1 ? { ...entry, version: 1 } : entry;
     },
@@ -23457,9 +23457,18 @@ test("a Project library page opens on the phone's canvas with who saved each ver
   const items = actions.props.sections.flatMap((section) => section.items);
   assert.deepEqual(
     JSON.parse(JSON.stringify(items.map((item) => item.id))),
-    ["version:2", "version:1", "remove"],
-    "versions and Remove: no comments or Choose on a library design",
+    ["version:2", "version:1", "rename", "move", "remove"],
+    "versions, Rename, Move and Remove: no comments or Choose on a library design",
   );
+  globalThis.promptAnswer = "Start";
+  actions.props.onSelect("rename");
+  await settle();
+  delete globalThis.promptAnswer;
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.findLast(([method]) => method === "design-library:update")[1])), {
+    chatId: "/p#7",
+    id: "library:home",
+    title: "Start",
+  });
   actions.props.onSelect("version:1");
   render();
   await settle();
@@ -23512,13 +23521,12 @@ function libraryScreenHost(client, pushes) {
     "./all-computers": { allComputers: { clientFor: () => null } },
     "./icons": { Icon: "Icon" },
     "./theme": { useTheme: () => ({ colors: { canvas: "#eee" } }) },
+    "./confirm-store": { confirm: async () => true },
     "./ui": {
-      Chip: "Chip",
       EmptyState: "EmptyState",
       ErrorNotice: "ErrorNotice",
       Group: "Group",
       PageScroll: "PageScroll",
-      PillButton: "PillButton",
       PullDown: "PullDown",
       useStyles: () => ({ caption: {}, text: {} }),
     },
@@ -23533,15 +23541,20 @@ function libraryScreenHost(client, pushes) {
   return { render, cleanup: () => react.cleanup() };
 }
 
-test("a Project's Design library page on the phone lists its designs by page and opens one on the library canvas", async (t) => {
+test("a Project's Design library page on the phone lists its pages and recent edits, each opening the library canvas", async (t) => {
   const calls = [];
-  const watch = { ...libraryDesign("library:rings", 1), title: "Rings", page: "watch", edits: [{ version: 1, at: 0 }] };
+  const watch = {
+    ...libraryDesign("library:rings", 1),
+    title: "Rings",
+    page: "watch",
+    edits: [{ version: 1, chatId: "/p#9", chat: "Watch face", agent: "Claude", at: 5 }],
+  };
   let library = projectLibrary();
   library.pages.push({ id: "watch", name: "Watch", designs: [watch] });
   const client = {
     url: "mac",
     call: async (method, [request] = []) => {
-      calls.push([method, request]);
+      calls.push([method, JSON.parse(JSON.stringify(request))]);
       if (method === "design-library:list") return library;
       return { id: request.id };
     },
@@ -23555,35 +23568,43 @@ test("a Project's Design library page on the phone lists its designs by page and
   h.render();
   await settle();
   let tree = h.render();
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(calls.find(([method]) => method === "design-library:list")[1])),
-    { projectPath: "/p" },
-    "read by the Project, no Chat",
-  );
-  const chips = () => findAll(tree, (node) => node.type === "Chip").map((node) => [node.props.label, node.props.selected]);
-  assert.deepEqual(chips(), [
-    ["All 2", true],
-    ["iPhone 1", false],
-    ["Watch 1", false],
-  ]);
-  const rows = () => findAll(tree, (node) => node.type === "PullDown");
-  assert.equal(rows().length, 2);
-  assert.match(textOf(rows()[0]), /library:home.*iPhone · 390 × 844.*v2 · Edited in Polish · Codex/);
-  rows()[0].props.onPress();
+  assert.deepEqual(calls.find(([method]) => method === "design-library:list")[1], { projectPath: "/p" }, "read by the Project, no Chat");
+  const group = (title) => find(tree, (node) => node.type === "Group" && node.props.title === title);
+  const rows = (title) => findAll(group(title), (node) => node.type === "PullDown");
+  assert.deepEqual(JSON.parse(JSON.stringify(rows("Pages").map((row) => row.props.label))), ["iPhone, 1 design", "Watch, 1 design"]);
+  rows("Pages")[1].props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), {
+    pathname: "/artifact-sheet",
+    params: { hostId: "mac", projectPath: "/p", library: "watch" },
+  });
+  // Recent edits, newest first, say who saved each in which Chat; a row opens its design on its page.
+  assert.deepEqual(JSON.parse(JSON.stringify(rows("Recent edits").map((row) => row.props.title))), ["Rings", "library:home"]);
+  assert.match(find(rows("Recent edits")[0], (node) => node.type?.name === "LibraryRow").props.caption, /^Watch · Claude in Watch face · /);
+  assert.match(rows("Recent edits")[1].props.label, /iPhone · v2 · Edited in Polish · Codex/);
+  rows("Recent edits")[1].props.onPress();
   assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), {
     pathname: "/artifact-sheet",
     params: { hostId: "mac", projectPath: "/p", library: "iphone", id: "library:home" },
   });
-
-  findAll(tree, (node) => node.type === "Chip")[2].props.onPress();
-  tree = h.render();
-  assert.deepEqual(chips()[2], ["Watch 1", true]);
-  assert.equal(rows().length, 1);
-  assert.doesNotMatch(textOf(rows()[0]), /Watch ·/, "a page's own rows don't repeat its name");
-  assert.ok(find(tree, (node) => node.type === "PillButton" && node.props.title === "Rename page"));
+  // Holding a page renames it; holding a recent edit renames, moves or deletes it.
+  assert.deepEqual(JSON.parse(JSON.stringify(rows("Pages")[0].props.sections.flatMap((section) => section.items.map((item) => item.id)))), ["rename-page"]);
+  globalThis.promptAnswer = "Phones";
+  rows("Pages")[0].props.onSelect("rename-page");
+  await settle();
+  const home = rows("Recent edits")[1];
+  assert.deepEqual(JSON.parse(JSON.stringify(home.props.sections.flatMap((section) => section.items.map((item) => item.id)))), ["rename", "move", "delete"]);
+  home.props.onSelect("delete");
+  await settle();
+  assert.deepEqual(
+    calls.filter(([method]) => method !== "design-library:list"),
+    [
+      ["design-library:rename-page", { projectPath: "/p", page: "iphone", name: "Phones" }],
+      ["artifact:delete", { projectPath: "/p", id: "library:home" }],
+    ],
+  );
 
   library = { pages: [] };
-  find(tree, (node) => node.type === "PillButton").props.onPress();
+  home.props.onSelect("rename");
   await settle();
   tree = h.render();
   await settle();
@@ -23595,31 +23616,21 @@ test("a Project's Design library page on the phone lists its designs by page and
   assert.match(textOf(find(tree, (node) => node.type === "EmptyState")), /Add to Project library.*ask an agent/);
 });
 
-test("the phone's Design library renames, moves and deletes a design and renames a page through the computer", async (t) => {
-  const page = load("design-library-page.tsx", {
+test("a library design renames and moves through the computer, by its Chat or its Project", async (t) => {
+  const library = load("design-library.ts", {
     react: hookHost(),
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Alert: { alert: (_title, _message, buttons) => buttons?.[0]?.onPress?.() }, Text: "Text", View: "View" },
-    "expo-router": { router: { push() {} }, Stack: { Screen: "Stack.Screen" }, useFocusEffect() {} },
-    "@hugeicons/core-free-icons": {},
+    "react-native": { Alert: { alert() {} } },
     "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
-    "./session": { useSession: () => ({}) },
-    "./confirm-store": { confirm: async () => true },
-    "./all-computers": { allComputers: { clientFor: () => null } },
-    "./icons": { Icon: "Icon" },
-    "./theme": { useTheme: () => ({ colors: {} }) },
-    "./ui": { useStyles: () => ({}) },
   });
   t.after(() => delete globalThis.promptAnswer);
   const calls = [];
   const source = { call: async (method, [request]) => calls.push([method, JSON.parse(JSON.stringify(request))]) };
   const pages = projectLibrary().pages.concat([{ id: "watch", name: "Watch", designs: [] }]);
   const design = pages[0].designs[0];
-  const menu = page.libraryDesignSections(pages, design);
+  const menu = library.libraryEditSections({ pages }, design);
   assert.deepEqual(
     JSON.parse(JSON.stringify(menu.flatMap((section) => section.items).map((item) => [item.id, item.submenu?.map((sub) => [sub.id, !!sub.checked])]))),
     [
-      ["open", null],
       ["rename", null],
       [
         "move",
@@ -23629,23 +23640,22 @@ test("the phone's Design library renames, moves and deletes a design and renames
           ["move:", false],
         ],
       ],
-      ["delete", null],
     ],
   );
+  assert.deepEqual(JSON.parse(JSON.stringify(library.libraryEditSections(null, design))), []);
   globalThis.promptAnswer = " Start ";
-  await page.actOnLibraryDesign(source, "/p", pages, design, "rename");
-  await page.actOnLibraryDesign(source, "/p", pages, design, "move:watch");
-  await page.actOnLibraryDesign(source, "/p", pages, design, "move:iphone");
+  assert.equal(await library.editLibraryDesign(source, "/p", pages, design, "rename"), true);
+  await library.editLibraryDesign(source, "/p", pages, design, "move:watch");
+  await library.editLibraryDesign(source, "/p", pages, design, "move:iphone");
   globalThis.promptAnswer = "Kit";
-  await page.actOnLibraryDesign(source, "/p", pages, design, "move:");
-  await page.actOnLibraryDesign(source, "/p", pages, design, "delete");
+  await library.editLibraryDesign(source, "/p#7", pages, design, "move:");
+  assert.equal(await library.editLibraryDesign(source, "/p", pages, design, "remove"), false);
   globalThis.promptAnswer = "Phones";
-  await page.renameLibraryPage(source, "/p", pages[0]);
+  await library.renameLibraryPage(source, "/p", pages[0]);
   assert.deepEqual(calls, [
     ["design-library:update", { projectPath: "/p", id: "library:home", title: "Start" }],
     ["design-library:update", { projectPath: "/p", id: "library:home", page: "Watch" }],
-    ["design-library:update", { projectPath: "/p", id: "library:home", page: "Kit" }],
-    ["artifact:delete", { projectPath: "/p", id: "library:home" }],
+    ["design-library:update", { chatId: "/p#7", id: "library:home", page: "Kit" }],
     ["design-library:rename-page", { projectPath: "/p", page: "iphone", name: "Phones" }],
   ]);
 });
