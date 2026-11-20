@@ -92,7 +92,6 @@ export function LibrarySheet({
   const [epoch, setEpoch] = useState(0);
   const [view, setView] = useState<{ mode: "design" | "canvas"; id: string | null }>({ mode: "design", id: id ?? null });
   const [playing, setPlaying] = useState<string | null>(null);
-  const overviewed = useRef(Boolean(id));
   const command = useCallback((message: CanvasCommand) => {
     if (!ready.current || !canvas.current) return;
     canvas.current.injectJavaScript(`window.milagreCanvas&&window.milagreCanvas.run(${JSON.stringify(message)});true;`);
@@ -102,7 +101,15 @@ export function LibrarySheet({
   );
   useEffect(() => {
     if (!ordered.length) return;
-    command({ t: "set", rows: JSON.parse(layoutKey), focus: view.id ?? id, pad: { top: 0, bottom: insets.bottom }, ink: colors.ink3, accent: colors.accent });
+    command({
+      t: "set",
+      rows: JSON.parse(layoutKey),
+      focus: view.id ?? id,
+      overview: !id,
+      pad: { top: 0, bottom: insets.bottom },
+      ink: colors.ink3,
+      accent: colors.accent,
+    });
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- a new focus moves the canvas through "focus", not a new layout.
   }, [layoutKey, insets.bottom, colors.ink3, colors.accent, command, epoch]);
   const sent = useRef(new Map<string, string>());

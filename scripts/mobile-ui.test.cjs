@@ -23707,12 +23707,10 @@ test("a library page opened from the Design library page starts on all its desig
     canvas.props.ref.current = { injectJavaScript: (script) => injected.push(JSON.parse(/run\((.*)\);true;$/s.exec(script)[1])) };
     canvas.props.onMessage(JSON.stringify({ t: "ready" }));
     render();
-    canvas.props.onMessage(JSON.stringify({ t: "view", mode: "design", id: "library:home" }));
-    canvas.props.onMessage(JSON.stringify({ t: "view", mode: "canvas", id: "library:home" }));
-    return injected.filter((command) => command.t === "overview").length;
+    return injected.find((command) => command.t === "set").overview;
   };
-  assert.equal(await overviews({ hostId: "mac", projectPath: "/p", page: "iphone" }), 1, "once, after the canvas first lays the page out");
-  assert.equal(await overviews({ hostId: "mac", projectPath: "/p", page: "iphone", id: "library:home" }), 0);
+  assert.equal(await overviews({ hostId: "mac", projectPath: "/p", page: "iphone" }), true, "the canvas places the page at its overview");
+  assert.equal(await overviews({ hostId: "mac", projectPath: "/p", page: "iphone", id: "library:home" }), false);
 });
 
 test("a library design opened from the Design library page reads and removes it by the Project, with no Chat", async (t) => {
