@@ -188,6 +188,12 @@ async function browserChecks() {
     await select("article#message-4 [data-quotable]", "article#message-7 [data-quotable]");
     await delay(150);
     assert.equal(await evaluate(`!!document.querySelector(${JSON.stringify(quoteButton)})`), false, "No Quote across messages");
+    await evaluate(`(() => {
+      const start = document.querySelector("article#message-7 [data-quotable]"), next = document.querySelector("article#message-8");
+      const range = document.createRange(); range.setStart(start, 0); range.setEnd(next, 0);
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    })()`);
+    await waitFor(`!!document.querySelector(${JSON.stringify(quoteButton)})`);
     await select("article#message-8 [data-quotable]");
     const own = "Fix @src/greeting.ts using /frontend-design";
     await waitFor(`!!document.querySelector(${JSON.stringify(quoteButton)})`);
@@ -198,6 +204,14 @@ async function browserChecks() {
     await delay(150);
     assert.equal(await evaluate(`document.querySelectorAll('[data-quote-chip]').length`), 2, "One shortcut press quotes once");
     assert.equal((await chips())[1], `“${own}|Your message`);
+    assert.ok(
+      await evaluate(`(() => {
+        const chip = document.querySelector('[data-quote-chip]').getBoundingClientRect(), editor = document.querySelector('[data-prompt-editor]');
+        const range = document.createRange(); range.setStart(editor.firstChild, 0); range.setEnd(editor.firstChild, 1);
+        return range.getBoundingClientRect().top < chip.bottom;
+      })()`),
+      "The draft starts on the quotes' line",
+    );
     await screenshot("quote-chips");
     await evaluate(`window.holdSend = true`);
     await evaluate('document.querySelector("[data-prompt-editor]").focus()');
