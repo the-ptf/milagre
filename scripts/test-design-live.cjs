@@ -299,7 +299,7 @@ async function browserChecks() {
       "the saved draft settles onto its version's decoded preview",
     );
     // A user zoom disables automatic fitting. Remount before the new-design checks so they still exercise auto-fit.
-    await evaluate(`${dock}.querySelector('[aria-label="Close designs"]').click()`);
+    await evaluate(`${dock}.querySelector('[aria-label="Close the Artifact panel"]').click()`);
     await waitFor(`!${dock}`);
     await evaluate('[...document.querySelectorAll("[data-slot=artifact-card] button")].filter((b) => b.textContent === "Open").at(-1).click()');
     await waitFor(`${frame("login")}?.querySelector("[data-design-body][data-painted]") && ${frame("login")}.dataset.version === "2"`);
@@ -447,7 +447,7 @@ async function browserChecks() {
 
     // 5. Closed by the user, the Designs open again for the next design call. Closed and opened again mid-call, the
     // canvas still shows everything written so far.
-    const close = () => evaluate(`${dock}.querySelector("[aria-label='Close designs']").click()`);
+    const close = () => evaluate(`${dock}.querySelector("[aria-label='Close the Artifact panel']").click()`);
     await close();
     await waitFor(`!${dock}`);
     const profileText = JSON.stringify({ ...showInput, title: "Profile", id: "profile" });

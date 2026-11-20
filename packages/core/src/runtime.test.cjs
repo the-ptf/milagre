@@ -136,6 +136,7 @@ test("page sharing RPCs validate the existing Chat and preserve the public confi
   await assert.rejects(runtime.invoke("artifact:share-page", [{ chatId, title: "Designs", acknowledgePublic: true }]), /at least one design/);
   await assert.rejects(runtime.invoke("artifact:page-shares", [{ chatId: `${project}#999999` }]), /existing Chat/);
   await assert.rejects(runtime.invoke("artifact:revoke-page-share", [{ chatId, id: "x".repeat(43) }]), /does not belong/);
+  await assert.rejects(runtime.invoke("artifact:set-page-share-paused", [{ chatId, id: "x".repeat(43), paused: true }]), /does not belong/);
   assert.equal(requests.length, 1);
   assert.equal(requests[0][1].method, "GET", "no public write occurred");
   assert.deepEqual(await runtime.invoke("artifact:all-page-shares"), []);

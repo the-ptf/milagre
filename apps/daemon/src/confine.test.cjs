@@ -693,6 +693,7 @@ test("even a Chat inside the demo Project cannot publish, revoke or enumerate ow
   for (const [method, args] of [
     ["artifact:share-page", [{ chatId, title: "Demo", acknowledgePublic: true }]],
     ["artifact:revoke-page-share", [{ chatId, id: "x".repeat(43) }]],
+    ["artifact:set-page-share-paused", [{ chatId, id: "x".repeat(43), paused: false }]],
     ["artifact:revoke-saved-page-share", [{ id: "x".repeat(43) }]],
     ["artifact:all-page-shares", []],
     ["artifact:sharing-status", []],

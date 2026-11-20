@@ -5,10 +5,10 @@ const { createHash, randomUUID } = require("node:crypto");
 const { z } = require("zod");
 const { designDocumentInputSchema, designOperationInputSchema, designEditIntentSchema } = require("@milagre/shared/design-schemas");
 const designImplementation = () => require("@milagre/shared/design");
-const { artifactDocument, hasDiagrams, checkDesignCode } = require("@milagre/shared/artifact-document");
+const { checkDesignCode } = require("@milagre/shared/artifact-document");
 const { ASSET_NAME, ASSET_HASH, MAX_ASSET_BYTES, MAX_PAGE_ASSETS, MAX_PAGE_ASSET_BYTES, assetType, mentionsAsset } = require("@milagre/shared/artifact-assets");
 const { openAttachment } = require("./attachment-preview.cjs");
-const { diagramScript } = require("@milagre/shared/diagram-script");
+const { pageSnapshot } = require("./chat-artifacts-snapshot.cjs");
 const { renderDesignPng } = require("./design-raster.cjs");
 const { screenshotDesign } = require("./html-render.cjs");
 const { BUNDLED_SKILLS_DIRECTORY } = require("./bundled-skills.cjs");
@@ -43,26 +43,7 @@ function editDesignHtml(html, edits) {
   });
   return next;
 }
-function sharedHtml(html) {
-  if (!hasDiagrams(html)) return html;
-  const page = artifactDocument(html, { page: true, diagrams: diagramScript() });
-  return page.length <= MAX_HTML ? page : html;
-}
 const MAX_TABS = 20;
-const escapeHtml = (text) => text.replace(/[&<>"]/g, (character) => `&#${character.charCodeAt(0)};`);
-function tabbedPage(tabs) {
-  const pages = JSON.stringify(tabs.map((tab) => tab.html)).replace(/</g, "\\u003c");
-  const buttons = tabs.map((tab) => `<button type="button" role="tab">${escapeHtml(tab.title)}</button>`).join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;height:100%}body{display:flex;flex-direction:column;font:13px/1 system-ui,sans-serif;background:#fff}nav{display:flex;flex-shrink:0;gap:2px;overflow-x:auto;padding:6px 8px;border-bottom:1px solid #e6e6e6;background:#fafafa}button{flex-shrink:0;border:0;border-radius:6px;padding:7px 12px;background:none;color:#555;font:inherit;white-space:nowrap;cursor:pointer}button:hover{color:#111}button[aria-selected=true]{background:#ececec;color:#111;font-weight:600}button:focus-visible{outline:2px solid #007df3;outline-offset:-2px}iframe{flex:1;min-height:0;width:100%;border:0}</style></head><body><nav role="tablist" aria-label="Tabs">${buttons}</nav><iframe sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe><script type="application/json" id="pages">${pages}</script><script>(()=>{const pages=JSON.parse(document.getElementById('pages').textContent),frame=document.querySelector('iframe'),tabs=[...document.querySelectorAll('[role=tab]')];const show=(index)=>{tabs.forEach((tab,at)=>{tab.setAttribute('aria-selected',String(at===index));tab.tabIndex=at===index?0:-1});frame.title=tabs[index].textContent;frame.srcdoc=pages[index]};tabs.forEach((tab,index)=>{tab.onclick=()=>show(index)});document.querySelector('nav').onkeydown=(event)=>{const at=tabs.indexOf(document.activeElement),step=event.key==='ArrowRight'?1:event.key==='ArrowLeft'?-1:0;if(!step||at<0)return;event.preventDefault();const next=(at+step+tabs.length)%tabs.length;tabs[next].focus();show(next)};show(0)})();</script></body></html>`;
-}
-function sharedPage(current) {
-  if (!current.tabs) return sharedHtml(current.html);
-  const page = tabbedPage(current.tabs.map((tab) => ({ title: tab.title, html: sharedHtml(tab.html) })));
-  if (page.length <= MAX_HTML) return page;
-  const plain = tabbedPage(current.tabs);
-  if (plain.length <= MAX_HTML) return plain;
-  throw Error(`This page's tabs are over ${MAX_HTML} characters together, too large to publish.`);
-}
 function checkTabs(tabs, current) {
   if (tabs === undefined) return null;
   if (!Array.isArray(tabs) || !tabs.length || tabs.length > MAX_TABS) throw Error(`A page has between 1 and ${MAX_TABS} tabs.`);
@@ -133,7 +114,7 @@ const readVersionFile = (file) =>
     throw error;
   });
 
-function createChatArtifacts({ directory, validateChat, readKit }) {
+function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
   let queue = Promise.resolve();
   const serial = (fn) => {
     const result = queue.then(fn);
@@ -370,7 +351,7 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
     });
   }
 
-  return {
+  const api = {
     render: (request, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
@@ -387,39 +368,22 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
     pageSnapshot: (request) =>
       serial(async () => {
         const folder = await chat(request?.chatId);
-        if (request.kind !== undefined && request.kind !== "designs" && request.kind !== "artifacts") throw Error("Choose designs or artifacts to share.");
-        const format = request.kind === "artifacts" ? "html" : "design";
-        checkFormat(format);
-        const entries = await activeArtifacts(folder, format);
-        if (format === "html") {
-          if (!entries.length) throw Error("This Chat has no artifact page to share.");
-          const artifacts = [];
-          for (const entry of entries) {
-            const current = await readVersion(folder, entry);
-            artifacts.push({
-              title: current.title,
-              html: sharedPage(current),
-              width: current.width,
-              height: current.height,
-              ...(current.assets ? { assets: current.assets } : {}),
-            });
-          }
-          return { schemaVersion: 1, kind: "artifacts", title: request.title, artifacts };
-        }
-        if (!entries.length) throw Error("A shared page must contain at least one design.");
-        const designs = [];
-        for (const entry of entries) {
-          const latest = entry.versions.at(-1);
-          const group = latest.group ? { group: latest.group } : {};
-          if (interactiveOf(latest)) {
-            const html = await readVersionFile(htmlFile(folder, entry.id, latest.version));
-            designs.push({ title: latest.title, ...group, interactive: { html, width: latest.width, height: latest.height } });
-            continue;
-          }
-          const source = await readVersionFile(documentFile(folder, entry.id, latest.version));
-          designs.push({ title: latest.title, ...group, document: JSON.parse(source) });
-        }
-        return { schemaVersion: 1, title: request.title, designs };
+        return pageSnapshot(request, {
+          designs: () => activeArtifacts(folder, "design"),
+          page: async () => {
+            const [entry] = await activeArtifacts(folder, "html");
+            return entry ? readVersion(folder, entry) : null;
+          },
+          readDesign: async (entry) => {
+            const latest = entry.versions.at(-1);
+            const group = latest.group ? { group: latest.group } : {};
+            if (interactiveOf(latest)) {
+              const html = await readVersionFile(htmlFile(folder, entry.id, latest.version));
+              return { title: latest.title, ...group, interactive: { html, width: latest.width, height: latest.height } };
+            }
+            return { title: latest.title, ...group, document: JSON.parse(await readVersionFile(documentFile(folder, entry.id, latest.version))) };
+          },
+        });
       }),
     show: async (request, { assertActive, roots } = {}) => {
       const imported = await importAssets(request?.assets, roots);
@@ -746,6 +710,17 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
       }),
     close: () => queue,
   };
+  for (const name of ["show", "showDesign", "apply", "deleteDesign"]) {
+    const save = api[name];
+    api[name] = async (request, options) => {
+      const result = await save(request, options);
+      Promise.resolve()
+        .then(() => onChange?.({ chatId: request.chatId }))
+        .catch(() => {});
+      return result;
+    };
+  }
+  return api;
   async function commentDesign(folder, comment, { retained = false, format } = {}) {
     const artifact = await load(folder, comment.design.id);
     if (!artifact) throw Error("This comment's design is no longer available.");

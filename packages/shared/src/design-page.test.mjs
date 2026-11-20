@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateDesignPageSnapshot, renderDesignPage, isSnapshotRaster } from "./design-page.mjs";
+import { validateDesignPageSnapshot, renderDesignPage, isSnapshotRaster, designPageRunsCode, pageAssets } from "./design-page.mjs";
 const document = () => ({ schemaVersion: 1, width: 390, height: 844, nodes: [{ id: "heading", type: "text", width: 300, height: 80, text: "Hello" }] });
 const page = () => ({
   schemaVersion: 1,
@@ -216,4 +216,55 @@ test("pages without groups keep one row and no block chrome", () => {
   const html = renderDesignPage(page());
   assert.doesNotMatch(html, /<section |#canvas\{[^}]*flex-direction:column|border-radius:40px/);
   assert.equal((html.match(/<figure /g) ?? []).length, 2);
+});
+const hash = "a".repeat(64);
+const sheet = () => ({
+  title: "Explainer",
+  html: '<h1>Explainer</h1><p>How the release works.</p><video src="assets/demo.mp4"></video>',
+  width: 1280,
+  height: 800,
+  assets: [{ name: "demo.mp4", hash, size: 12, type: "video/mp4" }],
+});
+test("a workspace page draws its HTML page first as a live frame beside the designs, with files rewritten", () => {
+  const input = { schemaVersion: 1, kind: "workspace", title: "Release", designs: page().designs, page: sheet(), chatId: "/private#1" };
+  const snapshot = validateDesignPageSnapshot(input);
+  assert.deepEqual(Object.keys(snapshot), ["schemaVersion", "kind", "title", "designs", "page"]);
+  assert.deepEqual(pageAssets(snapshot), sheet().assets);
+  assert.equal(designPageRunsCode(snapshot), false);
+  const html = renderDesignPage(snapshot, { files: (asset) => `/s/page/files/${asset.hash}` });
+  assert.match(html, /<title>Release \| Milagre Designs<\/title>/);
+  const figures = [...html.matchAll(/<figure [^>]*><figcaption>([^<]*)<\/figcaption><(img|iframe)/g)].map((match) => [match[1], match[2]]);
+  assert.deepEqual(figures, [
+    ["Explainer", "iframe"],
+    ["First", "img"],
+    ["Second", "img"],
+  ]);
+  assert.match(
+    html,
+    /<iframe class="live" title="Explainer" width="1280" height="800" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="[^"]*\/s\/page\/files\/a{64}/,
+  );
+  assert.doesNotMatch(html, /<section |private/);
+  assert.match(html, /<meta name="description" content="How the release works\. 2 designs: First and Second\.">/);
+});
+test("a grouped workspace puts its page in a block named after it, and pages or designs may stand alone", () => {
+  const designs = [
+    { title: "Sign in", group: "Onboarding", document: document() },
+    { title: "Loose", document: document() },
+  ];
+  const html = renderDesignPage({ schemaVersion: 1, kind: "workspace", title: "Release", designs, page: sheet() });
+  assert.deepEqual(
+    [...html.matchAll(/<section aria-label="([^"]*)">/g)].map((match) => match[1]),
+    ["Explainer", "Onboarding", "Ungrouped"],
+  );
+  const pageOnly = validateDesignPageSnapshot({ schemaVersion: 1, kind: "workspace", title: "Release", designs: [], page: sheet() });
+  assert.equal((renderDesignPage(pageOnly).match(/<figure /g) ?? []).length, 1);
+  const designsOnly = validateDesignPageSnapshot({ schemaVersion: 1, kind: "workspace", title: "Release", designs: page().designs });
+  assert.deepEqual(pageAssets(designsOnly), []);
+  assert.throws(() => validateDesignPageSnapshot({ schemaVersion: 1, kind: "workspace", title: "Release", designs: [] }), /a design or its page/);
+  assert.throws(
+    () => validateDesignPageSnapshot({ schemaVersion: 1, kind: "workspace", title: "Release", designs: [], page: { ...sheet(), width: 10 } }),
+    /dimensions/,
+  );
+  const interactive = { title: "Live", interactive: { html: "<p>Hi</p>", width: 390, height: 844 } };
+  assert.equal(designPageRunsCode(validateDesignPageSnapshot({ schemaVersion: 1, kind: "workspace", title: "Release", designs: [interactive] })), true);
 });

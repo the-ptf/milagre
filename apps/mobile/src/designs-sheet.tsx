@@ -1,6 +1,6 @@
 import { commentActivity } from "./comment-activity";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Alert, AppState, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeOut, useAnimatedProps, useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from "react-native-reanimated";
 import Svg, { Circle, Path } from "react-native-svg";
 import { router } from "expo-router";
@@ -31,7 +31,10 @@ import { confirmSheet } from "./confirm-store";
 import { duration } from "./design-tokens";
 import { useReducedMotion } from "./motion";
 import { markDesignDeleted } from "./use-design-catalog";
-import { onShareAvailability } from "./share-availability";
+import { useShareAvailable } from "./use-share-available";
+import { ArtifactPageTitle, artifactPageMenu, openArtifactShare, usePageTabs } from "./artifact-page-menu";
+import { rememberCanvas } from "./artifact-pages";
+import type { DesignsTab } from "./panel-tabs";
 import { loadCanvasDesign } from "./design-font-cache";
 import { CommentBox } from "./viewer-chrome";
 import { useVisibleRunChatKeys } from "./visible-run-chats";
@@ -46,7 +49,10 @@ const EMPTY_DESIGNS: Record<string, Artifact> = {};
 
 const refOf = (design: Artifact): ArtifactRef => ({ id: design.id, version: design.version, title: design.title, format: design.format });
 
-/** `onClose` is set where the canvas is a tab of the right panel docked beside its Chat (an iPad), and closes the tab. */
+/**
+ * `onClose` is set where the canvas is a tab of the right panel docked beside its Chat (an iPad), and closes the tab;
+ * `onPage` shows another page of the Artifact in that tab.
+ */
 export function DesignsSheet({
   hostId,
   chatId,
@@ -56,6 +62,7 @@ export function DesignsSheet({
   comment: commentId,
   requestId,
   onClose,
+  onPage,
 }: {
   hostId?: string;
   chatId?: string;
@@ -65,6 +72,7 @@ export function DesignsSheet({
   comment?: string;
   requestId?: string;
   onClose?: () => void;
+  onPage?: (target: DesignsTab) => void;
 }) {
   const { colors, motionScale } = useTheme();
   const styles = useStyles();
@@ -76,6 +84,7 @@ export function DesignsSheet({
   const chatKey = hostId && chatId ? `${hostId}|${chatId}|designs` : null;
 
   const [summaries, setSummaries] = useState<ArtifactSummary[] | null>(null);
+  const [htmlPage, setHtmlPage] = useState<ArtifactSummary | null>(null);
   const [listError, setListError] = useState("");
   const [versions, setVersions] = useState<Record<string, number | null>>(() => (id ? { [id]: version ? Number(version) : null } : {}));
   const [loadedState, setLoaded] = useState<{ source: typeof source; chatId: typeof chatId; designs: Record<string, Artifact> }>({
@@ -121,6 +130,7 @@ export function DesignsSheet({
         if (!live) return;
         setListError("");
         setSummaries(list.filter((design) => design.format === "design"));
+        setHtmlPage(list.find((item) => item.format === "html") ?? null);
       })
       .catch((error: unknown) => live && setListError(error instanceof Error ? error.message : "Could not load the designs."));
     source
@@ -131,46 +141,8 @@ export function DesignsSheet({
       live = false;
     };
   }, [source, chatId, revision, reconnects]);
-  const sharingScope = useMemo(() => ({ source, chatId }), [source, chatId]);
-  const [sharingAvailable, setSharingAvailable] = useState<typeof sharingScope | null>(null);
-  const sharingRequest = useRef(0);
-  useEffect(() => {
-    if (!source) return;
-    let live = true;
-    const refresh = () => {
-      const current = ++sharingRequest.current;
-      setSharingAvailable(null);
-      source
-        .call<{ available: boolean }>("artifact:sharing-status", [])
-        .then((status) => {
-          if (live && current === sharingRequest.current && status?.available === true) setSharingAvailable(sharingScope);
-        })
-        .catch(() => {});
-    };
-    refresh();
-    const watch = AppState.addEventListener("change", (appState) => {
-      if (appState === "active") refresh();
-      else {
-        sharingRequest.current++;
-        setSharingAvailable(null);
-      }
-    });
-    return () => {
-      live = false;
-      watch.remove();
-    };
-  }, [source, sharingScope]);
-  const sharing = !!source && sharingAvailable === sharingScope;
-  useEffect(() => {
-    if (!hostId || !chatId) return;
-    return onShareAvailability(hostId, chatId, "designs", (available) => {
-      sharingRequest.current++;
-      setSharingAvailable(available === true ? sharingScope : null);
-    });
-  }, [hostId, chatId, sharingScope]);
-  const openShare = () => {
-    if (hostId && chatId) router.push({ pathname: "/design-share-sheet", params: { hostId, chatId } });
-  };
+  const sharing = useShareAvailable(source, hostId, chatId);
+  const pageTabs = usePageTabs(source, chatId, htmlPage);
 
   const rows = useMemo(() => designGroups(summaries ?? []), [summaries]);
   const ordered = useMemo(() => rows.flatMap((row) => row.designs), [rows]);
@@ -475,7 +447,16 @@ export function DesignsSheet({
               },
             ]
           : []),
-        ...(sharing ? [{ items: [{ id: "share", title: "Share page", systemImage: "square.and.arrow.up" }] }] : []),
+        ...(sharing
+          ? [
+              {
+                items: [
+                  { id: "share", title: "Share", systemImage: "square.and.arrow.up" },
+                  { id: "share-design", title: "Share this design" },
+                ],
+              },
+            ]
+          : []),
         { items: [{ id: "delete", title: "Delete design", systemImage: "trash", destructive: true }] },
       ]
     : [];
@@ -483,7 +464,8 @@ export function DesignsSheet({
     if (!shown) return;
     if (action === "resolved") setShowResolved(!showResolved);
     else if (action === "choose") setChoice(pendingHere ? null : refOf(shown));
-    else if (action === "share") openShare();
+    else if (action === "share") openArtifactShare(hostId, chatId, "workspace");
+    else if (action === "share-design") openArtifactShare(hostId, chatId, "design", shown.id);
     else if (action === "delete") remove(shown);
     else if (action.startsWith("version:")) {
       const number = Number(action.slice("version:".length));
@@ -502,6 +484,17 @@ export function DesignsSheet({
         .filter(Boolean)
         .join(" · ");
   const tryable = !canvasMode && isInteractiveDesign(shown);
+  useEffect(() => {
+    if (hostId && chatId && shownId) rememberCanvas(hostId, chatId, shownId);
+  }, [hostId, chatId, shownId]);
+  const pages = artifactPageMenu({
+    hostId,
+    chatId,
+    designs: ordered,
+    page: htmlPage && { id: htmlPage.id, title: htmlPage.title, tabs: pageTabs },
+    current: { kind: "canvas" },
+    onPage,
+  });
 
   const openNote = composer && composer.kind !== "read" ? notes.find((note) => note.key === composer.key) : undefined;
   const openSent = composer?.kind === "read" ? sent.find((comment) => `sent:${comment.id}` === composer.key) : undefined;
@@ -511,9 +504,10 @@ export function DesignsSheet({
       <SheetHeader
         title={title}
         subtitle={subtitle}
+        center={<ArtifactPageTitle title={title} subtitle={subtitle} sections={pages.sections} onSelect={pages.choose} />}
         leading={[
           // In the panel docked beside the Chat (an iPad), the panel's own button closes it.
-          !onClose && <CircleButton key="close" label="Close designs" icon={Cancel01Icon} onPress={close} />,
+          !onClose && <CircleButton key="close" label="Close artifact" icon={Cancel01Icon} onPress={close} />,
           source && ordered.length > 0 && (
             <CircleButton
               key="overview"
@@ -554,7 +548,7 @@ export function DesignsSheet({
             <CircleButton key="send" label={`Send ${feedback} to the agent`} icon={Sent02Icon} onPress={send} filled badge={feedback} />
           ),
           canvasMode
-            ? sharing && <CircleButton key="share" label="Share page" icon={Share08Icon} onPress={openShare} />
+            ? sharing && <CircleButton key="share" label="Share" icon={Share08Icon} onPress={() => openArtifactShare(hostId, chatId, "workspace")} />
             : source &&
               shown && (
                 <PullDown key="actions" label="Design actions" sections={menu} onSelect={choose}>

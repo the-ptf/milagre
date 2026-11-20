@@ -5,7 +5,7 @@ import type { ChangesMode, PrRange } from "../../lib/pull-request-view";
 import { useComparison } from "./useComparison";
 import { useDiffFiles } from "./useDiffFiles";
 import { sectionOf } from "./ChangesPanel";
-import { useCloseWhenDesignsExpand, useSidePanelRoom } from "../agents/dock-area";
+import { useCloseWhenArtifactExpands, useSidePanelRoom } from "../agents/dock-area";
 import { usePanelWidth } from "../agents/panel-width";
 import { bridgeForKey, onAnyAgentEvent } from "../../lib/computer-bridge";
 
@@ -73,7 +73,7 @@ export function useChanges({
 
   const toggle = useCallback(() => setOpen((value) => !value), []);
   const hide = useCallback(() => setOpen(false), []);
-  useCloseWhenDesignsExpand(hide);
+  useCloseWhenArtifactExpands(hide);
   useSidePanelRoom("changes", shown, usePanelWidth("changes").width + 12, hide);
   const closeDiff = useCallback(() => setDiffChatId(null), []);
   const selectFile = useCallback(

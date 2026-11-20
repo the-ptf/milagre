@@ -821,6 +821,27 @@ test("an Artifact page's files upload before the snapshot that names them, count
   assert.equal((await f.upload(b)).status, 410, "a revoked page takes no more files");
 });
 
+test("a workspace page's files follow the same rules as an Artifact's: missing ones refused, kept while named, then dropped", async () => {
+  const f = await filesFixture();
+  const a = { name: "a.png", ...f.file(new Uint8Array(1200).fill(5)) };
+  const workspace = (assets) => {
+    const [page] = f.snapshot(assets).artifacts;
+    return { schemaVersion: 1, kind: "workspace", title: "Work", designs: [], page: { ...page, html: `<p>Work</p>${page.html}` } };
+  };
+  const early = await f.send("PUT", workspace([a]));
+  assert.equal(early.status, 409);
+  assert.deepEqual(await early.json(), { missing: [a.hash] });
+  assert.equal((await f.upload(a)).status, 201);
+  assert.equal((await f.send("PUT", workspace([a]))).status, 201);
+  const page = await f.send("GET", undefined, { Authorization: "" });
+  const html = await page.text();
+  assert.match(html, /<title>Work \| Milagre Designs<\/title>/);
+  assert.match(html, new RegExp(`<iframe class="live"[^>]*srcdoc="[^"]*/s/${f.id}/files/${a.hash}`));
+  assert.deepEqual([...f.bucket.objects.keys()], [`pages/${f.id}/${a.hash}`], "readers get the file from the bucket by its page and hash");
+  assert.equal((await f.send("PUT", workspace([]))).status, 200);
+  assert.deepEqual(f.bucket.deleted, [`pages/${f.id}/${a.hash}`]);
+});
+
 test("a file uploaded for a publication that never came is removed after an hour, refunding its bytes", async () => {
   const f = await filesFixture();
   const a = { name: "a.png", ...f.file(new Uint8Array(500).fill(3)) };

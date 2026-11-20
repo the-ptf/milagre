@@ -759,6 +759,60 @@ test("page snapshots capture every design beyond the former 20-design cap", asyn
   assert.ok(snapshot.designs.some((design) => design.title === "Design 21"));
 });
 
+test("workspace snapshots hold every design and the page; a design snapshot holds one design until it is deleted", async (t) => {
+  const { api } = await fixture(t);
+  await assert.rejects(api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "workspace" }), /no designs or page/);
+  await api.show({ chatId: CHAT, title: "Explainer", html: "<h1>Explainer</h1>", width: 1024, height: 768 });
+  const pageOnly = await api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "workspace" });
+  assert.deepEqual(pageOnly, {
+    schemaVersion: 1,
+    kind: "workspace",
+    title: "Work",
+    designs: [],
+    page: { title: "Explainer", html: "<h1>Explainer</h1>", width: 1024, height: 768 },
+  });
+  await api.showDesign({ chatId: CHAT, id: "home", title: "Home", group: "Main", document: designDocument() });
+  await api.showDesign({ chatId: CHAT, id: "live", title: "Live", html: "<p>Live</p>", width: 390, height: 844 });
+  const workspace = await api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "workspace" });
+  assert.deepEqual(
+    workspace.designs.map((design) => [design.title, design.group, !!design.document, !!design.interactive]),
+    [
+      ["Home", "Main", true, false],
+      ["Live", undefined, false, true],
+    ],
+  );
+  assert.equal(workspace.page.title, "Explainer");
+  const one = await api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "design", designId: "live" });
+  assert.deepEqual(one, { schemaVersion: 1, title: "Live", designs: [{ title: "Live", interactive: { html: "<p>Live</p>", width: 390, height: 844 } }] });
+  await api.deleteDesign({ chatId: CHAT, id: "live" });
+  await assert.rejects(api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "design", designId: "live" }), {
+    code: "DESIGN_DELETED",
+    message: "This design was deleted.",
+  });
+  await assert.rejects(api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "other" }), /Choose the workspace/);
+});
+
+test("onChange follows saves and deletions of designs and the page, never comments or replies", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "chat-artifacts-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const changes = [];
+  const api = createChatArtifacts({ directory, validateChat: async () => {}, onChange: (change) => changes.push(change) });
+  const settled = () => new Promise((resolve) => setImmediate(resolve));
+  const design = await api.showDesign({ chatId: CHAT, id: "home", title: "Home", document: designDocument() });
+  await api.apply({ chatId: CHAT, id: "home", expectedVersion: 1, operations: [{ op: "update", id: "heading", patch: { text: "Hi" } }] });
+  await api.show({ chatId: CHAT, title: "Page", html: "<p>Page</p>" });
+  await settled();
+  assert.deepEqual(changes, [{ chatId: CHAT }, { chatId: CHAT }, { chatId: CHAT }]);
+  await api.addComments({ chatId: CHAT, comments: [{ design: { id: design.id, version: 2 }, text: "Bigger" }] });
+  await api.render({ chatId: CHAT, title: "Reply", html: "<p>Reply</p>" });
+  await assert.rejects(api.apply({ chatId: CHAT, id: "home", expectedVersion: 1, operations: [] }), /version conflict/);
+  await settled();
+  assert.equal(changes.length, 3, "comments, inline replies and failed saves change nothing that is published");
+  await api.deleteDesign({ chatId: CHAT, id: "home" });
+  await settled();
+  assert.equal(changes.length, 4);
+});
+
 test("a page split into tabs keeps each tab, changes one tab at a time and is published with its tab bar", async (t) => {
   const { api, directory } = await fixture(t);
   const tools = Object.fromEntries(htmlArtifactToolDefinitions(CHAT, api).map((tool) => [tool.name, tool]));

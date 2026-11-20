@@ -1,7 +1,7 @@
 export { createQuotaService, quotaLimits } from "./quota.mjs";
 import { MAX_ASSET_BYTES, assetInline, byteRange } from "@milagre/shared/artifact-assets";
 import { DESIGN_CODE_HOSTS } from "@milagre/shared/artifact-document";
-import { designPageRunsCode } from "@milagre/shared/design-page";
+import { designPageRunsCode, pageAssets } from "@milagre/shared/design-page";
 import { VIEWER_HEAD } from "./viewer.mjs";
 export const CHUNK_BYTES = 96 * 1024;
 const encoder = new TextEncoder();
@@ -408,7 +408,7 @@ export function createPageService({ storage, validate, render, quota, quotaId, s
           } catch {
             return response("Invalid Designs page snapshot", 400);
           }
-          const assets = snapshot.kind === "artifacts" ? (snapshot.artifacts?.[0]?.assets ?? []) : [];
+          const assets = pageAssets(snapshot);
           const files = storage.get("files") ?? {};
           const missing = [...new Set(assets.filter((asset) => files[asset.hash]?.size !== asset.size).map((asset) => asset.hash))];
           if (missing.length) return response(JSON.stringify({ missing }), 409, "application/json; charset=utf-8");

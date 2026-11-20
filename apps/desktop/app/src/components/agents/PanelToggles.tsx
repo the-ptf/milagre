@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { KeybindingCommandId } from "@milagre/shared/keybindings";
 import { shortcutCommand, shortcutLabel, useKeybindings } from "../../lib/keybindings";
 import {
-  File01Icon,
   ComputerTerminal01Icon,
   Globe02Icon,
   AlignBoxMiddleRightIcon,
@@ -19,7 +18,7 @@ import { isModalOpen } from "../../lib/modal";
 import { useWindowChrome } from "../../lib/window-chrome";
 
 export type SidePanel = { open: boolean; toggle: () => void };
-type PanelName = "terminal" | "designs" | "artifacts" | "browser" | "simulator" | "details";
+type PanelName = "terminal" | "artifacts" | "browser" | "simulator" | "details";
 
 let panels: Partial<Record<PanelName, SidePanel>> = {};
 const listeners = new Set<() => void>();
@@ -57,8 +56,7 @@ export function useSidePanels() {
 const BUTTONS: { name: PanelName; label: string; title?: string; icon: typeof PaintBoardIcon; command?: KeybindingCommandId }[] = [
   { name: "details", label: "details", title: "Details", icon: AlignBoxMiddleRightIcon },
   { name: "terminal", label: "Terminals", icon: ComputerTerminal01Icon, command: "terminal.toggle" },
-  { name: "artifacts", label: "artifacts", icon: File01Icon, command: "artifacts.toggle" },
-  { name: "designs", label: "designs", icon: PaintBoardIcon, command: "designs.toggle" },
+  { name: "artifacts", label: "artifact", title: "Artifact", icon: PaintBoardIcon, command: "artifacts.toggle" },
   { name: "browser", label: "browser", title: "Browser panel", icon: Globe02Icon, command: "browser.toggle" },
   { name: "simulator", label: "simulator", title: "Simulators", icon: SmartphoneIcon, command: "simulator.toggle" },
 ];

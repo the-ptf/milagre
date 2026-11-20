@@ -1,14 +1,6 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  ArrowLeft01Icon,
-  ArrowRight01Icon,
-  CheckmarkCircle02Icon,
-  Delete02Icon,
-  Download04Icon,
-  MoreHorizontalIcon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Delete02Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import {
   ARTIFACT_CSP,
   DESIGN_CODE_CSP,
@@ -36,8 +28,7 @@ import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey, isRemoteKey, onComputerConnection } from "../../lib/computer-bridge";
 import { DESIGN_DELETED, type DesignDeleted } from "./design-events";
-import { DesignExportDialog } from "./DesignExportDialog";
-import { MenuRow, Popover } from "../primitives/Popover";
+import { DesignFrameMenu } from "./DesignFrameMenu";
 import { designLayout, designNodeAt } from "@milagre/shared/design";
 import { CommentLayer, CommentPin } from "./CommentPin";
 import { LiveDesignLayer, LiveDesignWaiting, LiveDraftFrames } from "./LiveDesignFrame";
@@ -322,8 +313,9 @@ export const ArtifactCanvas = forwardRef<
     comments: PinControls;
     choice: ChoiceControls;
     onView: (view: CanvasView) => void;
+    onShare?: (design: ArtifactRef) => void;
   }
->(function ArtifactCanvas({ chatId, allowLive = true, designs, versions, onVersion, focus, commenting, comments, choice, onView }, handle) {
+>(function ArtifactCanvas({ chatId, allowLive = true, designs, versions, onVersion, focus, commenting, comments, choice, onView, onShare }, handle) {
   const viewport = useRef<HTMLDivElement>(null);
   const board = useRef<HTMLDivElement>(null);
   const visibility = useMemo(() => createDesignVisibility(), []);
@@ -600,6 +592,7 @@ export const ArtifactCanvas = forwardRef<
                   allowLive={allowLive}
                   visibility={visibility}
                   pixelRatio={pixelRatio}
+                  onShare={onShare}
                 />
               ))}
               <LiveDraftFrames chatId={chatId} designs={designs} group={row.group} scale={view.scale} gap={GAP} header={HEADER} onSized={showDraft} />
@@ -646,6 +639,7 @@ const DesignFrame = memo(function DesignFrame({
   visibility,
   allowLive,
   pixelRatio,
+  onShare,
 }: {
   chatId: string;
   design: ArtifactRef;
@@ -663,6 +657,7 @@ const DesignFrame = memo(function DesignFrame({
   visibility: ReturnType<typeof createDesignVisibility>;
   allowLive: boolean;
   pixelRatio: number;
+  onShare?: (design: ArtifactRef) => void;
 }) {
   const frame = useRef<HTMLDivElement>(null);
   const [inView, setInView] = useState(false);
@@ -679,9 +674,7 @@ const DesignFrame = memo(function DesignFrame({
   const { artifact, error } = useArtifact(chatId, design.id, design.format === "html" ? null : (hold ?? version ?? design.version));
   const markPainted = useCallback((ready: boolean) => setPainted(ready ? artifact : null), [artifact]);
   const [editError, setEditError] = useState("");
-  const moreAnchor = useRef<HTMLSpanElement>(null);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState<"confirm" | "busy" | null>(null);
   const remove = async () => {
     setDeleting("busy");
@@ -764,35 +757,7 @@ const DesignFrame = memo(function DesignFrame({
           </Tooltip>
         </>
       )}
-      {artifact?.format === "design" && (
-        <span ref={moreAnchor} className="inline-flex">
-          <Tooltip label="More" asChild>
-            <IconButton
-              data-slot="artifact-more"
-              label={`More actions for ${shown.title}`}
-              icon={MoreHorizontalIcon}
-              size={24}
-              aria-haspopup="menu"
-              aria-expanded={moreOpen}
-              onClick={() => setMoreOpen((open) => !open)}
-            />
-          </Tooltip>
-          {moreOpen && (
-            <Popover anchor={moreAnchor} label={`${shown.title} actions`} onClose={() => setMoreOpen(false)}>
-              <MenuRow
-                data-slot="artifact-export"
-                icon={Download04Icon}
-                title={isInteractiveDesign(artifact) ? "Download HTML" : "Export…"}
-                onClick={() => {
-                  setMoreOpen(false);
-                  if (isInteractiveDesign(artifact)) downloadHtml(artifact.html, `${artifact.id}-v${artifact.version}.html`);
-                  else setExporting(true);
-                }}
-              />
-            </Popover>
-          )}
-        </span>
-      )}
+      {artifact?.format === "design" && <DesignFrameMenu artifact={artifact} shown={shown} open={moreOpen} onOpen={setMoreOpen} onShare={onShare} />}
       {design.format === "design" &&
         (deleting ? (
           <span className="flex items-center gap-1">
@@ -973,21 +938,9 @@ const DesignFrame = memo(function DesignFrame({
       <InlineError size={12} className="max-w-full px-2">
         {editError}
       </InlineError>
-      {exporting && artifact?.format === "design" && artifact.document && (
-        <DesignExportDialog designs={[{ id: artifact.id, title: artifact.title, document: artifact.document }]} onClose={() => setExporting(false)} />
-      )}
     </div>
   );
 });
-
-function downloadHtml(html: string, filename: string) {
-  const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-  const link = window.document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 function CanvasDesignBody({
   artifact,

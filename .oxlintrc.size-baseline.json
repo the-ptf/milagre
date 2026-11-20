@@ -136,7 +136,7 @@
             "skipComments": true
           }
         ],
-        "complexity": ["error", 53]
+        "complexity": ["error", 49]
       }
     },
     {
@@ -180,7 +180,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1101,
+            "max": 1055,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -188,43 +188,21 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 346,
+            "max": 315,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 85]
+        "complexity": ["error", 79]
       }
     },
     {
       "files": ["apps/desktop/app/src/components/agents/ArtifactCard.tsx"],
       "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 1200,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
         "max-lines-per-function": [
           "error",
           {
-            "max": 416,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
-        "complexity": ["error", 65]
-      }
-    },
-    {
-      "files": ["apps/desktop/app/src/components/agents/DesignPageShareDialog.tsx"],
-      "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 268,
+            "max": 269,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -625,7 +603,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 386,
+            "max": 373,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -713,7 +691,7 @@
         "max-lines": [
           "error",
           {
-            "max": 879,
+            "max": 838,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -721,12 +699,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 422,
+            "max": 379,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 63]
+        "complexity": ["error", 60]
       }
     },
     {
@@ -798,7 +776,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 548,
+            "max": 536,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -959,7 +937,7 @@
         "max-lines": [
           "error",
           {
-            "max": 864,
+            "max": 858,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -972,7 +950,7 @@
             "skipComments": true
           }
         ],
-        "complexity": ["error", 69]
+        "complexity": ["error", 67]
       }
     },
     {
@@ -1149,7 +1127,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1189,
+            "max": 1164,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1157,7 +1135,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 644,
+            "max": 638,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1235,7 +1213,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 282,
+            "max": 252,
             "skipBlankLines": true,
             "skipComments": true
           }

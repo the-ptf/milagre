@@ -22,7 +22,7 @@ import { InlineError } from "../primitives/InlineError";
 import { PillSlot, StatusPill } from "../primitives/StatusPill";
 import { useAnchoredPopover } from "./useAnchoredPopover";
 import { viewerTheme } from "./viewerTheme";
-import { dockLayer, useCloseWhenDesignsExpand, useDockArea, useSidePanelRoom } from "./dock-area";
+import { dockLayer, useCloseWhenArtifactExpands, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
 import { ResizableDockSlide } from "./DockSlide";
 import { usePanelWidth } from "./panel-width";
@@ -57,7 +57,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
   // Docked, the viewer is a side panel: pressing the chat or focusing the iframe must not dismiss it.
   const dock = useDockArea();
   const reduced = useReducedMotion();
-  useCloseWhenDesignsExpand(close);
+  useCloseWhenArtifactExpands(close);
   // Docked, its width plus the 12px gap to the chat. The chat panes reserve it through --simulator-dock.
   const resize = usePanelWidth("simulator");
   useSidePanelRoom("simulator", opened && docked, resize.width + 12, close);

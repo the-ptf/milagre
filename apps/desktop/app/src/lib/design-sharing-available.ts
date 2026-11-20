@@ -1,12 +1,12 @@
 import { useSyncExternalStore } from "react";
+import type { ArtifactPageKind } from "@milagre/shared/artifact";
 import type { MilagreBridge } from "../electron";
 import { bridgeForKey } from "./computer-bridge";
 
 type Store = { subscribe: (listener: () => void) => () => void; snapshot: () => boolean; confirm: (available: boolean) => void };
-type PageKind = "designs" | "artifacts";
-const stores = new WeakMap<MilagreBridge, Map<PageKind, Store>>();
+const stores = new WeakMap<MilagreBridge, Map<ArtifactPageKind, Store>>();
 
-function storeFor(bridge: MilagreBridge, kind: PageKind): Store {
+function storeFor(bridge: MilagreBridge, kind: ArtifactPageKind): Store {
   let host = stores.get(bridge);
   if (!host) {
     host = new Map();
@@ -75,11 +75,12 @@ function storeFor(bridge: MilagreBridge, kind: PageKind): Store {
   return store;
 }
 
-export function useDesignSharingAvailable(chatId: string, kind: PageKind = "designs") {
+/** Whether the host can publish pages of this kind now: one check per computer and kind, whichever design or Chat asks. */
+export function useDesignSharingAvailable(chatId: string, kind: ArtifactPageKind = "workspace") {
   const store = storeFor(bridgeForKey(chatId), kind);
   return useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
 }
 
-export function confirmDesignSharingAvailability(chatId: string, available: boolean, kind: PageKind = "designs") {
+export function confirmDesignSharingAvailability(chatId: string, available: boolean, kind: ArtifactPageKind = "workspace") {
   storeFor(bridgeForKey(chatId), kind).confirm(available);
 }
