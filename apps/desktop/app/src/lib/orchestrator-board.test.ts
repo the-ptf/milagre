@@ -239,6 +239,14 @@ test("the route's reason reads as sentences and names where it runs", () => {
     routeReason({ reason: { ...reason, role: null }, computer: "Studio" }, "this computer"),
     "Matched “gym” in its hints. Least used today, 22%. Runs on Studio.",
   );
+  assert.equal(
+    routeReason({ reason: { ...reason, role: null }, computer: null }, "this computer", "Personal"),
+    "Matched “gym” in its hints. Uses Personal: least used today, 22%. Runs on this computer.",
+  );
+  assert.equal(
+    routeReason({ reason: { ...reason, role: null, account: null }, computer: null }, "this computer", "Personal"),
+    "Matched “gym” in its hints. Uses Personal. Runs on this computer.",
+  );
 });
 
 test("a request autopilot is about to answer keeps the card running", () => {

@@ -66,13 +66,14 @@ export function OrchestratorTaskHeader({
   onClose: () => void;
 }) {
   const { settings } = useOrchestrator();
-  const { projectName } = useOrchestratorNames();
+  const { projectName, accountLabel } = useOrchestratorNames();
   const [why, setWhy] = useState(false);
   const scope = taskScope(task);
   const { states } = useScopeStates(scope !== null, scope ? [scope] : []);
   const session = taskSession(task, states);
   const inSidebar = session ? !session.orchestrator?.hidden : false;
   const role = roleById(settings.roles, task.role);
+  const account = accountLabel(task.accountId);
   return (
     <header data-orchestrator-task-header={task.id} className="flex shrink-0 flex-col gap-1.5 border-b border-line py-2 pr-2 pl-3">
       <div className="flex items-center gap-1">
@@ -80,22 +81,28 @@ export function OrchestratorTaskHeader({
           type="button"
           aria-expanded={why}
           onClick={() => setWhy((value) => !value)}
-          className="flex h-7 min-w-0 items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 text-12 whitespace-nowrap text-ink-2 transition-colors hover:bg-hover"
+          className="flex h-7 min-w-0 items-center gap-1.5 overflow-hidden rounded-full border border-line bg-surface px-2.5 text-12 whitespace-nowrap text-ink-2 transition-colors hover:bg-hover"
         >
           <Mascot size={16} color={settings.mascotColor} />
           <span className="text-ink-3">Routed to</span>
-          <span className="flex min-w-0 items-center gap-1.5 text-ink">
+          <span className="flex min-w-12 items-center gap-1.5 text-ink">
             <ProjectLabel path={task.projectPath} name={projectName(task.projectPath)} />
           </span>
           {role && (
             <>
               <span className="text-ink-3">·</span>
-              {role.name}
+              <span className="shrink-0">{role.name}</span>
             </>
           )}
           <span className="text-ink-3">·</span>
-          <ModelLabel route={task} />
-          <span className="text-ink-3">
+          <span className="flex min-w-16 items-center gap-1.5">
+            <ModelLabel route={task} />
+          </span>
+          <span className="text-ink-3">·</span>
+          <span data-task-account className="min-w-12 truncate">
+            {account}
+          </span>
+          <span className="shrink-0 text-ink-3">
             <Icon icon={why ? ArrowUp01Icon : ArrowDown01Icon} size={12} />
           </span>
         </button>
@@ -115,7 +122,7 @@ export function OrchestratorTaskHeader({
       </div>
       {why && (
         <p className="px-2.5 text-12 text-ink-3" style={{ animation: "fade-in var(--duration-base) var(--ease-enter)" }}>
-          {routeReason(task, "this computer")}
+          {routeReason(task, "this computer", account)}
         </p>
       )}
     </header>
