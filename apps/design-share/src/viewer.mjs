@@ -243,7 +243,10 @@ function mvCamera(view) {
     clearTimeout(idle);
     idle = setTimeout(() => canvas.classList.remove("moving"), 160);
   };
-  view.stop = () => cancelAnimationFrame(animation);
+  view.stop = () => {
+    cancelAnimationFrame(animation);
+    delete canvas.dataset.animating;
+  };
   view.set = (next, animate) => {
     view.stop();
     if (!animate || reduced.matches) {
@@ -251,6 +254,7 @@ function mvCamera(view) {
       view.paint();
       return;
     }
+    canvas.dataset.animating = "";
     const from = { x: view.x, y: view.y, scale: view.scale };
     const started = performance.now();
     const step = (now) => {
@@ -264,6 +268,7 @@ function mvCamera(view) {
       view.paint();
       view.moving();
       if (t < 1) animation = requestAnimationFrame(step);
+      else delete canvas.dataset.animating;
     };
     animation = requestAnimationFrame(step);
   };

@@ -218,7 +218,14 @@ function artifactPage(origin) {
   };
 }
 
-const settle = () => delay(360);
+// Camera moves animate on animation frames, which a hidden window may run slowly: wait for the move to end.
+async function settled(evaluate) {
+  for (let attempt = 0; attempt < 250; attempt++) {
+    await delay(20);
+    if (await evaluate("!('animating' in document.getElementById('mv-canvas').dataset)")) return;
+  }
+  throw Error("The canvas kept animating");
+}
 
 async function checkCanvas({ window, evaluate, ready, screenshot, send, url }) {
   await window.loadURL(url + "/page");
@@ -258,20 +265,20 @@ async function checkCanvas({ window, evaluate, ready, screenshot, send, url }) {
   const transform = () => evaluate("document.getElementById('mv-canvas').style.transform");
   const before = await transform();
   await evaluate("document.getElementById('mv-in').click()");
-  await settle();
+  await settled(evaluate);
   assert.notEqual(await transform(), before, "zoom changes the canvas");
   const afterZoom = await transform();
   await evaluate("document.getElementById('mv-port').dispatchEvent(new WheelEvent('wheel',{deltaX:35,deltaY:20,bubbles:true,cancelable:true}))");
   assert.notEqual(await transform(), afterZoom, "wheel pans the canvas");
   await evaluate("document.getElementById('mv-fit').click()");
-  await settle();
+  await settled(evaluate);
   assert.equal(await transform(), before, "Fit restores the whole page");
   await evaluate("document.getElementById('mv-zoom').click()");
-  await settle();
+  await settled(evaluate);
   assert.equal(await evaluate("document.getElementById('mv-zoom').textContent"), "100%", "the zoom reading resets to 100%");
   assert.equal(await evaluate("new DOMMatrix(getComputedStyle(document.getElementById('mv-canvas')).transform).a"), 1);
   await evaluate("document.getElementById('mv-fit').click()");
-  await settle();
+  await settled(evaluate);
 
   // A mouse drag across a frame's text pans the canvas and selects nothing.
   const mouse = (type, x, y, extra = {}) => send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1, ...extra });
@@ -291,7 +298,7 @@ async function checkCanvas({ window, evaluate, ready, screenshot, send, url }) {
       await mouse("mousePressed", x, y, { clickCount: i + 1 });
       await mouse("mouseReleased", x, y, { clickCount: i + 1 });
     }
-    await settle();
+    await settled(evaluate);
   };
   const phone = await surface(1);
   await doubleClick(phone.x + phone.width / 2, phone.y + phone.height / 2);
@@ -302,10 +309,10 @@ async function checkCanvas({ window, evaluate, ready, screenshot, send, url }) {
   assert.equal(await transform(), before, "double-click on the background fits everything");
   await evaluate("document.getElementById('mv-port').focus()");
   await send("Input.dispatchKeyEvent", { type: "keyDown", key: "1", text: "1" });
-  await settle();
+  await settled(evaluate);
   assert.equal(await evaluate("document.getElementById('mv-zoom').textContent"), "100%", "1 zooms to 100%");
   await send("Input.dispatchKeyEvent", { type: "keyDown", key: "0", text: "0" });
-  await settle();
+  await settled(evaluate);
   assert.equal(await transform(), before, "0 fits everything");
 
   // A link to one frame opens zoomed to it.
