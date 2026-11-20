@@ -13,6 +13,18 @@ Users don't edit designs. They view them, try interactive ones, pin comments, ch
 
 An interactive version is `v<N>.html` beside `meta.json`, with `interactive: true` on its entry and no `v<N>.design.json`. `design_apply` takes `edits` (exact text and replacement, in order); `design_show` with the same id and `expectedVersion` replaces it; a variant is `design_show` with `from` and `edits`.
 
+## Live drafts
+
+Users watch an agent design. Claude streams a tool call's input with `includePartialMessages`, and `design-drafts.cjs` turns the input of `design_show` and `design_apply` into `step-draft` events (offset, text, `done`) about every 120 ms. The desktop parses the partial JSON (`createDesignDraft`, `design-draft.mjs`) and builds the draft over the design's frame, or on a placeholder frame for a new design, under the agent's named cursor (`design-live.ts`).
+
+Some calls arrive only whole, when they are saved, so the canvas replays them instead:
+
+- **Claude subagents.** Claude Code streams `stream_event`s for the main agent only: it writes `parent_tool_use_id: null` on every one (checked through 2.1.329). A subagent's call shows up only once its input is complete, and saving takes about 0.1 s after 20 to 80 s of writing, so a placeholder from the call's start would show nothing.
+- **Codex.** The app-server (checked on 0.170) sends `item/started` for an MCP call with its arguments already whole, and no argument deltas.
+- **Antigravity and Kiro.** ACP tool calls carry their input whole.
+
+The desktop replays a saved version layer by layer (`designReplay`) under the caller's cursor, a subagent's persona included: over the frame holding the old version for an edit, and from a blank screen for a new design saved within the last 10 s. The phone gets no agent events, only signals and saved versions, so it doesn't show drafts. A version that lands while its canvas is open fades its new and changed layers in, one after another (`designBuildHtml`, `design-build.mjs`). Reduced motion turns replays off on both.
+
 ## Script policy
 
 `DESIGN_CODE_CSP` (`packages/shared/src/artifact-document.mjs`) is `ARTIFACT_CSP` plus scripts from `DESIGN_CODE_HOSTS` (unpkg, jsDelivr, cdnjs, esm.sh) and `'unsafe-eval'` for Babel. A design still makes no requests of its own: no `connect-src`, no forms. `checkDesignCode` refuses a `<script src>` off those hosts or without an exact version. The design skill gives agents the React, ReactDOM and Babel tags with integrity hashes.

@@ -410,6 +410,10 @@
       "types": "./src/design-draft.d.mts",
       "default": "./src/design-draft.mjs"
     },
+    "./design-build": {
+      "types": "./src/design-build.d.mts",
+      "default": "./src/design-build.mjs"
+    },
     "./genui": "./src/genui.ts",
     "./file-link": {
       "types": "./src/file-link.d.mts",

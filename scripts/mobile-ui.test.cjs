@@ -218,6 +218,17 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (relative === "undo-history" && !(id in modules)) return undoHistoryModule();
       if (relative === "design-font-cache")
         return load("design-font-cache.ts", { "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts") }, "", cache);
+      if (relative === "design-build-in")
+        return load(
+          "design-build-in.ts",
+          {
+            ...modules,
+            "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+            "@milagre/shared/design-build": require("../packages/shared/src/design-build.mjs"),
+          },
+          "",
+          cache,
+        );
       if (relative === "design-modes-menu")
         return load("design-modes-menu.ts", { "@milagre/shared/design-modes": require("../packages/shared/src/design-modes.mjs") }, "", cache);
       if (relative === "secret-question")
@@ -12680,6 +12691,64 @@ test("structured designs on mobile open on their canvas, with versions in the me
   await settle();
   assert.equal(calls.at(-1)[0], "artifact:get");
   assert.equal(calls.at(-1)[1].version, 2, "returning to the latest version pins the current summary's saved design");
+  h.cleanup();
+});
+
+test("designs that land while the phone canvas is open build in layer by layer; the ones it opened with don't", async () => {
+  const { createExampleDesign, designHtml } = require("../packages/shared/src/design.mjs");
+  const document = createExampleDesign();
+  const design = (id, version, doc) => ({
+    id,
+    version,
+    latest: version,
+    versions: version,
+    title: id,
+    format: "design",
+    width: 390,
+    height: 844,
+    html: designHtml(doc),
+    document: doc,
+  });
+  const changed = { ...document, nodes: document.nodes.map((node, index) => (index === 1 ? { ...node, opacity: 0.5 } : node)) };
+  let list = [design("fieldnotes", 1, document)];
+  const client = {
+    url: "mac",
+    call: async (method, [request] = []) => {
+      if (method === "artifact:list") return list;
+      if (method === "artifact:get") return list.find((item) => item.id === request.id);
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      throw new Error(`Unexpected request: ${method}`);
+    },
+  };
+  const h = designsHost(client);
+  const props = { hostId: "mac", chatId: "/p#7", id: "fieldnotes" };
+  await h.open(props);
+  await settle();
+  h.render("DesignsSheet", props);
+  const docs = (id) =>
+    h
+      .commands()
+      .filter((command) => command.t === "html" && command.id === id)
+      .map((command) => command.doc);
+  assert.equal(docs("fieldnotes").length, 1);
+  assert.doesNotMatch(docs("fieldnotes")[0], /milagre-build/, "a design the canvas opened with goes on as it is");
+  list = [design("fieldnotes", 2, changed), design("plan", 1, document)];
+  h.reconnect();
+  for (let round = 0; round < 4; round++) {
+    h.render("DesignsSheet", props);
+    await settle();
+  }
+  const edited = docs("fieldnotes").at(-1);
+  const added = docs("plan").at(-1);
+  assert.ok(edited && added, "both landed versions reach the canvas");
+  const layers = (doc) => [...doc.matchAll(/\[data-design-node="([^"]+)"\]\{animation-delay/g)].map((match) => match[1]);
+  assert.deepEqual(layers(edited), [document.nodes[1].id], "an edit builds in only the layers it changed");
+  assert.deepEqual(
+    layers(added),
+    document.nodes.map((node) => node.id),
+    "a new design builds in every layer, in order",
+  );
   h.cleanup();
 });
 

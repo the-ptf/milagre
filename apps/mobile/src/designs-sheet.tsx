@@ -9,7 +9,6 @@ import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
 import { Cancel01Icon, CommentAdd01Icon, DashboardSquare01Icon, MoreHorizontalIcon, PlayIcon, Sent02Icon, Share08Icon } from "@hugeicons/core-free-icons";
 import {
-  artifactDocument,
   designFeedbackMessage,
   designGroups,
   designKitLabel,
@@ -34,9 +33,10 @@ import { markDesignDeleted } from "./use-design-catalog";
 import { onShareAvailability } from "./share-availability";
 import { loadCanvasDesign } from "./design-font-cache";
 import { CommentBox } from "./viewer-chrome";
-import { designActionsMenu, designHtmlIn, designModeLabel, shownDesignMode } from "./design-modes-menu";
+import { designActionsMenu, designModeLabel, shownDesignMode } from "./design-modes-menu";
 import type { DesignMode } from "@milagre/shared/design-modes";
 import { useVisibleRunChatKeys } from "./visible-run-chats";
+import { useDesignBuildIn } from "./design-build-in";
 
 type Note = DesignComment & { key: string };
 type CanvasView = { mode: "design" | "canvas"; id: string | null };
@@ -266,6 +266,7 @@ export function DesignsSheet({
     command({ t: "chosen", id: chosenId, ink: colors.ink });
   }, [command, epoch, layoutKey, chosenId, colors.ink]);
 
+  const canvasDoc = useDesignBuildIn(source, chatId, summaries, colors.accent);
   const sentDocs = useRef(new Map<string, string>());
   const sentFonts = useRef(new Set<string>());
   useEffect(() => {
@@ -285,16 +286,15 @@ export function DesignsSheet({
       const key = `${artifact.version}:${artifact.html.length}:${font ?? ""}:${shownDesignMode(artifact, modes[artifact.id])}`;
       if (sentDocs.current.get(artifact.id) === key) continue;
       sentDocs.current.set(artifact.id, key);
-      const code = isInteractiveDesign(artifact);
       command({
         t: "html",
         id: artifact.id,
-        doc: artifactDocument(designHtmlIn(artifact, modes[artifact.id]), { code }),
-        ...(code ? { run: true } : {}),
+        doc: canvasDoc(artifact, modes[artifact.id], versions[artifact.id] == null),
+        ...(isInteractiveDesign(artifact) ? { run: true } : {}),
         ...(font ? { font } : {}),
       });
     }
-  }, [loaded, modes, command, epoch, layoutKey]);
+  }, [loaded, modes, command, epoch, layoutKey, canvasDoc, versions]);
 
   const numbers = useMemo(() => sentNumbers(sent), [sent]);
   const pins = useMemo(() => {
