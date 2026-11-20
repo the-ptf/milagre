@@ -3565,6 +3565,13 @@ function find(node, predicate) {
     if (found) return found;
   }
 }
+// A reply's activity rows (ReplyActivity in chat-reply.tsx) drawn in place, as React would.
+function drawReplyActivity(node) {
+  if (Array.isArray(node)) return node.map(drawReplyActivity);
+  if (!node || typeof node !== "object" || !node.props) return node;
+  if (typeof node.type === "function" && node.type.name === "ReplyActivity") return drawReplyActivity(node.type(node.props));
+  return "children" in node.props ? { ...node, props: { ...node.props, children: drawReplyActivity(node.props.children) } } : node;
+}
 // The routed Chat's native header (ChatStackOptions in app/chat.tsx) as its Stack.Screen publishes it, with the header
 // its slot draws in place of the HeaderSlot the navigator gets.
 function chatScreen(tree) {
@@ -3875,7 +3882,8 @@ function chatHost({
       useReanimatedKeyboardAnimation: () => ({ height: { get: () => 0 }, progress: { get: () => 0 } }),
       useKeyboardState: (select) => select({ isVisible: false, height: 0 }),
     },
-    "../running-logo": { ThinkingIndicator: "ThinkingIndicator", BackgroundIndicator: "BackgroundIndicator" },
+    "../running-logo": { BackgroundIndicator: "BackgroundIndicator" },
+    "../run-indicator": { RunIndicator: "RunIndicator" },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
     "@milagre/shared/model": require("@milagre/shared/model"),
     "@milagre/shared/agent-runs": { ...require("@milagre/shared/agent-runs"), lastUserModel: () => "" },
@@ -9446,7 +9454,7 @@ test("first send immediately shows input and a running Chat in the drawer before
   const reply = find(screen.render(), (node) => node.type === "ChatReply" && node.props.message?.role === "user");
   assert.equal(reply.props.message.body, "first message");
   assert.deepEqual(Array.from(reply.props.message.files), ["notes.txt"]);
-  assert.ok(find(screen.render(), (node) => node.type === "ThinkingIndicator"));
+  assert.ok(find(screen.render(), (node) => node.type === "RunIndicator"));
   const nav = navigationHost(Promise.resolve(), { session: { ...screen.session, recent: [{ path: "/p" }] } });
   const row = nav.rows().props.data.find((row) => row.kind === "chat");
   assert.equal(row.chat.title, "first message");
@@ -13041,8 +13049,8 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
 
 test("mobile tool display keeps compact progress specific and Full detail in order", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
-  const reply = (display) =>
-    load("chat-reply.tsx", {
+  const reply = (display) => {
+    const ChatReply = load("chat-reply.tsx", {
       "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
       "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
       "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
@@ -13077,6 +13085,8 @@ test("mobile tool display keeps compact progress specific and Full detail in ord
       "./viewer-store": { showImages() {} },
       "./ui": { colors: {}, styles: { card: {}, row: {}, muted: {} } },
     }).ChatReply;
+    return (props) => drawReplyActivity(ChatReply(props));
+  };
   const body = "Running the tests.Tests pass, reading the config.Done.";
   const steps = [
     { id: "a", kind: "shell", title: "Ran `npm test`", status: "done", offset: 18 },
@@ -13117,13 +13127,68 @@ test("mobile tool display keeps compact progress specific and Full detail in ord
     const row = find(tree, (node) => typeof node.type === "function" && node.type.name === "ActivityRow");
     return row.type(row.props);
   };
-  const parallel = compactRow([command, thought]);
-  assert.ok(find(parallel, (node) => node.type === "Text" && node.props.children === "Running 2 calls"));
-  const thinking = compactRow([{ ...command, status: "done" }, thought]);
-  assert.equal(find(thinking, (node) => node.type === "ActivityTitle").props.title, "Thinking");
+  const loaderHolds = reply("compact")({ ...props, message: undefined, run: { ...live, steps: [command, thought], approvals: [] } });
+  assert.ok(!find(loaderHolds, (node) => typeof node.type === "function" && node.type.name === "ActivityRow"), "the loader shows running calls, not a row");
   const waiting = compactRow([command, thought], [{ stepId: command.id }]);
   assert.equal(find(waiting, (node) => node.type === "ActivityTitle").props.title, "Run `npm test`");
   assert.equal(find(waiting, (node) => node.type === "ActivityTitle").props.shimmer, false);
+});
+
+test("the phone's loader shows the running calls and opens them in the activity sheet", () => {
+  const routes = [];
+  let run;
+  let display = "compact";
+  const { RunIndicator } = load("run-indicator.tsx", {
+    react: { useMemo: (compute) => compute() },
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { router: { push: (route) => routes.push(route) } },
+    "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"),
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "@milagre/shared/tool-activity": require("@milagre/shared/tool-activity"),
+    "./activity-item": { ActivityTitle: "ActivityTitle" },
+    "./chat-display-setting": { useToolCallDisplay: () => [display, () => {}] },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "./running-logo": { ThinkingIndicator: "ThinkingIndicator" },
+    "./session": { useRun: () => run },
+    "./theme": { useTheme: () => ({ colors: { ink2: "ink2", ink3: "ink3", ink4: "ink4" } }) },
+  });
+  const command = { id: "loader-command", kind: "shell", title: "Ran `npm test`", status: "running", offset: 9 };
+  const read = { id: "loader-read", kind: "read", title: "Read `a.ts`", status: "done", offset: 9 };
+  const draw = (props = {}) => RunIndicator({ chatKey: "/p#7", model: "Opus", ...props });
+  run = { text: "Checking.", steps: [read, command], approvals: [], questions: [], startedAt: 5 };
+  const loader = draw();
+  assert.equal(find(loader.props.detail, (node) => node.type === "ActivityTitle").props.title, "Running `npm test`");
+  assert.ok(find(loader.props.detail, (node) => node.type === "Text" && node.props.children === "2 calls"));
+  assert.equal(loader.props.startedAt, 5);
+  loader.props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(routes)), [{ pathname: "/activity", params: { id: "7", message: "run" } }]);
+  run = { ...run, steps: [read, command, { ...command, id: "loader-second" }] };
+  assert.equal(find(draw().props.detail, (node) => node.type === "ActivityTitle").props.title, "Running 2 calls");
+  assert.ok(
+    find(draw().props.detail, (node) => node.type === "Text" && node.props.children === "3 calls"),
+    "the count adds what the title doesn't say",
+  );
+  run = { ...run, steps: [command, { ...command, id: "loader-second" }] };
+  assert.ok(
+    !find(draw().props.detail, (node) => node.type === "Text" && String(node.props.children).endsWith("calls")),
+    "every call running: the title says the count",
+  );
+  run = { ...run, steps: [read, command, { ...command, id: "loader-second" }] };
+  run = { ...run, text: "Checking.\n\nFound it." };
+  assert.equal(draw().props.detail, undefined, "text after the calls lands them in the reply");
+  run = { ...run, text: "Checking.", approvals: [{ stepId: "loader-command" }] };
+  assert.equal(draw().props.detail, undefined, "a call waiting for approval stays in the reply beside its card");
+  run = { ...run, approvals: [] };
+  assert.equal(draw().props.detail, undefined, "approved, the group stays beside where its card was");
+  run = { ...run, steps: [{ ...command, id: "loader-next" }] };
+  assert.ok(draw().props.detail, "the next group goes back to the loader");
+  display = "full";
+  assert.equal(draw().props.detail, undefined, "Full detail keeps every call inline");
+  display = "compact";
+  const phase = draw({ phase: "Running Worktree setup" });
+  assert.equal(phase.props.showLabel, true);
+  assert.equal(phase.props.label, "Running Worktree setup");
 });
 
 test("mobile activity sheet opens the selected call without paging and keeps approval asks in Chat", () => {
@@ -18935,7 +19000,7 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
     { id: "s2", kind: "other", title: 'Set Heartbeat "Babysit PR #473"', status: "done", routine: { id: "hb1", name: "Babysit PR #473" } },
   ];
   const message = { id: 9, session_id: 7, role: "assistant", body: "Opened #473. I'll check every 15 minutes.", steps };
-  const tree = ChatReply({ message, media: () => null, onActivity() {}, chatId: "/p#7" });
+  const tree = drawReplyActivity(ChatReply({ message, media: () => null, onActivity() {}, chatId: "/p#7" }));
   const card = find(tree, (node) => node.type === "HeartbeatCard");
   assert.ok(card, "the card shows");
   assert.equal(card.props.step.routine.id, "hb1");
