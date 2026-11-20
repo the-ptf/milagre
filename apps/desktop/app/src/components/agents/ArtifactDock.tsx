@@ -31,7 +31,7 @@ import { CanvasBody, PageBody, commentLabel } from "./ArtifactDockBodies";
 import { useDockFeedback, type DockFeedback, type DockPage } from "./dock-feedback";
 
 /** The panel's accessible name: the Cmd+Enter handler finds its own panel by it. */
-export const ARTIFACT_DOCK_LABEL = "Artifact";
+const ARTIFACT_DOCK_LABEL = "Artifact";
 
 type DockProps = {
   page: DockPage;

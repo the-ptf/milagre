@@ -9,7 +9,7 @@ export type DockPage = "canvas" | "page";
 
 const unsent = new Map<string, { pins: DesignPin[]; choice: ArtifactRef | null }>();
 
-export function htmlSentPins(comments: ArtifactComment[], page: { id: string; version: number; title: string } | null): DesignPin[] {
+function htmlSentPins(comments: ArtifactComment[], page: { id: string; version: number; title: string } | null): DesignPin[] {
   if (!page) return [];
   return comments.flatMap((comment) =>
     comment.design.id === page.id && comment.design.version === page.version && comment.x !== undefined && comment.y !== undefined

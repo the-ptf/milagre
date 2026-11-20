@@ -64,7 +64,7 @@ export function ArtifactPageTitle({
  * Shows another page of the Artifact in place: in the iPad's panel tab through `onPage`, else by replacing the phone
  * sheet's params, so it neither pushes nor pops.
  */
-export function showArtifactPage(target: DesignsTab, onPage?: (target: DesignsTab) => void) {
+function showArtifactPage(target: DesignsTab, onPage?: (target: DesignsTab) => void) {
   if (onPage) onPage(target);
   else router.setParams(artifactRouteParams(target));
 }

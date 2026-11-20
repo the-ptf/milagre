@@ -5,7 +5,7 @@ import { showToast } from "../../lib/toast";
 export const olderLinksNotice = (count = 0) =>
   count ? `${count === 1 ? "An older link" : `${count} older links`} could not be revoked yet. Stop sharing it in Settings > Published pages.` : "";
 
-export async function copyLink(url: string, onError: (message: string) => void) {
+async function copyLink(url: string, onError: (message: string) => void) {
   try {
     await navigator.clipboard.writeText(url);
     showToast("Link copied.");
