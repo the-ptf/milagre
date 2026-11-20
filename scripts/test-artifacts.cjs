@@ -703,7 +703,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-dock-title]").textContent`), "Project library · iPhone");
     assert.equal(await evaluate(`${frames}.length`), 1, "the library page holds only its own designs");
     assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-mode-comment]").disabled`), true, "library designs take no comments yet");
-    assert.match(await evaluate(`${libraryFrame}.textContent`), /v1 of 1.*Edited in Login screens · Claude/);
+    assert.match(await evaluate(`${libraryFrame}.textContent`), /v1 of 1.*Edited here · Claude/);
     await screenshot("library-page");
     // An agent in another Chat of the Project revises it: the host's change event reads the library again, and the frame
     // follows the new version and says who saved it.
