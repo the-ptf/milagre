@@ -171,7 +171,7 @@ export function LibrarySheet({
     current: { kind: "library", page: pageId ?? "" },
     onPage,
   });
-  const { title, subtitle } = libraryTitles({ page, count: ordered.length, summary, shown, canvasMode });
+  const { title, subtitle } = libraryTitles({ page, count: ordered.length, summary, shown, canvasMode, chatId });
   const tryable = !canvasMode && shown && isInteractiveDesign(shown);
 
   return (
@@ -260,17 +260,24 @@ function libraryTitles({
   summary,
   shown,
   canvasMode,
+  chatId,
 }: {
   page: DesignLibraryPage | undefined;
   count: number;
   summary: DesignLibraryEntry | undefined;
   shown: Artifact | undefined;
   canvasMode: boolean;
+  chatId: string | undefined;
 }) {
   if (canvasMode) return { title: page?.name ?? "Project library", subtitle: `Project library · ${count} ${count === 1 ? "design" : "designs"}` };
   return {
     title: summary?.title ?? shown?.title ?? "Project library",
-    subtitle: ["Project library", shown ? `v${shown.version}` : "", isInteractiveDesign(shown) ? "Interactive" : "", libraryEditLabel(shown, shown?.version)]
+    subtitle: [
+      "Project library",
+      shown ? `v${shown.version}` : "",
+      isInteractiveDesign(shown) ? "Interactive" : "",
+      libraryEditLabel(shown, shown?.version, chatId),
+    ]
       .filter(Boolean)
       .join(" · "),
   };

@@ -128,11 +128,13 @@ export type DesignLibraryEntry = ArtifactSummary & { page: string; edits: Design
 /** A named page of the library ("iPhone", "Kit"), the designs on it in the order they were added. */
 export type DesignLibraryPage = { id: string; name: string; designs: DesignLibraryEntry[] };
 export type DesignLibrary = { pages: DesignLibraryPage[] };
-/** Who saved the version shown, for a library frame's caption: "Edited in Login flow · Codex". */
-export function libraryEditLabel(design: Pick<ArtifactSummary, "edits"> | null | undefined, version?: number): string {
+/** Who saved the version shown, for a library frame's caption: "Edited in Login flow · Codex", or "Edited here" when
+ * `chatId` (the open Chat) saved it. */
+export function libraryEditLabel(design: Pick<ArtifactSummary, "edits"> | null | undefined, version?: number, chatId?: string | null): string {
   const edit = design?.edits?.findLast((item) => version === undefined || item.version === version);
   if (!edit) return "";
-  return [`Edited in ${edit.chat ?? "another Chat"}`, edit.agent].filter(Boolean).join(" · ");
+  const where = chatId && edit.chatId === chatId ? "Edited here" : `Edited in ${edit.chat ?? "another Chat"}`;
+  return [where, edit.agent].filter(Boolean).join(" · ");
 }
 
 /**

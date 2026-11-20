@@ -556,8 +556,8 @@ export const ArtifactCanvas = forwardRef<
   );
 });
 
-function LibraryEditNote({ artifact, version }: { artifact: Artifact | null; version: number }) {
-  const label = libraryEditLabel(artifact, version);
+function LibraryEditNote({ artifact, version, chatId }: { artifact: Artifact | null; version: number; chatId: string | null | undefined }) {
+  const label = libraryEditLabel(artifact, version, chatId);
   return label ? (
     <span className="ml-2" data-slot="artifact-library-edit">
       {label}
@@ -689,7 +689,7 @@ const DesignFrame = memo(function DesignFrame({
                 {designKitLabel(artifact)}
               </span>
             )}
-            {library && <LibraryEditNote artifact={artifact} version={shown.version} />}
+            {library && <LibraryEditNote artifact={artifact} version={shown.version} chatId={chatId} />}
           </span>
           <Tooltip label="Next version" asChild>
             <IconButton
