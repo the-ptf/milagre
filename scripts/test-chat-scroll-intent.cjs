@@ -42,7 +42,7 @@ function Fixture() {
   const draft = useDraftText(draftStore);
   const setDraft = draftStore.setText;
   const model = MODEL_CATALOG[0];
-  if (nested) return <MessageScroller className="h-full" navigation="none" onFollowChange={(value) => window.following = value}>
+  if (nested) return <MessageScroller className="h-full" navigation="none" onFollowChange={(value) => window.following = value} onAtEndChange={(value) => window.atEnd = value}>
     <div style={{height:2000}}>Earlier messages</div>
     <ScrollArea chainScroll data-nested style={{height:120}}><div style={{height:500}}>Nested output</div></ScrollArea>
     <button data-control onClick={() => window.activated = true}>Activate</button>
@@ -257,6 +257,20 @@ async function browserChecks() {
     await rendered();
     assert.equal(await evaluate("window.following"), true, "A contained nested scroller never hands its gesture to the transcript");
     console.log("PASS: nested scrollers and button activation keep their own input");
+
+    // A Chat switch parks the transcript it leaves outside the document, where it measures 0 tall. Reading that as
+    // "at end" overwrote the shown transcript's state and dropped the composer's blur over text still below it.
+    await wheel(await position(), -1000);
+    await waitFor("window.atEnd === false");
+    await evaluate(
+      `(() => { window.parked = document.querySelector('[data-slot="message-scroller"]'); window.parkedIn = window.parked.parentElement; window.parked.remove(); })()`,
+    );
+    await delay(100);
+    assert.equal(await evaluate("window.atEnd"), false, "A parked transcript does not report reaching its end");
+    await evaluate("window.parkedIn.appendChild(window.parked)");
+    await wheel(await position(), 10000);
+    await waitFor("window.atEnd === true");
+    console.log("PASS: a parked transcript keeps out of the composer's at-end state");
     app.exit(0);
   } catch (error) {
     console.error(error);
