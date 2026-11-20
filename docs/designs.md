@@ -21,7 +21,7 @@ An interactive version is `v<N>.html` beside `meta.json`, with `interactive: tru
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Desktop       | A `milagre-artifact://` preview with `DESIGN_CODE_CSP` as its response header. Not a srcdoc frame: that would inherit the renderer's hash-only policy.                                                                    |
 | Phone         | The canvas page's policy is `DESIGN_CODE_CSP` and its frames inherit it: `sandbox="allow-scripts"` for interactive, `sandbox=""` for layers. Try hands the design the touches; flying away or commenting takes them back. |
-| Public page   | A sandboxed `srcdoc` frame per design; the Worker serves pages with interactive designs under a policy that allows the CDNs.                                                                                              |
+| Public page   | A sandboxed `srcdoc` frame per design; the Worker serves pages with interactive designs under a policy that allows the CDNs. The read-time viewer keeps the pointer until a design is clicked (see the Worker README).    |
 | Agent preview | `screenshotDesign` (`html-render.cjs`): headless Chrome at the design's size returns the first screen, console messages and content size. Without Chrome the design still saves.                                          |
 
 Deploy `apps/design-share` before a desktop release that changes what a design may contain, or publishing fails validation on the old Worker.

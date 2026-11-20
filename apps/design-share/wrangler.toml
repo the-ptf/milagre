@@ -2,6 +2,8 @@ name = "milagre-design-share"
 main = "src/worker.ts"
 compatibility_date = "2026-09-01"
 workers_dev = false
+# The page viewer runs in browsers from its functions' source; esbuild's name helpers would break it.
+keep_names = false
 routes = [{ pattern = "share.milagre.cloud", custom_domain = true }]
 
 [vars]
