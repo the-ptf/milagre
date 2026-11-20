@@ -96,7 +96,7 @@ const GROUP_LABEL = 30;
 const MIN_SCALE = 0.05;
 const FIT_MARGIN = 24;
 const FIT_BOTTOM = 56;
-const MAX_SCALE = 2;
+const MAX_SCALE = 8;
 const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
 
 const versionsRead = new Map<string, Promise<Artifact>>();

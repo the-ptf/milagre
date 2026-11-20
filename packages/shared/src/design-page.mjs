@@ -1,4 +1,5 @@
 import { designSvg, validateDesignDocument } from "./design.mjs";
+import { DESIGN_MIN_SCREEN } from "./design-schemas.mjs";
 import { artifactDocument, checkDesignCode } from "./artifact-document.mjs";
 import { ASSET_HASH, ASSET_NAME, MAX_ASSET_BYTES, MAX_PAGE_ASSETS, MAX_PAGE_ASSET_BYTES, rewriteAssetUrls } from "./artifact-assets.mjs";
 
@@ -41,7 +42,7 @@ export function validateDesignPageSnapshot(value) {
 
 function interactiveDesign(value) {
   const dimension = (number) => {
-    if (!Number.isInteger(number) || number < 240 || number > 3840) throw Error("Invalid interactive design dimensions.");
+    if (!Number.isInteger(number) || number < DESIGN_MIN_SCREEN || number > 3840) throw Error("Invalid interactive design dimensions.");
     return number;
   };
   if (typeof value?.html !== "string" || !value.html.trim() || value.html.length > 1_000_000) throw Error("An interactive design needs its HTML.");

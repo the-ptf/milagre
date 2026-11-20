@@ -6,6 +6,9 @@ export { designKitDataSchema } from "./design-kit.mjs";
 
 const id = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/, "Use a stable layer id with letters, numbers, dots, underscores or dashes.");
 const color = designColorSchema;
+/** The smallest screen side, small enough for watch faces, complications and Dynamic Island pieces at 1x. */
+export const DESIGN_MIN_SCREEN = 16;
+const screen = z.number().int().min(DESIGN_MIN_SCREEN).max(3840);
 const coordinate = z.number().finite().min(-32000).max(32000);
 const dimension = z.number().finite().min(1).max(16000);
 const size = z.number().finite().min(0).max(2000);
@@ -121,8 +124,8 @@ export const nodeSchema = z
 export const designDocumentSchema = z
   .object({
     schemaVersion: z.literal(1),
-    width: z.number().int().min(240).max(3840),
-    height: z.number().int().min(240).max(3840),
+    width: screen,
+    height: screen,
     background: color.optional(),
     kit: designKitSchema.optional(),
     consistency: designConsistencySchema.optional(),
@@ -139,8 +142,8 @@ const { componentSourceId: _generated, ...wireNodeShape } = { ...nodeSchema.shap
 export const designDocumentInputSchema = z
   .object({
     schemaVersion: z.literal(1),
-    width: z.number().int().min(240).max(3840),
-    height: z.number().int().min(240).max(3840),
+    width: screen,
+    height: screen,
     background: plainColor.optional(),
     consistency: designConsistencySchema
       .optional()

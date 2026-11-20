@@ -1172,3 +1172,12 @@ test("the agent hears how its SF Symbols draw where they can't render", async (t
   const shown = await tools.design_show.run({ id: "symbols", title: "Symbols", document });
   assert.match(shown.text, /SF Symbols can't render on this computer, so they draw as their closest Lucide icon here and for the user: heart\.fill → heart\./);
 });
+
+test("watch-sized layer and interactive designs keep their screen size", async (t) => {
+  const { api, tools } = await fixture(t);
+  const face = await tools.design_show.run({ id: "face", title: "Face", document: { schemaVersion: 1, width: 162, height: 197, nodes: [] } });
+  assert.deepEqual([firstLine(face).width, firstLine(face).height], [162, 197]);
+  const live = await api.showDesign({ chatId: CHAT, id: "live", title: "Live", html: "<!doctype html><p>10:09</p>", width: 205, height: 251 });
+  assert.deepEqual([live.width, live.height], [205, 251]);
+  await assert.rejects(tools.design_show.run({ id: "tiny", title: "Tiny", document: { schemaVersion: 1, width: 8, height: 8, nodes: [] } }), />=16/);
+});

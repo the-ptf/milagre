@@ -3,7 +3,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
 const { z } = require("zod");
-const { designDocumentInputSchema, designOperationInputSchema, designEditIntentSchema } = require("@milagre/shared/design-schemas");
+const { designDocumentInputSchema, designOperationInputSchema, designEditIntentSchema, DESIGN_MIN_SCREEN } = require("@milagre/shared/design-schemas");
 const { withDesignHost } = require("./design-host-fonts.cjs");
 const designImplementation = () => withDesignHost(require("@milagre/shared/design"));
 const { artifactDocument, hasDiagrams, checkDesignCode } = require("@milagre/shared/artifact-document");
@@ -84,7 +84,7 @@ function checkTabs(tabs, current) {
 }
 const ASSET_CHUNK = 256 * 1024;
 const megabytes = (bytes) => `${Math.ceil(bytes / (1024 * 1024))} MB`;
-const size = (value, fallback) => (Number.isInteger(value) && value >= 240 && value <= 3840 ? value : fallback);
+const size = (value, fallback, minimum = 240) => (Number.isInteger(value) && value >= minimum && value <= 3840 ? value : fallback);
 const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const COMMENTS = "comments";
 const PAGE_ANCHOR =
@@ -506,8 +506,8 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
             version: (previous.at(-1)?.version ?? 0) + 1,
             title: request.title.trim().slice(0, 120),
             ...(group ? { group } : {}),
-            width: size(request.width, screen?.width ?? VIEWPORT.width),
-            height: size(request.height, screen?.height ?? VIEWPORT.height),
+            width: size(request.width, screen?.width ?? VIEWPORT.width, DESIGN_MIN_SCREEN),
+            height: size(request.height, screen?.height ?? VIEWPORT.height, DESIGN_MIN_SCREEN),
             format: "design",
             interactive: true,
             createdAt: Date.now(),
@@ -820,8 +820,8 @@ function artifactToolDefinitions(
           .max(MAX_HTML)
           .optional()
           .describe("An interactive design: one self-contained HTML page. Send document, html OR from; give width and height with a new one."),
-        width: z.number().int().min(240).max(3840).optional().describe("An interactive design's screen width, such as 390 for a phone."),
-        height: z.number().int().min(240).max(3840).optional().describe("An interactive design's screen height, such as 844 for a phone."),
+        width: z.number().int().min(DESIGN_MIN_SCREEN).max(3840).optional().describe("An interactive design's screen width, such as 390 for a phone."),
+        height: z.number().int().min(DESIGN_MIN_SCREEN).max(3840).optional().describe("An interactive design's screen height, such as 844 for a phone."),
         from: z
           .object({ id: z.string().regex(ID), version: z.number().int().positive().optional() })
           .optional()
@@ -890,8 +890,8 @@ function artifactToolDefinitions(
       input: {
         document: designDocumentInputSchema.optional(),
         html: z.string().min(1).max(MAX_HTML).optional(),
-        width: z.number().int().min(240).max(3840).optional(),
-        height: z.number().int().min(240).max(3840).optional(),
+        width: z.number().int().min(DESIGN_MIN_SCREEN).max(3840).optional(),
+        height: z.number().int().min(DESIGN_MIN_SCREEN).max(3840).optional(),
         id: z.string().regex(ID).optional(),
         expectedVersion: z.number().int().positive().optional(),
         operations: z.array(designOperationInputSchema).min(1).max(1000).optional(),

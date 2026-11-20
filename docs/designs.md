@@ -26,6 +26,10 @@ An interactive version is `v<N>.html` beside `meta.json`, with `interactive: tru
 
 Deploy `apps/design-share` before a desktop release that changes what a design may contain, or publishing fails validation on the old Worker.
 
+## Screen sizes
+
+A design's sides run from `DESIGN_MIN_SCREEN` (16) to 3840 px, for layer and interactive designs and on shared pages, so watch faces, complications and Dynamic Island pieces are drawn at 1x. HTML artifact pages keep their 240 px minimum. The agent's image enlarges a small screen up to 4x (512 px on the long edge) so it stays readable; the desktop canvas zooms to 800% and the phone canvas fits a small design to the screen.
+
 ## Path layers
 
 `type: "path"` draws vector paths: `path` (SVG path data, in the layer's pixels or `viewBox` units) or `arc` (a ring stroke, `design-path.mjs`), with fill, stroke, caps, joins and dashes. `validDesignPath` accepts path commands, numbers and separators only, so no markup, quotes, URLs or entities reach a renderer; both renderers write the path into their own `<svg><path>`. Layout treats a path as a leaf box; contrast checks report text over a path as unsupported.
