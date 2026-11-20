@@ -1,4 +1,6 @@
 import { applyDesignOperations, designIcons, designOperationSchema, validateDesignDocument } from "./design.mjs";
+import { DESIGN_MIN_SCREEN } from "./design-schemas.mjs";
+import { designSymbolSyntax } from "./design-symbols.mjs";
 
 /**
  * The script of the frame a design builds in while an agent writes it (the desktop's LiveDesignFrame): it swaps the
@@ -109,13 +111,14 @@ export function parsePartialJson(text) {
 }
 
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-const screenSize = (value) => (Number.isInteger(value) && value >= 240 && value <= 3840 ? value : undefined);
+const screenSize = (value) => (Number.isInteger(value) && value >= DESIGN_MIN_SCREEN && value <= 3840 ? value : undefined);
 
 function draftNode(node, tokens) {
   if (!designOperationSchema.safeParse({ op: "insert", node }).success) return null;
   if (
     node.type === "icon"
-      ? !Object.hasOwn(designIcons, node.icon ?? "") || ["stroke", "radius", "text", "src"].some((field) => node[field] !== undefined)
+      ? !(Object.hasOwn(designIcons, node.icon ?? "") || designSymbolSyntax(node.icon)) ||
+        ["stroke", "radius", "text", "src"].some((field) => node[field] !== undefined)
       : node.icon !== undefined
   )
     return null;

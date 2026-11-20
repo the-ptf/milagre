@@ -205,13 +205,16 @@ async function previewHtml({ html, width = 720, appearance = "light" }) {
 /**
  * An interactive design drawn at its screen size, as its viewers run it (DESIGN_CODE_CSP, libraries from the CDNs):
  * a PNG of the first screen, what the console logged or threw, and how far the content runs past the screen. Waits
- * for the page to load and its scripts (Babel compiling JSX) to settle; `crop` is a region of the screen.
+ * for the page to load and its scripts (Babel compiling JSX) to settle; `crop` is a region of the screen. A small
+ * screen (a watch face) is drawn at 2x to 4x so the image stays readable.
  */
+const PREVIEW_MIN_EDGE = 512;
 async function screenshotDesign({ html, width, height, crop }) {
   return withPreviewPage(
     async ({ session, open, evaluate, messages, deadline }) => {
       // Not a phone viewport: the viewers draw the design in a frame its own size, so it lays out at that width.
-      await session.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+      const deviceScaleFactor = Math.max(1, Math.min(4, Math.floor(PREVIEW_MIN_EDGE / Math.max(width, height))));
+      await session.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor, mobile: false });
       await open(artifactDocument(html, { code: true }));
       while ((await evaluate("document.readyState")) !== "complete") {
         if (Date.now() > deadline) throw Error("The design did not finish loading. Check its scripts and the CDN addresses.");

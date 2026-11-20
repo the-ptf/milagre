@@ -20,6 +20,8 @@ import { confirmSheet } from "./confirm-store";
 import { loadCanvasDesign } from "./design-font-cache";
 import { useDesignLibrary } from "./design-library";
 import { DesignsCanvas } from "./designs-sheet";
+import { designHtmlIn, designModeLabel, designModeMenu, shownDesignMode } from "./design-modes-menu";
+import type { DesignMode } from "@milagre/shared/design-modes";
 import type { DesignsTab } from "./panel-tabs";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
@@ -30,7 +32,7 @@ type CanvasCommand = Record<string, unknown> & { t: string };
 /**
  * A page of the Project library on the phone's Artifact sheet (or the iPad's panel tab): its designs on the same canvas
  * as the Chat's, always the latest library version unless a version is picked. Library designs take no comments or
- * choices yet; the actions step through versions and remove a design from the library for every Chat.
+ * choices yet; the actions pick a color mode, step through versions and remove a design from the library for every Chat.
  */
 export function LibrarySheet({
   hostId,
@@ -74,6 +76,7 @@ export function LibrarySheet({
   const pageTabs = usePageTabs(source, chatId, htmlPage);
 
   const [versions, setVersions] = useState<Record<string, number | null>>({});
+  const [modes, setModes] = useState<Record<string, DesignMode>>({});
   const loaded = useLoadedDesigns(source, chatId, ordered, versions, reconnects);
 
   const canvas = useRef<DomWebViewRef>(null);
@@ -103,14 +106,15 @@ export function LibrarySheet({
         command({ t: "fonts", key: artifact.fontKey, css: artifact.fontCss });
         fonts.current.add(artifact.fontKey);
       }
-      const key = `${artifact.version}:${artifact.html.length}:${artifact.fontKey ?? ""}`;
+      const key = `${artifact.version}:${artifact.html.length}:${artifact.fontKey ?? ""}:${shownDesignMode(artifact, modes[artifact.id])}`;
       if (sent.current.get(artifact.id) === key) continue;
       sent.current.set(artifact.id, key);
       const code = isInteractiveDesign(artifact);
       const font = artifact.fontKey;
-      command({ t: "html", id: artifact.id, doc: artifactDocument(artifact.html, { code }), ...(code ? { run: true } : {}), ...(font ? { font } : {}) });
+      const doc = artifactDocument(designHtmlIn(artifact, modes[artifact.id]), { code });
+      command({ t: "html", id: artifact.id, doc, ...(code ? { run: true } : {}), ...(font ? { font } : {}) });
     }
-  }, [loaded, command, epoch, layoutKey]);
+  }, [loaded, modes, command, epoch, layoutKey]);
   const onMessage = useCallback((data: string) => {
     let message: Record<string, unknown>;
     try {
@@ -152,11 +156,16 @@ export function LibrarySheet({
       { text: "Cancel", style: "cancel" },
     ]);
   const menu: MenuSection[] = shown
-    ? [...versionSections(latest, shown.version), { items: [{ id: "remove", title: "Remove from Project library", systemImage: "trash", destructive: true }] }]
+    ? [
+        ...designModeMenu(shown, modes[shown.id]),
+        ...versionSections(latest, shown.version),
+        { items: [{ id: "remove", title: "Remove from Project library", systemImage: "trash", destructive: true }] },
+      ]
     : [];
   const act = (action: string) => {
     if (!shown) return;
     if (action === "remove") remove(shown);
+    else if (action.startsWith("mode:")) setModes((current) => ({ ...current, [shown.id]: action.slice("mode:".length) as DesignMode }));
     else if (action.startsWith("version:")) {
       const number = Number(action.slice("version:".length));
       setVersions((current) => ({ ...current, [shown.id]: number >= latest ? null : number }));
@@ -171,7 +180,7 @@ export function LibrarySheet({
     current: { kind: "library", page: pageId ?? "" },
     onPage,
   });
-  const { title, subtitle } = libraryTitles({ page, count: ordered.length, summary, shown, canvasMode, chatId });
+  const { title, subtitle } = libraryTitles({ page, count: ordered.length, summary, shown, canvasMode, chatId, mode: modes[shownId ?? ""] });
   const tryable = !canvasMode && shown && isInteractiveDesign(shown);
 
   return (
@@ -261,6 +270,7 @@ function libraryTitles({
   shown,
   canvasMode,
   chatId,
+  mode,
 }: {
   page: DesignLibraryPage | undefined;
   count: number;
@@ -268,6 +278,7 @@ function libraryTitles({
   shown: Artifact | undefined;
   canvasMode: boolean;
   chatId: string | undefined;
+  mode: DesignMode | undefined;
 }) {
   if (canvasMode) return { title: page?.name ?? "Project library", subtitle: `Project library · ${count} ${count === 1 ? "design" : "designs"}` };
   return {
@@ -276,6 +287,7 @@ function libraryTitles({
       "Project library",
       shown ? `v${shown.version}` : "",
       isInteractiveDesign(shown) ? "Interactive" : "",
+      designModeLabel(shown, mode),
       libraryEditLabel(shown, shown?.version, chatId),
     ]
       .filter(Boolean)

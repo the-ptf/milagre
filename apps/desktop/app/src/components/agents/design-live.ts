@@ -18,6 +18,7 @@ export type LiveDesign = {
   version?: number;
   hold?: number;
   by?: string;
+  blank?: boolean;
 };
 
 type Draft = {
@@ -48,11 +49,13 @@ const NO_CREW: readonly Subagent[] = [];
 const covered = new Set<string>();
 const versionKey = (chatId: string, id: string, version: number) => `${chatId}\n${id}\n${version}`;
 const savedBy = new Map<string, string>();
+const landed = new Map<string, number>();
 const DRAFT_RENDER_MS = 100;
 const REPLAY_MS = 1800;
 const STEP_MIN_MS = 80;
 const STEP_MAX_MS = 150;
 const SETTLE_TIMEOUT_MS = 4000;
+const LANDED_MS = 10_000;
 
 function chatLive(chatId: string): ChatLive {
   let chat = chats.get(chatId);
@@ -217,7 +220,10 @@ function receive(chatId: string, event: AgentEventUpdate["event"]) {
     chat.callers.delete(event.id);
     if (caller && artifact && event.status === "done") savedBy.set(versionKey(chatId, artifact.id, artifact.version), caller);
     const draft = chat.drafts.get(event.id);
-    if (!draft) return;
+    if (!draft) {
+      if (artifact?.version === 1 && event.status === "done") landed.set(versionKey(chatId, artifact.id, 1), Date.now());
+      return;
+    }
     if (event.status !== "done" || !artifact) return drop(chatId, event.id);
     covered.add(versionKey(chatId, artifact.id, artifact.version));
     if (!chat.watched) return drop(chatId, event.id);
@@ -244,17 +250,19 @@ function receive(chatId: string, event: AgentEventUpdate["event"]) {
   }
 }
 
-function replay(chatId: string, id: string, from: number, to: number) {
+function replay(chatId: string, id: string, from: number | null, to: number) {
   const key = `replay:${id}:${to}`;
   const chat = chatLive(chatId);
   const by = savedBy.get(versionKey(chatId, id, to));
-  const who = by ? { by } : {};
-  put(chatId, { key, kind: "replay", designId: id, title: null, group: null, document: null, changed: [], status: "writing", hold: from, ...who });
+  const who = { ...(by ? { by } : {}), ...(from === null ? { blank: true } : { hold: from }) };
+  put(chatId, { key, kind: "replay", designId: id, title: null, group: null, document: null, changed: [], status: "writing", ...who });
   const stop = () => drop(chatId, key);
-  void Promise.all([readArtifact(chatId, id, from), readArtifact(chatId, id, to)])
+  void Promise.all([from === null ? null : readArtifact(chatId, id, from), readArtifact(chatId, id, to)])
     .then(([before, after]) => {
-      if (before.format !== "design" || after.format !== "design" || !before.document || !after.document) return stop();
-      const steps = designReplay(before.document, after.document);
+      if (after.format !== "design" || !after.document) return stop();
+      const start = before === null ? { ...after.document, nodes: [] } : before.format === "design" ? before.document : null;
+      if (!start) return stop();
+      const steps = designReplay(start, after.document);
       if (!steps.length || !chat.designs.some((item) => item.key === key)) return stop();
       const each = Math.min(STEP_MAX_MS, Math.max(STEP_MIN_MS, REPLAY_MS / steps.length));
       const base: LiveDesign = {
@@ -263,10 +271,9 @@ function replay(chatId: string, id: string, from: number, to: number) {
         designId: id,
         title: after.title,
         group: after.group ?? null,
-        document: before.document,
+        document: start,
         changed: [],
         status: "writing",
-        hold: from,
         ...who,
       };
       put(chatId, base);
@@ -375,6 +382,15 @@ export function useLiveCrew(chatId: string): { agent: string; crew: readonly Sub
 export function useLiveDesign(chatId: string, design: ArtifactRef, following: boolean): { live: LiveDesign | null; hold: number | null } {
   const live = useSyncExternalStore(subscribe, () => latestFor(chats.get(chatId)?.designs ?? EMPTY, design.id));
   const seen = useRef(design.version);
+  useLayoutEffect(() => {
+    if (design.version !== 1 || !following || design.format !== "design") return;
+    const key = versionKey(chatId, design.id, 1);
+    const at = landed.get(key);
+    landed.delete(key);
+    if (at === undefined || Date.now() - at > LANDED_MS || covered.has(key) || reducedMotion() || document.visibilityState !== "visible") return;
+    if (chats.get(chatId)?.designs.some((item) => item.designId === design.id)) return;
+    replay(chatId, design.id, null, 1);
+  }, [chatId, design.id, design.version, design.format, following]);
   useLayoutEffect(() => {
     const previous = seen.current;
     seen.current = design.version;

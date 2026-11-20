@@ -3,8 +3,9 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
 const { z } = require("zod");
-const { designDocumentInputSchema, designOperationInputSchema, designEditIntentSchema } = require("@milagre/shared/design-schemas");
-const designImplementation = () => require("@milagre/shared/design");
+const { designDocumentInputSchema, designOperationInputSchema, designEditIntentSchema, DESIGN_MIN_SCREEN } = require("@milagre/shared/design-schemas");
+const { withDesignHost } = require("./design-host-fonts.cjs");
+const designImplementation = () => withDesignHost(require("@milagre/shared/design"));
 const { checkDesignCode } = require("@milagre/shared/artifact-document");
 const { MAX_HTML, checkDesignHtml, editDesignHtml } = require("./design-html.cjs");
 const { ASSET_NAME, ASSET_HASH, MAX_ASSET_BYTES, MAX_PAGE_ASSETS, MAX_PAGE_ASSET_BYTES, assetType, mentionsAsset } = require("@milagre/shared/artifact-assets");
@@ -12,6 +13,7 @@ const { openAttachment } = require("./attachment-preview.cjs");
 const { pageSnapshot } = require("./chat-artifacts-snapshot.cjs");
 const { renderDesignPng } = require("./design-raster.cjs");
 const { screenshotDesign } = require("./html-render.cjs");
+const { designFeedback, interactiveFeedback, inspectLayerDesign, INTERACTIVE_GUIDE, DESIGN_MODE_INPUT } = require("./design-feedback.cjs");
 const { BUNDLED_SKILLS_DIRECTORY } = require("./bundled-skills.cjs");
 const DESIGN_SKILL = path.join(BUNDLED_SKILLS_DIRECTORY, "design", "SKILL.md");
 
@@ -41,7 +43,7 @@ function checkTabs(tabs, current) {
 }
 const ASSET_CHUNK = 256 * 1024;
 const megabytes = (bytes) => `${Math.ceil(bytes / (1024 * 1024))} MB`;
-const size = (value, fallback) => (Number.isInteger(value) && value >= 240 && value <= 3840 ? value : fallback);
+const size = (value, fallback, minimum = 240) => (Number.isInteger(value) && value >= minimum && value <= 3840 ? value : fallback);
 const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DESIGN_REF = /^(?:library:)?[a-z0-9][a-z0-9-]{0,63}$/;
 const COMMENTS = "comments";
@@ -447,8 +449,8 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
             version: (previous.at(-1)?.version ?? 0) + 1,
             title: request.title.trim().slice(0, 120),
             ...(group ? { group } : {}),
-            width: size(request.width, screen?.width ?? VIEWPORT.width),
-            height: size(request.height, screen?.height ?? VIEWPORT.height),
+            width: size(request.width, screen?.width ?? VIEWPORT.width, DESIGN_MIN_SCREEN),
+            height: size(request.height, screen?.height ?? VIEWPORT.height, DESIGN_MIN_SCREEN),
             format: "design",
             interactive: true,
             createdAt: Date.now(),
@@ -734,114 +736,6 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
   }
 }
 
-const MAX_SUMMARY_WARNINGS = 20;
-const unbundledFamilies = (document) => {
-  const families = new Set();
-  for (const node of document.nodes) {
-    if (
-      node.type !== "text" ||
-      node.hidden ||
-      !node.fontFamily ||
-      designImplementation().designUsesInter(node.fontFamily) ||
-      designImplementation().designCatalogFont(node.fontFamily)
-    )
-      continue;
-    const family = node.fontFamily
-      .split(",")[0]
-      .trim()
-      .replace(/^["']|["']$/g, "");
-    if (family) families.add(family);
-  }
-  return [...families];
-};
-
-const MAX_NAMED_LAYERS = 5;
-
-const undrawableTextLayers = (document) => {
-  const byId = new Map(document.nodes.map((node) => [node.id, node]));
-  const visible = (node) => {
-    for (let depth = 0; node && depth < 64; depth++, node = byId.get(node.parentId)) if (node.hidden) return false;
-    return true;
-  };
-  const ids = new Set();
-  for (const node of document.nodes) {
-    if (node.type !== "text" || !node.text || !visible(node)) continue;
-    if ([...node.text].every(designImplementation().designInterHasGlyph)) continue;
-    ids.add((designImplementation().designInstanceRoot(document, node.id, byId) ?? node).id);
-  }
-  return [...ids];
-};
-
-const namedLayers = (ids) =>
-  ids
-    .slice(0, MAX_NAMED_LAYERS)
-    .map((id) => `"${id}"`)
-    .join(", ") + (ids.length > MAX_NAMED_LAYERS ? ` and ${ids.length - MAX_NAMED_LAYERS} more` : "");
-
-async function designFeedback(saved, document, { renderPng, warnings: findWarnings, intent }) {
-  const problems = [];
-  let warnings = [];
-  try {
-    warnings = findWarnings(document);
-  } catch (error) {
-    problems.push(`Layout warnings could not be computed: ${error?.message ?? String(error)}.`);
-  }
-  const head = { ...saved, warnings: warnings.slice(0, MAX_SUMMARY_WARNINGS) };
-  if (warnings.length > MAX_SUMMARY_WARNINGS) head.warningCount = warnings.length;
-  const notes = [JSON.stringify(head)];
-  let images = [];
-  try {
-    images = [await renderPng(document)];
-    notes.push(
-      intent?.mode === "text-only"
-        ? "Look at the image. This was a text-only edit: report clipping, overflow or other warnings without changing geometry or style. Keep the same intent for further text edits; expanding the scope needs the user's permission."
-        : intent?.mode === "fit-text"
-          ? "Look at the image and verify the text fits. Keep this fit-text intent and its declared scope for any correction; preserve styles and other copy. Report problems that need a wider scope."
-          : "Look at the image: check icons, spacing, alignment and density against the brief, fix what looks wrong and every item under Warnings within the user's requested scope with design_apply, then reply.",
-    );
-    const fonts = unbundledFamilies(document);
-    if (fonts.length) notes.push(`Your image shows ${fonts.join(", ")} in Inter; the user sees the real font.`);
-    const blank = undrawableTextLayers(document);
-    if (blank.length)
-      notes.push(`Your image can't draw some characters in ${namedLayers(blank)}; they are blank and the line may look cut there, but the user sees them.`);
-  } catch (error) {
-    notes.push(`The preview could not be rendered: ${error?.message ?? String(error)}. Check the warnings below.`);
-  }
-  notes.push(...problems);
-  const text = designImplementation().designWarningText(warnings.filter((warning) => warning.kind !== "remote-image"));
-  if (text) notes.push(`Warnings:\n${text}`);
-  const remote = designImplementation().designWarningText(warnings.filter((warning) => warning.kind === "remote-image"));
-  if (remote) notes.push(`Notes:\n${remote}`);
-  return { text: notes.join("\n"), images };
-}
-
-const DESIGN_CODE_STARTER = [
-  '<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>',
-  '<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>',
-  '<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>',
-].join("");
-const INTERACTIVE_GUIDE = `For an interactive prototype (taps that change state, navigation between screens, tabs, forms, menus, animation), send html with width and height instead of document: one self-contained HTML page, run live in the viewers at that screen size. For React, load exactly ${DESIGN_CODE_STARTER} and write the app in <script type="text/babel">, rendering into a root element. Scripts load only from unpkg.com, cdn.jsdelivr.net, cdnjs.cloudflare.com or esm.sh, each at an exact version (Tailwind's browser build: https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.17); write the design's own code inline. The design runs sandboxed: no fetch, forms to servers, localStorage or cookies, so keep state in memory and use realistic sample data. Put a flow's screens in one design and switch them with state; set data-screen-label on each screen's root. Revise it with design_apply edits (exact text to find and its replacement), or design_show with the whole html.`;
-
-async function interactiveFeedback(saved, html, { screenshot, crop }) {
-  const notes = [JSON.stringify(saved)];
-  let images = [];
-  try {
-    const shot = await screenshot({ html, width: saved.width, height: saved.height, crop });
-    images = [{ mime: "image/png", base64: shot.png }];
-    notes.push(
-      "Look at the image: the design's first screen before anyone interacts. Check layout, spacing, type, icons and contrast against the brief, fix what looks wrong with design_apply edits, then reply.",
-    );
-    if (shot.blank) notes.push("The screen is blank: the design's scripts probably failed. Read the console below.");
-    if (shot.contentWidth > saved.width + 1)
-      notes.push(`The content is ${shot.contentWidth}px wide on a ${saved.width}px screen, so it scrolls sideways. Fix the overflow.`);
-    if (shot.contentHeight > saved.height + 1) notes.push(`The content is ${shot.contentHeight}px tall on a ${saved.height}px screen; below that it scrolls.`);
-    if (shot.consoleMessages.length) notes.push(`Console:\n${shot.consoleMessages.map((message) => `${message.level}: ${message.text}`).join("\n")}`);
-  } catch (error) {
-    notes.push(`The preview could not be drawn: ${error?.message ?? String(error)}. The design is saved and the user sees it.`);
-  }
-  return { text: notes.join("\n"), images };
-}
-
 const editsInput = z
   .array(
     z.object({
@@ -863,7 +757,7 @@ function artifactToolDefinitions(
   return [
     {
       name: "design_show",
-      description: `For any UI, screen, mockup or visual design in this Chat, subagents included: use this, not HTML or image files, so it lands on the Chat's Designs canvas, where the user watches, reviews, comments and chooses on desktop and phone, and asks for changes through Chat. Only agents change designs. A static design is a document of named layers, with frames, text, shapes, icons, images, layout and color tokens; the document sets the screen size (390 by 844 for a phone). ${INTERACTIVE_GUIDE} Read the bundled design skill (${DESIGN_SKILL}) for both formats. A new id creates a design; revising an existing id requires expectedVersion from design_read. Prefer design_apply for small revisions. Use a different id for each variant, in the same group; to revise a design, keep its id. For a variant of a saved design, send from (its id and version) and only the operations (layers) or edits (interactive) that differ, instead of the whole design: Milagre copies it and applies them. A design in the Project library is library:<id> (design_library_list): revise it here with its library id and expectedVersion like any design; every Chat of the Project sees the new version. New designs land in this Chat; design_library_add puts one in the library. When the user names another design tool, use that tool instead. The result includes the rendered design as an image, with layout warnings or console messages; check them before replying.`,
+      description: `For any UI, screen, mockup or visual design in this Chat, subagents included: use this, not HTML or image files, so it lands on the Chat's Designs canvas, where the user watches, reviews, comments and chooses on desktop and phone, and asks for changes through Chat. Only agents change designs. A static design is a document of named layers, with frames, text, shapes, vector paths and rings, icons, images, layout and color tokens; the document sets the screen size (390 by 844 for a phone). ${INTERACTIVE_GUIDE} Read the bundled design skill (${DESIGN_SKILL}) for both formats. A new id creates a design; revising an existing id requires expectedVersion from design_read. Prefer design_apply for small revisions. Use a different id for each variant, in the same group; to revise a design, keep its id. For a variant of a saved design, send from (its id and version) and only the operations (layers) or edits (interactive) that differ, instead of the whole design: Milagre copies it and applies them. A design in the Project library is library:<id> (design_library_list): revise it here with its library id and expectedVersion like any design; every Chat of the Project sees the new version. New designs land in this Chat; design_library_add puts one in the library. When the user names another design tool, use that tool instead. The result includes the rendered design as an image, with layout warnings or console messages; check them before replying.`,
       input: {
         title: z.string().min(1).max(120),
         group: z
@@ -880,8 +774,8 @@ function artifactToolDefinitions(
           .max(MAX_HTML)
           .optional()
           .describe("An interactive design: one self-contained HTML page. Send document, html OR from; give width and height with a new one."),
-        width: z.number().int().min(240).max(3840).optional().describe("An interactive design's screen width, such as 390 for a phone."),
-        height: z.number().int().min(240).max(3840).optional().describe("An interactive design's screen height, such as 844 for a phone."),
+        width: z.number().int().min(DESIGN_MIN_SCREEN).max(3840).optional().describe("An interactive design's screen width, such as 390 for a phone."),
+        height: z.number().int().min(DESIGN_MIN_SCREEN).max(3840).optional().describe("An interactive design's screen height, such as 844 for a phone."),
         from: z
           .object({ id: z.string().regex(DESIGN_REF), version: z.number().int().positive().optional() })
           .optional()
@@ -894,9 +788,10 @@ function artifactToolDefinitions(
         edits: editsInput.optional().describe("With from, for an interactive design: the edits that turn the copy into the variant."),
         id: z.string().regex(DESIGN_REF).optional(),
         expectedVersion: z.number().int().nonnegative().optional(),
+        mode: DESIGN_MODE_INPUT,
       },
       readOnly: false,
-      run: async (args) => {
+      run: async ({ mode, ...args }) => {
         if ([args.document, args.html, args.from].filter((value) => value !== undefined).length !== 1)
           throw Error("Send document (layers), html (interactive) OR from (with operations or edits).");
         const design = await api.showDesign({ chatId, ...args }, authorization);
@@ -908,7 +803,7 @@ function artifactToolDefinitions(
           args.from || (!args.document.consistency && design.consistency)
             ? (await api.get({ chatId, id: design.id, version: design.version, format: "design" })).document
             : designImplementation().validateDesignDocument(args.document);
-        return designFeedback(design, document, feedback);
+        return designFeedback(design, document, { ...feedback, mode });
       },
     },
     {
@@ -926,45 +821,20 @@ function artifactToolDefinitions(
       name: "design_inspect",
       description:
         "Inspect a saved design without creating a version. Returns its image; for a layer design also computed layer bounds, contrast coverage and preview limitations, for an interactive design its console messages. Use this when taking over from another model or checking a design before you change it. Accepts library:<id> for a Project library design. nodeId crops a layer design's image to a visible layer; diagnostics still cover the whole screen.",
-      input: { id: z.string().regex(DESIGN_REF), version: z.number().int().positive().optional(), nodeId: z.string().regex(LAYER_ID).optional() },
+      input: {
+        id: z.string().regex(DESIGN_REF),
+        version: z.number().int().positive().optional(),
+        nodeId: z.string().regex(LAYER_ID).optional(),
+        mode: DESIGN_MODE_INPUT,
+      },
       readOnly: true,
-      run: async ({ nodeId, ...args }) => {
+      run: async ({ nodeId, mode, ...args }) => {
         const { html, document, ...saved } = await api.get({ chatId, ...args, format: "design" });
         if (saved.interactive) {
           if (nodeId) throw Error("An interactive design has no layers; inspect it without nodeId.");
           return interactiveFeedback(saved, html, { screenshot });
         }
-        const bounds = designImplementation().designLayout(document, designImplementation().designTextLayout);
-        const crop = nodeId ? bounds.get(nodeId) : undefined;
-        if (nodeId && !crop) throw Error(`Layer "${nodeId}" is missing or hidden.`);
-        let diagnostics;
-        try {
-          diagnostics = { status: "checked", ...designImplementation().designDiagnostics(document) };
-        } catch (error) {
-          diagnostics = { status: "failed", error: error.message };
-        }
-        const rendered = await designFeedback(saved, document, { ...feedback, renderPng: (doc) => renderPng(doc, { crop }) });
-        return {
-          ...rendered,
-          text:
-            rendered.text +
-            "\n" +
-            JSON.stringify({
-              inspection: {
-                version: saved.version,
-                nodeId,
-                bounds: Object.fromEntries(bounds),
-                diagnostics,
-                preview: {
-                  renderer: "resvg",
-                  remoteImages: "placeholder",
-                  unbundledFonts: unbundledFamilies(document),
-                  undrawableText: undrawableTextLayers(document),
-                  crop,
-                },
-              },
-            }),
-        };
+        return inspectLayerDesign(saved, document, { ...feedback, nodeId, mode });
       },
     },
     {
@@ -974,8 +844,8 @@ function artifactToolDefinitions(
       input: {
         document: designDocumentInputSchema.optional(),
         html: z.string().min(1).max(MAX_HTML).optional(),
-        width: z.number().int().min(240).max(3840).optional(),
-        height: z.number().int().min(240).max(3840).optional(),
+        width: z.number().int().min(DESIGN_MIN_SCREEN).max(3840).optional(),
+        height: z.number().int().min(DESIGN_MIN_SCREEN).max(3840).optional(),
         id: z.string().regex(DESIGN_REF).optional(),
         expectedVersion: z.number().int().positive().optional(),
         operations: z.array(designOperationInputSchema).min(1).max(1000).optional(),
@@ -1002,6 +872,7 @@ function artifactToolDefinitions(
             document = designImplementation().applyDesignOperations(current.document, args.operations, args.intent);
           }
           await api.validateDesign?.({ chatId, document });
+          await designImplementation().loadDesignFonts(document);
           return JSON.stringify({ valid: true, document, diagnostics: designImplementation().designDiagnostics(document) });
         } catch (error) {
           return JSON.stringify({

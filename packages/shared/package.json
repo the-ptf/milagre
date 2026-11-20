@@ -398,6 +398,12 @@
       "default": "./src/design-page.mjs"
     },
     "./design-schemas": "./src/design-schemas.mjs",
+    "./design-font-file": "./src/design-font-file.mjs",
+    "./design-modes": {
+      "types": "./src/design-modes.d.mts",
+      "default": "./src/design-modes.mjs"
+    },
+    "./design-font-characters": "./src/design-font-characters.mjs",
     "./design": {
       "types": "./src/design.d.mts",
       "default": "./src/design.mjs"
@@ -405,6 +411,10 @@
     "./design-draft": {
       "types": "./src/design-draft.d.mts",
       "default": "./src/design-draft.mjs"
+    },
+    "./design-build": {
+      "types": "./src/design-build.d.mts",
+      "default": "./src/design-build.mjs"
     },
     "./genui": "./src/genui.ts",
     "./file-link": {

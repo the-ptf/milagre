@@ -54,4 +54,6 @@ test("each scope warns what the link shows", () => {
   assert.match(shareNotice({ kind: "workspace" }), /^Anyone with the link can see every design and the page.*keeps updating as the agent works\.$/);
   assert.match(shareNotice({ kind: "design" }), /this design\./);
   assert.match(shareNotice({ kind: "artifacts" }, true), /Share again for a link that keeps updating/);
+  assert.match(shareNotice({ kind: "design" }), /SF Symbols show as Inter, Source Serif and Lucide icons/, "design links name the swapped Apple fonts");
+  assert.doesNotMatch(shareNotice({ kind: "artifacts" }), /SF fonts/, "the HTML page draws no design fonts");
 });

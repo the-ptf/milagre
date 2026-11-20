@@ -1,3 +1,4 @@
+process.env.MILAGRE_DESIGN_SYSTEM_FONTS = "0";
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -1185,4 +1186,52 @@ test("design_validate draws an interactive design without saving it", async (t) 
     await tools.design_validate.run({ html: '<script src="https://unpkg.com/react/umd/react.js"></script>', width: 390, height: 844 }),
   );
   assert.equal(refused.valid, false);
+});
+
+test("one design carries every color mode; the agent previews and checks the mode it names", async (t) => {
+  const { api } = await fixture(t);
+  const drawn = [];
+  const tools = Object.fromEntries(
+    artifactToolDefinitions(CHAT, api, undefined, {
+      renderPng: async (document) => {
+        drawn.push(document.tokens);
+        return { mime: "image/png", base64: "" };
+      },
+    }).map((tool) => [tool.name, tool]),
+  );
+  const document = designDocument();
+  document.tokens = { ink: { light: "#16261f", dark: "#1b1b1b" }, paper: { light: "#f5f4ef", dark: "#121212" } };
+  document.background = "$paper";
+  const shown = await tools.design_show.run({ id: "modes", title: "Modes", document });
+  assert.match(shown.text, /switches between light, dark modes; your image and the warnings show light/);
+  const saved = await api.get({ chatId: CHAT, id: "modes" });
+  assert.match(saved.html, /:root\[data-design-mode="dark"\]\{/);
+  assert.deepEqual(saved.document.tokens.ink, { light: "#16261f", dark: "#1b1b1b" });
+  const dark = await tools.design_inspect.run({ id: "modes", mode: "dark" });
+  const inspection = JSON.parse(dark.text.split("\n").at(-1)).inspection;
+  assert.equal(inspection.mode, "dark");
+  assert.deepEqual(
+    inspection.diagnostics.warnings.map((warning) => warning.kind),
+    ["low-contrast"],
+  );
+  assert.deepEqual(drawn.at(-1), { ink: "#1b1b1b", paper: "#121212" });
+  const light = JSON.parse((await tools.design_inspect.run({ id: "modes" })).text.split("\n").at(-1)).inspection;
+  assert.deepEqual(light.diagnostics.warnings, []);
+});
+
+test("the agent hears how its SF Symbols draw where they can't render", async (t) => {
+  const { tools } = await fixture(t);
+  const document = designDocument();
+  document.nodes.push({ id: "like", type: "icon", x: 20, y: 300, width: 24, height: 24, icon: "sf:heart.fill" });
+  const shown = await tools.design_show.run({ id: "symbols", title: "Symbols", document });
+  assert.match(shown.text, /SF Symbols can't render on this computer, so they draw as their closest Lucide icon here and for the user: heart\.fill → heart\./);
+});
+
+test("watch-sized layer and interactive designs keep their screen size", async (t) => {
+  const { api, tools } = await fixture(t);
+  const face = await tools.design_show.run({ id: "face", title: "Face", document: { schemaVersion: 1, width: 162, height: 197, nodes: [] } });
+  assert.deepEqual([firstLine(face).width, firstLine(face).height], [162, 197]);
+  const live = await api.showDesign({ chatId: CHAT, id: "live", title: "Live", html: "<!doctype html><p>10:09</p>", width: 205, height: 251 });
+  assert.deepEqual([live.width, live.height], [205, 251]);
+  await assert.rejects(tools.design_show.run({ id: "tiny", title: "Tiny", document: { schemaVersion: 1, width: 8, height: 8, nodes: [] } }), />=16/);
 });

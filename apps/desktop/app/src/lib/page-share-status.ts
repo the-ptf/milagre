@@ -1,4 +1,4 @@
-import type { ArtifactPageKind, DesignPageShare, PageShareScope } from "@milagre/shared/artifact";
+import { DESIGN_PAGE_FONT_NOTE, type ArtifactPageKind, type DesignPageShare, type PageShareScope } from "@milagre/shared/artifact";
 import { ago } from "@milagre/shared/main-sync";
 
 export type ShareState = "Live" | "Paused" | "Snapshot" | "Revoked";
@@ -39,5 +39,6 @@ export function shareTitle(scope: PageShareScope): string {
 export function shareNotice(scope: PageShareScope, snapshot = false): string {
   const what =
     scope.kind === "design" ? "this design" : scope.kind === "artifacts" ? "the page, hidden HTML included" : "every design and the page, hidden HTML included";
-  return `Anyone with the link can see ${what}. ${snapshot ? "Share again for a link that keeps updating as the agent works." : "The link keeps updating as the agent works."}`;
+  const fonts = scope.kind === "artifacts" ? "" : ` ${DESIGN_PAGE_FONT_NOTE}`;
+  return `Anyone with the link can see ${what}.${fonts} ${snapshot ? "Share again for a link that keeps updating as the agent works." : "The link keeps updating as the agent works."}`;
 }

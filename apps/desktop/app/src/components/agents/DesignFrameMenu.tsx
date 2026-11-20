@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Download04Icon, LibraryIcon, MoreHorizontalIcon, Share08Icon } from "@hugeicons/core-free-icons";
 import { isInteractiveDesign, type DesignArtifact } from "@milagre/shared/artifact";
+import { DESIGN_MODE_LABELS, type DesignMode } from "@milagre/shared/design-modes";
 import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { IconButton } from "../primitives/Button";
@@ -16,12 +17,15 @@ function downloadHtml(html: string, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** A design frame's ⋯ menu on the canvas: export it, share it on its own link, and add it to the Project library. */
+/** A design frame's ⋯ menu on the canvas: pick its color mode, export it, share it on its own link, and add it to the Project library. */
 export function DesignFrameMenu({
   artifact,
   shown,
   open,
   onOpen,
+  modes,
+  mode,
+  onMode,
   onShare,
   onAddToLibrary,
 }: {
@@ -29,6 +33,9 @@ export function DesignFrameMenu({
   shown: ArtifactRef;
   open: boolean;
   onOpen: (open: boolean) => void;
+  modes: readonly DesignMode[];
+  mode: DesignMode;
+  onMode: (mode: DesignMode) => void;
   onShare?: (design: ArtifactRef) => void;
   onAddToLibrary?: (design: ArtifactRef) => void;
 }) {
@@ -49,6 +56,20 @@ export function DesignFrameMenu({
       </Tooltip>
       {open && (
         <Popover anchor={anchor} label={`${shown.title} actions`} onClose={() => onOpen(false)}>
+          {modes.length > 1 &&
+            modes.map((item) => (
+              <MenuRow
+                key={item}
+                data-slot="artifact-mode"
+                role="menuitemradio"
+                checked={item === mode}
+                title={DESIGN_MODE_LABELS[item]}
+                onClick={() => {
+                  onOpen(false);
+                  onMode(item);
+                }}
+              />
+            ))}
           <MenuRow
             data-slot="artifact-export"
             icon={Download04Icon}

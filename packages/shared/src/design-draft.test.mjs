@@ -166,3 +166,14 @@ test("a design_show draft with from applies its operations to the copied base", 
   assert.equal(shown.document.nodes.find((item) => item.id === "a").fill, "#ff0000");
   assert.deepEqual(shown.changed, ["a"]);
 });
+
+test("a watch face draft keeps its small screen and its SF Symbol icons", () => {
+  const draft = createDesignDraft("design_show");
+  const { document } = draft.read(
+    json({
+      title: "Face",
+      document: { schemaVersion: 1, width: 162, height: 197, nodes: [{ id: "heart", type: "icon", x: 8, y: 8, width: 20, height: 20, icon: "sf:heart.fill" }] },
+    }),
+  );
+  assert.deepEqual([document.width, document.height, document.nodes.map((item) => item.id)], [162, 197, ["heart"]]);
+});

@@ -131,7 +131,8 @@ const phone = {
   schemaVersion: 1,
   width: 390,
   height: 844,
-  background: "#1f2a24",
+  tokens: { screen: { light: "#1f2a24", dark: "#050806" } },
+  background: "$screen",
   nodes: [
     {
       id: "greeting",
@@ -514,9 +515,10 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!${shareDialog}.querySelector("input")`), false, "no title field: the host names the page after its Chat");
     assert.equal(
       await evaluate(`document.getElementById(${shareDialog}.getAttribute("aria-describedby")).textContent`),
-      "Anyone with the link can see every design and the page, hidden HTML included. The link keeps updating as the agent works.",
+      "Anyone with the link can see every design and the page, hidden HTML included. Apple's SF fonts, New York and SF Symbols show as Inter, Source Serif and Lucide icons on the shared page. The link keeps updating as the agent works.",
     );
     assert.equal(await evaluate(`${publish}.textContent`), "Publish");
+    assert.doesNotMatch(await evaluate(shareText), /Published snapshots|frozen|Public access/);
     await screenshot("share-page-warning");
     // A failed publish says why; a double click sends one request, with explicit consent and the workspace scope.
     await evaluate(`window.sharePublishError = true; ${publish}.click()`);
@@ -1381,6 +1383,20 @@ async function browserChecks() {
     await screenshot("frame-export-dialog");
     await evaluate("document.querySelector(\"[aria-label='Cancel export']\").click()");
     await waitFor('!document.querySelector("[data-slot=design-export-dialog]")');
+    // A design whose tokens have dark values switches the frame's mode from the same menu, and the choice stays.
+    await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-more]").click()`);
+    await waitFor('document.querySelectorAll("[role=menu] [data-slot=artifact-mode]").length === 2');
+    await evaluate('[...document.querySelectorAll("[data-slot=artifact-mode]")].find((row) => row.textContent === "Dark").click()');
+    await waitFor('!document.querySelector("[role=menu] [data-slot=artifact-mode]")');
+    await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-more]").click()`);
+    await waitFor('!!document.querySelector("[role=menu] [data-slot=artifact-mode]")');
+    assert.equal(
+      await evaluate('[...document.querySelectorAll("[data-slot=artifact-mode]")].find((row) => row.textContent === "Dark").getAttribute("aria-checked")'),
+      "true",
+    );
+    await screenshot("frame-mode-menu");
+    await evaluate('[...document.querySelectorAll("[data-slot=artifact-mode]")].find((row) => row.textContent === "Light").click()');
+    await waitFor('!document.querySelector("[role=menu] [data-slot=artifact-mode]")');
     await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-delete]").click()`);
     await waitFor(`!!${frame("home")}.querySelector("[data-slot=artifact-delete-confirm]")`);
     await screenshot("delete-confirm");

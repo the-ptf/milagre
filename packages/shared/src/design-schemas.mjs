@@ -1,15 +1,14 @@
 import { z } from "zod";
-import { designPaint } from "./design-colors.mjs";
 import { validDesignFontFamily } from "./design-font-family.mjs";
-import { designKitSchema, designBindingsSchema, designConsistencySchema } from "./design-kit.mjs";
+import { validDesignPath } from "./design-path.mjs";
+import { designKitSchema, designBindingsSchema, designConsistencySchema, designColorSchema, designColorTokenSchema } from "./design-kit.mjs";
 export { designKitDataSchema } from "./design-kit.mjs";
 
 const id = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/, "Use a stable layer id with letters, numbers, dots, underscores or dashes.");
-const literalColor = z
-  .string()
-  .max(100)
-  .refine((value) => designPaint(value) !== null, "Use a valid CSS color.");
-const color = z.union([literalColor, z.string().regex(/^\$[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/)]);
+const color = designColorSchema;
+/** The smallest screen side, small enough for watch faces, complications and Dynamic Island pieces at 1x. */
+export const DESIGN_MIN_SCREEN = 16;
+const screen = z.number().int().min(DESIGN_MIN_SCREEN).max(3840);
 const coordinate = z.number().finite().min(-32000).max(32000);
 const dimension = z.number().finite().min(1).max(16000);
 const size = z.number().finite().min(0).max(2000);
@@ -18,7 +17,7 @@ export const nodeSchema = z
   .object({
     id,
     name: z.string().max(160).optional(),
-    type: z.enum(["frame", "text", "rectangle", "ellipse", "image", "icon"]),
+    type: z.enum(["frame", "text", "rectangle", "ellipse", "image", "icon", "path"]),
     parentId: id.optional(),
     x: coordinate.optional(),
     y: coordinate.optional(),
@@ -44,6 +43,7 @@ export const nodeSchema = z
     fontFamily: z.string().max(160).refine(validDesignFontFamily, "Use non-empty font family names separated by commas.").optional(),
     fontWeight: z.number().int().min(100).max(900).optional(),
     lineHeight: z.number().finite().min(0.5).max(5).optional().describe("Unitless line-height multiplier, such as 1.35 or 1.5, never pixels. Default 1.35."),
+    letterSpacing: z.number().finite().min(-100).max(100).optional().describe("Tracking in pixels added after each character; negative tightens."),
     textAlign: z.enum(["left", "center", "right"]).optional(),
     src: z
       .string()
@@ -60,6 +60,29 @@ export const nodeSchema = z
       .describe(
         "Lucide icon name for an icon layer, such as x, check, chevron-left or battery-full. fill is its line color, strokeWidth its line weight (default 2).",
       ),
+    path: z
+      .string()
+      .max(20000)
+      .refine(validDesignPath, "Use SVG path data only: commands and numbers, starting with M.")
+      .optional()
+      .describe("A path layer's SVG path data (d), in viewBox units: the layer's own pixels unless viewBox is set."),
+    viewBox: z
+      .tuple([coordinate, coordinate, z.number().finite().positive().max(16000), z.number().finite().positive().max(16000)])
+      .optional()
+      .describe("A path layer's coordinate box [minX, minY, width, height], scaled to fit the layer, such as [0, 0, 24, 24] for a glyph."),
+    arc: z
+      .object({
+        start: z.number().finite().min(-360).max(360).optional(),
+        sweep: z.number().finite().min(-360).max(360),
+      })
+      .strict()
+      .optional()
+      .describe(
+        "Instead of path: a circular arc centred in the layer, start degrees clockwise from 12 o'clock for sweep degrees (360 is a full ring). Drawn as a stroke.",
+      ),
+    strokeCap: z.enum(["butt", "round", "square"]).optional(),
+    strokeJoin: z.enum(["miter", "round", "bevel"]).optional(),
+    strokeDash: z.array(z.number().finite().min(0).max(2000)).min(1).max(8).optional().describe("A path layer's dash pattern in pixels, such as [4, 2]."),
     layout: z.enum(["free", "horizontal", "vertical"]).optional(),
     gap: size.optional(),
     padding: size.optional(),
@@ -101,26 +124,26 @@ export const nodeSchema = z
 export const designDocumentSchema = z
   .object({
     schemaVersion: z.literal(1),
-    width: z.number().int().min(240).max(3840),
-    height: z.number().int().min(240).max(3840),
+    width: screen,
+    height: screen,
     background: color.optional(),
     kit: designKitSchema.optional(),
     consistency: designConsistencySchema.optional(),
     tokens: z
-      .record(id, literalColor)
+      .record(id, designColorTokenSchema)
       .refine((value) => Object.keys(value).length <= 200, "Use at most 200 color tokens.")
       .optional(),
     nodes: z.array(nodeSchema).max(1000),
   })
   .strict();
 
-const plainColor = z.string().max(100);
+const plainColor = z.string().max(400);
 const { componentSourceId: _generated, ...wireNodeShape } = { ...nodeSchema.shape, fill: plainColor.optional(), stroke: plainColor.optional() };
 export const designDocumentInputSchema = z
   .object({
     schemaVersion: z.literal(1),
-    width: z.number().int().min(240).max(3840),
-    height: z.number().int().min(240).max(3840),
+    width: screen,
+    height: screen,
     background: plainColor.optional(),
     consistency: designConsistencySchema
       .optional()
@@ -128,7 +151,12 @@ export const designDocumentInputSchema = z
         "Strict mode blocks saves with kit drift. Exceptions require nodeId, field, exact diagnostic actual value and a reason. Never disable strict mode or add exceptions unless the user intends that change.",
       ),
     kit: designKitSchema.optional().describe("Pinned project kit snapshot returned by design_kit_read. Read the project kit before creating screens."),
-    tokens: z.record(z.string(), z.string()).optional().describe("Color tokens by name. A color field takes a CSS color or a $name token reference."),
+    tokens: z
+      .record(z.string(), z.union([z.string(), z.object({ light: z.string(), dark: z.string().optional(), contrast: z.string().optional() })]))
+      .optional()
+      .describe(
+        "Color tokens by name: one color, or {light, dark, contrast} for one design that switches modes. A color field takes a CSS color, $name, $name/0.4 for alpha, or color-mix(in srgb, $a 40%, $b).",
+      ),
     nodes: z.array(z.looseObject(wireNodeShape)).max(1000),
   })
   .strict();

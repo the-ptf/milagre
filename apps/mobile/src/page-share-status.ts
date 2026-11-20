@@ -1,4 +1,4 @@
-import type { ArtifactPageKind, DesignPageShare } from "@milagre/shared/artifact";
+import { DESIGN_PAGE_FONT_NOTE, type ArtifactPageKind, type DesignPageShare } from "@milagre/shared/artifact";
 
 function ago(at: number, now: number) {
   const minutes = Math.floor(Math.max(0, now - at) / 60_000);
@@ -37,7 +37,8 @@ export function shareStatusLine(share: DesignPageShare, now: number): string {
 /** What anyone with the link sees, and whether it follows the agent: `snapshot` when the current link is frozen. */
 export function sharePublicNotice(kind: ArtifactPageKind, snapshot = false): string {
   const what = kind === "design" ? "this design" : kind === "artifacts" ? "the page, hidden HTML included" : "every design and the page, hidden HTML included";
-  return `Anyone with the link can see ${what}. ${snapshot ? "Share again for a link that keeps updating as the agent works." : "The link keeps updating as the agent works."}`;
+  const fonts = kind === "artifacts" ? "" : ` ${DESIGN_PAGE_FONT_NOTE}`;
+  return `Anyone with the link can see ${what}.${fonts} ${snapshot ? "Share again for a link that keeps updating as the agent works." : "The link keeps updating as the agent works."}`;
 }
 
 export function shareSheetTitle(kind: ArtifactPageKind): string {

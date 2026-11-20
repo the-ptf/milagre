@@ -218,6 +218,27 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (relative === "undo-history" && !(id in modules)) return undoHistoryModule();
       if (relative === "design-font-cache")
         return load("design-font-cache.ts", { "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts") }, "", cache);
+      if (relative === "design-build-in")
+        return load(
+          "design-build-in.ts",
+          {
+            ...modules,
+            "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+            "@milagre/shared/design-build": require("../packages/shared/src/design-build.mjs"),
+          },
+          "",
+          cache,
+        );
+      if (relative === "design-modes-menu")
+        return load(
+          "design-modes-menu.ts",
+          {
+            "@milagre/shared/design-modes": require("../packages/shared/src/design-modes.mjs"),
+            "./artifact-pages.ts": require("../apps/mobile/src/artifact-pages.ts"),
+          },
+          "",
+          cache,
+        );
       if (relative === "secret-question")
         return load(
           "secret-question.tsx",
@@ -12701,6 +12722,64 @@ test("structured designs on mobile open on their canvas, with versions in the me
   h.cleanup();
 });
 
+test("designs that land while the phone canvas is open build in layer by layer; the ones it opened with don't", async () => {
+  const { createExampleDesign, designHtml } = require("../packages/shared/src/design.mjs");
+  const document = createExampleDesign();
+  const design = (id, version, doc) => ({
+    id,
+    version,
+    latest: version,
+    versions: version,
+    title: id,
+    format: "design",
+    width: 390,
+    height: 844,
+    html: designHtml(doc),
+    document: doc,
+  });
+  const changed = { ...document, nodes: document.nodes.map((node, index) => (index === 1 ? { ...node, opacity: 0.5 } : node)) };
+  let list = [design("fieldnotes", 1, document)];
+  const client = {
+    url: "mac",
+    call: async (method, [request] = []) => {
+      if (method === "artifact:list") return list;
+      if (method === "artifact:get") return list.find((item) => item.id === request.id);
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      throw new Error(`Unexpected request: ${method}`);
+    },
+  };
+  const h = designsHost(client);
+  const props = { hostId: "mac", chatId: "/p#7", id: "fieldnotes" };
+  await h.open(props);
+  await settle();
+  h.render("DesignsSheet", props);
+  const docs = (id) =>
+    h
+      .commands()
+      .filter((command) => command.t === "html" && command.id === id)
+      .map((command) => command.doc);
+  assert.equal(docs("fieldnotes").length, 1);
+  assert.doesNotMatch(docs("fieldnotes")[0], /milagre-build/, "a design the canvas opened with goes on as it is");
+  list = [design("fieldnotes", 2, changed), design("plan", 1, document)];
+  h.reconnect();
+  for (let round = 0; round < 4; round++) {
+    h.render("DesignsSheet", props);
+    await settle();
+  }
+  const edited = docs("fieldnotes").at(-1);
+  const added = docs("plan").at(-1);
+  assert.ok(edited && added, "both landed versions reach the canvas");
+  const layers = (doc) => [...doc.matchAll(/\[data-design-node="([^"]+)"\]\{animation-delay/g)].map((match) => match[1]);
+  assert.deepEqual(layers(edited), [document.nodes[1].id], "an edit builds in only the layers it changed");
+  assert.deepEqual(
+    layers(added),
+    document.nodes.map((node) => node.id),
+    "a new design builds in every layer, in order",
+  );
+  h.cleanup();
+});
+
 test("canvas fonts are injected once per page and replayed before documents after reload", async () => {
   const { createExampleDesign } = require("../packages/shared/src/design.mjs");
   const document = createExampleDesign();
@@ -16833,6 +16912,7 @@ test("mobile sharing checks availability, follows a live link through pause, sta
     },
     "expo-clipboard": { setStringAsync: async (url) => calls.push(["copy", url]) },
     "@hugeicons/core-free-icons": { ArrowLeft01Icon: "back" },
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
     "./design-page-sharing": { createDesignPageSharing: () => store },
     "./ui": {
       CircleButton: "CircleButton",
@@ -16857,6 +16937,10 @@ test("mobile sharing checks availability, follows a live link through pause, sta
   assert.ok(find(tree, (n) => n.props?.children === "Checking the sharing service…"));
   assert.ok(text(tree, "The link keeps updating as the agent works"), "the first share says the link is live");
   assert.ok(text(tree, "every design and the page, hidden HTML included"), "the workspace holds every design and the page");
+  assert.ok(
+    text(tree, "Apple's SF fonts, New York and SF Symbols show as Inter, Source Serif and Lucide icons on the shared page."),
+    "the notice says which Apple fonts and symbols the shared page swaps",
+  );
   state = {
     ...state,
     checking: false,

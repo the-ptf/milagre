@@ -26,6 +26,18 @@ The **Project library** keeps the designs a Project wants past its Chats, on nam
 - **Clients.** `design-library:list` `{chatId}` → `{pages: [{id, name, designs}]}` and `design-library:add` `{chatId, designId, page, tab?}`. Every change emits `design-library:changed` `{projectPath}`; desktop reads the library again on it (paired computers qualify the key), and the phone bridge turns it into the `library` live signal for that Project. The Artifact panel's page menu lists the library's pages after the Chat's Canvas and HTML page; a page shows on the same canvas, with each frame saying who saved its version, and Delete there removes it from the library for every Chat. Confined demo phones may list, not add.
 - **Not yet.** Comments stay per Chat: library designs take no comments or choices. A library page can't be shared as a link, a library is never shared across Projects, and the phone opens the library from a Chat that already has a design or a page.
 
+## Live drafts
+
+Users watch an agent design. Claude streams a tool call's input with `includePartialMessages`, and `design-drafts.cjs` turns the input of `design_show` and `design_apply` into `step-draft` events (offset, text, `done`) about every 120 ms. The desktop parses the partial JSON (`createDesignDraft`, `design-draft.mjs`) and builds the draft over the design's frame, or on a placeholder frame for a new design, under the agent's named cursor (`design-live.ts`).
+
+Some calls arrive only whole, when they are saved, so the canvas replays them instead:
+
+- **Claude subagents.** Claude Code streams `stream_event`s for the main agent only: it writes `parent_tool_use_id: null` on every one (checked through 2.1.329). A subagent's call shows up only once its input is complete, and saving takes about 0.1 s after 20 to 80 s of writing, so a placeholder from the call's start would show nothing.
+- **Codex.** The app-server (checked on 0.170) sends `item/started` for an MCP call with its arguments already whole, and no argument deltas.
+- **Antigravity and Kiro.** ACP tool calls carry their input whole.
+
+The desktop replays a saved version layer by layer (`designReplay`) under the caller's cursor, a subagent's persona included: over the frame holding the old version for an edit, and from a blank screen for a new design saved within the last 10 s. The phone gets no agent events, only signals and saved versions, so it doesn't show drafts. A version that lands while its canvas is open fades its new and changed layers in, one after another (`designBuildHtml`, `design-build.mjs`). Reduced motion turns replays off on both.
+
 ## Script policy
 
 `DESIGN_CODE_CSP` (`packages/shared/src/artifact-document.mjs`) is `ARTIFACT_CSP` plus scripts from `DESIGN_CODE_HOSTS` (unpkg, jsDelivr, cdnjs, esm.sh) and `'unsafe-eval'` for Babel. A design still makes no requests of its own: no `connect-src`, no forms. `checkDesignCode` refuses a `<script src>` off those hosts or without an exact version. The design skill gives agents the React, ReactDOM and Babel tags with integrity hashes.
@@ -38,6 +50,28 @@ The **Project library** keeps the designs a Project wants past its Chats, on nam
 | Agent preview | `screenshotDesign` (`html-render.cjs`): headless Chrome at the design's size returns the first screen, console messages and content size. Without Chrome the design still saves.                                          |
 
 Deploy `apps/design-share` before a desktop release that changes what a design may contain, or publishing fails validation on the old Worker.
+
+## Screen sizes
+
+A design's sides run from `DESIGN_MIN_SCREEN` (16) to 3840 px, for layer and interactive designs and on shared pages, so watch faces, complications and Dynamic Island pieces are drawn at 1x. HTML artifact pages keep their 240 px minimum. The agent's image enlarges a small screen up to 4x (512 px on the long edge) so it stays readable; the desktop canvas zooms to 800% and the phone canvas fits a small design to the screen.
+
+## Path layers
+
+`type: "path"` draws vector paths: `path` (SVG path data, in the layer's pixels or `viewBox` units) or `arc` (a ring stroke, `design-path.mjs`), with fill, stroke, caps, joins and dashes. `validDesignPath` accepts path commands, numbers and separators only, so no markup, quotes, URLs or entities reach a renderer; both renderers write the path into their own `<svg><path>`. Layout treats a path as a leaf box; contrast checks report text over a path as unsupported.
+
+## SF Symbols
+
+An icon layer names an SF Symbol as `sf:<name>` with an optional `fontWeight`. On a Mac host, `design-host-symbols.cjs` has AppKit draw each symbol (`NSImage(systemSymbolName:)` at its weight) through `osascript -l JavaScript`, so no native module ships: the result is a white mask PNG the renderers tint with the layer's color (CSS `mask` in the saved page, an SVG `<mask>` in previews and exports). AppKit hands back symbols as bitmaps, not paths, so masks are drawn at 96 pt and stay crisp at the canvas's zoom. Without a host source (other platforms, the desktop's live drafts) and on shared pages, `designSymbolLucide` maps the symbol to the closest Lucide icon (`DESIGN_SF_SYMBOL_LUCIDE`, then the base name with variants dropped, then `circle-dashed`); `publicPageContent` writes that Lucide name before upload, under the same license rule as Apple's fonts. `MILAGRE_DESIGN_SYSTEM_FONTS=0` turns host symbols off too.
+
+## Color modes
+
+A color token is one color or `{light, dark?, contrast?}`; a plain value is every mode, so older documents are unchanged. Color fields add `$token/alpha` and `color-mix(in srgb, …)`, resolved by `resolveDesignColor` (`design-tokens.mjs`) to one CSS color per mode, so no renderer depends on `color-mix` support. `designHtml` writes every token-based color as a CSS variable with one value per mode under `:root[data-design-mode]`, so one saved page serves every mode: the desktop canvas and the phone add the attribute with `designHtmlForMode` when the user picks a mode (desktop: the frame's More menu; phone: the design's actions menu, on a Chat's canvas or a Project library page), and the desktop's preview images draw `designDocumentForMode`. Agents preview and contrast-check a mode with `mode` on `design_show` and `design_inspect`. Shared pages draw light: `publicPageContent` writes literal colors. Kits add `tracking` and `opacity` tokens, bound like spacing.
+
+## Fonts
+
+Layer designs draw Inter and the catalog families from `packages/shared` everywhere. Fonts installed on the host computer also draw in its local previews: `design-host-fonts.cjs` indexes the system and user font folders (on a Mac, Apple's hidden `SFNS*.ttf`, `SFCompact*.ttf` and `NewYork*.ttf` under their public names), and `loadDesignFonts` asks it for each text layer's face. A face is the font instanced by HarfBuzz (`subset-font`) at the layer's weight and, for an optical-size axis, its font size, cut to the bundled character set and renamed so resvg finds it. Its advances feed `designTextLayout`, so hug text measures with the real font, and the saved HTML embeds it, so the desktop canvas and the phone draw it. `design_font_info` reads the same index for agents: named weights, axes and OS/2 metrics.
+
+License rule: Apple's families (SF Pro, SF Compact, SF Mono, New York and their variants) render only in local previews. `publicPageContent` renames them to their substitute (`designFontSubstitute`: Inter, Courier New, Source Serif 4) before upload, the share notice says so, and a host without them measures and draws the substitute. No installed font data ever leaves in a published page: the Worker renders with the bundled faces only. `MILAGRE_DESIGN_SYSTEM_FONTS=0` turns installed fonts off (tests use it for stable layouts).
 
 ## Publishing
 

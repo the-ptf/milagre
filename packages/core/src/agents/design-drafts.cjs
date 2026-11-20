@@ -1,4 +1,6 @@
-// A subagent's calls draft the same way, with `agent`: the id of the Agent call that started it. Claude Code 2.1.299
+// A subagent's calls would draft the same way, with `agent`: the id of the Agent call that started it. Claude Code
+// (checked through 2.1.329) writes `parent_tool_use_id: null` on every stream_event and streams no subagent input, so
+// subagent designs reach the canvas only as replays of the saved version.
 
 const DRAFT_TOOLS = /^mcp__milagre__(design_show|design_apply)$/;
 const DRAFT_MS = 120;

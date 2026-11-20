@@ -17,6 +17,9 @@ export type ArtifactSummary = ArtifactRef & {
   edits?: DesignLibraryEdit[];
 };
 
+/** What a shared page with designs draws instead of the fonts and symbols licensed for local previews only. */
+export const DESIGN_PAGE_FONT_NOTE = "Apple's SF fonts, New York and SF Symbols show as Inter, Source Serif and Lucide icons on the shared page.";
+
 export const isInteractiveDesign = (design: { format?: string; interactive?: boolean } | null | undefined): boolean =>
   design?.format === "design" && design.interactive === true;
 
