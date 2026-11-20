@@ -423,6 +423,25 @@ test("a host the relay tells it was replaced, without closing it, hangs up and w
   assert.ok(gap >= 380, `after the notice the host waited ${gap} ms`);
 });
 
+test("a relay that closes the host as busy (4503) is redialed on the server-error ladder", async (t) => {
+  const bridge = await startFakeBridge(t);
+  const dials = [],
+    closes = [];
+  const relay = await startRelay(t, {
+    hostBehavior: (ws, index) => {
+      dials.push(Date.now());
+      ws.on("close", () => closes.push(Date.now()));
+      if (index > 1) return false;
+      ws.close(4503, "relay-busy");
+      return true;
+    },
+  });
+  const mac = await startMac(t, { relayUrl: relay.url, bridgeUrl: bridge.url, timing: { backoff: [20], serverErrorBackoff: [20, 400], jitter: false } });
+  await until(() => mac.host.status() === "online" && dials.length === 3, "online on the third dial");
+  const gap = dials[2] - closes[1];
+  assert.ok(gap >= 380, `after two busy closes the host waited ${gap} ms`);
+});
+
 test("a relay answering the upgrade with a server error is redialed on the slower ladder; a 404 keeps the short backoff", async (t) => {
   for (const [status, slow] of [
     [500, true],

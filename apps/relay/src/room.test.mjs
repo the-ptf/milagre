@@ -409,7 +409,7 @@ test("a restored ready host and its phones keep talking, new phones get fresh co
   assert.deepEqual(after.get(host), { role: "host", next: String(c) });
 
   revived.hostMessage(host, frame(3, a));
-  assert.deepEqual(first.closed, { code: 1000, reason: "closed-by-host" });
+  assertParked(first, 1000, "closed-by-host");
   revived.phoneClosed(second);
   assert.deepEqual(unframe(host.sent.at(-1)), { type: 3, conn: b, payload: new Uint8Array() });
   assert.equal(host.closed, null);
@@ -590,7 +590,7 @@ test("restore re-marks the host when restored conns move the counter past its ma
   assert.equal(untouched.marks.has(host), false, "a mark that is already right is not rewritten");
 });
 
-test("a CLOSE that says host-offline closes the phone as if no Mac were there", () => {
+test("a CLOSE that says host-offline closes the phone as if no Mac were there; any other CLOSE parks it as closed-by-host", () => {
   const room = createRoom({ id, nonce: randomNonce });
   const host = connectHost(room);
   const phone = fakeSocket();
@@ -600,7 +600,11 @@ test("a CLOSE that says host-offline closes the phone as if no Mac were there", 
   const other = fakeSocket();
   const next = room.phoneOpened(other);
   room.hostMessage(host, frame(3, next, new TextEncoder().encode("anything else")));
+  assertParked(other, 1000, "closed-by-host");
+  const before = host.sent.length;
+  room.phoneMessage(other, new Uint8Array([1]));
   assert.deepEqual(other.closed, { code: 1000, reason: "closed-by-host" });
+  assert.equal(host.sent.length, before, "nothing from a parked phone reaches the Mac");
 });
 
 test("DATA for a conn the room no longer holds is answered with one CLOSE, so the Mac stops a stream whose phone is gone", () => {
