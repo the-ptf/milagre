@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 import { validateDesignPageSnapshot, renderDesignPage } from "@milagre/shared/design-page";
 import { authorized, boundedBody, CHUNK_BYTES, createPageService, createQuotaService, digest, PAGE_TTL_MS, quotaLimits, routeRequest } from "./service.mjs";
+import { VIEWER_HEAD } from "./viewer.mjs";
 
 function memory() {
   const map = new Map();
@@ -355,7 +356,7 @@ test("one interactive Artifact publishes as a sandboxed page, updates in place a
   const html = await page.text();
   assert.match(html, /sandbox="allow-scripts"/);
   assert.match(html, /Explore/);
-  assert.doesNotMatch(html, /allow-same-origin|Canvas zoom/);
+  assert.doesNotMatch(html.replace(VIEWER_HEAD, ""), /allow-same-origin|Canvas zoom/);
   snapshot.artifacts[0].html = "<h1>Later edit</h1>";
   assert.equal((await f.send("PUT", snapshot)).status, 200);
   const updated = await (await f.send("GET")).text();
@@ -411,7 +412,27 @@ test("legacy snapshots gain previews without corrupting Unicode at chunk boundar
   f.storage.put("html:1", bytes.slice(CHUNK_BYTES));
   const rendered = await (await f.send("GET")).text();
   assert.ok(rendered.includes('<meta property="og:title" content="Old &amp; safe">'));
-  assert.equal(rendered.replace(/<meta (?:property|name)="(?:og:|twitter:|description)[^>]*>/g, "").replace(/<link rel="canonical"[^>]*>/g, ""), html);
+  assert.equal(
+    rendered
+      .replace(/<meta (?:property|name)="(?:og:|twitter:|description)[^>]*>/g, "")
+      .replace(/<link rel="canonical"[^>]*>/g, "")
+      .replace(VIEWER_HEAD, ""),
+    html,
+  );
+});
+
+test("every read carries the current viewer in its head, old snapshots included, without changing what is stored", async () => {
+  const html =
+    '<!doctype html><html><head><title>Old | Milagre Designs</title><style>#viewport{}</style></head><body><main id="viewport"><div id="canvas"></div></main><script>old()</script></body></html>';
+  const f = await fixture();
+  const bytes = new TextEncoder().encode(html);
+  f.storage.put("meta", { hash: "legacy", chunks: 1 });
+  f.storage.put("html:0", bytes);
+  const rendered = await (await f.send("GET")).text();
+  assert.equal(rendered.split(VIEWER_HEAD).length, 2, "one viewer");
+  assert.ok(rendered.indexOf(VIEWER_HEAD) < rendered.indexOf("</head>"), "the viewer loads in the head");
+  assert.deepEqual(f.storage.get("html:0"), bytes);
+  assert.doesNotMatch(VIEWER_HEAD.slice(VIEWER_HEAD.indexOf("<script>") + 8, -"</script>".length), /<\/script/i, "the viewer can't close its own script");
 });
 
 test("the public preview image supports GET and HEAD without accessing snapshot storage", async () => {
