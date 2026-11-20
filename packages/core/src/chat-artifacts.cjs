@@ -6,10 +6,11 @@ const { z } = require("zod");
 const { designDocumentInputSchema, designOperationInputSchema, designEditIntentSchema, DESIGN_MIN_SCREEN } = require("@milagre/shared/design-schemas");
 const { withDesignHost } = require("./design-host-fonts.cjs");
 const designImplementation = () => withDesignHost(require("@milagre/shared/design"));
-const { artifactDocument, hasDiagrams, checkDesignCode } = require("@milagre/shared/artifact-document");
+const { checkDesignCode } = require("@milagre/shared/artifact-document");
+const { MAX_HTML, checkDesignHtml, editDesignHtml } = require("./design-html.cjs");
 const { ASSET_NAME, ASSET_HASH, MAX_ASSET_BYTES, MAX_PAGE_ASSETS, MAX_PAGE_ASSET_BYTES, assetType, mentionsAsset } = require("@milagre/shared/artifact-assets");
 const { openAttachment } = require("./attachment-preview.cjs");
-const { diagramScript } = require("@milagre/shared/diagram-script");
+const { pageSnapshot } = require("./chat-artifacts-snapshot.cjs");
 const { renderDesignPng } = require("./design-raster.cjs");
 const { screenshotDesign } = require("./html-render.cjs");
 const { designFeedback, interactiveFeedback, inspectLayerDesign, INTERACTIVE_GUIDE, DESIGN_MODE_INPUT } = require("./design-feedback.cjs");
@@ -17,54 +18,12 @@ const { BUNDLED_SKILLS_DIRECTORY } = require("./bundled-skills.cjs");
 const DESIGN_SKILL = path.join(BUNDLED_SKILLS_DIRECTORY, "design", "SKILL.md");
 
 const MAX_VERSIONS = 50;
-const MAX_HTML = 1_000_000;
 const VIEWPORT = { width: 1280, height: 800 };
 const formatOf = (entry) => (entry?.format === "design" ? "design" : "html");
 const interactiveOf = (entry) => entry?.format === "design" && entry.interactive === true;
 const KIND_MISMATCH =
   "A design stays layers or interactive HTML for all its versions. Use a new id for the other kind, such as an interactive version of a layer design.";
-function checkDesignHtml(html) {
-  if (typeof html !== "string" || !html.trim()) throw Error("An interactive design needs its HTML.");
-  if (html.length > MAX_HTML) throw Error(`An interactive design's HTML is limited to ${MAX_HTML} characters.`);
-  const problems = checkDesignCode(html);
-  if (problems.length) throw Error(problems.join(" "));
-  return html;
-}
-function editDesignHtml(html, edits) {
-  if (!Array.isArray(edits) || !edits.length) throw Error("Send at least one edit.");
-  let next = html;
-  edits.forEach((edit, index) => {
-    const find = edit?.find;
-    if (typeof find !== "string" || !find) throw Error(`Edit ${index + 1} needs the text to find.`);
-    if (typeof edit.replace !== "string") throw Error(`Edit ${index + 1} needs the text to replace it with.`);
-    const count = next.split(find).length - 1;
-    if (!count) throw Error(`Edit ${index + 1}: its text isn't in the design (after the edits before it). Read the design again with design_read.`);
-    if (count > 1 && !edit.all)
-      throw Error(`Edit ${index + 1}: its text occurs ${count} times. Include more of the text around it, or set all to replace every one.`);
-    next = edit.all ? next.split(find).join(edit.replace) : next.replace(find, () => edit.replace);
-  });
-  return next;
-}
-function sharedHtml(html) {
-  if (!hasDiagrams(html)) return html;
-  const page = artifactDocument(html, { page: true, diagrams: diagramScript() });
-  return page.length <= MAX_HTML ? page : html;
-}
 const MAX_TABS = 20;
-const escapeHtml = (text) => text.replace(/[&<>"]/g, (character) => `&#${character.charCodeAt(0)};`);
-function tabbedPage(tabs) {
-  const pages = JSON.stringify(tabs.map((tab) => tab.html)).replace(/</g, "\\u003c");
-  const buttons = tabs.map((tab) => `<button type="button" role="tab">${escapeHtml(tab.title)}</button>`).join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;height:100%}body{display:flex;flex-direction:column;font:13px/1 system-ui,sans-serif;background:#fff}nav{display:flex;flex-shrink:0;gap:2px;overflow-x:auto;padding:6px 8px;border-bottom:1px solid #e6e6e6;background:#fafafa}button{flex-shrink:0;border:0;border-radius:6px;padding:7px 12px;background:none;color:#555;font:inherit;white-space:nowrap;cursor:pointer}button:hover{color:#111}button[aria-selected=true]{background:#ececec;color:#111;font-weight:600}button:focus-visible{outline:2px solid #007df3;outline-offset:-2px}iframe{flex:1;min-height:0;width:100%;border:0}</style></head><body><nav role="tablist" aria-label="Tabs">${buttons}</nav><iframe sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe><script type="application/json" id="pages">${pages}</script><script>(()=>{const pages=JSON.parse(document.getElementById('pages').textContent),frame=document.querySelector('iframe'),tabs=[...document.querySelectorAll('[role=tab]')];const show=(index)=>{tabs.forEach((tab,at)=>{tab.setAttribute('aria-selected',String(at===index));tab.tabIndex=at===index?0:-1});frame.title=tabs[index].textContent;frame.srcdoc=pages[index]};tabs.forEach((tab,index)=>{tab.onclick=()=>show(index)});document.querySelector('nav').onkeydown=(event)=>{const at=tabs.indexOf(document.activeElement),step=event.key==='ArrowRight'?1:event.key==='ArrowLeft'?-1:0;if(!step||at<0)return;event.preventDefault();const next=(at+step+tabs.length)%tabs.length;tabs[next].focus();show(next)};show(0)})();</script></body></html>`;
-}
-function sharedPage(current) {
-  if (!current.tabs) return sharedHtml(current.html);
-  const page = tabbedPage(current.tabs.map((tab) => ({ title: tab.title, html: sharedHtml(tab.html) })));
-  if (page.length <= MAX_HTML) return page;
-  const plain = tabbedPage(current.tabs);
-  if (plain.length <= MAX_HTML) return plain;
-  throw Error(`This page's tabs are over ${MAX_HTML} characters together, too large to publish.`);
-}
 function checkTabs(tabs, current) {
   if (tabs === undefined) return null;
   if (!Array.isArray(tabs) || !tabs.length || tabs.length > MAX_TABS) throw Error(`A page has between 1 and ${MAX_TABS} tabs.`);
@@ -86,6 +45,7 @@ const ASSET_CHUNK = 256 * 1024;
 const megabytes = (bytes) => `${Math.ceil(bytes / (1024 * 1024))} MB`;
 const size = (value, fallback, minimum = 240) => (Number.isInteger(value) && value >= minimum && value <= 3840 ? value : fallback);
 const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const DESIGN_REF = /^(?:library:)?[a-z0-9][a-z0-9-]{0,63}$/;
 const COMMENTS = "comments";
 const PAGE_ANCHOR =
   /^(?:#[A-Za-z][\w-]{0,63}|[A-Za-z][A-Za-z0-9-]{0,40}:\d{1,5})(?:\/[A-Za-z][A-Za-z0-9-]{0,40}:\d{1,5}){0,40}@(?:0|1|0?\.\d{1,4}),(?:0|1|0?\.\d{1,4})$/;
@@ -135,7 +95,7 @@ const readVersionFile = (file) =>
     throw error;
   });
 
-function createChatArtifacts({ directory, validateChat, readKit }) {
+function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
   let queue = Promise.resolve();
   const serial = (fn) => {
     const result = queue.then(fn);
@@ -372,7 +332,7 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
     });
   }
 
-  return {
+  const api = {
     render: (request, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
@@ -389,39 +349,22 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
     pageSnapshot: (request) =>
       serial(async () => {
         const folder = await chat(request?.chatId);
-        if (request.kind !== undefined && request.kind !== "designs" && request.kind !== "artifacts") throw Error("Choose designs or artifacts to share.");
-        const format = request.kind === "artifacts" ? "html" : "design";
-        checkFormat(format);
-        const entries = await activeArtifacts(folder, format);
-        if (format === "html") {
-          if (!entries.length) throw Error("This Chat has no artifact page to share.");
-          const artifacts = [];
-          for (const entry of entries) {
-            const current = await readVersion(folder, entry);
-            artifacts.push({
-              title: current.title,
-              html: sharedPage(current),
-              width: current.width,
-              height: current.height,
-              ...(current.assets ? { assets: current.assets } : {}),
-            });
-          }
-          return { schemaVersion: 1, kind: "artifacts", title: request.title, artifacts };
-        }
-        if (!entries.length) throw Error("A shared page must contain at least one design.");
-        const designs = [];
-        for (const entry of entries) {
-          const latest = entry.versions.at(-1);
-          const group = latest.group ? { group: latest.group } : {};
-          if (interactiveOf(latest)) {
-            const html = await readVersionFile(htmlFile(folder, entry.id, latest.version));
-            designs.push({ title: latest.title, ...group, interactive: { html, width: latest.width, height: latest.height } });
-            continue;
-          }
-          const source = await readVersionFile(documentFile(folder, entry.id, latest.version));
-          designs.push({ title: latest.title, ...group, document: JSON.parse(source) });
-        }
-        return { schemaVersion: 1, title: request.title, designs };
+        return pageSnapshot(request, {
+          designs: () => activeArtifacts(folder, "design"),
+          page: async () => {
+            const [entry] = await activeArtifacts(folder, "html");
+            return entry ? readVersion(folder, entry) : null;
+          },
+          readDesign: async (entry) => {
+            const latest = entry.versions.at(-1);
+            const group = latest.group ? { group: latest.group } : {};
+            if (interactiveOf(latest)) {
+              const html = await readVersionFile(htmlFile(folder, entry.id, latest.version));
+              return { title: latest.title, ...group, interactive: { html, width: latest.width, height: latest.height } };
+            }
+            return { title: latest.title, ...group, document: JSON.parse(await readVersionFile(documentFile(folder, entry.id, latest.version))) };
+          },
+        });
       }),
     show: async (request, { assertActive, roots } = {}) => {
       const imported = await importAssets(request?.assets, roots);
@@ -748,6 +691,17 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
       }),
     close: () => queue,
   };
+  for (const name of ["show", "showDesign", "apply", "deleteDesign"]) {
+    const save = api[name];
+    api[name] = async (request, options) => {
+      const result = await save(request, options);
+      Promise.resolve()
+        .then(() => onChange?.({ chatId: request.chatId }))
+        .catch(() => {});
+      return result;
+    };
+  }
+  return api;
   async function commentDesign(folder, comment, { retained = false, format } = {}) {
     const artifact = await load(folder, comment.design.id);
     if (!artifact) throw Error("This comment's design is no longer available.");
@@ -803,7 +757,7 @@ function artifactToolDefinitions(
   return [
     {
       name: "design_show",
-      description: `For any UI, screen, mockup or visual design in this Chat, subagents included: use this, not HTML or image files, so it lands on the Chat's Designs canvas, where the user watches, reviews, comments and chooses on desktop and phone, and asks for changes through Chat. Only agents change designs. A static design is a document of named layers, with frames, text, shapes, vector paths and rings, icons, images, layout and color tokens; the document sets the screen size (390 by 844 for a phone). ${INTERACTIVE_GUIDE} Read the bundled design skill (${DESIGN_SKILL}) for both formats. A new id creates a design; revising an existing id requires expectedVersion from design_read. Prefer design_apply for small revisions. Use a different id for each variant, in the same group; to revise a design, keep its id. For a variant of a saved design, send from (its id and version) and only the operations (layers) or edits (interactive) that differ, instead of the whole design: Milagre copies it and applies them. When the user names another design tool, use that tool instead. The result includes the rendered design as an image, with layout warnings or console messages; check them before replying.`,
+      description: `For any UI, screen, mockup or visual design in this Chat, subagents included: use this, not HTML or image files, so it lands on the Chat's Designs canvas, where the user watches, reviews, comments and chooses on desktop and phone, and asks for changes through Chat. Only agents change designs. A static design is a document of named layers, with frames, text, shapes, vector paths and rings, icons, images, layout and color tokens; the document sets the screen size (390 by 844 for a phone). ${INTERACTIVE_GUIDE} Read the bundled design skill (${DESIGN_SKILL}) for both formats. A new id creates a design; revising an existing id requires expectedVersion from design_read. Prefer design_apply for small revisions. Use a different id for each variant, in the same group; to revise a design, keep its id. For a variant of a saved design, send from (its id and version) and only the operations (layers) or edits (interactive) that differ, instead of the whole design: Milagre copies it and applies them. A design in the Project library is library:<id> (design_library_list): revise it here with its library id and expectedVersion like any design; every Chat of the Project sees the new version. New designs land in this Chat; design_library_add puts one in the library. When the user names another design tool, use that tool instead. The result includes the rendered design as an image, with layout warnings or console messages; check them before replying.`,
       input: {
         title: z.string().min(1).max(120),
         group: z
@@ -823,7 +777,7 @@ function artifactToolDefinitions(
         width: z.number().int().min(DESIGN_MIN_SCREEN).max(3840).optional().describe("An interactive design's screen width, such as 390 for a phone."),
         height: z.number().int().min(DESIGN_MIN_SCREEN).max(3840).optional().describe("An interactive design's screen height, such as 844 for a phone."),
         from: z
-          .object({ id: z.string().regex(ID), version: z.number().int().positive().optional() })
+          .object({ id: z.string().regex(DESIGN_REF), version: z.number().int().positive().optional() })
           .optional()
           .describe("A saved design to copy (its latest version unless you name one), for a variant. Send document, html OR from."),
         operations: z
@@ -832,7 +786,7 @@ function artifactToolDefinitions(
           .optional()
           .describe("With from, for a layer design: the design_apply operations that turn the copy into the variant."),
         edits: editsInput.optional().describe("With from, for an interactive design: the edits that turn the copy into the variant."),
-        id: z.string().regex(ID).optional(),
+        id: z.string().regex(DESIGN_REF).optional(),
         expectedVersion: z.number().int().nonnegative().optional(),
         mode: DESIGN_MODE_INPUT,
       },
@@ -855,8 +809,8 @@ function artifactToolDefinitions(
     {
       name: "design_read",
       description:
-        "Read a design, the latest version unless you name one: a layer design's document and layer ids, or an interactive design's html. Read before editing and send its version as expectedVersion to design_apply or design_show.",
-      input: { id: z.string().regex(ID), version: z.number().int().positive().optional() },
+        "Read a design, the latest version unless you name one: a layer design's document and layer ids, or an interactive design's html. A Project library design is library:<id>. Read before editing and send its version as expectedVersion to design_apply or design_show.",
+      input: { id: z.string().regex(DESIGN_REF), version: z.number().int().positive().optional() },
       readOnly: true,
       run: async (args) => {
         const { html, ...design } = await api.get({ chatId, ...args, format: "design" });
@@ -866,9 +820,9 @@ function artifactToolDefinitions(
     {
       name: "design_inspect",
       description:
-        "Inspect a saved design without creating a version. Returns its image; for a layer design also computed layer bounds, contrast coverage and preview limitations, for an interactive design its console messages. Use this when taking over from another model or checking a design before you change it. nodeId crops a layer design's image to a visible layer; diagnostics still cover the whole screen.",
+        "Inspect a saved design without creating a version. Returns its image; for a layer design also computed layer bounds, contrast coverage and preview limitations, for an interactive design its console messages. Use this when taking over from another model or checking a design before you change it. Accepts library:<id> for a Project library design. nodeId crops a layer design's image to a visible layer; diagnostics still cover the whole screen.",
       input: {
-        id: z.string().regex(ID),
+        id: z.string().regex(DESIGN_REF),
         version: z.number().int().positive().optional(),
         nodeId: z.string().regex(LAYER_ID).optional(),
         mode: DESIGN_MODE_INPUT,
@@ -892,7 +846,7 @@ function artifactToolDefinitions(
         html: z.string().min(1).max(MAX_HTML).optional(),
         width: z.number().int().min(DESIGN_MIN_SCREEN).max(3840).optional(),
         height: z.number().int().min(DESIGN_MIN_SCREEN).max(3840).optional(),
-        id: z.string().regex(ID).optional(),
+        id: z.string().regex(DESIGN_REF).optional(),
         expectedVersion: z.number().int().positive().optional(),
         operations: z.array(designOperationInputSchema).min(1).max(1000).optional(),
         intent: designEditIntentSchema.optional(),
@@ -934,9 +888,9 @@ function artifactToolDefinitions(
     {
       name: "design_apply",
       description:
-        "Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent changing a design uses this (or design_show with expectedVersion), never a separate file. Change a layer design with one atomic batch of layer operations: update properties, insert a layer, or delete a layer and its descendants; use stable layer ids. Change an interactive design with edits: each the exact text to find in its HTML (once, unless all) and its replacement, applied in order. To replace the whole design, use design_show with its id and expectedVersion. expectedVersion must match the latest version read; a conflict changes nothing, so read again and reapply the intended edits. Optional intent (layer designs) enforces text-only preservation or fit-text within declared textIds/layoutIds. Rejected intent or an edit that doesn't match saves nothing. One successful batch creates one immutable version and shows its design card.",
+        "Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent changing a design uses this (or design_show with expectedVersion), never a separate file. Change a layer design with one atomic batch of layer operations: update properties, insert a layer, or delete a layer and its descendants; use stable layer ids. Change an interactive design with edits: each the exact text to find in its HTML (once, unless all) and its replacement, applied in order. To replace the whole design, use design_show with its id and expectedVersion. expectedVersion must match the latest version read; a conflict changes nothing, so read again and reapply the intended edits. Optional intent (layer designs) enforces text-only preservation or fit-text within declared textIds/layoutIds. Rejected intent or an edit that doesn't match saves nothing. One successful batch creates one immutable version and shows its design card. A Project library design is library:<id>: its new version is one every Chat of the Project sees, recorded with this Chat.",
       input: {
-        id: z.string().regex(ID),
+        id: z.string().regex(DESIGN_REF),
         expectedVersion: z.number().int().positive(),
         operations: z.array(designOperationInputSchema).min(1).max(1000).optional().describe("For a layer design."),
         edits: editsInput.optional().describe("For an interactive design."),
@@ -953,16 +907,16 @@ function artifactToolDefinitions(
     {
       name: "design_export",
       description:
-        "Export a design version: a layer design as its source JSON document, a standalone SVG or its HTML page; an interactive design as its HTML. The SVG names its fonts without embedding them. Returns the filename, MIME type and file content. Save the content to a file when the user requests a downloadable export.",
-      input: { id: z.string().regex(ID), version: z.number().int().positive().optional(), format: z.enum(["json", "svg", "html"]) },
+        "Export a design version (library:<id> for a Project library design): a layer design as its source JSON document, a standalone SVG or its HTML page; an interactive design as its HTML. The SVG names its fonts without embedding them. Returns the filename, MIME type and file content. Save the content to a file when the user requests a downloadable export.",
+      input: { id: z.string().regex(DESIGN_REF), version: z.number().int().positive().optional(), format: z.enum(["json", "svg", "html"]) },
       readOnly: true,
       run: async (args) => JSON.stringify(await api.exportDesign({ chatId, ...args })),
     },
     {
       name: "design_delete",
       description:
-        "Delete a design and every version of it from this Chat, with the comments on it. Only when the user asks to delete it, for example the variants they did not choose. Its cards in the Chat stay but no longer open it, and its id can't be used again.",
-      input: { id: z.string().regex(ID) },
+        "Delete a design and every version of it from this Chat, with the comments on it; with library:<id>, remove it from the Project library for every Chat. Only when the user asks to delete it, for example the variants they did not choose. Its cards in the Chat stay but no longer open it, and its id can't be used again.",
+      input: { id: z.string().regex(DESIGN_REF) },
       readOnly: false,
       run: async (args) => JSON.stringify(await api.deleteDesign({ chatId, ...args }, authorization)),
     },

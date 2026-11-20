@@ -13,12 +13,18 @@ function createDesignKits({ directory, projectForChat }) {
     queue = result.catch(() => {});
     return result;
   };
-  async function file(chatId, id) {
+  function projectFile(project, id) {
     if (typeof id !== "string" || !ID.test(id)) throw Error("Invalid design kit id.");
-    const project = await projectForChat(chatId);
     if (typeof project !== "string" || !project) throw Error("This Chat has no design kit scope.");
     return path.join(directory, createHash("sha256").update(project).digest("hex"), `${id}.json`);
   }
+  const file = async (chatId, id) => projectFile(await projectForChat(chatId), id);
+  const readKit = async (target, id, version) => {
+    const all = await versions(target);
+    const found = version === undefined ? all.at(-1) : all.find((kit) => kit.version === version);
+    if (!found && version !== undefined) throw Error(`Kit "${id}" version ${version} does not exist in this Project.`);
+    return found ? require("@milagre/shared/design").validateDesignKit(found) : null;
+  };
   async function versions(target) {
     try {
       const value = JSON.parse(await fs.readFile(target, "utf8"));
@@ -30,13 +36,8 @@ function createDesignKits({ directory, projectForChat }) {
     }
   }
   return {
-    read: ({ chatId, id = "project", version }) =>
-      serial(async () => {
-        const all = await versions(await file(chatId, id));
-        const found = version === undefined ? all.at(-1) : all.find((kit) => kit.version === version);
-        if (!found && version !== undefined) throw Error(`Kit "${id}" version ${version} does not exist in this Project.`);
-        return found ? require("@milagre/shared/design").validateDesignKit(found) : null;
-      }),
+    read: ({ chatId, id = "project", version }) => serial(async () => readKit(await file(chatId, id), id, version)),
+    readProject: ({ project, id = "project", version }) => serial(() => readKit(projectFile(project, id), id, version)),
     save: ({ chatId, id = "project", expectedVersion, kit }, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();

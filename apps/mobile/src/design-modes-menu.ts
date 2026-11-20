@@ -1,6 +1,7 @@
 import type { Artifact } from "@milagre/shared/artifact";
 import { DESIGN_MODE_LABELS, designHtmlForMode, designModesOf, type DesignMode } from "@milagre/shared/design-modes";
 import type { MenuSection } from "./ui";
+import { versionSections } from "./artifact-pages.ts";
 
 /** The modes a loaded design can show in; one entry when its tokens define no dark or contrast values. */
 const designModesFor = (artifact: Artifact | undefined): DesignMode[] =>
@@ -24,7 +25,14 @@ export const designModeLabel = (artifact: Artifact | undefined, chosen: DesignMo
   return mode === "light" ? "" : DESIGN_MODE_LABELS[mode];
 };
 
-/** A design's actions menu: resolved comments, choose, appearance, versions, share and delete. */
+const SHARE_SECTION: MenuSection = {
+  items: [
+    { id: "share", title: "Share", systemImage: "square.and.arrow.up" },
+    { id: "share-design", title: "Share this design" },
+  ],
+};
+
+/** A design's actions menu: resolved comments, choose, appearance, versions, share, then `extra` (the Project library) and delete. */
 export function designActionsMenu({
   shown,
   latest,
@@ -33,6 +41,7 @@ export function designActionsMenu({
   sent,
   sharing,
   mode,
+  extra,
 }: {
   shown: Artifact | undefined;
   latest: number;
@@ -41,25 +50,16 @@ export function designActionsMenu({
   sent: boolean;
   sharing: boolean;
   mode: DesignMode | undefined;
+  extra: MenuSection[];
 }): MenuSection[] {
   if (!shown) return [];
   return [
     { items: [{ id: "resolved", title: "Show resolved comments", checked: showResolved }] },
     { items: [{ id: "choose", title: chosen ? "Chosen" : "Choose this design", checked: chosen, disabled: sent }] },
     ...designModeMenu(shown, mode),
-    ...(latest > 1
-      ? [
-          {
-            title: "Versions",
-            items: Array.from({ length: latest }, (_, index) => latest - index).map((number) => ({
-              id: `version:${number}`,
-              title: `Version ${number}${number === latest ? " (latest)" : ""}`,
-              checked: number === shown.version,
-            })),
-          },
-        ]
-      : []),
-    ...(sharing ? [{ items: [{ id: "share", title: "Share page", systemImage: "square.and.arrow.up" }] }] : []),
+    ...versionSections(latest, shown.version),
+    ...(sharing ? [SHARE_SECTION] : []),
+    ...extra,
     { items: [{ id: "delete", title: "Delete design", systemImage: "trash", destructive: true }] },
   ];
 }

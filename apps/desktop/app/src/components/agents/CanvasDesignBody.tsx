@@ -2,17 +2,9 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState } from
 import { isInteractiveDesign, type Artifact } from "@milagre/shared/artifact";
 import { designDocumentForMode } from "@milagre/shared/design";
 import { designHtmlForMode, type DesignMode } from "@milagre/shared/design-modes";
-import { ArtifactFrame, designVersionKept, type PageFiles } from "./ArtifactCanvas";
+import { ArtifactFrame, type PageFiles } from "./ArtifactCanvas";
+import { isVersionKept } from "./artifact-read";
 import { designPreviews, designPreviewScale } from "./design-preview-cache";
-
-export function downloadHtml(html: string, filename: string) {
-  const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-  const link = window.document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 export function CanvasDesignBody({
   artifact,
@@ -60,7 +52,7 @@ export function CanvasDesignBody({
       cacheKey,
       document,
       (result) => setPreview({ key: cacheKey, result }),
-      () => designVersionKept(previewKey),
+      () => isVersionKept(previewKey),
       pixelRatio,
       previewScale,
       previewKey,

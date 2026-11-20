@@ -182,3 +182,10 @@ export function useRunText(chatKey: string | undefined): string | undefined {
   }, [store, chatKey]);
   return text;
 }
+
+/** A value read from a run's live text; the caller re-renders only when it changes, not on every token. */
+export function useRunTextValue<T>(chatKey: string | undefined, read: (text: string | undefined) => T): T {
+  const store = useContext(AgentRunsContext)?.text;
+  const subscribe = useCallback((notify: () => void) => (store && chatKey ? store.subscribe(chatKey, notify) : () => {}), [store, chatKey]);
+  return useSyncExternalStore(subscribe, () => read(store && chatKey ? store.read(chatKey) : undefined));
+}

@@ -25,10 +25,19 @@ test("a design with dark and contrast tokens offers an Appearance section; a one
       ],
     },
   ]);
-  const menu = designActionsMenu({ shown: modal, latest: 2, showResolved: false, chosen: false, sent: false, sharing: true, mode: "dark" });
+  const menu = designActionsMenu({
+    shown: modal,
+    latest: 2,
+    showResolved: false,
+    chosen: false,
+    sent: false,
+    sharing: true,
+    mode: "dark",
+    extra: [{ items: [{ id: "library:new", title: "New page…" }] }],
+  });
   assert.deepEqual(
     menu.map((section) => section.title ?? section.items[0]?.id),
-    ["resolved", "choose", "Appearance", "Versions", "share", "delete"],
+    ["resolved", "choose", "Appearance", "Versions", "share", "library:new", "delete"],
   );
 });
 

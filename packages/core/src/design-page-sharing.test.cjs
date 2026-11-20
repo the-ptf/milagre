@@ -10,37 +10,71 @@ const { publicAddress, fetchRaster, embedPageImages } = require("./design-page-i
 const { publicPageContent } = require("./design-page-content.cjs");
 const CHAT = "/project#1";
 const document = () => ({ schemaVersion: 1, width: 390, height: 844, nodes: [{ id: "heading", type: "text", width: 300, height: 80, text: "Hello" }] });
+function fakeClock() {
+  const pending = [];
+  return {
+    pending,
+    timers: {
+      setTimeout: (run, ms) => {
+        const timer = { run, ms };
+        pending.push(timer);
+        return timer;
+      },
+      clearTimeout: (timer) => {
+        if (pending.includes(timer)) pending.splice(pending.indexOf(timer), 1);
+      },
+    },
+    next: async () => {
+      const timer = pending.shift();
+      assert.ok(timer, "a timer is waiting");
+      await timer.run();
+      return timer.ms;
+    },
+  };
+}
+const settled = () => new Promise((resolve) => setImmediate(resolve));
 async function fixture(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "design-page-sharing-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const validateChat = async (chatId) => {
     if (chatId !== CHAT) throw Error("Unknown Chat");
   };
-  const artifacts = createChatArtifacts({ directory: path.join(directory, "artifacts"), validateChat });
+  const hooks = {};
+  const artifacts = createChatArtifacts({
+    directory: path.join(directory, "artifacts"),
+    validateChat,
+    onChange: ({ chatId }) => hooks.changed?.(chatId),
+  });
   for (const id of ["first", "second"]) await artifacts.showDesign({ chatId: CHAT, id, title: id, document: document() });
   const calls = [];
   let failure = false;
   const chat = { title: "My page" };
+  const clock = fakeClock();
   const options = {
     directory: path.join(directory, "shares"),
     chatTitle: async () => chat.title,
     artifacts,
     validateChat,
+    timers: clock.timers,
     fetch: async (url, options) => {
       if (options.method === "GET") return new Response("ok");
       calls.push({ url, ...options });
+      if (typeof failure === "number") return new Response("refused", { status: failure });
       if (failure) throw Error("lost acknowledgement");
       if (options.method === "DELETE") return new Response(null, { status: 204 });
       const id = new URL(url).pathname.split("/").at(-1);
       return Response.json({ id, path: `/s/${id}` }, { status: 201 });
     },
   };
+  const api = createDesignPageSharing(options);
+  hooks.changed = (chatId) => api.changed(chatId);
   return {
     artifacts,
     calls,
     chat,
+    clock,
     options,
-    api: createDesignPageSharing(options),
+    api,
     fail: (value) => {
       failure = value;
     },
@@ -389,8 +423,8 @@ test("consent, Chat scope and page kind are enforced before any public request",
   await assert.rejects(api.publish({ ...request, acknowledgePublic: false }), /Confirm/);
   await assert.rejects(api.publish({ ...request, chatId: "/other#1" }), /Unknown Chat/);
   await assert.rejects(api.revoke({ chatId: CHAT, id: "x".repeat(43) }), /does not belong/);
-  await assert.rejects(api.publish({ ...request, kind: "other" }), /Choose Designs or Artifacts/);
-  await assert.rejects(api.list({ chatId: CHAT, kind: "other" }), /Choose Designs or Artifacts/);
+  await assert.rejects(api.publish({ ...request, kind: "other" }), /Choose the workspace, one design or the page/);
+  await assert.rejects(api.list({ chatId: CHAT, kind: "other" }), /Choose the workspace, one design or the page/);
   assert.equal(calls.length, 0);
 });
 test("page capture is ordered with edits", async (t) => {
@@ -637,7 +671,7 @@ test("republishing an expired hosted page creates a new link through the host us
       return pages.get(id).fetch(new Request(url, init), id);
     },
   });
-  for (const kind of ["designs", "artifacts"]) {
+  for (const kind of ["designs", "artifacts", "workspace"]) {
     const first = await api.publish({ ...request, kind });
     time += PAGE_TTL_MS;
     await pages.get(first.id).alarm();
@@ -673,4 +707,211 @@ test("an Artifact page's files are uploaded by hash before the snapshot that nam
   const snapshot = JSON.parse(page.body);
   assert.deepEqual(snapshot.artifacts[0].assets, [{ name: "demo.mp4", hash, size: bytes.length, type: "video/mp4" }]);
   assert.equal(snapshot.artifacts[0].html, '<video src="assets/demo.mp4"></video>', "the service points the page at its files");
+});
+
+const edit = (artifacts, id, version, text) =>
+  artifacts.apply({ chatId: CHAT, id, expectedVersion: version, operations: [{ op: "update", id: "heading", patch: { text } }] });
+const puts = (calls) => calls.filter((call) => call.method === "PUT" && !call.url.includes("/files/"));
+
+test("a new workspace link is live: agent saves republish it once, under the same link, after a quiet moment", async (t) => {
+  const { api, artifacts, calls, clock, request } = await fixture(t);
+  await artifacts.show({ chatId: CHAT, title: "Explainer", html: "<p>Page</p>" });
+  await settled();
+  assert.equal(clock.pending.length, 1, "a save with no live link only arms a cheap check");
+  await clock.next();
+  assert.equal(calls.length, 0);
+  const share = await api.publish({ ...request, kind: "workspace" });
+  assert.equal(share.kind, "workspace");
+  assert.equal(share.live, true);
+  assert.equal(share.designCount, 3);
+  const first = JSON.parse(calls[0].body);
+  assert.equal(first.kind, "workspace");
+  assert.equal(first.page.html, "<p>Page</p>");
+  await edit(artifacts, "first", 1, "One");
+  await edit(artifacts, "first", 2, "Two");
+  await settled();
+  assert.deepEqual(
+    clock.pending.map((timer) => timer.ms),
+    [3000],
+    "saves in a row share one update",
+  );
+  await clock.next();
+  assert.equal(puts(calls).length, 2);
+  assert.equal(calls[1].url, calls[0].url);
+  assert.equal(calls[1].headers.authorization, calls[0].headers.authorization);
+  assert.equal(JSON.parse(calls[1].body).designs[0].document.nodes[0].text, "Two");
+  const [updated] = await api.list({ chatId: CHAT, kind: "workspace" });
+  assert.equal(updated.id, share.id);
+  assert.ok(updated.updatedAt >= share.createdAt);
+  assert.equal(clock.pending.length, 0);
+  api.changed(CHAT);
+  await clock.next();
+  assert.equal(puts(calls).length, 2, "nothing new to publish sends nothing");
+});
+
+test("links from before live updates stay frozen", async (t) => {
+  const { api, artifacts, calls, clock, options, request } = await fixture(t);
+  const frozen = await api.publish(request);
+  assert.equal(frozen.live, undefined, "the old every-design kind is never live");
+  await artifacts.show({ chatId: CHAT, title: "Explainer", html: "<p>Page</p>" });
+  await api.publish({ ...request, kind: "artifacts" });
+  const filename = path.join(options.directory, (await fs.readdir(options.directory))[0]);
+  const saved = JSON.parse(await fs.readFile(filename, "utf8"));
+  for (const entry of saved) delete entry.live;
+  await fs.writeFile(filename, JSON.stringify(saved));
+  await edit(artifacts, "first", 1, "Later");
+  await artifacts.show({ chatId: CHAT, title: "Explainer", html: "<p>Later</p>" });
+  await settled();
+  await clock.next();
+  assert.equal(puts(calls).length, 2);
+  await assert.rejects(api.setPaused({ chatId: CHAT, id: frozen.id, paused: true }), /never updates on its own/);
+  const oldPage = saved.find((entry) => entry.kind === "artifacts");
+  const fresh = await api.publish({ ...request, kind: "artifacts" });
+  assert.notEqual(fresh.id, oldPage.id, "sharing a page again after its frozen link makes a new link");
+  assert.equal(fresh.live, true);
+  assert.ok(!calls.some((call) => call.method === "DELETE" && call.url.endsWith(oldPage.id)), "the frozen link stays published");
+  assert.ok(
+    (await api.listAll()).some((entry) => entry.id === oldPage.id && !entry.revoked),
+    "and stays in Published pages",
+  );
+});
+
+test("pausing stops updates and resuming publishes the current state at once", async (t) => {
+  const { api, artifacts, calls, clock, request } = await fixture(t);
+  const share = await api.publish({ ...request, kind: "workspace" });
+  const paused = await api.setPaused({ chatId: CHAT, id: share.id, paused: true });
+  assert.equal(paused.paused, true);
+  assert.deepEqual(await api.list({ chatId: CHAT, kind: "workspace" }), [paused]);
+  await edit(artifacts, "first", 1, "While paused");
+  await settled();
+  await clock.next();
+  assert.equal(puts(calls).length, 1);
+  const resumed = await api.setPaused({ chatId: CHAT, id: share.id, paused: false });
+  assert.equal(resumed.paused, undefined);
+  assert.equal(puts(calls).length, 2);
+  assert.equal(JSON.parse(calls.at(-1).body).designs[0].document.nodes[0].text, "While paused");
+  assert.ok(resumed.updatedAt);
+  await assert.rejects(api.setPaused({ chatId: CHAT, id: share.id, paused: "no" }), /pause or resume/);
+  await assert.rejects(api.setPaused({ chatId: "/other#1", id: share.id, paused: true }), /Unknown Chat/);
+});
+
+test("a failed update marks the link stale and retries with a growing backoff until one succeeds", async (t) => {
+  const { api, artifacts, calls, clock, fail, options, request } = await fixture(t);
+  const share = await api.publish({ ...request, kind: "workspace" });
+  fail(true);
+  await edit(artifacts, "first", 1, "Offline");
+  await settled();
+  await clock.next();
+  let [current] = await api.list({ chatId: CHAT, kind: "workspace" });
+  assert.equal(current.stale, true);
+  assert.match(current.lastError, /could not be reached/);
+  assert.deepEqual(
+    clock.pending.map((timer) => timer.ms),
+    [15000],
+  );
+  fail(503);
+  await clock.next();
+  [current] = await api.list({ chatId: CHAT, kind: "workspace" });
+  assert.match(current.lastError, /refused this request \(503\)/);
+  assert.deepEqual(
+    clock.pending.map((timer) => timer.ms),
+    [30000],
+  );
+  fail(false);
+  const startup = fakeClock();
+  const resumed = createDesignPageSharing({ ...options, timers: startup.timers });
+  await resumed.resumeStale();
+  assert.deepEqual(
+    startup.pending.map((timer) => timer.ms),
+    [0],
+    "a host start retries stale live links",
+  );
+  await startup.next();
+  [current] = await api.list({ chatId: CHAT, kind: "workspace" });
+  assert.equal(current.id, share.id);
+  assert.equal(current.stale, undefined);
+  assert.equal(current.lastError, undefined);
+  assert.equal(JSON.parse(puts(calls).at(-1).body).designs[0].document.nodes[0].text, "Offline");
+  const count = calls.length;
+  await clock.next();
+  assert.equal(calls.length, count, "the pending retry finds nothing left to publish");
+  assert.equal(clock.pending.length, 0);
+});
+
+test("a link revoked on the service during an automatic update is marked revoked and left alone", async (t) => {
+  const { api, artifacts, clock, fail, request } = await fixture(t);
+  const share = await api.publish({ ...request, kind: "workspace" });
+  fail(410);
+  await edit(artifacts, "first", 1, "Gone");
+  await settled();
+  await clock.next();
+  assert.equal((await api.listAll()).find((entry) => entry.id === share.id).revoked, true);
+  assert.deepEqual(await api.list({ chatId: CHAT, kind: "workspace" }), []);
+  assert.equal(clock.pending.length, 0);
+});
+
+test("one design is shared alone, follows only its own saves and stops once it is deleted", async (t) => {
+  const { api, artifacts, calls, clock, request } = await fixture(t);
+  await assert.rejects(api.publish({ ...request, kind: "design" }), /Choose the design/);
+  const share = await api.publish({ ...request, kind: "design", designId: "first" });
+  assert.deepEqual([share.kind, share.designId, share.title, share.designCount, share.live], ["design", "first", "first", 1, true]);
+  const snapshot = JSON.parse(calls[0].body);
+  assert.equal(snapshot.kind, undefined);
+  assert.equal(snapshot.designs.length, 1);
+  assert.deepEqual(await api.list({ chatId: CHAT, kind: "design", designId: "second" }), []);
+  assert.deepEqual(
+    (await api.list({ chatId: CHAT, kind: "design", designId: "first" })).map((entry) => entry.id),
+    [share.id],
+  );
+  await edit(artifacts, "second", 1, "Elsewhere");
+  await settled();
+  await clock.next();
+  assert.equal(puts(calls).length, 1, "another design's save leaves the link as it is");
+  await edit(artifacts, "first", 1, "Mine");
+  await settled();
+  await clock.next();
+  assert.equal(puts(calls).length, 2);
+  await artifacts.deleteDesign({ chatId: CHAT, id: "first" });
+  await settled();
+  await clock.next();
+  const [gone] = await api.list({ chatId: CHAT, kind: "design", designId: "first" });
+  assert.equal(gone.stale, true);
+  assert.equal(gone.lastError, "This design was deleted.");
+  assert.equal(clock.pending.length, 0, "a deleted design is not retried");
+  await edit(artifacts, "second", 2, "Again");
+  await settled();
+  await clock.next();
+  assert.equal(puts(calls).length, 2);
+  await assert.rejects(api.revoke({ chatId: CHAT, id: share.id, kind: "design", designId: "second" }), /does not belong/);
+  await api.revoke({ chatId: CHAT, id: share.id, kind: "design", designId: "first" });
+});
+
+test("a workspace's page files are uploaded before the snapshot, again on each live update", async (t) => {
+  const { api, artifacts, calls, clock, request } = await fixture(t);
+  const worktree = await fs.mkdtemp(path.join(os.tmpdir(), "share-worktree-"));
+  t.after(() => fs.rm(worktree, { recursive: true, force: true }));
+  const bytes = Buffer.from("poster bytes");
+  await fs.writeFile(path.join(worktree, "poster.png"), bytes);
+  const page = {
+    chatId: CHAT,
+    title: "Demo",
+    html: '<img src="assets/poster.png">',
+    assets: [{ name: "poster.png", path: path.join(worktree, "poster.png") }],
+  };
+  await artifacts.show(page, { roots: [worktree] });
+  await api.publish({ ...request, kind: "workspace" });
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  assert.deepEqual(
+    calls.map((call) => call.url.endsWith(`/files/${hash}`)),
+    [true, false],
+  );
+  assert.deepEqual(JSON.parse(calls[1].body).page.assets, [{ name: "poster.png", hash, size: bytes.length, type: "image/png" }]);
+  await artifacts.show({ chatId: CHAT, title: "Demo", html: '<p>New</p><img src="assets/poster.png">' });
+  await settled();
+  await clock.next();
+  assert.deepEqual(
+    calls.slice(2).map((call) => call.url.endsWith(`/files/${hash}`)),
+    [true, false],
+  );
+  assert.match(JSON.parse(calls.at(-1).body).page.html, /<p>New<\/p>/);
 });

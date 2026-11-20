@@ -1,7 +1,8 @@
 export { createQuotaService, quotaLimits } from "./quota.mjs";
 import { MAX_ASSET_BYTES, assetInline, byteRange } from "@milagre/shared/artifact-assets";
 import { DESIGN_CODE_HOSTS } from "@milagre/shared/artifact-document";
-import { designPageRunsCode } from "@milagre/shared/design-page";
+import { designPageRunsCode, pageAssets } from "@milagre/shared/design-page";
+import { VIEWER_HEAD } from "./viewer.mjs";
 export const CHUNK_BYTES = 96 * 1024;
 const encoder = new TextEncoder();
 export const SECURITY_HEADERS = {
@@ -123,7 +124,8 @@ function serial() {
 
 const decode = (value) => value.replace(/&(amp|lt|gt|quot|#39);/g, (_, entity) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" })[entity]);
 
-function withSocialPreview(chunk, requestUrl) {
+/** A page's first chunk with its link preview metadata and the current viewer, added at read time so old links get both. */
+export function withHead(chunk, requestUrl) {
   const prefix = new TextDecoder().decode(chunk.subarray(0, 4096));
   const title = /<title>([^<]{1,1024}) \| Milagre (Designs|Artifact)<\/title>(?:<meta name="description" content="([^"<>]{1,2048})">)?/.exec(prefix);
   if (!title) return chunk;
@@ -162,7 +164,8 @@ function withSocialPreview(chunk, requestUrl) {
       Object.entries(names)
         .map(([name, content]) => `<meta name="${name}" content="${escape(content)}">`)
         .join("") +
-      `<link rel="canonical" href="${escape(url.href)}">`,
+      `<link rel="canonical" href="${escape(url.href)}">` +
+      VIEWER_HEAD,
   );
   const offset = encoder.encode(prefix.slice(0, title.index + title[0].length)).byteLength;
   const output = new Uint8Array(chunk.byteLength + metadata.byteLength);
@@ -375,7 +378,7 @@ export function createPageService({ storage, validate, render, quota, quotaId, s
                     }
                     const chunk = storage.get(chunkKey(meta.revision, index++));
                     if (!(chunk instanceof Uint8Array)) throw Error("Missing stored chunk");
-                    controller.enqueue(index === 1 ? withSocialPreview(chunk, request.url) : chunk);
+                    controller.enqueue(index === 1 ? withHead(chunk, request.url) : chunk);
                   } catch (error) {
                     controller.error(error);
                   }
@@ -405,7 +408,7 @@ export function createPageService({ storage, validate, render, quota, quotaId, s
           } catch {
             return response("Invalid Designs page snapshot", 400);
           }
-          const assets = snapshot.kind === "artifacts" ? (snapshot.artifacts?.[0]?.assets ?? []) : [];
+          const assets = pageAssets(snapshot);
           const files = storage.get("files") ?? {};
           const missing = [...new Set(assets.filter((asset) => files[asset.hash]?.size !== asset.size).map((asset) => asset.hash))];
           if (missing.length) return response(JSON.stringify({ missing }), 409, "application/json; charset=utf-8");

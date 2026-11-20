@@ -13,13 +13,12 @@ export type ArtifactSummary = ArtifactRef & {
   interactive?: boolean;
   kit?: { id: string; version: number; title: string };
   consistency?: { mode: "advisory" | "strict" };
+  /** On a Project library design: who saved each version kept. */
+  edits?: DesignLibraryEdit[];
 };
 
-/** The public-page notice before publishing, with what a page draws instead of what is licensed for local previews only. */
-export const designPageShareNotice = (kind: "designs" | "artifacts") =>
-  kind === "artifacts"
-    ? "Anyone with the link can view it, hidden HTML included."
-    : "Anyone with the link can view it. Apple's SF fonts, New York and SF Symbols show as Inter, Source Serif and Lucide icons there.";
+/** What a shared page with designs draws instead of the fonts and symbols licensed for local previews only. */
+export const DESIGN_PAGE_FONT_NOTE = "Apple's SF fonts, New York and SF Symbols show as Inter, Source Serif and Lucide icons on the shared page.";
 
 export const isInteractiveDesign = (design: { format?: string; interactive?: boolean } | null | undefined): boolean =>
   design?.format === "design" && design.interactive === true;
@@ -61,17 +60,34 @@ export type HtmlArtifact = ArtifactSummary & {
 /** Part of a file of the Chat's Artifact page, as `artifact:asset` returns it: up to 256 KB from `offset`, in base64. */
 export type ArtifactAssetChunk = ArtifactAsset & { offset: number; base64: string };
 export type Artifact = DesignArtifact | HtmlArtifact;
-export type ArtifactPageKind = "designs" | "artifacts";
+/**
+ * What a published page holds. `workspace` is the Artifact panel's Share: every design and the HTML page. `design` is
+ * one design (`designId`), `artifacts` the HTML page alone. `designs` (every design, no page) is only for links made
+ * before workspaces; it is never created again.
+ */
+export type ArtifactPageKind = "workspace" | "design" | "designs" | "artifacts";
+export type PageShareScope = { kind?: ArtifactPageKind; designId?: string };
 
 export interface DesignPageShare {
   kind?: ArtifactPageKind;
+  /** For `kind: "design"`: the design the link shows. */
+  designId?: string;
   id: string;
   url: string;
   title: string;
   createdAt: number;
-  /** When the snapshot behind the link was last replaced; absent until the first update. */
+  /** When the page behind the link was last replaced; absent until the first update. */
   updatedAt?: number;
   designCount: number;
+  /** The link follows the agent's saves: each one republishes it a few seconds later. Links without it are frozen
+   * snapshots and never change on their own. */
+  live?: boolean;
+  /** A live link whose updates the owner paused. Resuming publishes the current state at once. */
+  paused?: boolean;
+  /** A live link has saves it has not published yet (offline, or the last attempt failed). It keeps retrying. */
+  stale?: boolean;
+  /** Why the last automatic update failed, while `stale`. */
+  lastError?: string;
   revoked?: boolean;
   /** The upload was never confirmed. Sharing again retries the same link. */
   pending?: boolean;
@@ -81,14 +97,17 @@ export interface DesignPageShare {
 }
 
 export interface ArtifactApi {
-  sharingStatus(request?: { kind?: ArtifactPageKind }): Promise<{ available: boolean; reason?: string }>;
+  sharingStatus(request?: PageShareScope & { chatId?: string }): Promise<{ available: boolean; reason?: string }>;
   allPageShares(): Promise<DesignPageShare[]>;
   revokeSavedPageShare(request: { id: string }): Promise<void>;
-  /** The page's current link, or none: at most one entry. */
-  pageShares(request: { chatId: string; kind?: ArtifactPageKind }): Promise<DesignPageShare[]>;
-  /** The page is named after its Chat on the host; `title` only satisfies hosts from before that, which require one. */
-  sharePage(request: { chatId: string; title?: string; acknowledgePublic: true; kind?: ArtifactPageKind }): Promise<DesignPageShare>;
-  revokePageShare(request: { chatId: string; id: string; kind?: ArtifactPageKind }): Promise<void>;
+  /** The scope's current link, or none: at most one entry. */
+  pageShares(request: { chatId: string } & PageShareScope): Promise<DesignPageShare[]>;
+  /** Publishes the scope now, under its current link when it has one; a new link is live. The page is named after its
+   * Chat on the host; `title` only satisfies hosts from before that, which require one. */
+  sharePage(request: { chatId: string; title?: string; acknowledgePublic: true } & PageShareScope): Promise<DesignPageShare>;
+  /** Pauses or resumes a live link's automatic updates. Resuming publishes the current state at once. */
+  setPageSharePaused(request: { chatId: string; id: string; paused: boolean }): Promise<DesignPageShare>;
+  revokePageShare(request: { chatId: string; id: string } & PageShareScope): Promise<void>;
   get(request: { chatId: string; id: string; version?: number; fonts?: { have: string[] } }): Promise<Artifact>;
   /** Part of a file of the Chat's Artifact page, by its name; `length` caps the bytes (256 KB at most). */
   asset(request: { chatId: string; name: string; offset?: number; length?: number }): Promise<ArtifactAssetChunk>;
@@ -98,6 +117,27 @@ export interface ArtifactApi {
   /** Records comments the user is sending; returns them with their ids. */
   addComments(request: { chatId: string; comments: DesignComment[] }): Promise<ArtifactComment[]>;
   comments(request: { chatId: string }): Promise<ArtifactComment[]>;
+  /** The design library of the Chat's Project: its pages and the latest version of each design on them. */
+  library(request: { chatId: string }): Promise<DesignLibrary>;
+  /** Copies one of the Chat's designs, or its HTML page (one `tab`), onto the library page named `page`; a new name makes it. */
+  addToLibrary(request: { chatId: string; designId: string; page: string; tab?: string }): Promise<DesignLibraryEntry>;
+  onLibraryChanged(callback: (payload: { projectPath: string }) => void): () => void;
+}
+
+/** One saved version of a Project library design: the Chat that saved it, that Chat's title and its agent then. */
+export type DesignLibraryEdit = { version: number; chatId: string; chat?: string; agent?: string; at: number };
+/** A design in the Project library. `id` is `library:<id>`, its address for `get`, `delete` and the agents' design tools. */
+export type DesignLibraryEntry = ArtifactSummary & { page: string; edits: DesignLibraryEdit[] };
+/** A named page of the library ("iPhone", "Kit"), the designs on it in the order they were added. */
+export type DesignLibraryPage = { id: string; name: string; designs: DesignLibraryEntry[] };
+export type DesignLibrary = { pages: DesignLibraryPage[] };
+/** Who saved the version shown, for a library frame's caption: "Edited in Login flow · Codex", or "Edited here" when
+ * `chatId` (the open Chat) saved it. */
+export function libraryEditLabel(design: Pick<ArtifactSummary, "edits"> | null | undefined, version?: number, chatId?: string | null): string {
+  const edit = design?.edits?.findLast((item) => version === undefined || item.version === version);
+  if (!edit) return "";
+  const where = chatId && edit.chatId === chatId ? "Edited here" : `Edited in ${edit.chat ?? "another Chat"}`;
+  return [where, edit.agent].filter(Boolean).join(" · ");
 }
 
 /**

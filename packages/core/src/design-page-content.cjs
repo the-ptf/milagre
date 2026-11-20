@@ -23,6 +23,7 @@ const publicFamily = (fontFamily) => {
 function publicPageContent(snapshot) {
   return {
     schemaVersion: snapshot.schemaVersion,
+    ...(snapshot.kind === "workspace" ? { kind: "workspace", ...(snapshot.page ? { page: snapshot.page } : {}) } : {}),
     title: snapshot.title,
     designs: snapshot.designs.map(({ title, group, document: input, interactive }) => {
       if (interactive)

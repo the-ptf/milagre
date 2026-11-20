@@ -87,6 +87,24 @@ export function replyActivity(
   return { setup, activity, images, viewedImages, artifacts, heartbeats, desktop, answer, answerAt };
 }
 
+/** The calls the reply is running now: the steps after its last text, while no text has followed them yet. */
+export function liveActivity(body: string, steps: ChatStep[] = []): ChatStep[] {
+  const { activity, answer, answerAt } = replyActivity(body, steps);
+  return (answer.trim() ? activity.slice(answerAt) : activity).flatMap((entry) => (entry.type === "step" ? [entry.step] : []));
+}
+
+const waited = new Set<string>();
+
+/**
+ * The live calls the loader under the transcript shows in place of their activity row. A group with a call that waits,
+ * or waited, for approval stays in the transcript beside its card and whatever was opened there while deciding.
+ */
+export function loaderActivity(body: string, steps: ChatStep[] = [], waitingStepIds: readonly string[] = []): ChatStep[] {
+  for (const id of waitingStepIds) waited.add(id);
+  const live = liveActivity(body, steps);
+  return live.some((step) => waited.has(step.id)) ? [] : live;
+}
+
 /** The last thinking, when no text came after it; shown under the answer. */
 export function unspokenThought(body: string, steps: ChatStep[] = []): string {
   const parts = replyParts(

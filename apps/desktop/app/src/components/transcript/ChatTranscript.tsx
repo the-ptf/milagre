@@ -11,7 +11,7 @@ import type { ChatStep } from "../../model";
 import { ChatMentionsContext, EMPTY_CHAT_MENTIONS, type ChatMentionScope } from "../ChatMentions";
 import { StepApprovalProvider, type StepApproval } from "../agents/step-approval";
 import { ChatFiles } from "../editor-links";
-import { ThinkingIndicator } from "../ThinkingIndicator";
+import { RunIndicator } from "../ThinkingIndicator";
 import { MessageScroller, TRANSCRIPT_END_EVENT, TRANSCRIPT_SHOWN_EVENT } from "../agents/message-scroller";
 import { StepDetailsScope } from "../agents/step-details";
 import { MessageTranscript } from "./MessageTranscript";
@@ -80,7 +80,13 @@ export function ChatTranscript({
               models={models}
             />
           </StepDetailsScope>
-          {isSending && <ThinkingIndicator startedAt={runStartedAt} label="Working" />}
+          {isSending && (
+            <RunIndicator
+              run={{ key: streamingKey, text: streamingText, steps: streamingSteps, waitingStepIds, scope: messageScope }}
+              startedAt={runStartedAt}
+              label="Working"
+            />
+          )}
         </div>
       </MessageScroller>
     </ReplyProviders>

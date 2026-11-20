@@ -34,7 +34,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 401,
+            "max": 390,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -136,7 +136,7 @@
             "skipComments": true
           }
         ],
-        "complexity": ["error", 53]
+        "complexity": ["error", 49]
       }
     },
     {
@@ -145,7 +145,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2857,
+            "max": 2854,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -153,7 +153,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2646,
+            "max": 2643,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -180,7 +180,7 @@
         "max-lines": [
           "error",
           {
-            "max": 945,
+            "max": 840,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -188,47 +188,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 340,
+            "max": 298,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 80]
-      }
-    },
-    {
-      "files": ["apps/desktop/app/src/components/agents/ArtifactCard.tsx"],
-      "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 1200,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 416,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
-        "complexity": ["error", 65]
-      }
-    },
-    {
-      "files": ["apps/desktop/app/src/components/agents/DesignPageShareDialog.tsx"],
-      "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 268,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ]
+        "complexity": ["error", 73]
       }
     },
     {
@@ -308,7 +273,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 606,
+            "max": 605,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -576,7 +541,7 @@
     {
       "files": ["apps/desktop/app/src/components/UpdateNotice.tsx"],
       "rules": {
-        "complexity": ["error", 72]
+        "complexity": ["error", 69]
       }
     },
     {
@@ -625,7 +590,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 386,
+            "max": 373,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -657,7 +622,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2456,
+            "max": 2451,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -665,12 +630,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2204,
+            "max": 2198,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 518]
+        "complexity": ["error", 513]
       }
     },
     {
@@ -713,7 +678,7 @@
         "max-lines": [
           "error",
           {
-            "max": 879,
+            "max": 819,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -721,12 +686,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 422,
+            "max": 367,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 63]
+        "complexity": ["error", 59]
       }
     },
     {
@@ -771,12 +736,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 281,
+            "max": 254,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 84]
+        "complexity": ["error", 79]
       }
     },
     {
@@ -798,7 +763,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 544,
+            "max": 530,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -946,7 +911,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 564,
+            "max": 563,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -959,7 +924,7 @@
         "max-lines": [
           "error",
           {
-            "max": 864,
+            "max": 832,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -972,7 +937,7 @@
             "skipComments": true
           }
         ],
-        "complexity": ["error", 69]
+        "complexity": ["error", 66]
       }
     },
     {
@@ -1149,7 +1114,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1067,
+            "max": 1021,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1157,7 +1122,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 644,
+            "max": 638,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1235,7 +1200,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 282,
+            "max": 252,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1429,7 +1394,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1679,
+            "max": 1678,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1437,7 +1402,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 1589,
+            "max": 1588,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1551,7 +1516,7 @@
         "max-lines": [
           "error",
           {
-            "max": 930,
+            "max": 926,
             "skipBlankLines": true,
             "skipComments": true
           }

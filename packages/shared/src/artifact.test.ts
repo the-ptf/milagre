@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   artifactTab,
+  libraryEditLabel,
   onArtifactTab,
   ARTIFACT_CSP,
   ARTIFACT_PAGE,
@@ -385,4 +386,17 @@ test("a comment on a tab names the tab, reads back with it, and pins sit on thei
   assert.equal(onArtifactTab(comment, page, page.tabs[0]!), false);
   assert.equal(onArtifactTab({}, page, page.tabs[0]!), true, "a pin from before tabs sits on the first");
   assert.equal(onArtifactTab({}, { title: "One", html: "" }, artifactTab({ title: "One", html: "" })), true);
+});
+
+test("a library version names the Chat that saved it, or says it was this one", () => {
+  const design = {
+    edits: [
+      { version: 1, chatId: "/p#2", chat: "Login flow", agent: "Codex", at: 1 },
+      { version: 2, chatId: "/p#5", agent: "Claude", at: 2 },
+    ],
+  };
+  assert.equal(libraryEditLabel(design, 1, "/p#5"), "Edited in Login flow · Codex");
+  assert.equal(libraryEditLabel(design, 2, "/p#5"), "Edited here · Claude", "an untitled Chat that is the open one");
+  assert.equal(libraryEditLabel(design, 2, "/p#2"), "Edited in another Chat · Claude");
+  assert.equal(libraryEditLabel(design, 3), "");
 });

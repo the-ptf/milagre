@@ -89,6 +89,14 @@ test("readRules keeps valid rules and says what it left out", () => {
   assert.deepEqual(rules, [{ key: "mod+g", command: "terminal.toggle" }]);
   assert.equal(issues.length, 4);
   assert.deepEqual(readRules({}).rules, []);
+  assert.deepEqual(
+    readRules([
+      { key: "mod+shift+e", command: "designs.toggle" },
+      { key: "mod+j", command: "terminal.toggle" },
+    ]),
+    { rules: [{ key: "mod+j", command: "terminal.toggle" }], issues: [] },
+    "a rule for a retired command is dropped without an issue",
+  );
 });
 
 test("the last matching rule wins, and when gates it", () => {
@@ -141,24 +149,24 @@ test("addNewDefaults adds unseen commands once and keeps removed ones unbound", 
     again.rules.some((rule) => rule.command === "chat.new"),
     false,
   );
-  // A newer Milagre brings designs.toggle: added once, after the rules there are.
-  const without = withCommandRules(unbound, "designs.toggle", []);
+  // A newer Milagre brings browser.toggle: added once, after the rules there are.
+  const without = withCommandRules(unbound, "browser.toggle", []);
   const newer = addNewDefaults(
     without,
-    first.seen.filter((id) => id !== "designs.toggle"),
+    first.seen.filter((id) => id !== "browser.toggle"),
   );
-  assert.deepEqual(newer.rules.at(-1), { key: "mod+shift+e", command: "designs.toggle" });
+  assert.deepEqual(newer.rules.at(-1), { key: "mod+shift+b", command: "browser.toggle" });
   assert.equal(
     newer.rules.some((rule) => rule.command === "chat.new"),
     false,
   );
   // An unseen command the file already binds keeps only its own rules.
   const kept = addNewDefaults(
-    withCommandRules(without, "designs.toggle", [{ key: "mod+e" }]),
-    first.seen.filter((id) => id !== "designs.toggle"),
+    withCommandRules(without, "browser.toggle", [{ key: "mod+e" }]),
+    first.seen.filter((id) => id !== "browser.toggle"),
   );
   assert.deepEqual(
-    kept.rules.filter((rule) => rule.command === "designs.toggle"),
-    [{ key: "mod+e", command: "designs.toggle" }],
+    kept.rules.filter((rule) => rule.command === "browser.toggle"),
+    [{ key: "mod+e", command: "browser.toggle" }],
   );
 });

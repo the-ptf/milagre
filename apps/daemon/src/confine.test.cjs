@@ -693,11 +693,23 @@ test("even a Chat inside the demo Project cannot publish, revoke or enumerate ow
   for (const [method, args] of [
     ["artifact:share-page", [{ chatId, title: "Demo", acknowledgePublic: true }]],
     ["artifact:revoke-page-share", [{ chatId, id: "x".repeat(43) }]],
+    ["artifact:set-page-share-paused", [{ chatId, id: "x".repeat(43), paused: false }]],
     ["artifact:revoke-saved-page-share", [{ id: "x".repeat(43) }]],
     ["artifact:all-page-shares", []],
     ["artifact:sharing-status", []],
   ])
     await assert.rejects(confine.checkCall(method, args), { status: 403, message: REFUSED });
+});
+
+test("a confined phone sees its own Project's design library and adds nothing to it", async (t) => {
+  const f = await fixture(t);
+  const confine = createConfinement({ allowedRoot: f.demo });
+  await confine.checkCall("design-library:list", [{ chatId: `${f.demo}#1` }]);
+  await assert.rejects(confine.checkCall("design-library:list", [{ chatId: `${f.outside}#1` }]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("design-library:add", [{ chatId: `${f.demo}#1`, designId: "home", page: "iPhone" }]), {
+    status: 403,
+    message: REFUSED,
+  });
 });
 
 test("a confined phone reads Linear issues, and only its own Project's worktree issues", async () => {

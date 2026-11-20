@@ -1,44 +1,50 @@
-const fs = require("node:fs/promises");
-const { openAsBlob } = require("node:fs");
-const path = require("node:path");
-const { createHash, randomBytes, randomUUID } = require("node:crypto");
-const { validateDesignPageSnapshot } = require("@milagre/shared/design-page");
-const { embedPageImages } = require("./design-page-images.cjs");
-const { publicPageContent } = require("./design-page-content.cjs");
+const { createHash, randomBytes } = require("node:crypto");
+const designPage = () => require("@milagre/shared/design-page");
+const embedPageImages = (snapshot) => require("./design-page-images.cjs").embedPageImages(snapshot);
+const publicPageContent = (snapshot) => require("./design-page-content.cjs").publicPageContent(snapshot);
+const { createPageTransport, uploadTimeout } = require("./design-page-transport.cjs");
+const { createLiveSchedule } = require("./design-page-live.cjs");
+const { createShareHistory } = require("./design-page-history.cjs");
 const hash = (value) => createHash("sha256").update(value).digest("base64url");
 const ID = /^[A-Za-z0-9_-]{43}$/;
-const uploadTimeout = (size) => Math.max(45_000, Math.min(300_000, 30_000 + Math.ceil(size / 32768) * 1000));
-async function boundedResponseText(response, limit) {
-  const reader = response.body?.getReader();
-  if (!reader) return "";
-  const chunks = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > limit) throw Error("Unexpected sharing service response.");
-      chunks.push(value);
-    }
-    return Buffer.concat(chunks).toString("utf8");
-  } finally {
-    await reader.cancel().catch(() => {});
-    reader.releaseLock();
-  }
-}
-const publicEntry = ({ id, url, title, createdAt, updatedAt, designCount, revoked, published, kind }) => ({
+const DESIGN_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const UNTITLED = { workspace: "Artifacts", design: "Design", designs: "Designs", artifacts: "Artifact" };
+const kindOf = (kind = "designs") => {
+  if (!Object.hasOwn(UNTITLED, kind)) throw Error("Choose the workspace, one design or the page to share.");
+  return kind;
+};
+const scopeOf = (request) => {
+  const kind = kindOf(request?.kind);
+  if (kind !== "design") return { kind };
+  if (typeof request.designId !== "string" || !DESIGN_ID.test(request.designId)) throw Error("Choose the design to share.");
+  return { kind, designId: request.designId };
+};
+const entryScope = (entry) => ({ kind: entry.kind ?? "designs", ...(entry.kind === "design" ? { designId: entry.designId } : {}) });
+const sameScope = (entry, scope) => (entry.kind ?? "designs") === scope.kind && (scope.kind !== "design" || entry.designId === scope.designId);
+const replaceable = (entries, scope) =>
+  entries.filter((entry) => !entry.revoked && sameScope(entry, scope) && (scope.kind === "designs" || entry.live === true));
+const transient = (error) => error?.unreachable === true || error?.status === 429 || error?.status >= 500;
+const publicEntry = ({ id, url, title, createdAt, updatedAt, designCount, revoked, published, kind, designId, live, paused, stale, lastError }) => ({
   id,
   url,
   title,
   createdAt,
   ...(updatedAt ? { updatedAt } : {}),
   designCount,
-  ...(kind === "artifacts" ? { kind } : {}),
+  ...(kind && kind !== "designs" ? { kind } : {}),
+  ...(designId ? { designId } : {}),
+  ...(live ? { live: true } : {}),
+  ...(live && paused ? { paused: true } : {}),
+  ...(live && stale && !revoked ? { stale: true, ...(lastError ? { lastError } : {}) } : {}),
   ...(revoked ? { revoked: true } : {}),
   ...(!published && !revoked ? { pending: true } : {}),
 });
 
+/**
+ * Publishes a Chat's workspace, one design or its page under capability links kept in private per-Chat histories.
+ * Links made by this version are live: `changed(chatId)` republishes each un-paused one a few seconds later under the
+ * same capability. Links saved without `live` are frozen snapshots and only change when the owner shares again.
+ */
 function createDesignPageSharing({
   directory,
   artifacts,
@@ -47,6 +53,10 @@ function createDesignPageSharing({
   origin = "https://share.milagre.cloud",
   fetch: fetcher = fetch,
   embedImages = embedPageImages,
+  timers,
+  liveDelay,
+  retryDelay,
+  maxRetryDelay,
 }) {
   const endpoint = new URL(origin);
   if (
@@ -58,58 +68,23 @@ function createDesignPageSharing({
     (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname)))
   )
     throw Error("Design sharing requires an HTTPS service origin.");
+  const { healthy, send, sendFile } = createPageTransport({ fetcher, assetPath: (request) => artifacts.assetPath(request) });
   let queue = Promise.resolve();
   const serial = (operation) => {
     const result = queue.then(operation);
     queue = result.catch(() => {});
     return result;
   };
-  const pageKind = (kind = "designs") => {
-    if (kind !== "designs" && kind !== "artifacts") throw Error("Choose Designs or Artifacts to share.");
-    return kind;
-  };
-  const check = async (chatId, kind) => {
-    pageKind(kind);
+  const check = async (chatId) => {
     if (typeof chatId !== "string" || !chatId || chatId.length > 8192) throw Error("An existing Chat is required.");
     await validateChat(chatId);
   };
-  const file = (chatId) => path.join(directory, `${hash(chatId)}.json`);
-  const readFile = async (filename) => {
-    try {
-      const data = JSON.parse(await fs.readFile(filename, "utf8"));
-      if (!Array.isArray(data)) throw Error("Invalid share history");
-      return data;
-    } catch (error) {
-      if (error.code === "ENOENT") return [];
-      throw Error("The saved page sharing history could not be read.", { cause: error });
-    }
-  };
-  const read = (chatId) => readFile(file(chatId));
-  const writeFile = async (filename, entries) => {
-    await fs.mkdir(directory, { recursive: true, mode: 0o700 });
-    const temporary = `${filename}.${randomUUID()}.tmp`;
-    try {
-      await fs.writeFile(temporary, JSON.stringify(entries), { mode: 0o600 });
-      await fs.rename(temporary, filename);
-    } finally {
-      await fs.rm(temporary, { force: true });
-    }
-  };
-  const historyQueues = new Map();
-  const updateHistory = (filename, update) => {
-    const result = (historyQueues.get(filename) ?? Promise.resolve()).then(async () => {
-      const entries = await readFile(filename);
-      const value = update(entries);
-      await writeFile(filename, entries);
-      return value;
+  const { file, readFile, read, updateHistory, histories } = createShareHistory(directory);
+  const updateEntry = (filename, id, update) =>
+    updateHistory(filename, (entries) => {
+      const saved = entries.find((item) => item.id === id);
+      return saved ? update(saved) : undefined;
     });
-    const tail = result.catch(() => {});
-    historyQueues.set(filename, tail);
-    void tail.then(() => {
-      if (historyQueues.get(filename) === tail) historyQueues.delete(filename);
-    });
-    return result;
-  };
   const revokeEntry = async (filename, entry) => {
     if (entry.revoked) return;
     await send(entry, "DELETE");
@@ -119,101 +94,115 @@ function createDesignPageSharing({
       current.revoked = true;
     });
   };
-  const live = (entries, kind) => entries.filter((entry) => !entry.revoked && pageKind(entry.kind) === kind);
-  const currentLink = (entries, kind) => live(entries, kind).findLast((entry) => entry.origin === endpoint.origin);
-  const histories = async function* () {
-    const names = await fs.readdir(directory).catch((error) => (error.code === "ENOENT" ? [] : Promise.reject(error)));
-    for (const name of names) {
-      if (!/^[A-Za-z0-9_-]{43}\.json$/.test(name)) continue;
-      const filename = path.join(directory, name);
-      try {
-        yield { filename, entries: await readFile(filename) };
-      } catch {
-        console.warn(`Skipping unreadable page sharing history: ${filename}`);
-      }
-    }
-  };
-  const status = async (request = {}) => {
-    pageKind(request.kind);
-    try {
-      const response = await fetcher(`${endpoint.origin}/health`, { method: "GET", redirect: "error", signal: AbortSignal.timeout(5000) });
-      if (response.status === 200 && (await boundedResponseText(response, 64)).trim() === "ok") return { available: true };
-      await response.body?.cancel();
-    } catch {}
+  const live = (entries, scope) => entries.filter((entry) => !entry.revoked && sameScope(entry, scope));
+  const currentLink = (entries, scope) => live(entries, scope).findLast((entry) => entry.origin === endpoint.origin);
+  const status = async (request) => {
+    kindOf(request?.kind);
+    if (await healthy(endpoint.origin)) return { available: true };
     return { available: false, reason: "Publishing is unavailable. The sharing service is not reachable. Try again later." };
   };
-  const send = async (entry, method, body) => {
-    let response;
-    try {
-      response = await fetcher(`${entry.origin}/api/pages/${entry.id}`, {
-        method,
-        redirect: "error",
-        signal: AbortSignal.timeout(body ? uploadTimeout(Buffer.byteLength(body)) : 45_000),
-        headers: { authorization: `Bearer ${entry.secret}`, ...(body ? { "content-type": "application/json" } : {}) },
-        ...(body ? { body } : {}),
-      });
-    } catch {
-      throw Error("The sharing service could not be reached. Try again when it is available.");
-    }
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw Object.assign(
-        Error(
-          response.status === 429
-            ? "The page sharing limit has been reached. Try again later."
-            : response.status === 413
-              ? "This page is too large to publish."
-              : `The sharing service refused this request (${response.status}). Try again later.`,
-        ),
-        { status: response.status },
-      );
-    }
-    if (method === "DELETE") {
-      await response.body?.cancel();
-      if (response.status !== 204) throw Error("The sharing service did not confirm revocation. The page may still be public.");
-      return;
-    }
-    if (response.status !== 200 && response.status !== 201) {
-      await response.body?.cancel();
-      throw Error("The sharing service did not confirm publication. Check the saved link before retrying.");
-    }
-    let reply;
-    try {
-      reply = JSON.parse(await boundedResponseText(response, 4096));
-    } catch {}
-    if (reply?.id !== entry.id || reply?.path !== `/s/${entry.id}`)
-      throw Error("The sharing service did not confirm publication. Check the saved link before retrying.");
+  const capture = async (chatId, scope) => {
+    const named = String((await chatTitle(chatId).catch(() => null)) ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const title = [...named].slice(0, 120).join("") || UNTITLED[scope.kind];
+    const availability = await status();
+    if (!availability.available) throw Object.assign(Error(availability.reason), { unreachable: true });
+    const current = await artifacts.pageSnapshot({ chatId, title, ...scope });
+    const snapshot = designPage().validateDesignPageSnapshot(current.kind === "artifacts" ? current : await embedImages(publicPageContent(current)));
+    const payload = JSON.stringify(snapshot);
+    const designCount = snapshot.kind === "artifacts" ? 1 : snapshot.designs.length + (snapshot.page ? 1 : 0);
+    return { snapshot, payload, details: { title: snapshot.title, designCount, digest: hash(payload) } };
   };
-  const sendFile = async (entry, chatId, asset) => {
-    const body = await openAsBlob(await artifacts.assetPath({ chatId, hash: asset.hash }), { type: asset.type });
-    if (body.size !== asset.size) throw Error("A file of this page changed while it was publishing. Share again.");
-    let response;
-    try {
-      response = await fetcher(`${entry.origin}/api/pages/${entry.id}/files/${asset.hash}`, {
-        method: "PUT",
-        redirect: "error",
-        signal: AbortSignal.timeout(uploadTimeout(asset.size)),
-        headers: { authorization: `Bearer ${entry.secret}`, "content-type": asset.type },
-        body,
-      });
-    } catch {
-      throw Error("The sharing service could not be reached. Try again when it is available.");
-    }
-    await response.body?.cancel();
-    if (response.status === 200 || response.status === 201) return;
-    throw Object.assign(
-      Error(
-        response.status === 429
-          ? "The page sharing limit has been reached. Try again later."
-          : response.status === 413
-            ? "A file on this page is too large to publish."
-            : `The sharing service refused a file of this page (${response.status}). Try again later.`,
-      ),
-      { status: response.status },
-    );
+  const upload = async (entry, chatId, { snapshot, payload }) => {
+    for (const asset of new Map(
+      designPage()
+        .pageAssets(snapshot)
+        .map((item) => [item.hash, item]),
+    ).values())
+      await sendFile(entry, chatId, asset);
+    await send(entry, "PUT", payload);
   };
+  const confirm = (filename, entry, details) =>
+    updateHistory(filename, (entries) => {
+      const saved = entries.find((item) => item.id === entry.id);
+      if (!saved) throw Error("This published page is no longer in saved history.");
+      if (saved.revoked) return saved;
+      if (saved.published) saved.updatedAt = Date.now();
+      Object.assign(saved, details, { published: true });
+      delete saved.stale;
+      delete saved.lastError;
+      return saved;
+    });
+  const markRevoked = (filename, id) =>
+    updateHistory(filename, (entries) => {
+      const gone = entries.find((item) => item.id === id);
+      const already = !gone || gone.revoked === true;
+      if (gone) gone.revoked = true;
+      return already;
+    });
+  const createEntry = (chatId, scope, details) => {
+    const secret = randomBytes(32);
+    const id = hash(secret);
+    return {
+      id,
+      secret: secret.toString("base64url"),
+      origin: endpoint.origin,
+      url: `${endpoint.origin}/s/${id}`,
+      createdAt: Date.now(),
+      ...details,
+      ...(scope.kind === "designs" ? {} : { kind: scope.kind, live: true, chatId }),
+      ...(scope.designId ? { designId: scope.designId } : {}),
+      published: false,
+    };
+  };
+  const refresh = async (filename, entry) => {
+    try {
+      const captured = await capture(entry.chatId, entryScope(entry));
+      if (entry.published && !entry.stale && entry.digest === captured.details.digest) return false;
+      await upload(entry, entry.chatId, captured);
+      await confirm(filename, entry, captured.details);
+      return false;
+    } catch (error) {
+      if (error.status === 410) {
+        await markRevoked(filename, entry.id);
+        return false;
+      }
+      const deleted = error.code === "DESIGN_DELETED";
+      await updateEntry(filename, entry.id, (saved) => {
+        if (!saved.revoked) Object.assign(saved, { stale: true, lastError: error.message }, deleted ? { designDeleted: true } : {});
+      });
+      return !deleted && transient(error);
+    }
+  };
+  const following = (entries) => {
+    const current = new Map();
+    for (const entry of entries) if (!entry.revoked && entry.origin === endpoint.origin) current.set(JSON.stringify(entryScope(entry)), entry);
+    return [...current.values()].filter((entry) => entry.live && entry.chatId && !entry.paused && !entry.designDeleted);
+  };
+  const schedule = createLiveSchedule({
+    flush: (chatId) =>
+      serial(async () => {
+        const filename = file(chatId);
+        let retry = false;
+        for (const entry of following(await readFile(filename).catch(() => []))) if (entry.chatId === chatId && (await refresh(filename, entry))) retry = true;
+        return retry;
+      }),
+    timers,
+    delay: liveDelay,
+    retryDelay,
+    maxRetryDelay,
+  });
   return {
     status,
+    changed: (chatId) => {
+      if (typeof chatId === "string" && chatId) schedule.changed(chatId);
+    },
+    resumeStale: async () => {
+      for await (const { entries } of histories())
+        for (const chatId of new Set(following(entries).flatMap((entry) => (entry.stale ? [entry.chatId] : [])))) schedule.now(chatId);
+    },
+    close: () => schedule.close(),
     listAll: async () => {
       const entries = [];
       for await (const history of histories()) entries.push(...history.entries.map(publicEntry));
@@ -229,93 +218,80 @@ function createDesignPageSharing({
       }
       throw Error("This published page is not in this computer's saved history.");
     },
-    list: async ({ chatId, kind }) => {
-      await check(chatId, kind);
-      const entries = await read(chatId);
-      await check(chatId, kind);
-      const current = currentLink(entries, pageKind(kind));
+    list: async (request) => {
+      const scope = scopeOf(request);
+      await check(request?.chatId);
+      const entries = await read(request.chatId);
+      await check(request.chatId);
+      const current = currentLink(entries, scope);
       return current ? [publicEntry(current)] : [];
     },
     publish: (request) =>
       serial(async () => {
-        const { chatId, acknowledgePublic, kind } = request ?? {};
-        const selectedKind = pageKind(kind);
-        await check(chatId, kind);
+        const scope = scopeOf(request);
+        const { chatId, acknowledgePublic } = request ?? {};
+        await check(chatId);
         if (acknowledgePublic !== true) throw Error("Confirm that the entire page will be public before publishing.");
-        const named = String((await chatTitle(chatId).catch(() => null)) ?? "")
-          .replace(/\s+/g, " ")
-          .trim();
-        const title = [...named].slice(0, 120).join("") || (selectedKind === "artifacts" ? "Artifact" : "Designs");
-        const availability = await status({ kind });
-        if (!availability.available) throw Error(availability.reason);
-        const current = await artifacts.pageSnapshot({ chatId, title, kind: selectedKind });
-        const snapshot = validateDesignPageSnapshot(selectedKind === "artifacts" ? current : await embedImages(publicPageContent(current)));
-        const payload = JSON.stringify(snapshot);
-        const digest = hash(payload);
+        const captured = await capture(chatId, scope);
         const filename = file(chatId);
-        const details = {
-          title: snapshot.title,
-          designCount: selectedKind === "artifacts" ? 1 : snapshot.designs.length,
-          digest,
-        };
         let published;
         for (let attempt = 0; !published; attempt++) {
           const entry = await updateHistory(filename, (entries) => {
-            const target = currentLink(entries, selectedKind);
+            const target = replaceable(entries, scope).findLast((item) => item.origin === endpoint.origin);
             if (target) return target;
-            const secret = randomBytes(32);
-            const id = hash(secret);
-            const created = {
-              id,
-              secret: secret.toString("base64url"),
-              origin: endpoint.origin,
-              url: `${endpoint.origin}/s/${id}`,
-              createdAt: Date.now(),
-              ...details,
-              ...(selectedKind === "artifacts" ? { kind: selectedKind } : {}),
-              published: false,
-            };
+            const created = createEntry(chatId, scope, captured.details);
             entries.push(created);
             return created;
           });
-          await check(chatId, kind);
+          await check(chatId);
           try {
-            for (const asset of new Map((snapshot.artifacts?.[0]?.assets ?? []).map((item) => [item.hash, item])).values())
-              await sendFile(entry, chatId, asset);
-            await send(entry, "PUT", payload);
+            await upload(entry, chatId, captured);
           } catch (error) {
             if (error.status !== 410 || attempt > 0) throw error;
-            const revokedHere = await updateHistory(filename, (entries) => {
-              const gone = entries.find((item) => item.id === entry.id);
-              const already = !gone || gone.revoked === true;
-              if (gone) gone.revoked = true;
-              return already;
-            });
-            if (revokedHere) throw Error("This link was revoked while it was updating. Share again for a new link.", { cause: error });
+            if (await markRevoked(filename, entry.id))
+              throw Error("This link was revoked while it was updating. Share again for a new link.", { cause: error });
             continue;
           }
-          published = await updateHistory(filename, (entries) => {
-            const saved = entries.find((item) => item.id === entry.id);
-            if (!saved) throw Error("This published page is no longer in saved history.");
-            if (saved.revoked) return saved;
-            if (saved.published) saved.updatedAt = Date.now();
-            Object.assign(saved, details, { published: true });
-            return saved;
-          });
+          published = await confirm(filename, entry, captured.details);
         }
         if (published.revoked) return publicEntry(published);
-        const older = live(await read(chatId), selectedKind).filter((item) => item.id !== published.id);
+        const older = replaceable(await read(chatId), scope).filter((item) => item.id !== published.id);
         const results = await Promise.allSettled(older.map((entry) => send(entry, "DELETE")));
         const retired = new Set(older.filter((_, index) => results[index].status === "fulfilled").map((entry) => entry.id));
         if (retired.size) await updateHistory(filename, (entries) => entries.splice(0, entries.length, ...entries.filter((item) => !retired.has(item.id))));
         const remaining = older.length - retired.size;
         return { ...publicEntry(published), ...(remaining ? { olderLinks: remaining } : {}) };
       }),
-    revoke: async ({ chatId, id, kind }) => {
-      await check(chatId, kind);
+    setPaused: async (request) => {
+      const { chatId, id, paused } = request ?? {};
+      await check(chatId);
+      if (!ID.test(id ?? "")) throw Error("A published page id is required.");
+      if (typeof paused !== "boolean") throw Error("Say whether to pause or resume the link.");
+      const filename = file(chatId);
+      const changed = await updateHistory(filename, (entries) => {
+        const saved = entries.find((item) => item.id === id);
+        if (!saved) throw Error("This published page does not belong to this Chat.");
+        if (saved.revoked) throw Error("This link was revoked.");
+        if (!saved.live) throw Error("This link is a snapshot that never updates on its own, so it can't be paused.");
+        if (paused) saved.paused = true;
+        else delete saved.paused;
+        return { ...saved };
+      });
+      if (paused) return publicEntry(changed);
+      return serial(async () => {
+        const saved = (await read(chatId)).find((item) => item.id === id);
+        if (!saved || saved.revoked || saved.paused) return publicEntry(saved ?? changed);
+        if (await refresh(filename, saved)) schedule.retry(chatId);
+        return publicEntry((await read(chatId)).find((item) => item.id === id) ?? saved);
+      });
+    },
+    revoke: async (request) => {
+      const kind = kindOf(request?.kind);
+      const { chatId, id, designId } = request ?? {};
+      await check(chatId);
       if (!ID.test(id ?? "")) throw Error("A published page id is required.");
       const entries = await read(chatId);
-      const entry = entries.find((item) => item.id === id && pageKind(item.kind) === pageKind(kind));
+      const entry = entries.find((item) => item.id === id && (item.kind ?? "designs") === kind && (!designId || item.designId === designId));
       if (!entry) throw Error("This published page does not belong to this Chat.");
       await revokeEntry(file(chatId), entry);
     },
