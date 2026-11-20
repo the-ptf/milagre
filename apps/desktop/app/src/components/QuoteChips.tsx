@@ -9,7 +9,7 @@ import { useSize } from "./motion/morph";
 const TOOLTIP_CHARACTERS = 600;
 const tooltipText = (text: string) => (text.length > TOOLTIP_CHARACTERS ? `${text.slice(0, TOOLTIP_CHARACTERS).trimEnd()}…` : text);
 
-export function QuoteChips({ quotes, onRemove }: { quotes: readonly ComposerQuote[]; onRemove: (id: string) => void }) {
+function QuoteChips({ quotes, onRemove }: { quotes: readonly ComposerQuote[]; onRemove: (id: string) => void }) {
   return quotes.map((quote) => (
     <span
       key={quote.id}
