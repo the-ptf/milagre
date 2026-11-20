@@ -13,6 +13,8 @@ export type ArtifactSummary = ArtifactRef & {
   interactive?: boolean;
   kit?: { id: string; version: number; title: string };
   consistency?: { mode: "advisory" | "strict" };
+  /** On a Project library design: who saved each version kept. */
+  edits?: DesignLibraryEdit[];
 };
 
 export const isInteractiveDesign = (design: { format?: string; interactive?: boolean } | null | undefined): boolean =>
@@ -112,6 +114,25 @@ export interface ArtifactApi {
   /** Records comments the user is sending; returns them with their ids. */
   addComments(request: { chatId: string; comments: DesignComment[] }): Promise<ArtifactComment[]>;
   comments(request: { chatId: string }): Promise<ArtifactComment[]>;
+  /** The design library of the Chat's Project: its pages and the latest version of each design on them. */
+  library(request: { chatId: string }): Promise<DesignLibrary>;
+  /** Copies one of the Chat's designs, or its HTML page (one `tab`), onto the library page named `page`; a new name makes it. */
+  addToLibrary(request: { chatId: string; designId: string; page: string; tab?: string }): Promise<DesignLibraryEntry>;
+  onLibraryChanged(callback: (payload: { projectPath: string }) => void): () => void;
+}
+
+/** One saved version of a Project library design: the Chat that saved it, that Chat's title and its agent then. */
+export type DesignLibraryEdit = { version: number; chatId: string; chat?: string; agent?: string; at: number };
+/** A design in the Project library. `id` is `library:<id>`, its address for `get`, `delete` and the agents' design tools. */
+export type DesignLibraryEntry = ArtifactSummary & { page: string; edits: DesignLibraryEdit[] };
+/** A named page of the library ("iPhone", "Kit"), the designs on it in the order they were added. */
+export type DesignLibraryPage = { id: string; name: string; designs: DesignLibraryEntry[] };
+export type DesignLibrary = { pages: DesignLibraryPage[] };
+/** Who saved the version shown, for a library frame's caption: "Edited in Login flow · Codex". */
+export function libraryEditLabel(design: Pick<ArtifactSummary, "edits"> | null | undefined, version?: number): string {
+  const edit = design?.edits?.findLast((item) => version === undefined || item.version === version);
+  if (!edit) return "";
+  return [`Edited in ${edit.chat ?? "another Chat"}`, edit.agent].filter(Boolean).join(" · ");
 }
 
 /**

@@ -79,6 +79,15 @@ Kit revisions don't change existing screens. To adopt one, `design_apply` `{op: 
 
 Edit a main component's text to change its copies; instance `componentValues` are outside intents. Diagnostics carry `measurements`, `blockerId`, `suggestions` and candidate `operations` (`requiresValidation: true`): preflight them, apply, then inspect.
 
+## Project library
+
+Designs belong to their Chat. The Project library holds the ones the Project keeps, on named pages (such as iPhone, Watch, Kit), shared by every Chat of the Project and kept after their Chats are archived or deleted. The user adds designs from the Artifact panel; you add one when asked with `design_library_add` `{designId, page, tab?}` (the HTML page goes in as an interactive design, one tab at a time). The library keeps its own copy; the Chat's design stays as it is.
+
+- `design_library_list` gives the pages, each design's `library:<id>`, its latest version and which Chat and agent made each version. Check it before redesigning a screen the Project already keeps.
+- Read and revise a library design with the usual tools and its `library:<id>`: `design_read`, `design_inspect`, `design_apply` or `design_show` with `expectedVersion`, `design_export`. Each save is a new library version every Chat sees; another Chat may have saved since you read, so a version conflict means read again. A variant is `design_show` with a new `library:<id>` and `from` a library design; it lands on the same page.
+- `design_library_update` renames a design or moves it to another page; `design_library_rename_page` renames a page. `design_delete` on a `library:<id>` removes it for every Chat, only when the user asks.
+- Comments stay per Chat: library designs take none yet, so act on what the user writes in Chat.
+
 ## Inspect and preflight
 
 `design_inspect` `{id, version?, nodeId?}` returns the image, layer bounds and warnings without saving; `nodeId` crops to a layer. Contrast marked `unsupported` has not passed; with remote images or unbundled fonts, don't claim full visual verification. `design_validate` checks `{document}` or `{id, expectedVersion, operations}` (or `html` with size) without saving or reserving a version.

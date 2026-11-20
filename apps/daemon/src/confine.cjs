@@ -93,6 +93,8 @@ const PATHS = Object.freeze({
   "artifact:revoke-saved-page-share": denied,
   "artifact:add-comments": ([value]) => [chatProject(value?.chatId)],
   "artifact:comments": ([value]) => [chatProject(value?.chatId)],
+  "design-library:list": ([value]) => [chatProject(value?.chatId)],
+  "design-library:add": denied,
   "browser-comments:list": ([value]) => [chatProject(value?.chatId)],
   "browser-comments:send-from-page": denied,
   "live-activity:state": denied,

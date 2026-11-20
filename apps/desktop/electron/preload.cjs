@@ -150,9 +150,10 @@ function hostSettingsBridge(invoke, listen) {
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @returns {import("../app/src/electron.d.ts").MilagreBridge["artifacts"]}
  */
-function artifactBridge(invoke) {
+function artifactBridge(invoke, listen) {
   return {
     sharingStatus: (request) => invoke("artifact:sharing-status", request),
     allPageShares: () => invoke("artifact:all-page-shares"),
@@ -167,6 +168,9 @@ function artifactBridge(invoke) {
     delete: (request) => invoke("artifact:delete", request),
     addComments: (request) => invoke("artifact:add-comments", request),
     comments: (request) => invoke("artifact:comments", request),
+    library: (request) => invoke("design-library:list", request),
+    addToLibrary: (request) => invoke("design-library:add", request),
+    onLibraryChanged: (callback) => listen("design-library:changed", callback),
   };
 }
 
@@ -229,7 +233,7 @@ function makeBridge(invoke, listen, send) {
     onDesignsEnabledChanged: (callback) => listen("designs:enabled-changed", callback),
     createArtifactPreview: (html, source) => invoke("artifact-preview:register", html, source),
     releaseArtifactPreview: (url) => invoke("artifact-preview:release", url),
-    artifacts: artifactBridge(invoke),
+    artifacts: artifactBridge(invoke, listen),
     getRuntimeConnection: () => invoke("runtime:connection"),
     restartHost: () => invoke("runtime:restart-host"),
     onRuntimeConnection: (callback) => listen("runtime:connection", callback),

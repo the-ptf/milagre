@@ -117,6 +117,7 @@ const EVENTS = {
   "agent:ports": keyed,
   "main-sync:status": (id, payload) => field(id, payload, "projectPath", key),
   "pull-requests:changed": (id, payload) => field(id, payload, "projectPath", key),
+  "design-library:changed": (id, payload) => field(id, payload, "projectPath", key),
   "runtime:snapshot": (id, snapshot) =>
     isObject(snapshot)
       ? {
@@ -181,6 +182,13 @@ const RESULTS = {
     field(id, result, "projects", (id, list) =>
       each(id, list, (id, project) => field(id, withPath(id, project), "chats", (id, chats) => each(id, chats, withChat))),
     ),
+  "design-library:list": (id, result) =>
+    field(id, result, "pages", (id, pages) =>
+      each(id, pages, (id, page) =>
+        field(id, page, "designs", (id, designs) => each(id, designs, (id, design) => field(id, design, "edits", (id, edits) => each(id, edits, withChat)))),
+      ),
+    ),
+  "design-library:add": (id, result) => field(id, result, "edits", (id, edits) => each(id, edits, withChat)),
   "accounts:scopes": (id, result) =>
     each(id, result, (id, scope) => field(id, field(id, scope, "key", key), "projects", (id, list) => each(id, list, withPath))),
 };

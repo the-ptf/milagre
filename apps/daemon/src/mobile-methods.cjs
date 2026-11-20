@@ -152,6 +152,8 @@ const METHODS = new Set([
   "artifact:set-page-share-paused",
   "artifact:add-comments",
   "artifact:comments",
+  "design-library:list",
+  "design-library:add",
   "browser-comments:list",
   "browser-comments:send-from-page",
   "project:registry",

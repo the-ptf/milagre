@@ -159,7 +159,6 @@ function createRuntime(options) {
   const handlers = commands;
   const { simulatorToolDefinitions } = require("./chat-simulators.cjs");
   const { artifactToolDefinitions, htmlArtifactToolDefinitions, artifactCommentToolDefinitions } = require("./chat-artifacts.cjs");
-  const { designKitToolDefinitions } = require("./design-kits.cjs");
   const { pageCommentToolDefinitions } = require("./chat-page-comments.cjs");
   const existingChat = (action) => async (chatId) => {
     const scope = projectOfKey(chatId),
@@ -189,7 +188,7 @@ function createRuntime(options) {
     simulators,
     leaseSimlock,
     releaseSimlock,
-    designKits,
+    designToolDefinitions,
     artifacts,
     pageComments,
     agentProcesses,
@@ -1296,7 +1295,7 @@ function createRuntime(options) {
       ...(existsSync(path.join(__dirname, "design-mcp-tools.cjs"))
         ? []
         : artifactToolDefinitions(chatId, artifacts).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name))),
-      ...designKitToolDefinitions(chatId, designKits),
+      ...designToolDefinitions(chatId),
       ...localMcp.agentTools(chatId).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name)),
       ...htmlArtifactToolDefinitions(chatId, artifacts, undefined, {
         roots: () =>

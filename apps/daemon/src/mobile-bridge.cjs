@@ -48,6 +48,7 @@ function chatLiveSignal(channel, payload) {
   if (payload.state || payload.stateTooLarge || typeof payload.version === "number") return ["project", LIVE_DELAY.runs];
   return [payload.event?.type === "subagent-update" ? "project" : "runs"];
 }
+const SIGNAL_ORDER = ["accounts", "usage", "token-usage", "mcp", "designs", "library", "keybindings", "links", "routines", "orchestrator", "pulls", "btw"];
 const SIGNALS = { "designs:enabled-changed": "designs", "keybindings:changed": "keybindings", "routines:changed": "routines" };
 const OWNER_SIGNALS = {
   "accounts:changed": "accounts",
@@ -228,18 +229,7 @@ async function startMobileBridge({
     entry.due = due;
     entry.timer = setTimeout(() => {
       entry.timer = null;
-      const types = [];
-      if (entry.kinds.has("accounts")) types.push("accounts");
-      if (entry.kinds.has("usage")) types.push("usage");
-      if (entry.kinds.has("token-usage")) types.push("token-usage");
-      if (entry.kinds.has("mcp")) types.push("mcp");
-      if (entry.kinds.has("designs")) types.push("designs");
-      if (entry.kinds.has("keybindings")) types.push("keybindings");
-      if (entry.kinds.has("links")) types.push("links");
-      if (entry.kinds.has("routines")) types.push("routines");
-      if (entry.kinds.has("orchestrator")) types.push("orchestrator");
-      if (entry.kinds.has("pulls")) types.push("pulls");
-      if (entry.kinds.has("btw")) types.push("btw");
+      const types = SIGNAL_ORDER.filter((kind) => entry.kinds.has(kind));
       if (entry.kinds.has("project")) types.push("project");
       else if (entry.kinds.has("runs")) types.push("runs");
       entry.kinds.clear();
@@ -286,6 +276,7 @@ async function startMobileBridge({
       const immediate = SIGNALS[channel] ?? (confine ? undefined : OWNER_SIGNALS[channel]);
       if (immediate) signal(entry, immediate, 0);
       if (channel === "pull-requests:changed") signal(entry, "pulls", LIVE_DELAY.project);
+      if (channel === "design-library:changed" && payload?.projectPath === entry.projectPath) signal(entry, "library", 0);
       if (
         (channel === "project:state" && payload?.path === entry.projectPath) ||
         (channel === "link:state" && isLinkScopeKey(entry.projectPath) && payload?.linkId === scopeFromKey(entry.projectPath).linkId)
