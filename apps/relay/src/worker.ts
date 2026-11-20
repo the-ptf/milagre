@@ -249,6 +249,7 @@ export class Room implements DurableObject {
   private stateOf(ws: WebSocket): unknown {
     const state: unknown = ws.deserializeAttachment();
     const role = state && typeof state === "object" ? (state as { role?: unknown }).role : undefined;
+    if (role === "parked") return state;
     const tag: Role | null = role === "host" || role === "pending" ? "host" : role === "phone" ? "phone" : null;
     return tag && tag === this.roleOf(ws) ? state : null;
   }

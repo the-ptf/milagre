@@ -97,7 +97,8 @@ function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(rand
   const inbox = [];
   const waiters = [];
   const closed = new Promise((resolve) => ws.on("close", (code, reason) => resolve({ code, reason: reason.toString() })));
-  ws.on("message", (data) => {
+  ws.on("message", (data, isBinary) => {
+    if (!isBinary) return ws.close();
     phone.rawFrames += 1;
     const bytes = new Uint8Array(data);
     const waiter = waiters.shift();

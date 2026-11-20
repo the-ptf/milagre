@@ -188,6 +188,19 @@ test("a dropped channel fails its calls and says close once", async () => {
   await assert.rejects(client.call("project:recent"), /closed/);
 });
 
+test("the relay's gone notice, a text frame, ends the channel at once: the desktop hangs up and says close", async () => {
+  const mac = fakeMac({ answer: (frame) => (frame.method === "slow" ? null : echo(frame)) });
+  const client = await dial(mac);
+  let closes = 0;
+  client.on("close", () => closes++);
+  const slow = client.call("slow");
+  mac.sockets[0].emit("message", { data: JSON.stringify({ t: "gone", code: 4410, reason: "host-gone" }) });
+  await assert.rejects(slow, /closed/);
+  await until(() => closes === 1, "close");
+  assert.equal(mac.sockets[0].closed, 1000, "the desktop closed its own socket");
+  assert.equal(client.closed, true);
+});
+
 test("cancelling a pairing that waits for Allow ends it as cancelled", async () => {
   const abort = new AbortController();
   await assert.rejects(dial(fakeMac({ hello: "pending" }), { signal: abort.signal, onPending: () => abort.abort() }), { code: "cancelled", final: false });
