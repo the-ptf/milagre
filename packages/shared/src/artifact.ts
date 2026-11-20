@@ -108,24 +108,33 @@ export interface ArtifactApi {
   /** Pauses or resumes a live link's automatic updates. Resuming publishes the current state at once. */
   setPageSharePaused(request: { chatId: string; id: string; paused: boolean }): Promise<DesignPageShare>;
   revokePageShare(request: { chatId: string; id: string } & PageShareScope): Promise<void>;
-  get(request: { chatId: string; id: string; version?: number; fonts?: { have: string[] } }): Promise<Artifact>;
+  /** A Chat's design, or a Project library design (`library:<id>`) by the Chat or the Project's path. */
+  get(request: DesignScope & { id: string; version?: number; fonts?: { have: string[] } }): Promise<Artifact>;
   /** Part of a file of the Chat's Artifact page, by its name; `length` caps the bytes (256 KB at most). */
   asset(request: { chatId: string; name: string; offset?: number; length?: number }): Promise<ArtifactAssetChunk>;
   list(request: { chatId: string; format?: "design" | "html" }): Promise<ArtifactSummary[]>;
   /** Deletes a design with every version and the comments on it. Its id is never reused. */
-  delete(request: { chatId: string; id: string }): Promise<{ id: string }>;
+  delete(request: DesignScope & { id: string }): Promise<{ id: string }>;
   /** Records comments the user is sending; returns them with their ids. */
   addComments(request: { chatId: string; comments: DesignComment[] }): Promise<ArtifactComment[]>;
   comments(request: { chatId: string }): Promise<ArtifactComment[]>;
-  /** The design library of the Chat's Project: its pages and the latest version of each design on them. */
-  library(request: { chatId: string }): Promise<DesignLibrary>;
+  /** The design library of the Chat's Project, or of the Project at `projectPath`: its pages and the latest version of each design on them. */
+  library(request: DesignScope): Promise<DesignLibrary>;
   /** Copies one of the Chat's designs, or its HTML page (one `tab`), onto the library page named `page`; a new name makes it. */
   addToLibrary(request: { chatId: string; designId: string; page: string; tab?: string }): Promise<DesignLibraryEntry>;
+  /** Renames a library design (a new version), moves it to the page named `page` (a new name makes it), or both. */
+  updateLibraryDesign(request: DesignScope & { id: string; title?: string; page?: string }): Promise<DesignLibraryEntry>;
+  /** Renames a library page; `page` is its id or current name. */
+  renameLibraryPage(request: DesignScope & { page: string; name: string }): Promise<{ id: string; name: string }>;
   onLibraryChanged(callback: (payload: { projectPath: string }) => void): () => void;
 }
 
-/** One saved version of a Project library design: the Chat that saved it, that Chat's title and its agent then. */
-export type DesignLibraryEdit = { version: number; chatId: string; chat?: string; agent?: string; at: number };
+/** Whose designs: a Chat's, or, for Project library designs, the Project's own by its path. */
+export type DesignScope = { chatId: string } | { projectPath: string };
+
+/** One saved version of a Project library design: the Chat that saved it, that Chat's title and its agent then. No
+ * `chatId` when it was saved from the Design library page itself. */
+export type DesignLibraryEdit = { version: number; chatId?: string; chat?: string; agent?: string; at: number };
 /** A design in the Project library. `id` is `library:<id>`, its address for `get`, `delete` and the agents' design tools. */
 export type DesignLibraryEntry = ArtifactSummary & { page: string; edits: DesignLibraryEdit[] };
 /** A named page of the library ("iPhone", "Kit"), the designs on it in the order they were added. */
@@ -136,6 +145,7 @@ export type DesignLibrary = { pages: DesignLibraryPage[] };
 export function libraryEditLabel(design: Pick<ArtifactSummary, "edits"> | null | undefined, version?: number, chatId?: string | null): string {
   const edit = design?.edits?.findLast((item) => version === undefined || item.version === version);
   if (!edit) return "";
+  if (!edit.chatId) return "Edited in the Design library";
   const where = chatId && edit.chatId === chatId ? "Edited here" : `Edited in ${edit.chat ?? "another Chat"}`;
   return [where, edit.agent].filter(Boolean).join(" · ");
 }

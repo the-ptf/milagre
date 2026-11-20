@@ -127,6 +127,10 @@ function createDesignTools({ options, dataDir, emit, commands, existingChat, sco
       await existingChat("using the Project library")(chatId);
       return projectOfKey(chatId);
     },
+    projectForPath: async (projectPath) => {
+      if (!scopeStates().has(projectPath)) throw new Error("Open this project in Milagre first.");
+      return projectPath;
+    },
     chatInfo: async (chatId) => {
       const session = (await scopeStates().get(projectOfKey(chatId)))?.sessions[sessionIdFromKey(chatId)];
       return { title: session?.title || session?.generatedTitle, agent: session?.provider ? providerName(session.provider) : undefined };
@@ -138,6 +142,8 @@ function createDesignTools({ options, dataDir, emit, commands, existingChat, sco
   const designs = withDesignLibrary(artifacts, designLibrary);
   commands.handle("design-library:list", (_context, request) => designLibrary.list(request));
   commands.handle("design-library:add", (_context, request) => designLibrary.add(request));
+  commands.handle("design-library:update", (_context, request) => designLibrary.update(request));
+  commands.handle("design-library:rename-page", (_context, request) => designLibrary.renamePage(request));
   let pageSharing;
   const designPageSharing = () =>
     (pageSharing ??= require("../design-page-sharing.cjs").createDesignPageSharing({

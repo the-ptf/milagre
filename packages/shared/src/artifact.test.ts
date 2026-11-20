@@ -393,10 +393,12 @@ test("a library version names the Chat that saved it, or says it was this one", 
     edits: [
       { version: 1, chatId: "/p#2", chat: "Login flow", agent: "Codex", at: 1 },
       { version: 2, chatId: "/p#5", agent: "Claude", at: 2 },
+      { version: 3, at: 3 },
     ],
   };
   assert.equal(libraryEditLabel(design, 1, "/p#5"), "Edited in Login flow · Codex");
   assert.equal(libraryEditLabel(design, 2, "/p#5"), "Edited here · Claude", "an untitled Chat that is the open one");
   assert.equal(libraryEditLabel(design, 2, "/p#2"), "Edited in another Chat · Claude");
-  assert.equal(libraryEditLabel(design, 3), "");
+  assert.equal(libraryEditLabel(design, 3, "/p#5"), "Edited in the Design library", "renamed on the Project's Design library page");
+  assert.equal(libraryEditLabel(design, 4), "");
 });

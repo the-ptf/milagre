@@ -154,6 +154,8 @@ const METHODS = new Set([
   "artifact:comments",
   "design-library:list",
   "design-library:add",
+  "design-library:update",
+  "design-library:rename-page",
   "browser-comments:list",
   "browser-comments:send-from-page",
   "project:registry",
