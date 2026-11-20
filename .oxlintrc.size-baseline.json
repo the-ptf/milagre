@@ -180,7 +180,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1055,
+            "max": 985,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -188,25 +188,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 315,
+            "max": 298,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
         "complexity": ["error", 79]
-      }
-    },
-    {
-      "files": ["apps/desktop/app/src/components/agents/ArtifactCard.tsx"],
-      "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 269,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ]
       }
     },
     {
@@ -691,7 +678,7 @@
         "max-lines": [
           "error",
           {
-            "max": 838,
+            "max": 819,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -699,12 +686,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 379,
+            "max": 367,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 60]
+        "complexity": ["error", 59]
       }
     },
     {
@@ -776,12 +763,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 536,
+            "max": 535,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 89]
+        "complexity": ["error", 88]
       }
     },
     {
@@ -924,7 +911,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 564,
+            "max": 563,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -937,7 +924,7 @@
         "max-lines": [
           "error",
           {
-            "max": 858,
+            "max": 832,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -950,7 +937,7 @@
             "skipComments": true
           }
         ],
-        "complexity": ["error", 67]
+        "complexity": ["error", 66]
       }
     },
     {
@@ -1127,7 +1114,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1164,
+            "max": 1143,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1407,7 +1394,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1679,
+            "max": 1678,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1415,7 +1402,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 1589,
+            "max": 1588,
             "skipBlankLines": true,
             "skipComments": true
           }

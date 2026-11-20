@@ -5,16 +5,7 @@ import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
-import {
-  ArrowRight01Icon,
-  Cancel01Icon,
-  CheckmarkCircle02Icon,
-  CommentAdd01Icon,
-  File01Icon,
-  MoreHorizontalIcon,
-  PaintBoardIcon,
-  Sent02Icon,
-} from "@hugeicons/core-free-icons";
+import { ArrowRight01Icon, Cancel01Icon, CheckmarkCircle02Icon, CommentAdd01Icon, File01Icon, PaintBoardIcon, Sent02Icon } from "@hugeicons/core-free-icons";
 import {
   artifactShell,
   artifactTab,
@@ -41,11 +32,13 @@ import { Icon } from "./icons";
 import { over } from "@milagre/shared/themes";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { DISABLED_OPACITY } from "./primitives/press-style";
-import { CircleButton, ErrorNotice, PullDown, PillButton, tap, useStyles, type MenuSection } from "./ui";
+import { CircleButton, ErrorNotice, PillButton, tap, useStyles } from "./ui";
 import { useTheme } from "./theme";
 import { PELE_SCRIPT } from "./pele-script";
 import { useShareAvailable } from "./use-share-available";
-import { ArtifactPageTitle, artifactPageMenu, openArtifactShare, useChatDesigns } from "./artifact-page-menu";
+import { ArtifactPageTitle, artifactPageMenu, useChatDesigns } from "./artifact-page-menu";
+import { useDesignLibrary } from "./design-library";
+import { artifactPageActions } from "./artifact-page-actions";
 import { rememberPage, rememberedTab } from "./artifact-pages";
 import { pageWithFiles, usePageFiles } from "./artifact-files";
 import { CommentBox } from "./viewer-chrome";
@@ -442,6 +435,7 @@ export function ArtifactSheet({
   const source = client && chatId && id && (!hostId || hostId === client.url) ? client : null;
   const [state, setState] = useState<{ artifact: Artifact | null; error: string }>({ artifact: null, error: "" });
   const sharing = useShareAvailable(source, hostId, chatId);
+  const library = useDesignLibrary(source, chatId);
 
   const [revision, setRevision] = useState(0);
   const pageRevision = commentActivity(snapshot, chatId, "artifact");
@@ -684,24 +678,12 @@ export function ArtifactSheet({
     setCommenting(false);
     setNotes([]);
   };
-  const menu: MenuSection[] = [
-    { items: [{ id: "resolved", title: "Show resolved comments", checked: showResolved }] },
-    ...(sharing
-      ? [
-          {
-            items: [
-              { id: "share", title: "Share", systemImage: "square.and.arrow.up" },
-              { id: "share-page", title: "Share this page" },
-            ],
-          },
-        ]
-      : []),
-  ];
   const pages = artifactPageMenu({
     hostId,
     chatId,
     designs,
     page: artifact && { id: artifact.id, title: artifact.title, tabs: (artifact.tabs ?? []).map((item) => ({ id: item.id, title: item.title })) },
+    library,
     current: { kind: "page", tab: tab?.id ?? "" },
     onPage,
     onTab: (next) => {
@@ -736,19 +718,18 @@ export function ArtifactSheet({
           {source && written.length > 0 && (
             <CircleButton label={`Send ${written.length} to the agent`} icon={Sent02Icon} filled badge={written.length} onPress={send} />
           )}
-          {menu.length > 0 && (
-            <PullDown
-              label="Page actions"
-              sections={menu}
-              onSelect={(action) => {
-                if (action === "resolved") setShowResolved(!showResolved);
-                else if (action === "share") openArtifactShare(hostId, chatId, "workspace");
-                else if (action === "share-page") openArtifactShare(hostId, chatId, "artifacts");
-              }}
-            >
-              <CircleButton asTrigger label="Page actions" icon={MoreHorizontalIcon} />
-            </PullDown>
-          )}
+          {artifactPageActions({
+            source,
+            hostId,
+            chatId,
+            page: artifact,
+            tab: tab?.id,
+            sharing,
+            library,
+            showResolved,
+            onShowResolved: setShowResolved,
+            onPage,
+          })}
         </View>
       </View>
       <View style={{ flex: 1, backgroundColor: colors.paper }} onLayout={(event) => setRoom(event.nativeEvent.layout)}>

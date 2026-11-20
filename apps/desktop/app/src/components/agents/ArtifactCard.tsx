@@ -19,10 +19,12 @@ import { THEME_EVENT } from "../../lib/theme-sheet";
 import { useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
 import { usePanelWidth } from "./panel-width";
-import { ArtifactFrame, pageFiles, useArtifact, type DesignPin, type PageFiles } from "./ArtifactCanvas";
+import { ArtifactFrame, pageFiles, type DesignPin, type PageFiles } from "./ArtifactCanvas";
+import { useArtifact } from "./artifact-read";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey } from "../../lib/computer-bridge";
-import { DESIGN_DELETED, type DesignDeleted } from "./design-events";
+import { remember, useSavedDesigns } from "./saved-designs";
+import { libraryDockPage, libraryPageId, useDesignLibrary } from "./design-library";
 import { useDesignWorkActive, useDesignWorkStarted, useLiveDesignFeed } from "./design-live";
 import { ArtifactDock } from "./ArtifactDock";
 import type { DockPage } from "./dock-feedback";
@@ -66,27 +68,8 @@ export function useReplyChatId(): string | null {
 
 type HostComments = { comments: ArtifactComment[]; resolutions: Map<string, string> };
 const NO_COMMENTS: HostComments = { comments: [], resolutions: new Map() };
-const KEPT_CHATS = 64;
 const lastComments = new Map<string, HostComments>();
-type SavedDesigns = {
-  chatId: string | null;
-  refs: ArtifactRef[];
-  htmlAliases?: string[];
-  revisionKey?: string;
-  deleted?: string[];
-};
-const NO_SAVED_DESIGNS: SavedDesigns = { chatId: null, refs: [] };
-const lastSavedDesigns = new Map<string, SavedDesigns>();
 const hostCommentsOf = (chatId: string | null) => (chatId ? lastComments.get(chatId) : undefined) ?? NO_COMMENTS;
-const htmlAliasOf = new Map<string, boolean>();
-function remember<T>(kept: Map<string, T>, key: string, value: T, limit = KEPT_CHATS) {
-  kept.delete(key);
-  kept.set(key, value);
-  for (const oldest of kept.keys()) {
-    if (kept.size <= limit) break;
-    kept.delete(oldest);
-  }
-}
 
 function useHostComments(chatId: string | null, moved: number) {
   const [state, setState] = useState<HostComments & { chatId: string | null }>(() => ({ chatId, ...hostCommentsOf(chatId) }));
@@ -506,63 +489,9 @@ export function ArtifactsProvider({
   const fromSteps = useMemo(() => latestArtifacts(steps), [steps]);
   const deletes = steps.filter((step) => step.status === "done" && /\bdesign_delete\b/.test(step.title)).length;
   const revisionKey = `${[...fromSteps.values()].map((design) => `${design.id}:${design.version}`).join("|")}#${deletes}`;
-  const [savedDesigns, setSavedDesigns] = useState<SavedDesigns>(() => (chatId ? lastSavedDesigns.get(chatId) : undefined) ?? NO_SAVED_DESIGNS);
-  useEffect(() => {
-    if (savedDesigns.chatId) remember(lastSavedDesigns, savedDesigns.chatId, savedDesigns);
-  }, [savedDesigns]);
-  useEffect(() => {
-    if (!chatId || !window.milagre) return;
-    const list = bridgeForKey(chatId).artifacts?.list;
-    if (!list) return;
-    let live = true;
-    list({ chatId })
-      .then(async (refs) => {
-        const known = new Set(refs.map((ref) => ref.id));
-        const unknown = [...fromSteps.values()].filter((ref) => !ref.format && !known.has(ref.id));
-        const aliases = await Promise.all(
-          unknown.map(async (ref) => {
-            const key = `${chatId}\n${ref.id}`;
-            const html = htmlAliasOf.get(key);
-            if (html !== undefined) return html ? ref.id : null;
-            try {
-              const artifact = await bridgeForKey(chatId).artifacts.get({ chatId, id: ref.id });
-              remember(htmlAliasOf, key, artifact.format === "html", 1024);
-              return artifact.format === "html" ? ref.id : null;
-            } catch {
-              return null;
-            }
-          }),
-        );
-        if (live)
-          setSavedDesigns((current) => ({
-            chatId,
-            refs,
-            htmlAliases: aliases.filter((id): id is string => id !== null),
-            revisionKey,
-            deleted: current.chatId === chatId ? current.deleted : [],
-          }));
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [chatId, revisionKey, enabled]);
-  useEffect(() => {
-    const deleted = (event: Event) => {
-      const detail = (event as CustomEvent<DesignDeleted>).detail;
-      if (detail.chatId !== chatId) return;
-      setSavedDesigns((current) =>
-        current.chatId === chatId
-          ? { ...current, refs: current.refs.filter((item) => item.id !== detail.id), deleted: [...(current.deleted ?? []), detail.id] }
-          : { chatId, refs: [], htmlAliases: [], deleted: [detail.id] },
-      );
-    };
-    window.addEventListener(DESIGN_DELETED, deleted);
-    return () => {
-      window.removeEventListener(DESIGN_DELETED, deleted);
-    };
-  }, [chatId, enabled]);
-  const shownDesigns = savedDesigns.chatId === chatId ? savedDesigns : ((chatId ? lastSavedDesigns.get(chatId) : undefined) ?? NO_SAVED_DESIGNS);
+  const shownDesigns = useSavedDesigns(chatId, fromSteps, revisionKey, enabled);
+  const library = useDesignLibrary(enabled ? chatId : null);
+  const libraryPages = (enabled && chatId && library?.pages) || [];
   const latest = useMemo(() => {
     const saved = shownDesigns.chatId === chatId ? shownDesigns : null;
     const deleted = new Set(saved?.deleted);
@@ -621,8 +550,10 @@ export function ArtifactsProvider({
   const currentHtml = (shownDesigns.chatId === chatId ? shownDesigns.refs : []).find((ref) => ref.format === "html") ?? artifactRefs.at(-1);
   const hasCanvas = enabled && !!chatId && (designRefs.length > 0 || designing);
   const hasPage = !!chatId && !!currentHtml;
-  const offered = (page: DockPage | undefined) => (page === "canvas" ? hasCanvas : page === "page" && hasPage);
-  const pageFor = (wanted?: DockPage): DockPage | null => (offered(wanted) ? wanted! : hasCanvas ? "canvas" : hasPage ? "page" : null);
+  const offered = (page: DockPage | undefined) =>
+    page === "canvas" ? hasCanvas : page === "page" ? hasPage : libraryPages.some((item) => item.id === libraryPageId(page));
+  const firstLibrary = libraryPages[0] ? libraryDockPage(libraryPages[0].id) : null;
+  const pageFor = (wanted?: DockPage): DockPage | null => (offered(wanted) ? wanted! : hasCanvas ? "canvas" : hasPage ? "page" : firstLibrary);
   const stored = openedIn?.chatId === chatId ? openedIn : null;
   const shownPage = stored && pageFor(stored.page);
   const opened = stored && shownPage ? (shownPage === stored.page ? stored : { ...stored, page: shownPage, comment: undefined }) : null;
@@ -682,9 +613,9 @@ export function ArtifactsProvider({
     if (document.querySelector("[data-slot=design-editor]")) return;
     if (opened) return setOpenedIn(null);
     const page = pageFor(chatId ? lastPage.get(chatId) : undefined);
-    if (page) value.openAll(page === "canvas" ? designRefs : currentHtml ? [currentHtml] : [], page);
+    if (page) value.openAll(page === "canvas" ? designRefs : page === "page" && currentHtml ? [currentHtml] : [], page);
   };
-  useSidePanel("artifacts", hasCanvas || hasPage ? { open: !!opened, toggle: togglePanel } : null);
+  useSidePanel("artifacts", hasCanvas || hasPage || firstLibrary ? { open: !!opened, toggle: togglePanel } : null);
   const onVersion = useCallback(
     (id: string, version: number | null) =>
       setOpenedIn(
@@ -733,6 +664,7 @@ export function ArtifactsProvider({
             chatId={chatId}
             designs={designRefs}
             htmlRef={currentHtml}
+            library={libraryPages}
             revision={revision}
             focus={opened.focus}
             versions={opened.versions}

@@ -1,6 +1,6 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Delete02Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import {
   ARTIFACT_CSP,
   DESIGN_CODE_CSP,
@@ -8,11 +8,10 @@ import {
   ARTIFACT_PAGE,
   artifactCsp,
   artifactDocument,
-  createDesignFontReader,
-  restoreDesignFonts,
   designGroups,
   designKitLabel,
   isInteractiveDesign,
+  libraryEditLabel,
   readPageMessage,
   type Artifact,
   type ArtifactAsset,
@@ -21,13 +20,12 @@ import {
 } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
-import { Button, IconButton } from "../primitives/Button";
+import { IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
-import { useDesignsEnabled } from "../../lib/designs-enabled";
-import { bridgeForKey, isRemoteKey, onComputerConnection } from "../../lib/computer-bridge";
-import { DESIGN_DELETED, type DesignDeleted } from "./design-events";
+import { isVersionKept, useArtifact } from "./artifact-read";
+import { DesignDeleteButton, type Deleting } from "./DesignDeleteButton";
 import { DesignFrameMenu } from "./DesignFrameMenu";
 import { designLayout, designNodeAt } from "@milagre/shared/design";
 import { CommentLayer, CommentPin } from "./CommentPin";
@@ -93,73 +91,6 @@ const FIT_MARGIN = 24;
 const FIT_BOTTOM = 56;
 const MAX_SCALE = 2;
 const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
-
-const versionsRead = new Map<string, Promise<Artifact>>();
-const versionsKept = new Map<string, Artifact>();
-const fontReaders = new WeakMap<object, ReturnType<typeof createDesignFontReader<Artifact>>>();
-const KEEP = 48;
-export function readArtifact(chatId: string, id: string, version: number | null): Promise<Artifact> {
-  const api = bridgeForKey(chatId).artifacts;
-  const request = { chatId, id, ...(version === null ? {} : { version }) };
-  const readDesign = () => {
-    if (!isRemoteKey(chatId)) return api.get(request);
-    let reader = fontReaders.get(api);
-    if (!reader) {
-      reader = createDesignFontReader((args) => api.get(args));
-      fontReaders.set(api, reader);
-      onComputerConnection(chatId, reader.reconnect, () => fontReaders.delete(api));
-    }
-    return reader(request).then(restoreDesignFonts);
-  };
-  if (version === null) return readDesign();
-  const key = `${chatId}\n${id}\n${version}`;
-  let read = versionsRead.get(key);
-  if (!read) {
-    read = readDesign();
-    versionsRead.set(key, read);
-    read.then(
-      (artifact) => {
-        versionsKept.set(key, artifact);
-        for (const old of versionsKept.keys()) {
-          if (versionsKept.size <= KEEP) break;
-          versionsKept.delete(old);
-          designPreviews.delete(old);
-          versionsRead.delete(old);
-        }
-      },
-      () => versionsRead.delete(key),
-    );
-  }
-  return read;
-}
-const keptArtifact = (chatId: string | null, id: string, version: number | null) =>
-  (chatId && version !== null && versionsKept.get(`${chatId}\n${id}\n${version}`)) || null;
-
-export function useArtifact(chatId: string | null, id: string, version: number | null, revision?: number) {
-  const { enabled } = useDesignsEnabled(chatId);
-  const [state, setState] = useState<{
-    artifact: Artifact | null;
-    error: string | null;
-  }>(() => ({ artifact: keptArtifact(chatId, id, version), error: null }));
-  useEffect(() => {
-    if (!chatId) return;
-    let live = true;
-    readArtifact(chatId, id, version)
-      .then((artifact) => live && setState({ artifact, error: null }))
-      .catch(
-        (error: unknown) =>
-          live &&
-          setState({
-            artifact: null,
-            error: error instanceof Error ? error.message : String(error),
-          }),
-      );
-    return () => {
-      live = false;
-    };
-  }, [chatId, id, version, enabled, revision]);
-  return chatId && (enabled || state.artifact?.format === "html") ? state : { artifact: null, error: null };
-}
 
 export type PageState = {
   mode?: { input: "mouse"; comment: boolean; cursor?: string };
@@ -305,6 +236,7 @@ export const ArtifactCanvas = forwardRef<
   {
     chatId: string;
     allowLive?: boolean;
+    library?: boolean;
     designs: ArtifactRef[];
     versions: Record<string, number | null>;
     onVersion: (id: string, version: number | null) => void;
@@ -314,8 +246,12 @@ export const ArtifactCanvas = forwardRef<
     choice: ChoiceControls;
     onView: (view: CanvasView) => void;
     onShare?: (design: ArtifactRef) => void;
+    onAddToLibrary?: (design: ArtifactRef) => void;
   }
->(function ArtifactCanvas({ chatId, allowLive = true, designs, versions, onVersion, focus, commenting, comments, choice, onView, onShare }, handle) {
+>(function ArtifactCanvas(
+  { chatId, allowLive = true, library = false, designs, versions, onVersion, focus, commenting, comments, choice, onView, onShare, onAddToLibrary },
+  handle,
+) {
   const viewport = useRef<HTMLDivElement>(null);
   const board = useRef<HTMLDivElement>(null);
   const visibility = useMemo(() => createDesignVisibility(), []);
@@ -592,27 +528,42 @@ export const ArtifactCanvas = forwardRef<
                   allowLive={allowLive}
                   visibility={visibility}
                   pixelRatio={pixelRatio}
+                  library={library}
                   onShare={onShare}
+                  onAddToLibrary={onAddToLibrary}
                 />
               ))}
-              <LiveDraftFrames chatId={chatId} designs={designs} group={row.group} scale={view.scale} gap={GAP} header={HEADER} onSized={showDraft} />
+              {!library && (
+                <LiveDraftFrames chatId={chatId} designs={designs} group={row.group} scale={view.scale} gap={GAP} header={HEADER} onSized={showDraft} />
+              )}
             </div>
           </section>
         ))}
-        <LiveDraftFrames
-          chatId={chatId}
-          designs={designs}
-          orphans={rows.map((row) => row.group)}
-          scale={view.scale}
-          gap={GAP}
-          header={HEADER}
-          onSized={showDraft}
-        />
+        {!library && (
+          <LiveDraftFrames
+            chatId={chatId}
+            designs={designs}
+            orphans={rows.map((row) => row.group)}
+            scale={view.scale}
+            gap={GAP}
+            header={HEADER}
+            onSized={showDraft}
+          />
+        )}
       </div>
-      {!designs.length && <LiveDesignWaiting chatId={chatId} />}
+      {!designs.length && !library && <LiveDesignWaiting chatId={chatId} />}
     </div>
   );
 });
+
+function LibraryEditNote({ artifact, version, chatId }: { artifact: Artifact | null; version: number; chatId: string | null | undefined }) {
+  const label = libraryEditLabel(artifact, version, chatId);
+  return label ? (
+    <span className="ml-2" data-slot="artifact-library-edit">
+      {label}
+    </span>
+  ) : null;
+}
 
 function optionLabel(index: number): string {
   return index < 26 ? String.fromCharCode(65 + index) : optionLabel(Math.floor(index / 26) - 1) + optionLabel(index % 26);
@@ -639,7 +590,9 @@ const DesignFrame = memo(function DesignFrame({
   visibility,
   allowLive,
   pixelRatio,
+  library,
   onShare,
+  onAddToLibrary,
 }: {
   chatId: string;
   design: ArtifactRef;
@@ -657,7 +610,9 @@ const DesignFrame = memo(function DesignFrame({
   visibility: ReturnType<typeof createDesignVisibility>;
   allowLive: boolean;
   pixelRatio: number;
+  library: boolean;
   onShare?: (design: ArtifactRef) => void;
+  onAddToLibrary?: (design: ArtifactRef) => void;
 }) {
   const frame = useRef<HTMLDivElement>(null);
   const [inView, setInView] = useState(false);
@@ -670,23 +625,12 @@ const DesignFrame = memo(function DesignFrame({
     return () => clearTimeout(timer);
   }, [scale]);
   const [painted, setPainted] = useState<Artifact | null>(null);
-  const { live, hold } = useLiveDesign(chatId, design, version === null);
+  const { live, hold } = useLiveDesign(chatId, design, version === null && !library);
   const { artifact, error } = useArtifact(chatId, design.id, design.format === "html" ? null : (hold ?? version ?? design.version));
   const markPainted = useCallback((ready: boolean) => setPainted(ready ? artifact : null), [artifact]);
   const [editError, setEditError] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
-  const [deleting, setDeleting] = useState<"confirm" | "busy" | null>(null);
-  const remove = async () => {
-    setDeleting("busy");
-    setEditError("");
-    try {
-      await bridgeForKey(chatId).artifacts.delete({ chatId, id: design.id });
-      window.dispatchEvent(new CustomEvent<DesignDeleted>(DESIGN_DELETED, { detail: { chatId, id: design.id } }));
-    } catch (cause) {
-      setEditError(cause instanceof Error ? cause.message : String(cause));
-      setDeleting(null);
-    }
-  };
+  const [deleting, setDeleting] = useState<Deleting>(null);
   const width = artifact?.width ?? 1280,
     height = artifact?.height ?? 800;
   useLayoutEffect(onSized, [width, height, onSized]);
@@ -745,6 +689,7 @@ const DesignFrame = memo(function DesignFrame({
                 {designKitLabel(artifact)}
               </span>
             )}
+            {library && <LibraryEditNote artifact={artifact} version={shown.version} chatId={chatId} />}
           </span>
           <Tooltip label="Next version" asChild>
             <IconButton
@@ -757,36 +702,20 @@ const DesignFrame = memo(function DesignFrame({
           </Tooltip>
         </>
       )}
-      {artifact?.format === "design" && <DesignFrameMenu artifact={artifact} shown={shown} open={moreOpen} onOpen={setMoreOpen} onShare={onShare} />}
-      {design.format === "design" &&
-        (deleting ? (
-          <span className="flex items-center gap-1">
-            <Button
-              variant="danger"
-              size={24}
-              data-slot="artifact-delete-confirm"
-              aria-label={`Delete ${shown.title} and every version`}
-              disabled={deleting === "busy"}
-              onClick={() => void remove()}
-            >
-              {deleting === "busy" ? "Deleting…" : "Delete"}
-            </Button>
-            <Button variant="ghost" size={24} disabled={deleting === "busy"} onClick={() => setDeleting(null)}>
-              Cancel
-            </Button>
-          </span>
-        ) : (
-          <Tooltip label="Delete design" asChild>
-            <IconButton
-              data-slot="artifact-delete"
-              variant="danger-ghost"
-              label={`Delete ${shown.title}`}
-              icon={Delete02Icon}
-              size={24}
-              onClick={() => setDeleting("confirm")}
-            />
-          </Tooltip>
-        ))}
+      {artifact?.format === "design" && (
+        <DesignFrameMenu artifact={artifact} shown={shown} open={moreOpen} onOpen={setMoreOpen} onShare={onShare} onAddToLibrary={onAddToLibrary} />
+      )}
+      {design.format === "design" && (
+        <DesignDeleteButton
+          chatId={chatId}
+          id={design.id}
+          title={shown.title}
+          library={library}
+          deleting={deleting}
+          onDeleting={setDeleting}
+          onError={setEditError}
+        />
+      )}
       {!sentHere && choice.onChoose && (
         <button
           type="button"
@@ -984,7 +913,7 @@ function CanvasDesignBody({
       cacheKey,
       document,
       (result) => setPreview({ key: cacheKey, result }),
-      () => versionsKept.has(previewKey),
+      () => isVersionKept(previewKey),
       pixelRatio,
       previewScale,
       previewKey,

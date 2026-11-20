@@ -10,7 +10,7 @@ import {
 import type { ArtifactRef } from "../../model";
 import { ARTIFACT_CSP, type Artifact } from "@milagre/shared/artifact";
 import { THEME_EVENT } from "../../lib/theme-sheet";
-import { readArtifact } from "./ArtifactCanvas";
+import { readArtifact } from "./artifact-read";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 
 function PageLoading() {

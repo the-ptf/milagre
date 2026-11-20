@@ -5,7 +5,7 @@ import { bridgeForKey } from "../../lib/computer-bridge";
 import type { DesignPin, PinControls } from "./ArtifactCanvas";
 
 /** The two bodies of the Artifact panel: the canvas of every design, and the Chat's HTML page. */
-export type DockPage = "canvas" | "page";
+export type DockPage = "canvas" | "page" | `library:${string}`;
 
 const unsent = new Map<string, { pins: DesignPin[]; choice: ArtifactRef | null }>();
 

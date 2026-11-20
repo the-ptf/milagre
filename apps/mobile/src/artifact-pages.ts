@@ -2,7 +2,7 @@ import type { MenuSection } from "./primitives/menu";
 import type { DesignsTab } from "./panel-tabs";
 
 export type ArtifactPageEntry = { id: string; title: string };
-export type ArtifactPageChoice = { kind: "canvas" } | { kind: "page"; tab: string };
+export type ArtifactPageChoice = { kind: "canvas" } | { kind: "page"; tab: string } | { kind: "library"; page: string };
 type Remembered = { last: "canvas" | "page"; design?: string; page?: { id: string; tab: string } };
 
 const remembered = new Map<string, Remembered>();
@@ -29,15 +29,17 @@ export function rememberedTab(hostId: string | undefined, chatId: string | undef
 
 /**
  * The page menu of the Artifact's header: Canvas when the Chat has designs, then the HTML page as its tabs (or its title
- * when it has none). `current` is checked.
+ * when it has none), then the pages of the Project library. `current` is checked.
  */
 export function artifactPageSections({
   canvas,
   page,
+  library = [],
   current,
 }: {
   canvas: boolean;
   page: { title: string; tabs: ArtifactPageEntry[] } | null;
+  library?: { id: string; name: string }[];
   current: ArtifactPageChoice;
 }): MenuSection[] {
   const sections: MenuSection[] = [];
@@ -49,13 +51,35 @@ export function artifactPageSections({
       items: tabs.map((tab) => ({ id: `page:${tab.id}`, title: tab.title, checked: current.kind === "page" && current.tab === tab.id })),
     });
   }
+  if (library.length)
+    sections.push({
+      title: "Project library",
+      items: library.map((item) => ({
+        id: `library:${item.id}`,
+        title: item.name,
+        systemImage: "books.vertical",
+        checked: current.kind === "library" && current.page === item.id,
+      })),
+    });
   return sections;
+}
+
+/** The Versions section of a design's actions, newest first, `version` checked. None for a design with one version. */
+export function versionSections(latest: number, version: number): MenuSection[] {
+  if (latest <= 1) return [];
+  const items = Array.from({ length: latest }, (_, index) => latest - index).map((number) => ({
+    id: `version:${number}`,
+    title: `Version ${number}${number === latest ? " (latest)" : ""}`,
+    checked: number === version,
+  }));
+  return [{ title: "Versions", items }];
 }
 
 export const pageEntries = (sections: MenuSection[]) => sections.reduce((count, section) => count + section.items.length, 0);
 
 export function readPageChoice(id: string): ArtifactPageChoice | null {
   if (id === "canvas") return { kind: "canvas" };
+  if (id.startsWith("library:")) return { kind: "library", page: id.slice("library:".length) };
   return id.startsWith("page:") ? { kind: "page", tab: id.slice("page:".length) } : null;
 }
 
@@ -66,6 +90,7 @@ export function artifactRouteParams(target: DesignsTab): Record<string, string |
     chatId: target.chatId,
     id: target.id,
     kind: target.html ? "html" : undefined,
+    library: target.library,
     version: target.version,
     chosen: target.chosen,
     tab: target.tab,

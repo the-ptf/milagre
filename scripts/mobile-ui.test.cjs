@@ -468,6 +468,11 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (["artifact-page-menu", "use-share-available"].includes(base) && !(id in modules))
         return load(base === "artifact-page-menu" ? `${base}.tsx` : `${base}.ts`, modules, "", cache);
       if (["artifact-pages", "page-share-status"].includes(base) && !(id in modules)) return require(`../apps/mobile/src/${base}.ts`);
+      // The Project library's reads and Add to Project library load with the sheet's own fakes; the iPad tab picks its sheet
+      // (artifact-panel.tsx) from the same fakes, and a library page draws as a named element unless a test supplies it.
+      if (["design-library", "artifact-panel", "artifact-page-actions"].includes(base) && !(id in modules))
+        return load(base === "design-library" ? `${base}.ts` : `${base}.tsx`, modules, "", cache);
+      if (base === "library-sheet" && !(id in modules)) return { LibrarySheet: "LibrarySheet" };
       if (base === "browser-setting" && !(id in modules)) return { useInternalBrowser: () => [globalThis.internalBrowser !== false, async () => {}] };
       // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
       if (base === "hardware-keys" && !(id in modules))
@@ -12718,6 +12723,7 @@ test("canvas fonts are injected once per page and replayed before documents afte
       if (method === "artifact:list") return designs;
       if (method === "artifact:comments") return [];
       if (method === "artifact:sharing-status") return { available: false };
+      if (method === "design-library:list") return { pages: [] };
       calls.push(request);
       return {
         ...designs.find((item) => item.id === request.id),
@@ -12770,6 +12776,7 @@ test("a superseding canvas effect reuses an outstanding design read", async () =
       if (method === "artifact:list") return [design];
       if (method === "artifact:comments") return [];
       if (method === "artifact:sharing-status") return { available: false };
+      if (method === "design-library:list") return { pages: [] };
       gets++;
       return new Promise((resolve) => {
         finish = resolve;
@@ -23193,4 +23200,178 @@ test("read-only phone history keeps restore notes and hides Undo and Redo action
   );
   chatMenuEntry(tree, "View checkpoints").props.onPress();
   assert.equal(find(chat.render(), (node) => node.type === "UndoPanel").props.readOnly, true, "history previews remain read-only");
+});
+
+const libraryDesign = (id, version, extra = {}) => ({
+  id,
+  version,
+  latest: version,
+  versions: version,
+  title: id,
+  format: "design",
+  width: 390,
+  height: 844,
+  document: require("../packages/shared/src/design.mjs").createExampleDesign(),
+  html: "<html><head></head><body></body></html>",
+  ...extra,
+});
+const projectLibrary = () => ({
+  pages: [
+    {
+      id: "iphone",
+      name: "iPhone",
+      designs: [
+        {
+          ...libraryDesign("library:home", 2),
+          page: "iphone",
+          edits: [
+            { version: 1, chatId: "/p#3", chat: "Login flow", agent: "Claude", at: 1 },
+            { version: 2, chatId: "/p#4", chat: "Polish", agent: "Codex", at: 2 },
+          ],
+        },
+      ],
+    },
+  ],
+});
+
+test("the phone's Artifact menu lists the Project library's pages, and Add to Project library puts a design on one", async (t) => {
+  const design = libraryDesign("one", 1);
+  const calls = [];
+  const client = {
+    url: "mac",
+    call: async (method, [request] = []) => {
+      calls.push([method, request]);
+      if (method === "artifact:list") return [design];
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      if (method === "design-library:list") return projectLibrary();
+      if (method === "design-library:add")
+        return { ...libraryDesign(`library:${request.designId}`, 1), page: request.page === "iPhone" ? "iphone" : "watch", edits: [] };
+      return design;
+    },
+  };
+  const pushes = [];
+  const h = designsHost(client, { back() {} }, designsOn, pushes);
+  t.after(() => {
+    h.cleanup();
+    delete globalThis.promptAnswer;
+  });
+  const props = { hostId: "mac", chatId: "/p#7", id: "one" };
+  let tree = await h.open(props);
+  const title = find(tree, (node) => node.type?.name === "ArtifactPageTitle");
+  const library = title.props.sections.find((section) => section.title === "Project library");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(library.items.map((item) => [item.id, item.title, item.checked]))),
+    [["library:iphone", "iPhone", false]],
+    "after the Chat's own pages come the library's",
+  );
+  title.props.onSelect("library:iphone");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(pushes.at(-1))),
+    { setParams: { hostId: "mac", chatId: "/p#7", id: "library:home", library: "iphone" } },
+    "a library page opens in place on its first design",
+  );
+
+  const add = menuItems(tree).find((item) => item.id === "library");
+  assert.equal(add.title, "Add to Project library");
+  assert.deepEqual(JSON.parse(JSON.stringify(add.submenu.map((item) => [item.id, item.title]))), [
+    ["library-add:iphone", "iPhone"],
+    ["library-add:", "New page…"],
+  ]);
+  find(tree, (node) => node.type === "PullDown").props.onSelect("library-add:iphone");
+  await settle();
+  await settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.findLast(([method]) => method === "design-library:add")[1])), {
+    chatId: "/p#7",
+    designId: "one",
+    page: "iPhone",
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), { setParams: { hostId: "mac", chatId: "/p#7", id: "library:one", library: "iphone" } });
+
+  globalThis.promptAnswer = "  Watch ";
+  tree = h.render("DesignsSheet", props);
+  find(tree, (node) => node.type === "PullDown").props.onSelect("library-add:");
+  await settle();
+  await settle();
+  assert.equal(calls.findLast(([method]) => method === "design-library:add")[1].page, "Watch", "a new page takes the typed name");
+  const adds = calls.filter(([method]) => method === "design-library:add").length;
+  globalThis.promptAnswer = null;
+  find(h.render("DesignsSheet", props), (node) => node.type === "PullDown").props.onSelect("library-add:");
+  await settle();
+  assert.equal(calls.filter(([method]) => method === "design-library:add").length, adds, "cancelling the name adds nothing");
+});
+
+test("a Project library page opens on the phone's canvas with who saved each version, and Remove takes it out of the library", async (t) => {
+  const calls = [];
+  const client = {
+    url: "mac",
+    call: async (method, [request] = []) => {
+      calls.push([method, request]);
+      if (method === "design-library:list") return projectLibrary();
+      if (method === "artifact:list") return [];
+      if (method === "artifact:delete") return { id: request.id };
+      const entry = projectLibrary().pages[0].designs[0];
+      return request.version === 1 ? { ...entry, version: 1 } : entry;
+    },
+  };
+  const react = hookHost({ effects: true });
+  const injected = [];
+  let backs = 0;
+  const source = load("library-sheet.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Alert: { alert: (_title, _message, buttons) => buttons[0].onPress() }, Text: "Text", View: "View" },
+    "expo-router": { router: { back: () => backs++, setParams() {} } },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 47, bottom: 34 }) },
+    "@expo/dom-webview": {},
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+    "./designs-sheet": { DesignsCanvas: "DesignsCanvas" },
+    "./session": { useSession: () => ({ client, designs: designsOn, reconnects: 0 }) },
+    "./ui": { PullDown: "PullDown", CircleButton: "CircleButton", SheetHeader: "SheetHeader", ErrorNotice: "ErrorNotice", useStyles: () => ({ muted: {} }) },
+    "./theme": { useTheme: () => ({ colors: { surface: "#fff", ink3: "#666", accent: "#07f" } }) },
+  });
+  t.after(() => react.cleanup());
+  const props = { hostId: "mac", chatId: "/p#7", page: "iphone", id: "library:home" };
+  const render = () => {
+    react.begin();
+    const tree = source.LibrarySheet(props);
+    react.flush();
+    return tree;
+  };
+  render();
+  await settle();
+  render();
+  await settle();
+  let tree = render();
+  const canvas = find(tree, (node) => node.type === "DesignsCanvas");
+  canvas.props.ref.current = { injectJavaScript: (script) => injected.push(JSON.parse(/run\((.*)\);true;$/s.exec(script)[1])) };
+  canvas.props.onMessage(JSON.stringify({ t: "ready" }));
+  tree = render();
+  assert.deepEqual(JSON.parse(JSON.stringify(injected.find((command) => command.t === "set").rows)), [
+    { group: "", designs: [{ id: "library:home", w: 390, h: 844 }] },
+  ]);
+  assert.ok(
+    injected.some((command) => command.t === "html" && command.id === "library:home"),
+    "the library design draws through artifact:get",
+  );
+  const header = find(tree, (node) => node.type === "SheetHeader");
+  assert.equal(header.props.subtitle, "Project library · v2 · Edited in Polish · Codex");
+  assert.ok(find(header.props.center, () => true).props.sections.some((section) => section.items.some((item) => item.id === "library:iphone" && item.checked)));
+  const actions = find(tree, (node) => node.type === "PullDown");
+  const items = actions.props.sections.flatMap((section) => section.items);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(items.map((item) => item.id))),
+    ["version:2", "version:1", "remove"],
+    "versions and Remove: no comments or Choose on a library design",
+  );
+  actions.props.onSelect("version:1");
+  render();
+  await settle();
+  tree = render();
+  assert.equal(find(tree, (node) => node.type === "SheetHeader").props.subtitle, "Project library · v1 · Edited in Login flow · Claude");
+  find(tree, (node) => node.type === "PullDown").props.onSelect("remove");
+  await settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.findLast(([method]) => method === "artifact:delete")[1])), { chatId: "/p#7", id: "library:home" });
+  assert.equal(backs, 1, "removing the page's last design closes the sheet");
 });

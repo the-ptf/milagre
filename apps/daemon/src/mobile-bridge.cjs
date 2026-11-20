@@ -55,6 +55,7 @@ const SIGNAL_ORDER = [
   "token-usage",
   "mcp",
   "designs",
+  "library",
   "keybindings",
   "links",
   "routines",
@@ -63,6 +64,7 @@ const SIGNAL_ORDER = [
   "pulls",
   "btw",
 ];
+const librarySignal = (channel, payload, entry) => (channel === "design-library:changed" && payload?.projectPath === entry.projectPath ? "library" : undefined);
 const OWNER_SIGNALS = {
   "accounts:changed": "accounts",
   "usage:changed": "usage",
@@ -287,7 +289,7 @@ async function startMobileBridge({
     hostRuns.changed();
     followState(channel, payload);
     for (const entry of live) {
-      const immediate = SIGNALS[channel] ?? (confine ? undefined : OWNER_SIGNALS[channel]);
+      const immediate = SIGNALS[channel] ?? (confine ? undefined : OWNER_SIGNALS[channel]) ?? librarySignal(channel, payload, entry);
       if (immediate) signal(entry, immediate, 0);
       if (channel === "pull-requests:changed") signal(entry, "pulls", LIVE_DELAY.project);
       if (
