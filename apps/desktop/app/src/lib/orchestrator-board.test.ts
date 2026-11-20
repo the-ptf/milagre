@@ -127,6 +127,40 @@ test("a task whose turn ended without a PR needs the owner", () => {
   assert.equal(boardCards([task("t1")], states as never, {}, NOW)[0]!.column, "needs");
 });
 
+test("a finished task is Done; one its agent marked blocked or that asks a question waits in Needs you with why", () => {
+  const blocked = { reason: "Sign in to the resend MCP server with /mcp, then reply continue.", at: NOW - 5 };
+  const states = {
+    "/p/app": {
+      sessions: {
+        1: { id: 1, summary: { lastOutcome: "completed", count: 2 } },
+        2: { id: 2, summary: { lastOutcome: "completed", count: 2 }, orchestrator: { taskId: "t2", hidden: true, blocked } },
+        3: { id: 3 },
+      },
+    },
+  };
+  const question = { requestId: "q", questions: [{ id: "0", header: "", question: "Which sender domain?", options: [], multiSelect: false }] };
+  const runs = { "/p/app#3": run({ questions: [question] }) } as unknown as AgentRuns;
+  const cards = boardCards(
+    ["t1", "t2", "t3"].map((id, index) => task(id, { outcome: "reply", createdAt: NOW - index })),
+    states,
+    runs,
+    NOW,
+  );
+  assert.deepEqual(
+    cards.map((card) => [card.task.id, card.column, card.state, card.detail]),
+    [
+      ["t1", "done", "done", "Finished"],
+      ["t2", "needs", "needs-you", "Blocked: Sign in to the resend MCP server with /mcp, then reply continue."],
+      ["t3", "needs", "needs-you", "Asks: Which sender domain?"],
+    ],
+  );
+  assert.deepEqual(boardCounts(cards), { running: 0, needs: 2 });
+  const running = boardCards([task("t2", { outcome: "reply" })], states, { "/p/app#2": run() } as unknown as AgentRuns, NOW)[0]!;
+  assert.equal(running.column, "running", "a new turn in a blocked task runs");
+  const done = { "/p/app": { sessions: { 2: { ...states["/p/app"].sessions[2], done_at: NOW } } } };
+  assert.equal(boardCards([task("t2", { outcome: "reply" })], done, {}, NOW)[0]!.column, "done", "marking the Chat Done accepts it");
+});
+
 test("a task at its usage limit waits in Needs you and says until when", () => {
   const limited = task("t1", { limit: { provider: "claude", resetsAt: new Date(NOW + 3_600_000).toISOString() } });
   const [card] = boardCards([limited], { "/p/app": { sessions: { 1: { id: 1, summary: { lastOutcome: "failed" } } } } }, {}, NOW);

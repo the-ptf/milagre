@@ -168,6 +168,7 @@ test("the Milagre tools every provider runs without its own card: reads, plan, o
     "browser_close",
     "browser_resolve_comment",
     "conclude_negotiation",
+    "task_blocked",
   ];
   for (const name of [...PLAN_TOOL_NAMES, ...own, "project_add", "worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"]) {
     assert.equal(ungated(name), true, name);

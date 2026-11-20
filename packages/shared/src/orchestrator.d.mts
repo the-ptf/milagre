@@ -153,8 +153,14 @@ export function activeRoles(roles: readonly OrchestratorRole[]): OrchestratorRol
 export interface TaskChatSession {
   archived?: boolean;
   done_at?: number;
+  orchestrator?: { blocked?: { reason: string; at: number } | null };
   summary?: { lastOutcome?: "completed" | "failed" | "cancelled"; lastAt?: number; pullRequests?: string[] };
 }
+export const TASK_BLOCKED_TOOL: "task_blocked";
+export const TASK_BLOCKED_MAX: number;
+export function taskBlockedReason(value: unknown): string | null;
+export function taskBlockedText(session: TaskChatSession | null | undefined, running?: boolean): string | null;
+export function needsYouLine(needs: readonly { task: { title: string }; detail: string }[]): string | null;
 export function taskDoneAt(session: TaskChatSession | null | undefined, busy?: boolean): number | null;
 export function taskSwept(
   session: TaskChatSession | null | undefined,
@@ -204,7 +210,7 @@ export function pickComputer<T extends { id: string; online: boolean; local: boo
 declare module "./model.ts" {
   interface AgentSession {
     /** An Orchestrator task: off the sidebar while `hidden`, on the account it picked per provider. */
-    orchestrator?: { taskId: string; hidden: boolean; accounts?: Partial<Record<string, string>> };
+    orchestrator?: { taskId: string; hidden: boolean; accounts?: Partial<Record<string, string>>; blocked?: { reason: string; at: number } | null };
   }
 }
 

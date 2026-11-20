@@ -100,3 +100,17 @@ test("completed replies require the recorded outcome on the phone", () => {
   assert.equal(boardItem(task(), { ...finished, run: run() }, "merged", 0).column, "running");
   assert.equal(boardItem(task(), { chat: chat() }, null, 0).column, "running");
 });
+
+test("a finished task is Done; one its agent marked blocked or that asks a question waits in Needs you with why", () => {
+  const summary = { count: 2, lastOutcome: "completed" } as AgentSession["summary"];
+  const reason = "Sign in to the resend MCP server with /mcp, then reply continue.";
+  const blocked = chat({ summary, orchestrator: { taskId: "t1", hidden: true, blocked: { reason, at: 1 } } });
+  assert.equal(boardItem(task({ outcome: "reply" }), { chat: chat({ summary }) }, null, 0).column, "done");
+  const waiting = boardItem(task({ outcome: "reply" }), { chat: blocked }, null, 0);
+  assert.deepEqual([waiting.column, waiting.detail], ["needs", `Blocked: ${reason}`]);
+  const question = { requestId: "q", questions: [{ id: "0", header: "", question: "Which sender domain?", options: [], multiSelect: false }] };
+  const asking = boardItem(task({ outcome: "reply" }), { chat: chat(), run: run({ questions: [question] as never }) }, null, 0);
+  assert.deepEqual([asking.column, asking.mark, asking.detail], ["needs", "question", "Asks: Which sender domain?"]);
+  assert.equal(boardItem(task({ outcome: "reply" }), { chat: blocked, run: run() }, null, 0).column, "running", "a new turn in a blocked task runs");
+  assert.equal(boardItem(task({ outcome: "reply" }), { chat: { ...blocked, done_at: 5 } }, null, 0).column, "done", "marking the Chat Done accepts it");
+});

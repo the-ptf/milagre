@@ -10,6 +10,7 @@ import {
   pullRequestState,
   isIrreversible,
   keywordRoute,
+  needsYouLine,
   normalizeOrchestratorMemory,
   normalizeOrchestratorSettings,
   normalizeOrchestratorTask,
@@ -17,7 +18,9 @@ import {
   pickComputer,
   recordTrust,
   roleById,
+  taskBlockedText,
   taskDoneAt,
+  taskOutcomePrompt,
   taskSwept,
   titleFromPrompt,
   trustScore,
@@ -254,4 +257,24 @@ test("a task leaves the board when its Chat is gone, or after the Done retention
   assert.equal(taskSwept({ summary: { lastOutcome: "failed", lastAt: 1 } }, { retentionHours: 1, now }), false);
   assert.equal(taskDoneAt({ summary: { lastOutcome: "cancelled", lastAt: 5 } }), 5);
   assert.equal(taskDoneAt({ done_at: 9, summary: { lastOutcome: "completed", lastAt: 5 } }, true), 9);
+});
+
+test("a task its agent marked blocked waits on the owner until a turn runs or its Chat is marked Done", () => {
+  const blocked = { reason: "Sign in to the resend MCP server\nwith /mcp", at: 7 };
+  const session = { summary: { lastOutcome: "completed", lastAt: 5 }, orchestrator: { taskId: "t", hidden: true, blocked } };
+  assert.equal(taskBlockedText(session), "Blocked: Sign in to the resend MCP server with /mcp");
+  assert.equal(taskBlockedText(session, true), null, "a running turn has cleared it");
+  assert.equal(taskBlockedText({ ...session, done_at: 9 }), null);
+  assert.equal(taskBlockedText({ ...session, orchestrator: { taskId: "t", hidden: true, blocked: { reason: "  ", at: 7 } } }), null);
+  assert.equal(taskDoneAt(session), null, "a blocked task never counts as Done on its own");
+  assert.equal(taskDoneAt({ ...session, done_at: 9 }), 9);
+  assert.equal(taskSwept(session, { retentionHours: 1, now: 10 ** 12, outcome: "reply" }), false);
+  for (const outcome of ["reply", "pull-request", "merged"]) assert.match(taskOutcomePrompt(outcome), /milagre task_blocked tool/);
+});
+
+test("the sidebar names the one task that needs the owner and why, else counts them", () => {
+  const card = (title, detail) => ({ task: { title }, detail });
+  assert.equal(needsYouLine([]), null);
+  assert.equal(needsYouLine([card("Email templates", "Blocked: Sign in to resend")]), "Email templates. Blocked: Sign in to resend");
+  assert.equal(needsYouLine([card("a", "x"), card("b", "y")]), "2 need you");
 });

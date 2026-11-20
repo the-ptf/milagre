@@ -439,9 +439,8 @@ function createRuntime(options) {
       return;
     }
     for (const watcher of [routines, babysitWatch, autopilot]) watcher?.observe(chatId, event);
-    if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type))
-      void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type)) {
+      void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
       chatSecrets?.cancel(chatId);
       bugReports?.cancel(chatId);
     }
@@ -1263,6 +1262,7 @@ function createRuntime(options) {
       (await advisorStore.read(chatId)).some((record) => record.completions?.some((result) => ["pending", "sending"].includes(result.delivery))),
     extraTools: (chatId) => [
       ...planTools.definitions(chatId),
+      ...(autopilot?.tools(chatId) ?? []),
       ...chatSecrets.definitions(chatId),
       ...bugReports.definitions(chatId),
       ...simulatorToolDefinitions(chatId, simulators),

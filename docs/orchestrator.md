@@ -46,6 +46,14 @@ PR needs attention. Marking the task's Chat Done accepts it as it is, for work t
 saved before outcomes existed count as Agent finished, so upgrading doesn't move them. Running work, background tasks, approvals, failed turns and stopped turns take
 precedence over completion. PR merged does not authorize an automatic merge: autopilot still asks the owner.
 
+A turn that ends in prose can't say whether the work is finished, so a task's agent says it is blocked with the
+`task_blocked` milagre tool, which only task Chats get (every provider; the task prompt tells it when). It stores
+`session.orchestrator.blocked = { reason, at }` on the task Chat, not on the task, so a board reading the Chat from another
+computer sees it too. While it is set the task waits in Needs you with "Blocked: reason" on its card and in the sidebar's
+Orchestrator row (tooltip on desktop, subtitle on the phone), and the Done sweep leaves it alone. The next turn's
+`turn-started` clears it; marking the Chat Done accepts the task as it is. Pending approvals, questions and secrets
+(questions with `secret`) already hold a task in Needs you without the tool.
+
 Tasks saved before this setting existed require PR created, so a reply without a verified PR no longer appears Done.
 Without available PR evidence (including an unavailable computer), the board cannot infer successful completion.
 
