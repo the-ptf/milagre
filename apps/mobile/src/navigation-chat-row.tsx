@@ -17,6 +17,7 @@ import { DISABLED_OPACITY, PullDown } from "./ui";
 import { HoverView } from "./primitives/hover";
 import { ChatsHomeIcon, ProjectIcon } from "./project-icon";
 import { chatMenu } from "./chat-actions";
+import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { useSnoozePresets } from "./snooze-setting";
 import type { SnoozePreset } from "@milagre/shared/snooze";
 import { canOpenBeside } from "./split-chats";
@@ -103,6 +104,7 @@ function chatRowSelection(ctx: ChatRowBase) {
     doneable,
     snoozeMinutes,
     snoozePresets,
+    !item.home && !isLinkScopeKey(item.path),
   );
   const archiving =
     archivingChats.has(`${copy?.project.path ?? item.path}#${item.chat.id}`) &&

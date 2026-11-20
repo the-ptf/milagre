@@ -8,6 +8,7 @@ import { keepsOnPin } from "@milagre/shared/chat-pins";
 import { patchChatShowingDone } from "../../lib/done-pending";
 import { snoozeChat } from "../../lib/snooze-pending";
 import type { ChatRowActions, SidebarRecent } from "./ChatRow";
+import { openDesignLibrary } from "../../lib/design-library-page";
 
 type ScopeRowHandlesProps = {
   scopeStates: ReturnType<typeof useScopeStates>["states"];
@@ -56,6 +57,7 @@ export function useScopeRowHandles({ scopeStates, scopeChatActions, onScopeArchi
         onReopen: (id) => void patchChatShowingDone(key, Number(id), { done: false }).catch(() => {}),
         onSnooze: (id, until) => void snoozeChat(key, Number(id), until).catch(() => {}),
         onWake: (id) => void snoozeChat(key, Number(id), null).catch(() => {}),
+        ...(key.startsWith("milagre-link:") ? {} : { onDesignLibrary: () => openDesignLibrary(key) }),
         ...(archivable
           ? {
               onArchiveCheck: (id: string) => scopeArchive.current.check!(key, id),

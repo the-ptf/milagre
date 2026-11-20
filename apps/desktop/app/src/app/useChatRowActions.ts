@@ -13,6 +13,7 @@ import { patchChatShowingDone } from "../lib/done-pending";
 import { openInEditor } from "../lib/editors";
 import { showNotice } from "../lib/notice";
 import { chatRevealPath } from "../lib/reveal";
+import { openDesignLibrary } from "../lib/design-library-page";
 import { cachedProjectCopy, cachedScopeState } from "../lib/sidebar-scopes";
 import { snoozeChat } from "../lib/snooze-pending";
 import { busyTerminals } from "../lib/terminal-actions";
@@ -171,7 +172,7 @@ function scopeRowActions(latest: RefObject<RowActions>, path: string, gitless: b
   };
 }
 
-function openRowActions(latest: RefObject<RowActions>, here: () => Path, remoteProject: boolean, showGit: boolean): ChatRowActions {
+function openRowActions(latest: RefObject<RowActions>, here: () => Path, remoteProject: boolean, showGit: boolean, link: boolean): ChatRowActions {
   return {
     onRename: (id, title) => latest.current.patchChat(Number(id), { title }, here()),
     onMarkUnread: (id, unread) => latest.current.patchChat(Number(id), { unread }, here()),
@@ -199,6 +200,14 @@ function openRowActions(latest: RefObject<RowActions>, here: () => Path, remoteP
     onLinkIssue: (id, key, workspace) => void latest.current.linkChatIssue(Number(id), key, workspace, here()),
     onUnlinkIssue: (id) => void latest.current.unlinkChatIssue(Number(id), here()),
     onDetach: (id) => void latest.current.detachChat(Number(id), here()),
+    ...(link
+      ? {}
+      : {
+          onDesignLibrary: () => {
+            const path = here();
+            if (path) openDesignLibrary(path);
+          },
+        }),
   };
 }
 
@@ -214,9 +223,10 @@ export function useChatRowActions(ctx: ChatRowContext) {
   latest.current = actions;
   const { projectRef, showGit } = ctx;
   const remoteProject = isRemoteKey(ctx.project?.path);
+  const linkProject = isLinkScopeKey(ctx.project?.path);
   const chatActions = useMemo(
-    () => openRowActions(latest, () => projectRef.current?.path, remoteProject, showGit),
-    [latest, projectRef, remoteProject, showGit],
+    () => openRowActions(latest, () => projectRef.current?.path, remoteProject, showGit, linkProject),
+    [latest, projectRef, remoteProject, showGit, linkProject],
   );
   const scopeChatActions = useMemo(() => (path: string, gitless: boolean) => scopeRowActions(latest, path, gitless), [latest]);
   return { ...actions, chatActions, scopeChatActions };

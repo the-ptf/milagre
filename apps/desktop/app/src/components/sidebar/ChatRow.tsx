@@ -99,6 +99,7 @@ export type ChatRowActions = {
   onLinkWith?: (id: string, anchor: { top: number; left: number }) => void;
   onRemoveLink?: (id: string, anchor: { top: number; left: number }) => void;
   onDetach?: (id: string) => void;
+  onDesignLibrary?: () => void;
 };
 
 const NO_LINKS: LinkedEnd[] = [];
