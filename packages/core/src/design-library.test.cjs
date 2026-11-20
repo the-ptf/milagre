@@ -22,6 +22,7 @@ const layers = (heading = "Welcome") => ({
 });
 const quiet = { renderPng: async () => ({ mime: "image/png", base64: "" }), warnings: () => [], screenshot: async () => ({ png: "", consoleMessages: [] }) };
 
+const UNTITLED = new Set();
 async function fixture(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "design-library-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
@@ -42,7 +43,7 @@ async function fixture(t) {
       if (![...CHATS].some((chatId) => chatId.startsWith(`${projectPath}#`))) throw Error("Open this project in Milagre first.");
       return projectPath;
     },
-    chatInfo: async (chatId) => ({ title: `Chat ${chatId.split("#")[1]}`, agent: "Claude" }),
+    chatInfo: async (chatId) => ({ ...(UNTITLED.has(chatId) ? {} : { title: `Chat ${chatId.split("#")[1]}` }), agent: "Claude" }),
     artifacts,
     readKit: (request) => kits.readProject(request),
     onChange: ({ project }) => changes.push(project),
@@ -242,4 +243,16 @@ test("the Project's own page reads and manages the library by its path, with no 
   assert.deepEqual((await library.list({ projectPath: "/repo" })).pages, []);
   assert.ok(changes.length >= 4);
   await assert.rejects(library.add({ projectPath: "/repo", designId: "home", page: "iPhone" }), /Open an existing Chat/, "adding still needs the source Chat");
+});
+
+test("a version saved before its Chat had a title names the Chat once it has one", async (t) => {
+  const { artifacts, library, toolsFor } = await fixture(t);
+  UNTITLED.add(FIRST);
+  t.after(() => UNTITLED.delete(FIRST));
+  await artifacts.showDesign({ chatId: FIRST, id: "login", title: "Login", document: layers() });
+  const added = JSON.parse(await toolsFor(FIRST).design_library_add.run({ designId: "login", page: "iPhone" }));
+  assert.equal(added.edits[0].chat, undefined);
+  UNTITLED.delete(FIRST);
+  const listed = await library.list({ chatId: FIRST });
+  assert.equal(listed.pages[0].designs[0].edits[0].chat, "Chat 3");
 });

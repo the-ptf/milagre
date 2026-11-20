@@ -33,6 +33,25 @@ const slug = (text, max) =>
     .replace(/-+$/, "") || "page";
 const emptyIndex = () => ({ pages: [], designs: {} });
 
+async function titled(index, chatInfo) {
+  const missing = new Set(
+    Object.values(index.designs).flatMap((record) => (record.edits ?? []).filter((item) => item.chatId && !item.chat).map((item) => item.chatId)),
+  );
+  const titles = new Map();
+  for (const chatId of missing) {
+    const title = (await chatInfo(chatId).catch(() => ({})))?.title;
+    if (typeof title === "string" && title) titles.set(chatId, title.slice(0, 120));
+  }
+  if (!titles.size) return index;
+  const designs = Object.fromEntries(
+    Object.entries(index.designs).map(([id, record]) => [
+      id,
+      { ...record, edits: (record.edits ?? []).map((item) => (!item.chat && titles.has(item.chatId) ? { ...item, chat: titles.get(item.chatId) } : item)) },
+    ]),
+  );
+  return { ...index, designs };
+}
+
 function createDesignLibrary({ directory, projectForChat, projectForPath, chatInfo = async () => ({}), artifacts, readKit, onChange }) {
   const store = createChatArtifacts({
     directory: path.join(directory, "designs"),
@@ -152,7 +171,8 @@ function createDesignLibrary({ directory, projectForChat, projectForPath, chatIn
   return {
     list: (request = {}) =>
       serial(async () => {
-        const { project, index } = await scope(request);
+        const { project, index: stored } = await scope(request);
+        const index = await titled(stored, chatInfo);
         const saved = new Map((await store.list({ chatId: project, format: "design" })).map((item) => [item.id, item]));
         return {
           pages: index.pages
