@@ -402,6 +402,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // One row per repository in New Chat's Project picker (new-chat-project.ts) is pure.
       if (base === "new-chat-project" && !(id in modules)) return require("../apps/mobile/src/new-chat-project.ts");
       if (base === "project-icon" && !(id in modules)) return { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" };
+      // The update chip and its card (provider-update-notice.tsx) read the computer's CLI updates; none in these screens.
+      if (base === "provider-update-notice" && !(id in modules)) return { ProviderUpdatePill: () => null, ProviderUpdatesProvider: ({ children }) => children };
       // A phone-width window: no pinned sidebar and no reading column (split-context.tsx); the width helpers are pure.
       if (base === "split-context" && !(id in modules))
         return { useSplit: () => phoneSplit, useSplitLayout: () => phoneSplit, SplitProvider: ({ children }) => children };
@@ -19225,24 +19227,25 @@ test("a Linear comment Routine on the phone form drops the Each Run rows: commen
   assert.deepEqual(create[1][0].target, { kind: "new-chat", projectPath: "/p", workspace: "worktree" }, "it carries the Project open on the phone");
 });
 
-test("provider update cards on the phone install the advertised release on the connected computer", async () => {
+test("the phone's update chip installs the advertised release on the connected computer and hears its progress", async () => {
   const react = hookHost();
   const calls = [];
+  const lives = [];
   let transport;
   let refreshed = 0;
-  const state = { current: { provider: "codex", version: "0.163.0", installedVersion: "0.160.0" }, working: false, error: "", dismiss() {}, install() {} };
-  const { ProviderUpdateNotice } = load("provider-update-notice.tsx", {
+  const { ProviderUpdatesProvider } = load("provider-update-notice.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Text: "Text", View: "View" },
-    "expo-router": { router: { push: (path) => calls.push(path) } },
-    "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View", useWindowDimensions: () => ({ width: 390, height: 844 }) },
+    "expo-clipboard": { setStringAsync: async () => {} },
+    "@hugeicons/core-free-icons": {},
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
     "@milagre/shared/providers": require("@milagre/shared/providers"),
+    "@milagre/shared/provider-update-view": require("../packages/shared/src/provider-update-view.ts"),
     "@milagre/shared/use-provider-updates": {
       useProviderUpdates: (value) => {
         transport = value;
-        return state;
+        return { items: [], clearDone() {} };
       },
     },
     "./hosts-native": {
@@ -19259,32 +19262,37 @@ test("provider update cards on the phone install the advertised release on the c
             calls.push(args);
             return { ok: true };
           },
+          live: (projectPath, options) => {
+            lives.push({ projectPath, options, closed: false });
+            return { close: () => (lives.at(-1).closed = true) };
+          },
         },
         hostName: "Studio Mac",
         refreshProviders: () => refreshed++,
       }),
     },
-    "./icons": { ProviderLogo: "ProviderLogo" },
-    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
+    "./icons": { Icon: "Icon", ProviderLogo: "ProviderLogo", SpinnerRing: "SpinnerRing" },
+    "./progress-sweep": { ProgressSweep: "ProgressSweep" },
+    "./status-pill": { StatusPill: "StatusPill" },
+    "./ui": { IconButton: "IconButton", InlineError: "InlineError", PillButton: "PillButton", ProgressBar: "ProgressBar", announce() {}, useAnnounce() {} },
+    "./design-tokens": { lineHeight: {}, radius: {}, space: {}, type: {} },
+    "./theme": { useTheme: () => ({ colors: {} }) },
   });
   react.begin();
-  const tree = ProviderUpdateNotice();
-  find(tree, (node) => node.type === "PillButton" && node.props.title === "Settings").props.onPress();
-  assert.equal(calls[0], "/accounts");
-  await transport.install(state.current);
+  ProviderUpdatesProvider({ children: null });
+  await transport.read();
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ["agent:provider-updates"]);
+  const result = await transport.install({ provider: "codex", version: "0.163.0", installedVersion: "0.160.0" });
+  assert.equal(result.ok, true);
   assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), ["agent:update-cli", ["codex", "0.163.0"]]);
-  assert.equal(refreshed, 1);
-  state.working = true;
-  react.begin();
-  const pending = ProviderUpdateNotice();
-  assert.equal(find(pending, (node) => node.type === "PillButton" && node.props.title === "Updating…").props.disabled, true);
-  assert.equal(find(pending, (node) => node.type === "IconButton").props.disabled, true);
-  state.error = "Permission denied";
-  state.working = false;
-  react.begin();
-  const failed = ProviderUpdateNotice();
-  assert.equal(find(failed, (node) => node.props?.accessibilityRole === "alert").props.children, "Permission denied");
-  assert.equal(find(failed, (node) => node.type === "PillButton" && node.props.title === "Retry").props.disabled, false);
+  assert.equal(refreshed, 1, "the model picker reads the CLIs again after an install");
+  let heard = 0;
+  const stop = transport.watch(() => heard++);
+  lives[0].options.onSignal("usage");
+  lives[0].options.onSignal("provider-updates");
+  assert.equal(heard, 1, "progress on the computer reaches the phone as a provider-updates signal");
+  stop();
+  assert.equal(lives[0].closed, true);
   await transport.dismissals.add("codex:0.163.0");
   await transport.dismissals.load();
   assert.deepEqual(
@@ -19318,17 +19326,22 @@ test("a provider update dismissed on the phone stays dismissed when the connecti
     react.begin();
     return exports.useProviderUpdates(current);
   };
-  assert.equal(render().current, undefined, "nothing shows before the saved dismissals are read");
+  // The hook runs in its own realm, so its arrays are compared as text.
+  const providers = () =>
+    render()
+      .items.map((item) => item.provider)
+      .join(",");
+  assert.equal(providers(), "", "nothing shows before the saved dismissals are read");
   await settle();
   const first = render();
-  assert.equal(first.current.provider, "codex");
+  assert.equal(first.items.map((item) => item.provider).join(","), "claude,codex");
   first.dismiss();
-  assert.equal(render().current.provider, "claude");
-  assert.deepEqual([...saved], ["codex:0.165.0"]);
+  assert.equal(providers(), "");
+  assert.deepEqual([...saved].sort(), ["claude:2.1.312", "codex:0.165.0"]);
   current = transport(); // a reconnect builds a new client and so a new transport
-  assert.equal(render().current, undefined);
+  assert.equal(providers(), "");
   await settle();
-  assert.equal(render().current.provider, "claude", "the dismissed Codex release does not come back");
+  assert.equal(providers(), "", "the dismissed releases do not come back");
   react.unmount();
 });
 

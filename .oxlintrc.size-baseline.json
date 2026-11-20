@@ -34,7 +34,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 401,
+            "max": 390,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -145,7 +145,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2857,
+            "max": 2854,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -153,7 +153,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2646,
+            "max": 2643,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -576,7 +576,7 @@
     {
       "files": ["apps/desktop/app/src/components/UpdateNotice.tsx"],
       "rules": {
-        "complexity": ["error", 72]
+        "complexity": ["error", 69]
       }
     },
     {
@@ -1551,7 +1551,7 @@
         "max-lines": [
           "error",
           {
-            "max": 930,
+            "max": 926,
             "skipBlankLines": true,
             "skipComments": true
           }

@@ -22,6 +22,7 @@ import { DISABLED_OPACITY, IconButton, PageScroll, PullDown, useStyles } from ".
 import { useTheme } from "./theme";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { PersistenceNotice } from "./persistence-notice";
+import { ProviderUpdatePill } from "./provider-update-notice";
 import { SubchatAsk, SubchatPill, type SubchatPanelState } from "./subchat-pill";
 import { PlanPill, type PlanPanelState } from "./plan-pill";
 import { PullRequestAction, PullRequestMerge, PullRequestReview, SubagentChip } from "./status-indicators";
@@ -81,6 +82,7 @@ function DockChips(props: DockChipsProps) {
       style={{ marginHorizontal: -12, flexGrow: 0 }}
       contentContainerStyle={{ flexGrow: 1, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 8 }}
     >
+      <ProviderUpdatePill />
       {own && <SubchatPill panel={props.subchatPanel} messages={props.messages} />}
       {props.actionPr && own && <PullRequestAction pr={props.actionPr} disabled={props.actionDisabled} onRun={props.onAction} />}
       {props.mergeable && own && pr && <PullRequestMerge pr={pr} onOpen={() => props.onOpenPr()} />}

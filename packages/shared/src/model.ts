@@ -57,11 +57,7 @@ export interface CliStatus {
   state: CliState;
   message?: string;
 }
-export interface ProviderUpdate {
-  provider: ModelProvider;
-  installedVersion: string;
-  version: string;
-}
+export type { ProviderUpdate } from "./provider-update-view.ts";
 
 export type AgentCliStatus = Record<ModelProvider, CliStatus>;
 

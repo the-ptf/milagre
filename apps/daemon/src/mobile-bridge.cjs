@@ -49,6 +49,20 @@ function chatLiveSignal(channel, payload) {
   return [payload.event?.type === "subagent-update" ? "project" : "runs"];
 }
 const SIGNALS = { "designs:enabled-changed": "designs", "keybindings:changed": "keybindings", "routines:changed": "routines" };
+const SIGNAL_ORDER = [
+  "accounts",
+  "usage",
+  "token-usage",
+  "mcp",
+  "designs",
+  "keybindings",
+  "links",
+  "routines",
+  "orchestrator",
+  "provider-updates",
+  "pulls",
+  "btw",
+];
 const OWNER_SIGNALS = {
   "accounts:changed": "accounts",
   "usage:changed": "usage",
@@ -57,6 +71,7 @@ const OWNER_SIGNALS = {
   "local-mcp:changed": "mcp",
   "canvas:links-changed": "links",
   "orchestrator:changed": "orchestrator",
+  "provider-updates:changed": "provider-updates",
 };
 
 async function startMobileBridge({
@@ -228,18 +243,7 @@ async function startMobileBridge({
     entry.due = due;
     entry.timer = setTimeout(() => {
       entry.timer = null;
-      const types = [];
-      if (entry.kinds.has("accounts")) types.push("accounts");
-      if (entry.kinds.has("usage")) types.push("usage");
-      if (entry.kinds.has("token-usage")) types.push("token-usage");
-      if (entry.kinds.has("mcp")) types.push("mcp");
-      if (entry.kinds.has("designs")) types.push("designs");
-      if (entry.kinds.has("keybindings")) types.push("keybindings");
-      if (entry.kinds.has("links")) types.push("links");
-      if (entry.kinds.has("routines")) types.push("routines");
-      if (entry.kinds.has("orchestrator")) types.push("orchestrator");
-      if (entry.kinds.has("pulls")) types.push("pulls");
-      if (entry.kinds.has("btw")) types.push("btw");
+      const types = SIGNAL_ORDER.filter((kind) => entry.kinds.has(kind));
       if (entry.kinds.has("project")) types.push("project");
       else if (entry.kinds.has("runs")) types.push("runs");
       entry.kinds.clear();
