@@ -59,5 +59,6 @@ Debug output, by environment variable: `PERF_LAYERS=1` prints the composited lay
 
 - Runs are safe beside an open Milagre: each uses its own profile, port, `HOME` and throwaway repository, with `MILAGRE_BACKGROUND=1`, and it stops only its own processes. It doesn't touch your data.
 - The window stays hidden, so paint cost isn't the same as on screen, and times are DOM insertion, not painted frames.
+- The hidden window gets focus at the first DevTools input event, not at `element.focus()`, so the run presses Shift before the settle. Otherwise the window's focus listeners (the simulator pill and the Browser panel list again) would run as the prompt is typed, 150 ms before Enter, and work in that gap wakes the CPU: the Git calls and the agent spawn between Enter and the first chunk then run 10–30 ms faster, and a change that drops work from a focus listener reads as slower `firstTextMs`. A person's window has focus long before they press Enter.
 - `loadAverage` is saved with each result. Timing moves with what else the Mac is doing, so compare runs made under similar load and repeat them before trusting a small change. CPU share and memory are steadier than latency.
 - Tested on macOS. It needs `ps` and a POSIX shell, so it won't run on Windows.

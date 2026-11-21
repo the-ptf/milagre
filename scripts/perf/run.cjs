@@ -241,6 +241,12 @@ async function frames(page, options) {
   };
 }
 
+async function focusWindow(page) {
+  const shift = { key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 };
+  await page.call("Input.dispatchKeyEvent", { type: "keyDown", ...shift });
+  await page.call("Input.dispatchKeyEvent", { type: "keyUp", ...shift });
+}
+
 async function send(page, text) {
   await page.evaluate(`document.querySelector('[contenteditable=true][aria-label="Prompt"]').focus()`);
   await page.call("Input.insertText", { text });
@@ -436,6 +442,7 @@ async function run(name, options) {
       await page.call("Input.dispatchKeyEvent", { type: "keyUp", ...key });
       await until(() => page.evaluate(`!!document.querySelector('.welcome-sky') || !document.querySelector('[data-message-id]')`), "a new Chat");
     }
+    await focusWindow(page);
     await delay(options.settle * 1000);
     const measured = await scenario(name, page, work, options, browser);
     page.close();
