@@ -64,10 +64,12 @@ function caretOnEdgeRow(root: HTMLElement | null, offset: number, up: boolean): 
   if (!root || !root.isConnected) return null;
   const point = textOffsetToDom(root, offset);
   if (!point.node) return null;
+  const node = point.node as Node;
   const caret = document.createRange();
-  caret.setStart(point.node as Node, point.offset);
+  caret.setStart(node, point.offset);
   caret.collapse(true);
-  const box = [...caret.getClientRects()].find((rect) => rect.height > 0);
+  // A caret between elements (before a chip) has no box of its own: measure the node beside it.
+  const box = [...caret.getClientRects()].find((rect) => rect.height > 0) ?? besideBox(node, point.offset);
   const all = document.createRange();
   all.selectNodeContents(root);
   const rows = [...all.getClientRects()].filter((rect) => rect.height > 0);
@@ -75,6 +77,18 @@ function caretOnEdgeRow(root: HTMLElement | null, offset: number, up: boolean): 
   const top = Math.min(...rows.map((rect) => rect.top));
   const bottom = Math.max(...rows.map((rect) => rect.bottom));
   return up ? box.top < top + box.height / 2 : box.bottom > bottom - box.height / 2;
+}
+
+/** The box of the node after an element boundary (its first row), else of the node before it (its last row). */
+function besideBox(node: Node, offset: number): DOMRect | undefined {
+  if (node.nodeType !== Node.ELEMENT_NODE) return undefined;
+  const boxes = (child: ChildNode | undefined) => {
+    if (!child) return [];
+    const range = document.createRange();
+    range.selectNode(child);
+    return [...range.getClientRects()].filter((rect) => rect.height > 0);
+  };
+  return boxes(node.childNodes[offset])[0] ?? boxes(node.childNodes[offset - 1]).at(-1);
 }
 
 const DELETE_RANGE_TYPES = new Set([
