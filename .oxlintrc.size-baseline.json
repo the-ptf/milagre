@@ -1087,7 +1087,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 401,
+            "max": 393,
             "skipBlankLines": true,
             "skipComments": true
           }
