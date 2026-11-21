@@ -55,6 +55,42 @@ interface PromptEditorProps {
 type Selection = { start: number; end: number };
 type Chip = { key: string; host: HTMLSpanElement; part: Exclude<PromptPart, { kind: "text" }> };
 
+/**
+ * Whether the caret at `offset` sits on the top (`up`) or bottom row of the text as it wraps on screen, so Up and Down
+ * move the caret through a wrapped paragraph before they recall sent prompts. Null when the browser can't measure it
+ * (no layout, a caret box with no height), so callers fall back to counting line breaks.
+ */
+function caretOnEdgeRow(root: HTMLElement | null, offset: number, up: boolean): boolean | null {
+  if (!root || !root.isConnected) return null;
+  const point = textOffsetToDom(root, offset);
+  if (!point.node) return null;
+  const node = point.node as Node;
+  const caret = document.createRange();
+  caret.setStart(node, point.offset);
+  caret.collapse(true);
+  // A caret between elements (before a chip) has no box of its own: measure the node beside it.
+  const box = [...caret.getClientRects()].find((rect) => rect.height > 0) ?? besideBox(node, point.offset);
+  const all = document.createRange();
+  all.selectNodeContents(root);
+  const rows = [...all.getClientRects()].filter((rect) => rect.height > 0);
+  if (!box || rows.length === 0) return null;
+  const top = Math.min(...rows.map((rect) => rect.top));
+  const bottom = Math.max(...rows.map((rect) => rect.bottom));
+  return up ? box.top < top + box.height / 2 : box.bottom > bottom - box.height / 2;
+}
+
+/** The box of the node after an element boundary (its first row), else of the node before it (its last row). */
+function besideBox(node: Node, offset: number): DOMRect | undefined {
+  if (node.nodeType !== Node.ELEMENT_NODE) return undefined;
+  const boxes = (child: ChildNode | undefined) => {
+    if (!child) return [];
+    const range = document.createRange();
+    range.selectNode(child);
+    return [...range.getClientRects()].filter((rect) => rect.height > 0);
+  };
+  return boxes(node.childNodes[offset])[0] ?? boxes(node.childNodes[offset - 1]).at(-1);
+}
+
 const DELETE_RANGE_TYPES = new Set([
   "deleteWordBackward",
   "deleteWordForward",
@@ -406,11 +442,11 @@ export function PromptEditor({
       getSelection: readSelection,
       isCaretOnFirstLine() {
         const { start, end } = readSelection();
-        return start === end && !live.current.value.slice(0, start).includes("\n");
+        return start === end && !live.current.value.slice(0, start).includes("\n") && (caretOnEdgeRow(rootRef.current, start, true) ?? true);
       },
       isCaretOnLastLine() {
         const { start, end } = readSelection();
-        return start === end && !live.current.value.slice(end).includes("\n");
+        return start === end && !live.current.value.slice(end).includes("\n") && (caretOnEdgeRow(rootRef.current, end, false) ?? true);
       },
       get root() {
         return rootRef.current;
