@@ -3,6 +3,7 @@ const { randomBytes, randomUUID } = require("node:crypto");
 const ORIENTATIONS = new Set(["portrait", "portrait-upside-down", "landscape-left", "landscape-right"]);
 const POSES = new Set(["closed", "open", "book", "laptop", "tent"]);
 const MAX_SDP_BYTES = 262144;
+const QUALITIES = new Set(["full", "reduced"]);
 function identifier() {
   return randomBytes(24).toString("base64url");
 }
@@ -45,6 +46,31 @@ function cleanEvent(event) {
   };
 }
 
+function releaseHeld(device) {
+  const touch = device.touch;
+  device.touch = null;
+  if (touch) {
+    try {
+      device.channel.send({ ...touch, phase: "end" });
+    } catch {}
+  }
+  for (const usage of device.keys) {
+    try {
+      device.channel.send({ kind: "key", phase: "up", usage });
+    } catch {}
+  }
+  device.keys.clear();
+}
+function revoke(device) {
+  releaseHeld(device);
+  device.controller = null;
+  device.generation++;
+}
+function tune(device, viewers) {
+  if (!device.channel.configure) return;
+  const wanted = [...device.viewers].map((id) => viewers.get(id)).filter((viewer) => viewer?.format === "video/avcc");
+  if (wanted.length) device.channel.configure(wanted.some((viewer) => viewer.quality === "full") ? "full" : "reduced");
+}
 function createSimulators(options = {}) {
   const supported = options.supported ?? (process.platform === "darwin" && process.arch === "arm64");
   const adapter = options.adapter ?? require("./simulators-helper.cjs").createSimulatorAdapter(options);
@@ -84,26 +110,6 @@ function createSimulators(options = {}) {
     const v = viewers.get(request?.viewerId);
     if (!v || v.owner !== owner || v.ownerState.dead) throw new Error("Unknown simulator viewer or owner. Reopen the viewer.");
     return v;
-  }
-  function releaseHeld(device) {
-    const touch = device.touch;
-    device.touch = null;
-    if (touch) {
-      try {
-        device.channel.send({ ...touch, phase: "end" });
-      } catch {}
-    }
-    for (const usage of device.keys) {
-      try {
-        device.channel.send({ kind: "key", phase: "up", usage });
-      } catch {}
-    }
-    device.keys.clear();
-  }
-  function revoke(device) {
-    releaseHeld(device);
-    device.controller = null;
-    device.generation++;
   }
   function metadata(device) {
     const state = device.channel.status();
@@ -149,6 +155,7 @@ function createSimulators(options = {}) {
     if (v.ownerState.count === 0 && owners.get(v.owner) === v.ownerState) owners.delete(v.owner);
     if (device.controller === v.id) revoke(device);
     device.viewers.delete(v.id);
+    tune(device, viewers);
     await adapter.closeViewer(device.id, v.sessionId).catch(() => {});
     if (device.viewers.size === 0) {
       devices.delete(device.id);
@@ -233,7 +240,13 @@ function createSimulators(options = {}) {
           abort: new AbortController(),
         });
         device.viewers.add(id);
-        return { viewerId: id, device: { ...found }, iceServers: structuredClone(iceServers), ...(device.channel.frame ? { transport: "frames" } : {}) };
+        return {
+          viewerId: id,
+          device: { ...found },
+          iceServers: structuredClone(iceServers),
+          ...(device.channel.frame ? { transport: "frames" } : {}),
+          ...(device.channel.formats ? { formats: [...device.channel.formats] } : {}),
+        };
       });
     },
     async frame(request, owner) {
@@ -241,13 +254,17 @@ function createSimulators(options = {}) {
         const viewer = await active(request, owner);
         if (!Number.isSafeInteger(request.after) || request.after < 0) throw new Error("Invalid simulator frame request.");
         if (!viewer.device.channel.frame) throw new Error("Update Milagre on this Mac to relay simulator video.");
+        if (request.format !== undefined && !viewer.device.channel.formats?.includes(request.format)) throw new Error("Invalid simulator frame format.");
+        if (request.quality !== undefined && !QUALITIES.has(request.quality)) throw new Error("Invalid simulator frame quality.");
         if (viewer.waiting) throw new Error("A simulator frame request is already pending for this viewer.");
         viewer.waiting = true;
         viewer.heartbeat = now();
+        const quality = request.quality ?? "full";
+        if (viewer.format !== request.format || viewer.quality !== quality) tune(Object.assign(viewer, { format: request.format, quality }).device, viewers);
         return viewer;
       });
       try {
-        const frame = await v.device.channel.frame(request.after, v.abort.signal);
+        const frame = await v.device.channel.frame(request.after, v.abort.signal, request.format === undefined ? undefined : { format: request.format });
         if (v.abort.signal.aborted || v.ownerState.dead) return null;
         const status = statusOf(v);
         v.heartbeat = now();

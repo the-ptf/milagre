@@ -2,7 +2,8 @@ const { spawn: spawnProcess, execFile: execFileCallback } = require("node:child_
 const { promisify } = require("node:util");
 const path = require("node:path");
 
-const { createMjpegFrames, createSnapshotFrames, normalizeAndroidSnapshot } = require("./simulator-frames.cjs");
+const { createMjpegFrames, createAndroidSnapshots } = require("./simulator-frames.cjs");
+const { createHelperVideo, PROFILES } = require("./simulator-avcc.cjs");
 
 const PREFIX = "/vendor/serve-sim/helper";
 const UUID = /^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$/;
@@ -12,6 +13,10 @@ const POSES = new Set(["closed", "open", "book", "laptop", "tent"]);
 const DUO_SCREENS = { closed: 1, open: 3, tent: 1 };
 const sameHingeAngle = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.01;
 
+function androidAdb() {
+  const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || path.join(require("node:os").homedir(), "Library/Android/sdk");
+  return require("node:fs").existsSync(path.join(sdk, "platform-tools/adb")) ? path.join(sdk, "platform-tools/adb") : "adb";
+}
 function resolveHelperPath(packagePath = require.resolve("expo-device-hub/package.json")) {
   return path.join(path.dirname(packagePath.replace(/\.asar([/\\])/, ".asar.unpacked$1")), "dist", "server", "cli.mjs");
 }
@@ -56,6 +61,7 @@ function createSimulatorHelper(options = {}) {
   const execFile = options.execFile ?? promisify(execFileCallback);
   const iceServers = options.iceServers ?? configuredIceServers(process.env);
   const idleMs = options.idleMs ?? 60000;
+  const streamSource = options.streamSource ?? "grpc-screenshot";
   let current = null,
     starting = null,
     stopped = false,
@@ -110,15 +116,15 @@ function createSimulatorHelper(options = {}) {
         "--platform",
         android ? "android" : "ios",
         "--transport",
-        android ? "webrtc" : "mjpeg",
+        android ? "webrtc" : "h264",
         "--video-fps",
-        "30",
+        String(PROFILES.reduced.h264Fps),
         "--max-dimension",
-        "1280",
+        String(PROFILES.reduced.maxDimension),
         "--video-bitrate",
-        "2000000",
+        String(PROFILES.reduced.h264Bitrate),
       ];
-      if (android) args.push("--stream-source", "scrcpy");
+      if (android) args.push("--stream-source", streamSource, ...(streamSource === "grpc-screenshot" ? ["--encoder", "hardware"] : []));
       const childEnv = { ...process.env, ELECTRON_RUN_AS_NODE: "1" };
       if (android) {
         const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || path.join(require("node:os").homedir(), "Library/Android/sdk");
@@ -205,14 +211,14 @@ function createSimulatorHelper(options = {}) {
       return false;
     }
   }
-  async function request(instance, deviceId, route, body) {
+  async function request(instance, deviceId, route, body, method = body === undefined ? "GET" : "POST") {
     if (!validDevice.test(deviceId)) throw new Error("Invalid simulator device.");
     if (instance.exited || instance.terminated) throw new Error("Simulator helper stopped. Reopen the viewer.");
     try {
       const response = await fetch(`${instance.base}${routeFor(deviceId, route)}`, {
-        method: body === undefined ? "GET" : "POST",
+        method,
         headers: { authorization: `Bearer ${instance.token}`, "content-type": "application/json" },
-        body: JSON.stringify(body),
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: AbortSignal.any([instance.abort.signal, AbortSignal.timeout(route === "webrtc/close" ? 2000 : 20000)]),
         redirect: "error",
       });
@@ -241,6 +247,7 @@ function createSimulatorHelper(options = {}) {
   }
   return {
     iceServers,
+    streamSource,
     async list() {
       if (discovery && Date.now() - discoveryAt < 2000) return structuredClone(discovery);
       if (discoveryPromise) return structuredClone(await discoveryPromise);
@@ -320,7 +327,7 @@ function createSimulatorHelper(options = {}) {
         if (change.geometry !== geometry) {
           change.geometry = geometry;
           change.geometryAt = Date.now();
-          change.after = media?.discard() ?? 0;
+          change.after = discardMedia();
         }
       };
       let rejectAdmission, resolveAdmission;
@@ -336,7 +343,7 @@ function createSimulatorHelper(options = {}) {
       const fail = (message) => {
         state = { ...state, ready: false, error: state.error ?? message };
         clearDisplayChange();
-        media?.close();
+        closeMedia();
         rejectHingeRequests(message);
         rejectAdmission(new Error(message));
         if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close();
@@ -345,30 +352,27 @@ function createSimulatorHelper(options = {}) {
         if (socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > 16384) throw new Error("Simulator input socket is unavailable.");
         socket.send(android ? JSON.stringify(tag) : Buffer.concat([Buffer.from([tag]), Buffer.from(JSON.stringify(payload))]));
       };
+      const video = createHelperVideo({
+        android,
+        url: android
+          ? `${instance.base.replace("http:", "ws:")}${prefix}/ws?device=${encodeURIComponent(deviceId)}`
+          : `${instance.base}${routeFor(deviceId, "stream.avcc")}`,
+        instance,
+        apply: (settings) => request(instance, deviceId, android ? "api/stream-settings" : "stream-settings", settings, "PATCH"),
+        waitMs: options.frameWaitMs,
+      });
+      const discardMedia = () => ({ image: media?.discard?.() ?? 0, video: video.discard() });
+      const closeMedia = () => [media, video].forEach((source) => source?.close());
       const channel = {
         fail,
-        async frame(after, signal) {
-          if (!media) {
+        formats: ["video/avcc", "image"],
+        configure: (quality) => video.configure(quality),
+        async frame(after, signal, { format = "image" } = {}) {
+          if (format !== "video/avcc" && !media) {
             if (android) {
-              const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || path.join(require("node:os").homedir(), "Library/Android/sdk");
-              const adb =
-                options.adbPath ?? (require("node:fs").existsSync(path.join(sdk, "platform-tools/adb")) ? path.join(sdk, "platform-tools/adb") : "adb");
-              media = createSnapshotFrames(async (captureSignal) => {
-                const { stdout } = await execFile(adb, ["-s", deviceId, "exec-out", "screencap", "-p"], {
-                  encoding: null,
-                  timeout: 5000,
-                  maxBuffer: 32 * 1024 * 1024,
-                  signal: captureSignal,
-                });
-                if (!Buffer.isBuffer(stdout) || stdout.length < 24 || !stdout.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
-                  throw new Error("Invalid Android screenshot.");
-                const width = stdout.readUInt32BE(16),
-                  height = stdout.readUInt32BE(20);
-                if (!width || !height || width > 16384 || height > 16384 || width * height > 16 * 1024 * 1024)
-                  throw new Error("Invalid Android screenshot dimensions.");
-                snapshotSize = { width, height };
-                state = { ...state, width, height, orientation: width > height ? "landscape-left" : "portrait" };
-                return normalizeAndroidSnapshot(stdout, { execFile, signal: captureSignal });
+              media = createAndroidSnapshots({ execFile, adb: options.adbPath ?? androidAdb(), deviceId }, (size) => {
+                snapshotSize = size;
+                state = { ...state, ...size, orientation: size.width > size.height ? "landscape-left" : "portrait" };
               });
             } else {
               media = createMjpegFrames((captureSignal) =>
@@ -380,12 +384,13 @@ function createSimulatorHelper(options = {}) {
               );
             }
           }
+          const source = format === "video/avcc" ? video : media;
           try {
-            const frame = await media.read(after, signal);
+            const frame = await source.read(after, signal);
             if (
               frame &&
               displayChange?.confirmed &&
-              frame.sequence > displayChange.after &&
+              frame.sequence > (displayChange.after?.[format === "video/avcc" ? "video" : "image"] ?? 0) &&
               Date.now() - displayChange.observedAt >= displayChange.settleMs &&
               Date.now() - displayChange.geometryAt >= (options.displayQuietMs ?? 350)
             )
@@ -423,7 +428,7 @@ function createSimulatorHelper(options = {}) {
               settleMs: unchanged ? 0 : (options.displaySettleMs ?? 1500),
               timer: setTimeout(() => fail("Simulator display did not settle. Reopen the viewer to retry."), options.displayTimeoutMs ?? 7000),
             };
-            media?.discard();
+            discardMedia();
             return new Promise((resolve, reject) => {
               const requestId = ++hingeRequestId;
               const settle = (error) => {
@@ -469,7 +474,7 @@ function createSimulatorHelper(options = {}) {
           localClosed = true;
           clearDisplayChange();
           rejectHingeRequests("Simulator viewer closed.");
-          media?.close();
+          closeMedia();
           clearInterval(pollTimer);
           clearInterval(inputTimer);
           state = { ...state, ready: false };
@@ -582,7 +587,7 @@ function createSimulatorHelper(options = {}) {
                   }
                 : {}),
             };
-            if (previousGeometry !== `${config.screenId}:${state.width}:${state.height}:${state.orientation}`) media?.discard();
+            if (previousGeometry !== `${config.screenId}:${state.width}:${state.height}:${state.orientation}`) discardMedia();
             nativeConfig = config;
             checkDisplayChange();
           } catch {
@@ -643,8 +648,7 @@ function createSimulatorAdapter(options = {}) {
   const ios = createSimulatorHelper(options);
   const androidHelpers = new Map();
   const execFile = options.execFile ?? promisify(execFileCallback);
-  const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || path.join(require("node:os").homedir(), "Library/Android/sdk");
-  const adb = options.adbPath ?? (require("node:fs").existsSync(path.join(sdk, "platform-tools/adb")) ? path.join(sdk, "platform-tools/adb") : "adb");
+  const adb = options.adbPath ?? androidAdb();
   let cached = null,
     cachedAt = 0,
     discovering = null;
@@ -690,7 +694,16 @@ function createSimulatorAdapter(options = {}) {
       }
     },
     async connect(id) {
-      return backend(id).connect(id);
+      const helper = backend(id);
+      try {
+        return await helper.connect(id);
+      } catch (error) {
+        if (!EMULATOR.test(id) || helper.streamSource === "scrcpy") throw error;
+        await helper.stop();
+        const fallback = createSimulatorHelper({ ...options, platform: "android", streamSource: "scrcpy" });
+        androidHelpers.set(id, fallback);
+        return fallback.connect(id);
+      }
     },
     async offer(id, ...args) {
       return backend(id).offer(id, ...args);

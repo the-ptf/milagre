@@ -27,11 +27,22 @@ const { WebSocketServer } = require(${JSON.stringify(require.resolve("ws"))});
 const token = 'test-private-helper-token';
 const mode = ${JSON.stringify(mode)};
 const log = (entry) => fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(entry) + '\\n');
+const source = process.argv[process.argv.indexOf('--stream-source') + 1];
+fs.appendFileSync(${JSON.stringify(log)} + '.argv', JSON.stringify(process.argv.slice(2)) + '\\n');
+const envelope = (tag, bytes) => { const head = Buffer.alloc(5); head.writeUInt32BE(bytes.length + 1, 0); head[4] = tag; return Buffer.concat([head, Buffer.from(bytes)]); };
+const SPS = [0x67, 0x42, 0xc0, 0x1f, 1, 2], PPS = [0x68, 0xce, 0x3c, 0x80], IDR = [0x65, 0x88, 0x84, 0, 1];
 const server = http.createServer(async (req, res) => {
   let data = ''; for await (const chunk of req) data += chunk;
   const authenticated = req.headers.authorization === 'Bearer ' + token;
   log({ url: req.url, method: req.method, authenticated, body: data ? JSON.parse(data) : null });
   if (!authenticated) { res.writeHead(401).end(); return; }
+  if (req.url.split('?')[0].endsWith('/stream.avcc')) {
+    res.writeHead(200, {'content-type':'application/octet-stream'});
+    const avcc = (nal) => { const length = Buffer.alloc(4); length.writeUInt32BE(nal.length, 0); return Buffer.concat([length, Buffer.from(nal)]); };
+    res.write(Buffer.concat([envelope(4, [255, 216, 255, 217]), envelope(1, [1, 0x42, 0xc0, 0x1f, 0xff, 0xe1, 0, 6, ...SPS, 1, 0, 4, ...PPS]), envelope(2, avcc(IDR))]));
+    return;
+  }
+  if (mode === 'android-no-grpc' && source === 'grpc-screenshot' && req.url.includes('/health')) { res.writeHead(503).end(JSON.stringify({status:'error'})); return; }
   if (req.url.split('?')[0].endsWith('/stream.mjpeg')) {
     res.writeHead(200, {'content-type':'multipart/x-mixed-replace; boundary=frame'});
     const part=Buffer.concat([Buffer.from('--frame\\r\\nContent-Type: image/jpeg\\r\\nContent-Length: 6\\r\\n\\r\\n'),Buffer.from([255,216,1,2,255,217]),Buffer.from('\\r\\n')]);
@@ -44,17 +55,18 @@ const server = http.createServer(async (req, res) => {
 });
 const wss = new WebSocketServer({ server, handleProtocols: (protocols) => [...protocols][0] });
 wss.on('connection', (socket, req) => {
-  log({ url: req.url, authenticated: req.headers['sec-websocket-protocol'] === (mode === 'android' ? 'serve-emu.token.' : 'serve-sim.token.') + token });
+  if (mode.startsWith('android') && !req.url.includes('video=0')) socket.send(Buffer.from([0, 0, 0, 1, ...SPS, 0, 0, 0, 1, ...PPS, 0, 0, 1, ...IDR]));
+  log({ url: req.url, authenticated: req.headers['sec-websocket-protocol'] === (mode.startsWith('android') ? 'serve-emu.token.' : 'serve-sim.token.') + token });
   const duo = mode.startsWith('duo');
   let hinge = {supportsHingeAngle:true,hingeAngle:0,hingePose:'closed'};
   let panel = {screenId:1,orientation:'portrait',physicalOrientation:'portrait',tableMode:false,observedDeviceState:{hingeAngle:0,physicalOrientation:'portrait'}};
   const config = () => socket.send(Buffer.concat([Buffer.from([0x82]), Buffer.from(JSON.stringify({width:588,height:1280,orientation:'portrait',inputUnavailable:mode==='unavailable',...(duo?{...hinge,...panel}:{})}))]));
-  if (mode !== 'unadmitted' && mode !== 'android') {
+  if (mode !== 'unadmitted' && !mode.startsWith('android')) {
     socket.send(Buffer.from([0x83])); if (mode !== 'admission-only') config();
     if (mode === 'unavailable') socket.send(Buffer.concat([Buffer.from([0x82]), Buffer.from(JSON.stringify({width:588,height:1280,orientation:'portrait'}))]));
   }
   socket.on('message', (bytes) => {
-    if (mode === 'android') { log({gesture:JSON.parse(bytes.toString())}); return; }
+    if (mode.startsWith('android')) { log({gesture:JSON.parse(bytes.toString())}); return; }
     log({ tag: bytes[0], data: JSON.parse(bytes.subarray(1).toString()) });
     if(bytes[0]===16 && duo && mode!=='duo-timeout') {
       const {requestId,command}=JSON.parse(bytes.subarray(1).toString());
@@ -90,7 +102,7 @@ server.listen(0, '127.0.0.1', () => {
 `,
   );
   const helper = createSimulatorHelper({
-    platform: mode === "android" ? "android" : "ios",
+    platform: mode.startsWith("android") ? "android" : "ios",
     helperPath,
     execFile,
     admissionTimeoutMs: 1000,
@@ -111,6 +123,9 @@ server.listen(0, '127.0.0.1', () => {
     address,
     async logs() {
       return (await readFile(log, "utf8")).trim().split("\n").map(JSON.parse);
+    },
+    async launches() {
+      return (await readFile(`${log}.argv`, "utf8")).trim().split("\n").map(JSON.parse);
     },
   };
 }
@@ -491,6 +506,64 @@ test("iOS frames are fetched privately from the helper stream and cancelled with
   assert.equal(frame.mimeType, "image/jpeg");
   assert.equal(frame.data, Buffer.from([255, 216, 1, 2, 255, 217]).toString("base64"));
   assert.ok((await f.logs()).some((entry) => entry.url?.endsWith("/stream.mjpeg") && entry.authenticated));
+  await channel.close();
+});
+
+const tagsOf = (frame) => {
+  const raw = Buffer.from(frame.data, "base64"),
+    tags = [];
+  for (let at = 0; at + 5 <= raw.length; at += 4 + raw.readUInt32BE(at)) tags.push(raw[at + 4]);
+  return tags;
+};
+
+test("iOS H.264 viewers read serve-sim's AVCC stream after the shared encoder takes their profile", async (t) => {
+  const f = await fixture(t);
+  const channel = await f.helper.connect(DEVICE);
+  assert.deepEqual(channel.formats, ["video/avcc", "image"]);
+  channel.configure("reduced");
+  const frame = await channel.frame(0, new AbortController().signal, { format: "video/avcc" });
+  assert.equal(frame.mimeType, "video/avcc");
+  assert.equal(frame.reset, true);
+  assert.deepEqual(tagsOf(frame), [1, 2], "the JPEG seed stays on the Mac");
+  const logs = await f.logs();
+  const settings = logs.findIndex((entry) => entry.method === "PATCH" && entry.url === `/vendor/serve-sim/helper/${DEVICE}/stream-settings`);
+  assert.ok(settings >= 0 && logs[settings].authenticated);
+  assert.deepEqual(logs[settings].body, { h264Fps: 30, maxDimension: 960, h264Bitrate: 1_500_000 });
+  assert.ok(settings < logs.findIndex((entry) => entry.url?.endsWith("/stream.avcc")), "the encoder is configured before the stream opens");
+  assert.equal((await f.launches())[0].at((await f.launches())[0].indexOf("--transport") + 1), "h264");
+  await channel.close();
+});
+
+test("Android H.264 arrives over serve-emu's video socket as AVCC envelopes", async (t) => {
+  const f = await fixture(t, "android");
+  const channel = await f.helper.connect("emulator-5554");
+  const frame = await channel.frame(0, new AbortController().signal, { format: "video/avcc" });
+  assert.deepEqual(tagsOf(frame), [1, 2]);
+  const raw = Buffer.from(frame.data, "base64");
+  assert.deepEqual([...raw.subarray(5, 13)], [1, 0x42, 0xc0, 0x1f, 0xff, 0xe1, 0, 6], "an avcC record built from the inline SPS and PPS");
+  const logs = await f.logs();
+  assert.ok(logs.some((entry) => entry.url === "/vendor/serve-emu/ws?device=emulator-5554" && entry.authenticated));
+  assert.ok(logs.some((entry) => entry.method === "PATCH" && entry.url === "/vendor/serve-emu/api/stream-settings?device=emulator-5554"));
+  const [argv] = await f.launches();
+  assert.deepEqual(argv.slice(argv.indexOf("--stream-source"), argv.indexOf("--stream-source") + 4), [
+    "--stream-source",
+    "grpc-screenshot",
+    "--encoder",
+    "hardware",
+  ]);
+  await channel.close();
+});
+
+test("an emulator whose gRPC capture can't start is reopened with scrcpy capture", async (t) => {
+  const f = await fixture(t, "android-no-grpc");
+  const adapter = createSimulatorAdapter({ helperPath: f.helperPath, execFile: async () => ({ stdout: "" }), admissionTimeoutMs: 1000, idleMs: 0 });
+  t.after(() => adapter.stop());
+  const channel = await adapter.connect("emulator-5554");
+  await waitFor(() => channel.status().ready);
+  assert.deepEqual(
+    (await f.launches()).map((argv) => argv[argv.indexOf("--stream-source") + 1]),
+    ["grpc-screenshot", "scrcpy"],
+  );
   await channel.close();
 });
 

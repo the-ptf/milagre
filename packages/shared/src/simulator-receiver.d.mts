@@ -1,5 +1,5 @@
 import type { SimulatorInput, SimulatorMethod, SimulatorRpcResponse } from "./simulator.ts";
-import type { SimulatorDevice } from "./simulator.ts";
+import type { SimulatorDevice, SimulatorFrameQuality } from "./simulator.ts";
 export const SIMULATOR_RECEIVER_SCRIPT: string;
 export const SIMULATOR_CONNECTION_LABELS: {
   connecting: "Connecting";
@@ -46,4 +46,11 @@ export type SimulatorTheme = {
   accent: string;
   green?: string;
 };
-export function createSimulatorReceiverHtml(config: { deviceId: string; device?: SimulatorDevice; theme?: SimulatorTheme; touchControls?: boolean }): string;
+export function createSimulatorReceiverHtml(config: {
+  deviceId: string;
+  device?: SimulatorDevice;
+  theme?: SimulatorTheme;
+  touchControls?: boolean;
+  /** The H.264 quality this viewer asks the host for; desktop defaults to `full`. */
+  quality?: SimulatorFrameQuality;
+}): string;

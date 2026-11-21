@@ -264,11 +264,12 @@ test("bundled script stays identical to tested source and every device uses the 
 });
 
 /** Exercise the exact bundled browser script, with only browser/WebRTC boundaries replaced. */
-function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
+function browserHarness(call, { playVideo = true, device, webCodecs, quality } = {}) {
   const listeners = {},
     elements = {},
     timers = new Map(),
     intervals = new Map(),
+    intervalDelays = new Map(),
     peers = [],
     states = [];
   let serial = 0;
@@ -313,7 +314,7 @@ function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
       },
       clientWidth: 600,
       clientHeight: 600,
-      dataset: { config: JSON.stringify({ deviceId: "sim", device }) },
+      dataset: { config: JSON.stringify({ deviceId: "sim", device, ...(quality ? { quality } : {}) }) },
       getBoundingClientRect: () => ({ left: 0, top: 0 }),
       setPointerCapture() {},
       setAttribute(name, value) {
@@ -401,9 +402,10 @@ function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
       return id;
     },
     clearTimeout: (id) => timers.delete(id),
-    setInterval: (fn) => {
+    setInterval: (fn, delay) => {
       const id = ++serial;
       intervals.set(id, fn);
+      intervalDelays.set(id, delay);
       return id;
     },
     clearInterval: (id) => intervals.delete(id),
@@ -417,6 +419,7 @@ function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
     peers,
     bridge,
     intervals,
+    intervalDelays,
     states,
     drawn,
     timeout(delay) {
@@ -1274,4 +1277,67 @@ test("a viewer without WebCodecs explains that it cannot show Simlock video", as
   await h.flush();
   await h.flush();
   assert.match(h.elements.failure.textContent, /cannot decode simulator video/);
+});
+
+const formatsHost = (calls, frames, opens = []) => {
+  const host = fakeHost(calls);
+  return async (method, args) => {
+    if (method === "open") {
+      opens.push(args);
+      return { viewerId: `viewer-${opens.length}`, transport: "frames", formats: ["video/avcc", "image"] };
+    }
+    if (method === "frame") {
+      calls.push([method, args]);
+      return frames.shift() ?? null;
+    }
+    return host(method, args);
+  };
+};
+test("a host that lists formats gets H.264 requests at this viewer's quality, and the status poll slows down", async () => {
+  const calls = [],
+    log = [];
+  const frames = [
+    { sequence: 2, reset: true, mimeType: "video/avcc", data: avccBatch(envelope(1, [1, 0x64, 0, 0x1f]), envelope(2, [7])), status: readyStatus },
+  ];
+  const h = browserHarness(formatsHost(calls, frames), { webCodecs: fakeWebCodecs(log), quality: "reduced" });
+  await h.flush();
+  await h.flush();
+  await h.flush();
+  const [, args] = calls.find(([method]) => method === "frame");
+  assert.deepEqual(args, { viewerId: "viewer-1", after: 0, format: "video/avcc", quality: "reduced" });
+  assert.deepEqual(
+    log.filter((entry) => entry[0] === "decode"),
+    [["decode", "key", [7]]],
+  );
+  assert.deepEqual([...h.intervalDelays.values()], [3000], "frames carry status, so polls only renew the viewer");
+  h.window.simulatorDispose();
+});
+test("a viewer without WebCodecs asks such a host for images", async () => {
+  const calls = [];
+  const h = browserHarness(formatsHost(calls, [{ sequence: 1, data: "aW1hZ2U=", mimeType: "image/jpeg", status: readyStatus }]));
+  await h.flush();
+  await h.flush();
+  assert.deepEqual(calls.find(([method]) => method === "frame")[1], { viewerId: "viewer-1", after: 0, format: "image", quality: "full" });
+  assert.deepEqual([...h.intervalDelays.values()], [1000]);
+  h.window.simulatorDispose();
+});
+test("H.264 the decoder refuses reopens the viewer on images before anything is painted", async () => {
+  const calls = [],
+    log = [],
+    opens = [];
+  const webCodecs = fakeWebCodecs(log);
+  webCodecs.VideoDecoder.isConfigSupported = async (config) => ({ supported: config.codec !== "avc1.64001f" });
+  const frames = [
+    { sequence: 2, reset: true, mimeType: "video/avcc", data: avccBatch(envelope(1, [1, 0x64, 0, 0x1f]), envelope(2, [7])), status: readyStatus },
+    { sequence: 1, data: "aW1hZ2U=", mimeType: "image/jpeg", status: readyStatus },
+  ];
+  const h = browserHarness(formatsHost(calls, frames, opens), { webCodecs });
+  for (let step = 0; step < 6; step++) await h.flush();
+  assert.equal(opens.length, 2);
+  assert.deepEqual(
+    calls.filter(([method]) => method === "frame").map(([, args]) => args.format),
+    ["video/avcc", "image"],
+  );
+  assert.equal(h.elements.failure.hidden, true);
+  h.window.simulatorDispose();
 });
