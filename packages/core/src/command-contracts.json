@@ -4563,6 +4563,12 @@
         },
         "after": {
           "type": "number"
+        },
+        "format": {
+          "enum": ["video/avcc", "image"]
+        },
+        "quality": {
+          "enum": ["full", "reduced"]
         }
       },
       "required": ["viewerId", "after"],
@@ -5063,7 +5069,7 @@
       "type": "object",
       "properties": {
         "permissionMode": {
-          "enum": ["ask", "auto", "full"]
+          "enum": ["full", "ask", "auto"]
         },
         "images": {
           "type": "array",
@@ -6863,7 +6869,7 @@
           "type": "string"
         },
         "permissionMode": {
-          "enum": ["ask", "auto", "full"]
+          "enum": ["full", "ask", "auto"]
         },
         "chat": {
           "enum": ["run", "own"]
@@ -8074,7 +8080,7 @@
           "type": "string"
         },
         "permissionMode": {
-          "enum": ["ask", "auto", "full"]
+          "enum": ["full", "ask", "auto"]
         },
         "delivery": {
           "enum": ["now", "queue"],
@@ -8405,7 +8411,7 @@
           "type": "string"
         },
         "permissionMode": {
-          "enum": ["ask", "auto", "full"]
+          "enum": ["full", "ask", "auto"]
         },
         "effort": {
           "type": "string"
@@ -8602,7 +8608,7 @@
           "type": "string"
         },
         "mode": {
-          "enum": ["ask", "auto", "full"]
+          "enum": ["full", "ask", "auto"]
         }
       },
       "required": ["chatId", "mode"],

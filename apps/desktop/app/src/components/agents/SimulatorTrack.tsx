@@ -17,6 +17,7 @@ import {
 import {
   SIMLOCK_DEVICE_PREFIX,
   simulatorKind,
+  simulatorQualityFor,
   simulatorRuntimeLabel,
   type SimlockModel,
   type SimulatorApi,
@@ -479,7 +480,7 @@ function SimulatorFrame({
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const deviceId = device.id;
-  const [html] = useState(() => createSimulatorReceiverHtml({ deviceId, device, theme: viewerTheme() }));
+  const [html] = useState(() => createSimulatorReceiverHtml({ deviceId, device, theme: viewerTheme(), quality: simulatorQualityFor(chatId) }));
   const syncTheme = useCallback(() => frame.current?.contentWindow?.postMessage({ channel: "milagre-simulator-theme", theme: viewerTheme() }, "*"), []);
   useEffect(() => {
     const observer = new MutationObserver(syncTheme);

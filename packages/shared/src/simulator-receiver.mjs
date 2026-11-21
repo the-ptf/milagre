@@ -1,5 +1,5 @@
 import { SIMULATOR_RECEIVER_SCRIPT } from "./simulator-browser.mjs";
-import { avcCodecString, avccEnvelopes, simulatorAvcConfig } from "./simulator-avc.mjs";
+import { avcCodecString, avccEnvelopes, simulatorAvcConfig, simulatorFrameRequest } from "./simulator-avc.mjs";
 export { SIMULATOR_RECEIVER_SCRIPT } from "./simulator-browser.mjs";
 
 export const SIMULATOR_CONNECTION_LABELS = {
@@ -205,7 +205,7 @@ export function createSimulatorBridge(call, respond, transform = (_method, resul
 }
 
 // This function is serialized with its dependencies as arguments. It must not close over module state.
-function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, codecFor, avcConfigFor, envelopesFor) {
+function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, codecFor, avcConfigFor, envelopesFor, requestFor) {
   window.simulatorTheme = (theme) => {
     if (!theme || typeof theme !== "object") return;
     const style = document.documentElement.style;
@@ -269,7 +269,9 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
     decoding = false,
     decodeStatus = null,
     needKeyframe = true,
-    decodeTime = 0;
+    decodeTime = 0,
+    videoBroken = false,
+    videoFallback = null;
   let heartbeat = null,
     deadline = null,
     disconnected = null,
@@ -673,7 +675,8 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
     pointers.clear();
   });
   stage.addEventListener("contextmenu", (event) => event.preventDefault());
-  // Simlock leases relay H.264 as serve-sim envelopes: 1 decoder configuration, 2 keyframe, 3 delta.
+  // H.264 arrives as serve-sim envelopes: 1 decoder configuration, 2 keyframe, 3 delta.
+  const validData = (data) => typeof data === "string" && data.length <= 2796204 && /^[A-Za-z0-9+/]*={0,2}$/.test(data);
   const decodeVideo = async (frame, currentEpoch) => {
     if (typeof VideoDecoder !== "function" || typeof EncodedVideoChunk !== "function")
       throw new Error("This viewer cannot decode simulator video. Update the app, or watch from the Milagre desktop app.");
@@ -708,7 +711,8 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
             }
           },
           error: () => {
-            if (current === decoder && currentEpoch === epoch && !repairing) fail(new Error("The simulator video could not be decoded. Retry to reconnect."));
+            if (current === decoder && currentEpoch === epoch && !repairing && !videoFallback?.())
+              fail(new Error("The simulator video could not be decoded. Retry to reconnect."));
           },
         }));
         current.configure(settings);
@@ -748,17 +752,20 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
       viewerId = opened.viewerId;
       let polling = false,
         triedControl = false;
+      const adopt = async (value) => {
+        acceptStatus(value);
+        if (value.ready && !triedControl) {
+          triedControl = true;
+          await claim(false);
+        }
+      };
       const poll = async () => {
         if (polling || currentEpoch !== epoch || repairing) return;
         polling = true;
         try {
           const value = await rpc("status", { viewerId });
           if (currentEpoch !== epoch || repairing) return;
-          acceptStatus(value);
-          if (value.ready && !triedControl) {
-            triedControl = true;
-            await claim(false);
-          }
+          await adopt(value);
         } catch (error) {
           if (currentEpoch === epoch && !repairing) fail(error);
         } finally {
@@ -768,34 +775,29 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
       relaying = opened.transport === "frames";
       if (relaying) {
         let after = 0;
+        const request = await requestFor(opened.formats, config.quality, !videoBroken);
+        if (currentEpoch !== epoch) return;
+        videoFallback = () => {
+          if (request.format !== "video/avcc" || frames || !opened.formats.includes("image") || currentEpoch !== epoch) return false;
+          videoBroken = true;
+          void start();
+          return true;
+        };
         const pull = async () => {
           if (currentEpoch !== epoch || repairing) return;
           try {
-            const frame = await rpc("frame", { viewerId, after });
+            const frame = await rpc("frame", { viewerId, after, ...request });
             if (currentEpoch !== epoch || repairing) return;
             if (frame && frame.mimeType === "video/avcc") {
               if (!Number.isSafeInteger(frame.sequence) || frame.sequence <= after) throw new Error("Invalid simulator frame.");
-              if (typeof frame.data !== "string" || frame.data.length > 2796204 || !/^[A-Za-z0-9+/]*={0,2}$/.test(frame.data))
-                throw new Error("Invalid simulator video data.");
+              if (!validData(frame.data)) throw new Error("Invalid simulator video data.");
               await decodeVideo(frame, currentEpoch);
-              if (currentEpoch !== epoch || repairing) return;
-              after = frame.sequence;
-              acceptStatus(frame.status);
-              render();
-              if (frame.status.ready && !triedControl) {
-                triedControl = true;
-                await claim(false);
-              }
             } else if (frame) {
               if (!Number.isSafeInteger(frame.sequence) || frame.sequence <= after || !["image/jpeg", "image/png"].includes(frame.mimeType))
                 throw new Error("Invalid simulator frame.");
-              let source;
-              if (window.ReactNativeWebView && typeof frame.uri === "string" && frame.uri.startsWith("file:///")) source = frame.uri;
-              else {
-                if (typeof frame.data !== "string" || frame.data.length > 2796204 || !/^[A-Za-z0-9+/]*={0,2}$/.test(frame.data))
-                  throw new Error("Invalid simulator frame data.");
-                source = "data:" + frame.mimeType + ";base64," + frame.data;
-              }
+              const local = window.ReactNativeWebView && typeof frame.uri === "string" && frame.uri.startsWith("file:///");
+              if (!local && !validData(frame.data)) throw new Error("Invalid simulator frame data.");
+              const source = local ? frame.uri : "data:" + frame.mimeType + ";base64," + frame.data;
               await new Promise((resolve, reject) => {
                 const done = (error) => {
                   clearTimeout(timer);
@@ -814,24 +816,22 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
                 image.src = source;
               });
               if (currentEpoch !== epoch || repairing) return;
-              after = frame.sequence;
               frames = true;
               paintedGeneration = displayGeneration(frame.status);
-              acceptStatus(frame.status);
-              render();
-              if (frame.status.ready && !triedControl) {
-                triedControl = true;
-                await claim(false);
-              }
+            }
+            if (currentEpoch !== epoch || repairing) return;
+            if (frame) {
+              after = frame.sequence;
+              await adopt(frame.status);
             }
             if (currentEpoch === epoch) frameTimer = setTimeout(() => void pull(), decoding ? 0 : 67);
           } catch (error) {
-            if (currentEpoch === epoch && !repairing) fail(error);
+            if (currentEpoch === epoch && !repairing && !videoFallback?.()) fail(error);
           }
         };
         void pull();
         await poll();
-        if (currentEpoch === epoch && active) heartbeat = setInterval(poll, 1000);
+        if (currentEpoch === epoch && active) heartbeat = setInterval(poll, request.format === "video/avcc" ? 3000 : 1000);
         return;
       }
       const connection = new RTCPeerConnection({
@@ -964,7 +964,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
 
 /** Build-time only. A checked-in string keeps script bytes stable across Vite/Metro minification and CSP hashing. */
 export function buildSimulatorReceiverScript() {
-  return `(${receiver.toString()})(JSON.parse(document.getElementById('config').dataset.config),${simulatorGeometry.toString()},${simulatorPoint.toString()},${createSimulatorInputQueue.toString()},${simulatorAppearance.toString()},${avcCodecString.toString()},${simulatorAvcConfig.toString()},${avccEnvelopes.toString()});`;
+  return `(${receiver.toString()})(JSON.parse(document.getElementById('config').dataset.config),${simulatorGeometry.toString()},${simulatorPoint.toString()},${createSimulatorInputQueue.toString()},${simulatorAppearance.toString()},${avcCodecString.toString()},${simulatorAvcConfig.toString()},${avccEnvelopes.toString()},${simulatorFrameRequest.toString()});`;
 }
 
 /** No hosted asset or native resource: this string travels inside desktop and OTA JS bundles. */

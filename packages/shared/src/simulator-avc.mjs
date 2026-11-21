@@ -1,4 +1,4 @@
-// H.264 helpers for serve-sim's AVCC streams (Simlock leases). The receiver page gets these functions serialized, so
+// H.264 helpers for serve-sim's AVCC streams (local helpers and Simlock leases). The receiver page gets these functions serialized, so
 // each one must be self-contained: no imports, no module state, helpers declared inside.
 //
 // `simulatorAvcConfig` is ported from T3 Code, packages/client-runtime/src/device/avcConfig.ts,
@@ -157,4 +157,20 @@ export function avccEnvelopes(base64) {
     offset += 4 + length;
   }
   return envelopes;
+}
+
+/** The frame request fields for a host that listed `formats`: H.264 when `tryVideo` and this WebView decodes it, else images. */
+export async function simulatorFrameRequest(listed, quality, tryVideo) {
+  const formats = Array.isArray(listed) ? listed : [];
+  const decodes = async () => {
+    if (typeof VideoDecoder !== "function" || typeof EncodedVideoChunk !== "function") return false;
+    for (const codec of ["avc1.640028", "avc1.4D0028", "avc1.42E01F"]) {
+      const support = await VideoDecoder.isConfigSupported({ codec, optimizeForLatency: true }).catch(() => null);
+      if (support?.supported) return true;
+    }
+    return false;
+  };
+  const video = formats.includes("video/avcc") && tryVideo && (await decodes());
+  const format = video ? "video/avcc" : formats.includes("image") ? "image" : null;
+  return format ? { format, quality: quality === "reduced" ? "reduced" : "full" } : {};
 }

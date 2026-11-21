@@ -19,6 +19,7 @@ function fixture(t, options = {}) {
       const channel = {
         deviceId,
         ...(options.frame ? { frame: options.frame } : {}),
+        ...(options.formats ? { formats: options.formats, configure: options.configure } : {}),
         state: { width: 588, height: 1280, orientation: "portrait", ready: true },
         status() {
           return { ...this.state };
@@ -476,4 +477,38 @@ test("frame replies contain current input geometry and keep the viewer alive", a
   assert.equal(frame.status.controlling, true);
   f.advance(25000);
   assert.equal((await f.service.status({ viewerId: v.viewerId }, v.owner)).ready, true);
+});
+
+test("a host that lists formats serves each viewer its own, and runs the shared encoder for its most demanding H.264 viewer", async (t) => {
+  const configured = [],
+    asked = [];
+  const f = await fixture(t, {
+    formats: ["video/avcc", "image"],
+    configure: (quality) => configured.push(quality),
+    frame: async (_after, _signal, choice) => {
+      asked.push(choice?.format);
+      return null;
+    },
+  });
+  const desktop = await f.service.open({ deviceId: DEVICE.id }, "desktop");
+  const phone = await f.service.open({ deviceId: DEVICE.id }, "phone");
+  assert.deepEqual(desktop.formats, ["video/avcc", "image"]);
+  await f.service.frame({ viewerId: phone.viewerId, after: 0, format: "video/avcc", quality: "reduced" }, "phone");
+  await f.service.frame({ viewerId: desktop.viewerId, after: 0, format: "video/avcc", quality: "full" }, "desktop");
+  await f.service.frame({ viewerId: desktop.viewerId, after: 0, format: "video/avcc", quality: "full" }, "desktop");
+  await f.service.frame({ viewerId: desktop.viewerId, after: 0 }, "desktop");
+  assert.deepEqual(asked, ["video/avcc", "video/avcc", "video/avcc", undefined], "a viewer that names no format keeps the older default");
+  assert.deepEqual(configured, ["reduced", "full", "reduced"]);
+  await f.service.frame({ viewerId: desktop.viewerId, after: 0, format: "video/avcc", quality: "full" }, "desktop");
+  await f.service.closeViewer({ viewerId: desktop.viewerId }, "desktop");
+  assert.deepEqual(configured, ["reduced", "full", "reduced", "full", "reduced"], "the last full viewer leaving lowers the encoder again");
+  await assert.rejects(f.service.frame({ viewerId: phone.viewerId, after: 0, format: "video/hevc" }, "phone"), /format/);
+  await assert.rejects(f.service.frame({ viewerId: phone.viewerId, after: 0, format: "image", quality: "best" }, "phone"), /quality/);
+});
+
+test("a host without formats refuses a format it never offered", async (t) => {
+  const f = await fixture(t, { frame: async () => null });
+  const v = await controller(f);
+  assert.equal(v.formats, undefined);
+  await assert.rejects(f.service.frame({ viewerId: v.viewerId, after: 0, format: "video/avcc" }, v.owner), /format/);
 });

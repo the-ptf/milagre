@@ -510,6 +510,7 @@ function SimulatorWebView({
             ...receiverConfig,
             theme: latestTheme.current,
             touchControls: true,
+            quality: "reduced",
           }),
         );
         setUri(file.uri);

@@ -1,3 +1,5 @@
+import { LOCAL_COMPUTER, computerOfKey } from "./chat-scopes.mjs";
+
 export type SimulatorDevice = {
   id: string;
   name: string;
@@ -63,20 +65,31 @@ export type SimulatorList = {
   supported: boolean;
   error?: string;
 };
-/** `video/avcc` (Simlock leases) is base64 of serve-sim envelopes; `reset` means the batch restarts from a keyframe. */
+/** `video/avcc` is base64 of serve-sim envelopes; `reset` means the batch restarts from a keyframe. */
 export type SimulatorFrame = { sequence: number; data: string; mimeType: "image/jpeg" | "image/png" | "video/avcc"; reset?: boolean; status: SimulatorStatus };
 export type SimulatorOpen = {
   viewerId: string;
   device: SimulatorDevice;
   iceServers: { urls: string | string[]; username?: string; credential?: string }[];
   transport?: "frames";
+  /** Frame formats this host serves on request. Absent on older hosts and Simlock leases, which choose for the viewer. */
+  formats?: SimulatorFrameFormat[];
 };
+/** `image` is JPEG or PNG frames; `video/avcc` is H.264 for viewers that decode it with WebCodecs. */
+export type SimulatorFrameFormat = "video/avcc" | "image";
+/** The encoder is shared per device: it runs at `full` while any H.264 viewer asks for it, else `reduced`. */
+export type SimulatorFrameQuality = "full" | "reduced";
+/** A viewer on the computer that runs the device asks for `full`; across a Link or the relay it asks for `reduced`, as the phone does. */
+export function simulatorQualityFor(chatKey: string): SimulatorFrameQuality {
+  return computerOfKey(chatKey) === LOCAL_COMPUTER ? "full" : "reduced";
+}
 export interface SimulatorApi {
   list(request: { chatId: string }): Promise<SimulatorList>;
   attach(request: { chatId: string; deviceId: string }): Promise<SimulatorList>;
   detach(request: { chatId: string; deviceId: string }): Promise<SimulatorList>;
   open(request: { deviceId: string; chatId: string }): Promise<SimulatorOpen>;
-  frame(request: { viewerId: string; after: number }): Promise<SimulatorFrame | null>;
+  /** Send `format` and `quality` only to hosts that listed `formats` when the viewer opened. */
+  frame(request: { viewerId: string; after: number; format?: SimulatorFrameFormat; quality?: SimulatorFrameQuality }): Promise<SimulatorFrame | null>;
   offer(request: { viewerId: string; sdp: string }): Promise<{ type: "answer"; sdp: string }>;
   status(request: { viewerId: string }): Promise<SimulatorStatus>;
   control(request: { viewerId: string; takeOver: boolean }): Promise<SimulatorStatus>;
