@@ -98,6 +98,7 @@ function acceptConnectionWith(deps, { send, end, destroy, isClosed, requireAuthe
     onError,
     encode,
     leanResult,
+    inOrder = (_key, _result, send) => send(),
     replyScope,
     SHOWN_PROJECT,
     close,
@@ -202,14 +203,16 @@ function acceptConnectionWith(deps, { send, end, destroy, isClosed, requireAuthe
         awaitingPages.delete(id);
       }
     }
-    async function reply(result) {
-      const resultJson = encode(leanResult(result, patchClients.get(key)));
-      if (request.pages === true && !PAGE_METHODS.has(request.method) && resultJson.length > inlineLimit) {
-        const pages = await capturePages(resultJson);
-        if (pages) connection.send({ v: VERSION, id, pages });
-        return;
-      }
-      connection.send(null, `{"v":${VERSION},"id":${JSON.stringify(id)},"result":${resultJson}}`);
+    function reply(result) {
+      return inOrder(key, result, async () => {
+        const resultJson = encode(leanResult(result, patchClients.get(key)));
+        if (request.pages === true && !PAGE_METHODS.has(request.method) && resultJson.length > inlineLimit) {
+          const pages = await capturePages(resultJson);
+          if (pages) connection.send({ v: VERSION, id, pages });
+          return;
+        }
+        connection.send(null, `{"v":${VERSION},"id":${JSON.stringify(id)},"result":${resultJson}}`);
+      });
     }
     try {
       let result = await methods.handle(request, {

@@ -4,6 +4,7 @@ const { sessionWithArchivedSummaries, sessionWithTranscriptTails, withArchivedSu
 const { preparePrivateDirectory } = require("@milagre/core/private-files");
 const { wholeState, unloadedChats, isFromDisk } = require("@milagre/core/message-store");
 const { withWholeTranscripts } = require("@milagre/core/project-content");
+const { createTranscriptOrder } = require("./transcript-order.cjs");
 const { prepareToken } = require("./local-auth.cjs");
 const net = require("node:net");
 const os = require("node:os");
@@ -82,6 +83,11 @@ function leanState(state, form = WHOLE) {
     cache.set(base, lean);
   }
   return lean;
+}
+function resultStates(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return [];
+  const items = [result, result.project, ...["projects", "links", "states"].flatMap((key) => (Array.isArray(result[key]) ? result[key] : []))];
+  return items.filter((item) => item?.state && typeof item.state === "object").map((item) => item.state);
 }
 function leanResult(result, form = WHOLE) {
   if (!result || typeof result !== "object" || Array.isArray(result)) return result;
@@ -190,6 +196,39 @@ function eventFrame(channel, payload, seq, inlineLimit) {
   return { json, bytes: Buffer.byteLength(json) + 1 };
 }
 
+function statePatchOf({ sentStates, patchClients, clients, epoch, inlineLimit }, channel, payload, seq) {
+  const scope = stateScope(channel, payload);
+  if (!scope) return null;
+  const previous = sentStates.get(scope);
+  const version = (previous?.version ?? 0) + 1;
+  sentStates.set(scope, { version, state: payload.state });
+  if (![...patchClients.keys()].some((key) => clients.has(key))) return null;
+  const { state, ...rest } = payload;
+  const frame = (body) => eventFrame(channel, body, seq, Infinity);
+  const numbered = (patchBody) => {
+    if (previous) {
+      const patched = frame({ ...rest, ...patchBody(), base: previous.version, version, epoch });
+      if (patched.bytes <= inlineLimit) return patched;
+    }
+    return frame({ ...rest, resync: true, version, epoch });
+  };
+  const forms = new Map();
+  return {
+    previous: previous?.state,
+    form(form) {
+      const key = formKey(form);
+      if (!forms.has(key))
+        forms.set(
+          key,
+          numbered(() => ({
+            patch: diffState(leanState(previous.state, form), leanState(state, form)),
+            ...(form.messages ? {} : { messages: messageChanges(previous.state, state) }),
+          })),
+        );
+      return forms.get(key);
+    },
+  };
+}
 function subscribe(set, listener) {
   set.add(listener);
   return () => set.delete(listener);
@@ -224,6 +263,7 @@ async function startDaemon({
   const patchClients = new Map();
   const epoch = randomUUID();
   const sentStates = new Map();
+  const order = createTranscriptOrder({ onError });
   const snapshotRest = new Map();
   let stopping;
   let listening = false;
@@ -284,7 +324,7 @@ async function startDaemon({
         } catch {}
       });
     const seq = ++eventSeq;
-    const patched = statePatch(channel, payload, seq);
+    const patched = statePatchOf({ sentStates, patchClients, clients, epoch, inlineLimit }, channel, payload, seq);
     if (!clients.size) return;
     let whole;
     const agentFrames = new Map();
@@ -296,52 +336,23 @@ async function startDaemon({
       }
       return agentFrames.get(key);
     };
+    const states = hasState(payload) ? [payload.state, patched?.previous].filter(Boolean) : [];
     for (const [key, connection] of clients) {
       if (connection.policy?.denies(channel)) continue;
-      try {
-        const taker = patchClients.get(key);
-        const frame =
-          patched && taker
-            ? patched.form(taker)
-            : (taker && !wholeSubagents(taker) && agentFrame(taker)) ||
-              (whole ??= eventFrame(channel, hasState(payload) ? { ...payload, state: leanState(payload.state) } : payload, seq, inlineLimit));
-        connection.send(null, frame.json, frame.bytes);
-      } catch (error) {
-        onError(new Error(`Milagre couldn't send a ${channel} event: ${error.message}`));
-      }
+      const taker = patchClients.get(key);
+      order.inOrder(key, taker, states, () => {
+        try {
+          const frame =
+            patched && taker
+              ? patched.form(taker)
+              : (taker && !wholeSubagents(taker) && agentFrame(taker)) ||
+                (whole ??= eventFrame(channel, hasState(payload) ? { ...payload, state: leanState(payload.state) } : payload, seq, inlineLimit));
+          connection.send(null, frame.json, frame.bytes);
+        } catch (error) {
+          onError(new Error(`Milagre couldn't send a ${channel} event: ${error.message}`));
+        }
+      });
     }
-  }
-  function statePatch(channel, payload, seq) {
-    const scope = stateScope(channel, payload);
-    if (!scope) return null;
-    const previous = sentStates.get(scope);
-    const version = (previous?.version ?? 0) + 1;
-    sentStates.set(scope, { version, state: payload.state });
-    if (![...patchClients.keys()].some((key) => clients.has(key))) return null;
-    const { state, ...rest } = payload;
-    const frame = (body) => eventFrame(channel, body, seq, Infinity);
-    const numbered = (patchBody) => {
-      if (previous) {
-        const patched = frame({ ...rest, ...patchBody(), base: previous.version, version, epoch });
-        if (patched.bytes <= inlineLimit) return patched;
-      }
-      return frame({ ...rest, resync: true, version, epoch });
-    };
-    const forms = new Map();
-    return {
-      form(form) {
-        const key = formKey(form);
-        if (!forms.has(key))
-          forms.set(
-            key,
-            numbered(() => ({
-              patch: diffState(leanState(previous.state, form), leanState(state, form)),
-              ...(form.messages ? {} : { messages: messageChanges(previous.state, state) }),
-            })),
-          );
-        return forms.get(key);
-      },
-    };
   }
   function replyNumber(scope, state) {
     const sent = sentStates.get(scope);
@@ -359,14 +370,17 @@ async function startDaemon({
   async function readState(owner, form = WHOLE, { withRest = false } = {}) {
     if (typeof owner !== "string" || !owner) throw new Error("Choose a Project or Link");
     const link = isLinkScopeKey(owner);
-    const answer = (sent) => ({ ...snapshotRest.get(owner), state: leanState(sent.state, form), version: sent.version, epoch });
+    const answer = async () => {
+      const sent = await order.latest(form, () => sentStates.get(owner));
+      return { ...snapshotRest.get(owner), state: leanState(sent.state, form), version: sent.version, epoch };
+    };
     const sent = sentStates.get(owner);
-    if (sent && ((!form.messages && !withRest) || snapshotRest.has(owner))) return answer(sent);
+    if (sent && ((!form.messages && !withRest) || snapshotRest.has(owner))) return answer();
     const { state, ...rest } = await runtime.invoke(link ? "link:snapshot" : "project:snapshot", [link ? scopeFromKey(owner).linkId : owner]);
     snapshotRest.set(owner, rest);
     if (sentStates.get(owner)?.state !== state)
       broadcast(link ? "link:state" : "project:state", link ? { linkId: scopeFromKey(owner).linkId, state } : { path: owner, state });
-    return answer(sentStates.get(owner));
+    return answer();
   }
   const phone = createPhone({
     dataDir,
@@ -414,6 +428,7 @@ async function startDaemon({
     sentNumber,
     formOf,
     leanResult,
+    prepareResult: (result, form) => order.prepare(form, resultStates(result)),
     dataDir,
     homeDir,
     version,
@@ -442,6 +457,7 @@ async function startDaemon({
     onError,
     encode,
     leanResult,
+    inOrder: (key, result, send) => order.inOrder(key, patchClients.get(key), resultStates(result), send),
     replyScope,
     SHOWN_PROJECT,
     close: () => close(),

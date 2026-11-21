@@ -186,6 +186,38 @@ test("a finished subagent's transcript stays out of memory on open, and saves an
   assert.deepEqual((await readProjectState(p)).sessions[1].subagents[0], whole.sessions[1].subagents[0]);
 });
 
+test("whole transcripts read ahead are what a whole reader then gets, with nothing left to read on the event loop", async (t) => {
+  const { readProjectState } = require("./project-store.cjs");
+  const { prepareWholeTranscripts, wholeTranscriptsReady, withWholeTranscripts } = require("./project-content.cjs");
+  const p = await project(t);
+  await twoSidecarAgent(p);
+  const whole = await readProjectState(p);
+  const held = await readProjectState(p, { unloadSubagents: true });
+  assert.equal(wholeTranscriptsReady(held), false);
+  await prepareWholeTranscripts([held]);
+  assert.equal(wholeTranscriptsReady(held), true);
+  await fs.rm(path.join(p, ".milagre", "subagents"), { recursive: true });
+  assert.deepEqual(withWholeTranscripts(held).sessions, whole.sessions);
+});
+
+test("sidecars of every size read back whole on open, and a damaged one is treated as missing, as before", async (t) => {
+  const { saveProjectState, readProjectState, stateFile } = require("./project-store.cjs");
+  const { withWholeTranscripts } = require("./project-content.cjs");
+  const p = await project(t);
+  const agent = (id, transcript) => ({ id, title: id, status: "completed", startedAt: 1, updatedAt: 2, transcript });
+  const big = Array.from({ length: 6 }, (_, index) => ({ id: `big${index}`, kind: "tool", text: `${index}`.repeat(300_000) }));
+  const subagents = [agent("big", big), agent("small", rows("s", 6)), agent("damaged", rows("d", 6)), agent("after", rows("e", 5))];
+  await saveProjectState(p, { next_id: 2, sessions: { 1: { id: 1, subagents } }, messages: [] }, { sweepMinAgeMs: 0 });
+  const damaged = JSON.parse(await fs.readFile(stateFile(p), "utf8")).sessions[1].subagents[2].transcriptFile;
+  await fs.writeFile(path.join(p, ".milagre", "subagents", damaged), "[]");
+  const whole = await readProjectState(p);
+  assert.deepEqual(
+    whole.sessions[1].subagents.map((item) => item.transcript.length),
+    [6, 6, 1, 5],
+  );
+  assert.deepEqual(withWholeTranscripts(await readProjectState(p, { unloadSubagents: true })).sessions, whole.sessions);
+});
+
 test("a subagent with a missing sidecar stays in memory as before, and keeps the reference", async (t) => {
   const { readProjectState } = require("./project-store.cjs");
   const p = await project(t);

@@ -100,7 +100,7 @@ async function compactSubagents(projectPath, state, tracker = {}) {
         subagents.push({ ...rest, ...stub.saved, transcript: stub.rows });
         continue;
       }
-      const agent = stub ? wholeAgent(held, loadTranscriptSync(held)) : held;
+      const agent = stub ? await loadSubagent(held) : held;
       if (!agent.transcript?.length) {
         subagents.push(agent);
         continue;
@@ -249,6 +249,7 @@ async function sweepContent(projectPath, folder, referenced, { minAgeMs = 0, now
 }
 
 const HYDRATE_CONCURRENCY = 8;
+const POOLED_BYTES = 1024 * 1024;
 const WHOLE_TTL_MS = 60 * 1000;
 const unloaded = new WeakMap();
 let wholeAgents = new WeakMap();
@@ -275,10 +276,24 @@ function parseTranscript(bytes, ref) {
   return transcript;
 }
 
-async function readTranscript(directory, ref) {
+async function readTranscript(directory, ref, buffers) {
   const file = await fs.realpath(path.join(directory, ref));
   if (!inside(directory, file)) throw new Error("Invalid transcript path");
-  return parseTranscript(await fs.readFile(file), ref);
+  if (!buffers) return parseTranscript(await fs.readFile(file), ref);
+  const handle = await fs.open(file);
+  try {
+    const { size } = await handle.stat();
+    let buffer = buffers.pop();
+    if (!buffer || buffer.length < size) buffer = Buffer.allocUnsafeSlow(Math.max(size, POOLED_BYTES));
+    try {
+      const { bytesRead } = await handle.read(buffer, 0, size, 0);
+      return parseTranscript(buffer.subarray(0, bytesRead), ref);
+    } finally {
+      buffers.push(buffer);
+    }
+  } finally {
+    await handle.close();
+  }
 }
 
 function readTranscriptSync(projectPath, ref) {
@@ -311,6 +326,7 @@ function unload(agent, whole, stub) {
 async function hydrateSubagents(projectPath, state, { unloadFinished = false } = {}) {
   let resolved;
   const directoryOf = () => (resolved ??= contentDirectory(projectPath, "subagents"));
+  const buffers = [];
   const tasks = [];
   for (const session of Object.values(state.sessions ?? {})) {
     for (const [index, agent] of (session.subagents ?? []).entries()) {
@@ -323,18 +339,22 @@ async function hydrateSubagents(projectPath, state, { unloadFinished = false } =
     const missing = [];
     for (const ref of refs) {
       try {
-        parts.push(await readTranscript(await directoryOf(), ref));
+        parts.push(await readTranscript(await directoryOf(), ref, buffers));
       } catch {
         missing.push(ref);
       }
     }
     const rows = agent.transcript ?? [];
-    agent.transcript = union(parts, rows);
+    const transcript = union(parts, rows);
+    if (unloadFinished && !missing.length && subagentFinished(agent) && transcript.length > TRANSCRIPT_TAIL) {
+      const { transcriptFile: _file, transcriptFiles: _files, ...rest } = agent;
+      session.subagents[index] = unload(rest, transcript, { projectPath, saved: savedRefs({ transcriptFiles: refs }, refs.at(-1)), rows });
+      return;
+    }
+    agent.transcript = transcript;
     delete agent.transcriptFile;
     if (missing.length) agent.transcriptFiles = missing;
     else delete agent.transcriptFiles;
-    if (unloadFinished && !missing.length && subagentFinished(agent) && agent.transcript.length > TRANSCRIPT_TAIL)
-      session.subagents[index] = unload(agent, agent.transcript, { projectPath, saved: savedRefs({ transcriptFiles: refs }, refs.at(-1)), rows });
   };
   let cursor = 0;
   await Promise.all(
@@ -395,6 +415,26 @@ function withWholeTranscripts(state) {
   return whole;
 }
 
+const coldAgents = (state) =>
+  Object.values(state?.sessions ?? {}).flatMap((session) => (session?.subagents ?? []).filter((agent) => isUnloaded(agent) && !wholeAgents.has(agent)));
+
+const wholeTranscriptsReady = (state) => !state?.sessions || wholeStates.has(state) || !coldAgents(state).length;
+
+/** Reads the transcripts `withWholeTranscripts` needs for `states` ahead of it, off the event loop, so that call reads none. */
+async function prepareWholeTranscripts(states) {
+  const agents = [...new Set(states.flatMap(coldAgents))];
+  wholesUsedAt = Date.now();
+  let cursor = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(HYDRATE_CONCURRENCY, agents.length) }, async () => {
+      while (cursor < agents.length) {
+        const agent = agents[cursor++];
+        wholeAgents.set(agent, await loadSubagent(agent));
+      }
+    }),
+  );
+}
+
 function forgetWholeTranscripts(now = Date.now()) {
   if (now - wholesUsedAt < WHOLE_TTL_MS) return;
   wholeAgents = new WeakMap();
@@ -439,6 +479,8 @@ module.exports = {
   loadSubagent,
   withLoadedSubagent,
   withWholeTranscripts,
+  wholeTranscriptsReady,
+  prepareWholeTranscripts,
   forgetWholeTranscripts,
   unloadSaved,
   referencedSidecars,

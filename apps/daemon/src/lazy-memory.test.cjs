@@ -68,6 +68,21 @@ test("the large Project's idle Chats leave the daemon's memory, and every reader
       assert.deepEqual(whole[session.id].subagents.find((item) => item.id === agent.id).transcript, agent.transcript);
       assert.deepEqual((await desktop.call("chat:subagent", [project, session.id, agent.id])).transcript, agent.transcript);
     }
+  // Once the read-back copy expires, the older client's next event and reply wait for the transcripts to be read again,
+  // and still arrive in order with every entry.
+  require("@milagre/core/project-content").forgetWholeTranscripts(Number.MAX_SAFE_INTEGER);
+  const seen = [];
+  older.on("event", (event) => seen.push(event));
+  await desktop.call("chat:patch", [project, chats[1], { title: "Again" }]);
+  const again = (await older.call("state:read", [project])).state.sessions;
+  assert.ok(seen.some((event) => event.channel === "project:state"));
+  assert.deepEqual(
+    seen.map((event) => event.seq),
+    seen.map((event) => event.seq).toSorted((a, b) => a - b),
+  );
+  for (const session of Object.values(fixture.sessions))
+    for (const agent of session.subagents ?? [])
+      assert.deepEqual(again[session.id].subagents.find((item) => item.id === agent.id).transcript, agent.transcript);
   // The long Chat reads back page by page, and only it comes back into memory.
   const longest = chats[0];
   const page = await desktop.call("chat:messages", [project, longest, { turns: 10 }]);

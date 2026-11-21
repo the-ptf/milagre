@@ -197,10 +197,11 @@ function serviceMethods({ runtime, push, liveActivity, hostUpdates, browserSignI
   };
 }
 
-function hostMethods({ runtime, computers, patchClients, readState, windowFocused, sentNumber, formOf, leanResult, eventSeq, epoch }) {
+function hostMethods({ runtime, computers, patchClients, readState, windowFocused, sentNumber, formOf, leanResult, prepareResult, eventSeq, epoch }) {
   return {
     "daemon:snapshot": async (request, { key, capturePages }) => {
       const whole = runtime.snapshot();
+      await prepareResult?.(whole, patchClients.get(key));
       const snapshot = { ...leanResult(whole, patchClients.get(key)), eventSeq: eventSeq() };
       if (request.args[0]?.paged !== true) return snapshot;
       const pages = await capturePages(JSON.stringify(snapshot));
