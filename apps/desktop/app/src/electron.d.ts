@@ -297,6 +297,8 @@ export type MilagreBridge = {
   simulators: SimulatorApi;
   /** Experimental: agents operate desktop apps on this computer (Settings › This Mac). */
   computerUse: import("@milagre/shared/computer-use").ComputerUseApi;
+  /** Whether this computer found Baguette, which lists and streams its iPhones on a cable. */
+  baguette: import("@milagre/shared/simulator").BaguetteApi;
   /** Experimental: devices leased from a Simlock pool (Settings › Phone & sharing). */
   simlock: import("@milagre/shared/simulator").SimlockApi;
   browsers: BrowserApi;

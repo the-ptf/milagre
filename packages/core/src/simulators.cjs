@@ -7,6 +7,10 @@ const QUALITIES = new Set(["full", "reduced"]);
 const MAX_TYPED = 2000;
 const MAX_PASTE = 65536;
 const TEXT_KINDS = new Set(["text", "paste", "copy"]);
+const CAPABILITIES = new Set(["touch", "home", "back", "rotate", "keyboard", "copy", "repair", "hinge"]);
+const CAPABILITY_OF = { touch: "touch", rotate: "rotate", key: "keyboard", text: "keyboard", paste: "keyboard", copy: "copy", pose: "hinge", hinge: "hinge" };
+const lacks = (state, event) =>
+  Array.isArray(state.capabilities) && !state.capabilities.includes(event.kind === "button" ? event.button : CAPABILITY_OF[event.kind]);
 function identifier() {
   return randomBytes(24).toString("base64url");
 }
@@ -90,6 +94,7 @@ function capabilities(state, channel) {
       : {}),
     ...(state.deviceHubInputActive ? { deviceHubInputActive: true, inputBlocked: true } : {}),
     ...(state.keyboard === true && channel.clipboard ? { keyboard: true, ...(state.copy === true ? { copy: true } : {}) } : {}),
+    ...(Array.isArray(state.capabilities) ? { capabilities: state.capabilities.filter((name) => CAPABILITIES.has(name)) } : {}),
   };
 }
 function startTyping(device, state, event) {
@@ -348,6 +353,7 @@ function createSimulators(options = {}) {
         if (request.event.kind === "button" && request.event.button === "back" && device.platform !== "android")
           throw new Error("Back is available only on Android.");
         const state = metadata(device);
+        if (lacks(state, request.event)) throw new Error("This device does not take that control from Milagre.");
         if ((request.event.kind === "pose" || request.event.kind === "hinge") && (device.platform !== "ios" || !state.supportsHingeAngle))
           throw new Error("This simulator does not support hinge controls.");
         if (device.controller !== v.id || !state.ready || request.generation !== device.generation || request.sequence <= v.sequence)

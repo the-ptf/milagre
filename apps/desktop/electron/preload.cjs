@@ -89,6 +89,14 @@ function simulatorBridge(invoke) {
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "simulators" | "baguette">}
+ */
+function simulatorBridges(invoke) {
+  return { simulators: simulatorBridge(invoke), baguette: { status: () => invoke("baguette:status") } };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "askBtw" | "stopBtw" | "readBtw" | "onBtwEvent" | "forkChat" | "deleteChat">}
  */
@@ -196,7 +204,7 @@ function artifactBridge(invoke, listen) {
  */
 function makeBridge(invoke, listen, send) {
   return {
-    simulators: simulatorBridge(invoke),
+    ...simulatorBridges(invoke),
     computerUse: {
       readSettings: () => invoke("computer-use:settings:read"),
       saveSettings: (patch) => invoke("computer-use:settings:save", patch),

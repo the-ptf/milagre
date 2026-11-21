@@ -19,4 +19,6 @@ test("the runtime label prefers the runtime's version", () => {
   assert.equal(simulatorRuntimeLabel({ platform: "ios", version: "26.4", runtimeVersion: "26.4.1" }), "iOS 26.4.1");
   assert.equal(simulatorRuntimeLabel({ platform: "ios", version: "26.4" }), "iOS 26.4");
   assert.equal(simulatorRuntimeLabel({ platform: "android", version: "16", runtimeVersion: null }), "Android 16");
+  assert.equal(simulatorRuntimeLabel({ id: "baguette:00008150-00050D003C20401C", platform: "ios", version: "27.3" }), "On a cable · iOS 27.3");
+  assert.equal(simulatorRuntimeLabel({ id: "baguette:00008150-00050D003C20401C", platform: "ios", version: "" }), "On a cable");
 });

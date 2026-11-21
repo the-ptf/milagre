@@ -2,6 +2,7 @@ import { SIMULATOR_RECEIVER_SCRIPT } from "./simulator-browser.mjs";
 import { avcCodecString, avccEnvelopes, simulatorAvcConfig, simulatorFrameRequest, simulatorImage, simulatorVideo } from "./simulator-avc.mjs";
 import { SIMULATOR_HANDHELD_STYLE, simulatorHandheldControls } from "./simulator-handheld.mjs";
 import { SIMULATOR_TYPING_CSS, SIMULATOR_TYPING_HTML, simulatorKeyUsage, simulatorTyping } from "./simulator-typing.mjs";
+import { simulatorHiddenControls } from "./simulator-controls.mjs";
 export { SIMULATOR_RECEIVER_SCRIPT } from "./simulator-browser.mjs";
 
 export const SIMULATOR_CONNECTION_LABELS = {
@@ -207,7 +208,7 @@ export function createSimulatorBridge(call, respond, transform = (_method, resul
 }
 
 // This function is serialized with its dependencies as arguments. It must not close over module state.
-function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, videoFor, imageFor, requestFor, usageFor, typingFor, handheldFor) {
+function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, videoFor, imageFor, requestFor, usageFor, typingFor, handheldFor, hiddenFor) {
   window.simulatorTheme = (theme) => {
     if (!theme || typeof theme !== "object") return;
     const style = document.documentElement.style;
@@ -252,7 +253,6 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, vide
   hingeAngle.addEventListener("input", () => {
     hingeDraft = true;
   });
-  back.hidden = config.device?.platform !== "android";
   let nextId = 0,
     epoch = 0,
     viewerId = null,
@@ -394,14 +394,15 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, vide
     blocked.hidden = !(inputHint || confirmRepair || repairing);
     back.disabled = home.disabled = rotate.disabled = !(ready && status.controlling);
     duo.hidden = hinge.hidden = status?.supportsHingeAngle !== true;
-    repair.hidden = device?.platform === "android";
+    const hidden = hiddenFor(device, status);
+    ({ back: back.hidden, home: home.hidden, rotate: rotate.hidden, repair: repair.hidden } = hidden);
     repair.disabled = !(ready && status.controlling) || repairing;
     for (const [pose, button] of poses) {
       button.disabled = !(ready && status.controlling);
       button.setAttribute("aria-pressed", String(status?.hingePose === pose));
     }
     hingeAngle.disabled = hingeApply.disabled = !(ready && status.controlling);
-    typingUi.render(status, ready);
+    typingUi.render(hidden.typingStatus, ready);
     if (!hingeDraft && document.activeElement !== hingeAngle) hingeAngle.value = Number.isFinite(status?.hingeAngle) ? String(status.hingeAngle) : "";
     control.disabled = !ready || claiming;
     control.hidden = !ready || !!status?.controlling;
@@ -720,7 +721,6 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, vide
         return;
       }
       device = opened.device || config.device;
-      back.hidden = device?.platform !== "android";
       layout();
       viewerId = opened.viewerId;
       let polling = false,
@@ -912,7 +912,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, vide
 
 /** Build-time only. A checked-in string keeps script bytes stable across Vite/Metro minification and CSP hashing. */
 export function buildSimulatorReceiverScript() {
-  return `(${receiver.toString()})(JSON.parse(document.getElementById('config').dataset.config),${simulatorGeometry.toString()},${simulatorPoint.toString()},${createSimulatorInputQueue.toString()},${simulatorAppearance.toString()},((video, codec, config, envelopes) => (canvas, hooks) => video(canvas, hooks, codec, config, envelopes))(${simulatorVideo.toString()},${avcCodecString.toString()},${simulatorAvcConfig.toString()},${avccEnvelopes.toString()}),${simulatorImage.toString()},${simulatorFrameRequest.toString()},${simulatorKeyUsage.toString()},${simulatorTyping.toString()},${simulatorHandheldControls.toString()});`;
+  return `(${receiver.toString()})(JSON.parse(document.getElementById('config').dataset.config),${simulatorGeometry.toString()},${simulatorPoint.toString()},${createSimulatorInputQueue.toString()},${simulatorAppearance.toString()},((video, codec, config, envelopes) => (canvas, hooks) => video(canvas, hooks, codec, config, envelopes))(${simulatorVideo.toString()},${avcCodecString.toString()},${simulatorAvcConfig.toString()},${avccEnvelopes.toString()}),${simulatorImage.toString()},${simulatorFrameRequest.toString()},${simulatorKeyUsage.toString()},${simulatorTyping.toString()},${simulatorHandheldControls.toString()},${simulatorHiddenControls.toString()});`;
 }
 
 /** No hosted asset or native resource: this string travels inside desktop and OTA JS bundles. */
