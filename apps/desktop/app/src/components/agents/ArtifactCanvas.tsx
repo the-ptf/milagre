@@ -645,8 +645,8 @@ const DesignFrame = memo(function DesignFrame({
     format: artifact?.format ?? design.format,
   };
   const last = Math.max(artifact?.latest ?? 1, design.version);
-  const [chosenMode, setMode] = useDesignMode(chatId, design.id);
   const modes = artifact?.format === "design" && artifact.document ? designModesOf(artifact.document) : ["light" as const];
+  const [chosenMode, setMode] = useDesignMode(chatId, design.id, modes);
   const mode = modes.includes(chosenMode) ? chosenMode : "light";
   const pendingHere = choice.pending?.id === design.id && choice.pending.version === shown.version;
   const sentHere = !choice.pending && choice.sent?.id === design.id && choice.sent.version === shown.version;
