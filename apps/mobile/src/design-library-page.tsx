@@ -1,6 +1,7 @@
 import { useCallback, useState, type ReactNode } from "react";
 import { Alert, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, Stack, useFocusEffect } from "expo-router";
 import { ArrowLeft01Icon, ArrowRight01Icon, DashboardSquare01Icon, LibraryIcon, PaintBoardIcon } from "@hugeicons/core-free-icons";
 import { designScope, libraryCardLine, libraryRecent, libraryRecentLine, type DesignLibrary, type DesignLibraryEntry } from "@milagre/shared/artifact";
@@ -146,7 +147,13 @@ export function DesignLibraryScreen({
       <Stack.Screen options={{ title: "Design library", headerBackTitle: name, headerShown: !twoColumns }} />
       {twoColumns ? (
         <View style={{ flex: 1, flexDirection: "row" }}>
-          <View style={{ width: 340, paddingTop: insets.top, borderRightWidth: StyleSheet.hairlineWidth, borderColor: colors.line }}>
+          <View style={{ width: 340, paddingTop: insets.top }}>
+            <LinearGradient
+              pointerEvents="none"
+              colors={["transparent", colors.line, colors.line, "transparent"]}
+              locations={[0, 0.12, 0.88, 1]}
+              style={{ position: "absolute", top: 0, bottom: 0, right: 0, width: StyleSheet.hairlineWidth }}
+            />
             <SheetHeader title="Design library" subtitle={name} leading={<CircleButton label="Back" icon={ArrowLeft01Icon} onPress={() => router.back()} />} />
             {lists}
           </View>

@@ -23519,6 +23519,7 @@ function libraryScreenHost(client, pushes, { wide = false, params = {} } = {}) {
       Text: "Text",
       View: "View",
     },
+    "expo-linear-gradient": { LinearGradient: "LinearGradient" },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 24, bottom: 20, left: 0, right: 0 }) },
     "./split-context": { useSplitLayout: () => ({ widthClass: wide ? "wide" : "compact" }) },
     "expo-router": {
