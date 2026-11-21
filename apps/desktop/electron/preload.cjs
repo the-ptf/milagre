@@ -106,6 +106,18 @@ function makeSideQuestionBridge(invoke, listen) {
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "stopSubagent" | "stopAdvisor" | "retryAdvisor">}
+ */
+function backgroundAgentBridge(invoke) {
+  return {
+    stopSubagent: (chatId, id, stopSession) => invoke("subagent:stop", chatId, id, stopSession),
+    stopAdvisor: (chatId, id) => invoke("advisor:stop", chatId, id),
+    retryAdvisor: (chatId, id) => invoke("advisor:retry", chatId, id),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "listAccounts" | "accountAction" | "submitAccountCode" | "onAccountsChanged">}
  */
@@ -479,8 +491,7 @@ function makeBridge(invoke, listen, send) {
     getCliStatus: (scopeKey) => invoke("agent:cli-status", scopeKey),
     getProviderUpdates: () => invoke("agent:provider-updates"),
     updateCli: (provider, targetVersion) => invoke("agent:update-cli", provider, targetVersion),
-    stopAdvisor: (chatId, id) => invoke("advisor:stop", chatId, id),
-    retryAdvisor: (chatId, id) => invoke("advisor:retry", chatId, id),
+    ...backgroundAgentBridge(invoke),
     onCliProgress: (callback) => listen("agent:cli-progress", callback),
     interruptAgent: (chatId) => invoke("agent:interrupt", chatId),
     respondToPermission: (chatId, requestId, decision) => invoke("agent:respond-permission", { chatId, requestId, decision }),

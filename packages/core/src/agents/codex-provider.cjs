@@ -654,6 +654,24 @@ class CodexSession {
     markEnded?.();
   }
 
+  /** Whether this session stops one subagent on its own; a child can still be waiting for its thread. */
+  stopsSubagents() {
+    return Boolean(this.rpc);
+  }
+
+  canStopSubagent(id) {
+    return Boolean(this.rpc && this.state.subagents?.has(id));
+  }
+
+  async stopSubagent(id) {
+    const agent = this.state.subagents?.get(id);
+    if (!agent || !activeSubagent(agent) || !this.rpc) throw new Error("Stopping this subagent is not available.");
+    const { data } = await this.rpc.request("thread/turns/list", { threadId: id, limit: 1, sortDirection: "desc", itemsView: "notLoaded" });
+    const turn = data?.find((item) => item.status === "inProgress");
+    if (!turn) throw new Error("Stopping this subagent is not available.");
+    await this.rpc.request("turn/interrupt", { threadId: id, turnId: turn.id });
+  }
+
   async interrupt() {
     if (!this.turnActive) return;
     this.cancelRequested = true;

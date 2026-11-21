@@ -251,6 +251,9 @@ function fakeSdk(script) {
         (calls.toggles ??= []).push([name, enabled]);
         calls.order.push(`toggle:${name}`);
       },
+      stopTask: async (taskId) => {
+        (calls.stoppedTasks ??= []).push(taskId);
+      },
       getTaskOutput: async (taskId) => {
         if (taskId !== "b1") throw new Error("get_task_output: no shell or Monitor task with that task_id in this session");
         return { output: "building…\n", total_bytes: 9000, truncated: true };
@@ -1708,4 +1711,17 @@ test("Claude suppresses suggestions after a steer or cancellation", async (t) =>
     second.events.some((event) => event.type === "prompt-suggestion"),
     false,
   );
+});
+
+test("stopSubagent targets the matching Claude task only", async (t) => {
+  const { session, calls } = claude(t, { script: scripts.held });
+  await session.startTurn(TURN);
+  session.state.taskAgents = new Map([
+    ["task-a", "agent-a"],
+    ["task-b", "agent-b"],
+  ]);
+  await session.stopSubagent("agent-b");
+  assert.deepEqual(calls.stoppedTasks, ["task-b"]);
+  await assert.rejects(session.stopSubagent("missing"), /not available/i);
+  calls.release();
 });

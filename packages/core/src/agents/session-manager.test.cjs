@@ -692,3 +692,14 @@ test("a new session is told about this machine's network after its own instructi
   await manager.startTurn(request("c"));
   assert.equal(created[2].options.workspaceInstructions, undefined);
 });
+
+test("stopSubagent calls the live session and never targets another chat", async (t) => {
+  const { manager, created } = harness();
+  t.after(() => manager.closeAll());
+  await manager.startTurn(request("1"));
+  const stopped = [];
+  created[0].stopSubagent = async (id) => stopped.push(id);
+  await manager.stopSubagent("1", "child");
+  assert.deepEqual(stopped, ["child"]);
+  await assert.rejects(manager.stopSubagent("missing", "child"), /not available/i);
+});
