@@ -4,6 +4,7 @@ export type Scheme = "light" | "dark";
 export type ThemeId =
   | "milagre-blue"
   | "gray"
+  | "black"
   | "catppuccin-mocha"
   | "catppuccin-macchiato"
   | "catppuccin-frappe"

@@ -313,6 +313,7 @@ const THEMES = [
   ["milagre-blue-dark", "milagre-blue", "dark"],
   ["milagre-blue-light", "milagre-blue", "light"],
   ["gray-dark", "gray", "dark"],
+  ["black", "black", "dark"],
   ["catppuccin-mocha", "catppuccin-mocha", "dark"],
   ["catppuccin-latte", "catppuccin-mocha", "light"],
   ["dracula", "dracula", "dark"],
