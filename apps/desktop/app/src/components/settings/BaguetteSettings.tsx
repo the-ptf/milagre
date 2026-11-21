@@ -12,10 +12,11 @@ export function BaguetteSettings() {
   const [status, setStatus] = useState<BaguetteStatus | null>(null);
   useEffect(() => {
     let live = true;
-    api
-      ?.status()
-      .then((value) => live && setStatus(value))
-      .catch(() => {});
+    if (typeof api?.status === "function")
+      Promise.resolve()
+        .then(() => api.status())
+        .then((value) => live && setStatus(value))
+        .catch(() => {});
     return () => {
       live = false;
     };
