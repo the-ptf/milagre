@@ -87,6 +87,20 @@ async function githubAccount(endpoint, projectPath) {
   }
 }
 
+/** `lookup`, except that a lookup of an endpoint already in flight joins it instead of starting another `gh`. */
+function sharedLookups(lookup) {
+  const pending = new Map();
+  return (endpoint, projectPath) => {
+    if (!pending.has(endpoint))
+      pending.set(
+        endpoint,
+        Promise.resolve(lookup(endpoint, projectPath)).finally(() => pending.delete(endpoint)),
+      );
+    return pending.get(endpoint);
+  };
+}
+const sharedGithubAccount = sharedLookups(githubAccount);
+
 function avatar(account) {
   if (typeof account?.avatar_url !== "string") return null;
   try {
@@ -99,7 +113,7 @@ function avatar(account) {
   }
 }
 
-async function resolveProjectImage(projectPath, { account = githubAccount, readGit = git } = {}) {
+async function resolveProjectImage(projectPath, { account = sharedGithubAccount, readGit = git } = {}) {
   if (typeof projectPath !== "string" || !path.isAbsolute(projectPath)) throw new Error("An absolute project path is required");
   const image = await localImage(projectPath);
   if (image) return image;
@@ -115,4 +129,4 @@ async function resolveProjectImage(projectPath, { account = githubAccount, readG
   return ownerAccount?.type === "User" ? avatar(ownerAccount) : null;
 }
 
-module.exports = { resolveProjectImage, githubOwner };
+module.exports = { resolveProjectImage, githubOwner, sharedLookups };

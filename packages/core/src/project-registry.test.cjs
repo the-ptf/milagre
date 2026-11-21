@@ -190,3 +190,22 @@ test("resolveProject opens a folder outside Git as its own Project, but never a 
     await fs.rm(folder, { recursive: true, force: true });
   }
 });
+
+test("a write checks an entry's Git identity again once its repository changed, and keeps entries that didn't", async (t) => {
+  const root = await fixture(t);
+  const kept = await repository(root, "kept", { coordination: false });
+  const bare = await repository(root, "bare", { coordination: false });
+  const unlinked = await repository(root, "unlinked", { coordination: false });
+  const registry = createProjectRegistry(path.join(root, "userData", "project-registry.json"), { roots: [] });
+  for (const folder of [kept.main, bare.main, unlinked.main]) await registry.add(await resolveProject(folder));
+  const keptId = (await resolveProject(kept.main)).id;
+  const paths = async () => (await registry.snapshot()).projects.map((entry) => entry.path).sort();
+  await registry.setPosition(keptId, { x: 1, y: 1 });
+  assert.deepEqual(await paths(), [bare.main, kept.main, unlinked.main].sort());
+  git(bare.main, "config", "core.bare", "true");
+  await registry.setPosition(keptId, { x: 2, y: 2 });
+  assert.deepEqual(await paths(), [kept.main, unlinked.main].sort(), "a changed Git config is read again");
+  await fs.rm(path.join(unlinked.main, ".git"), { recursive: true });
+  await registry.setPosition(keptId, { x: 3, y: 3 });
+  assert.deepEqual(await paths(), [kept.main], "a removed .git is noticed");
+});

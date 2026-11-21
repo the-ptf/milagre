@@ -107,6 +107,9 @@ async function launchOnce(work, repo, launcher, binDir, options) {
     PATH: options.realClis ? LAUNCHD_PATH : `${binDir}:${LAUNCHD_PATH}`,
     TMPDIR: path.join(work, "tmp"),
     LANG: "en_US.UTF-8",
+    NODE_USE_ENV_PROXY: "1",
+    HTTPS_PROXY: "http://127.0.0.1:9",
+    NO_PROXY: "127.0.0.1,localhost",
     MILAGRE_BACKGROUND: "1",
     MILAGRE_CHATS_HOME: path.join(work, "chats"),
     ...(traceDir
@@ -150,8 +153,9 @@ async function launchOnce(work, repo, launcher, binDir, options) {
       const value = await contents.evaluate(probe);
       return value.fcp === null ? null : value;
     }, "first paint");
-    contents.close();
     await delay(Math.max(0, started + options.windowSeconds * 1000 - Date.now()));
+    const rows = await contents.evaluate('document.querySelectorAll("button[data-inbox-row]").length');
+    contents.close();
     const table = processTable();
     const cpu = {};
     for (const row of processes(work)) if (row.kind !== "trace") cpu[row.kind] = (cpu[row.kind] ?? 0) + row.cpu;
@@ -167,6 +171,7 @@ async function launchOnce(work, repo, launcher, binDir, options) {
       windowMs: Math.round(shown.origin - started),
       firstPaintMs: Math.round(painted.origin + painted.fcp - started),
       sidebarMs: Math.round(shown.now - started),
+      rows,
       loadAverage: round(os.loadavg()[0]),
       cpu,
       ...(traceDir ? { children } : {}),
@@ -194,6 +199,61 @@ function linkRealClis(work) {
   fs.symlinkSync(fs.realpathSync(found), path.join(local, "claude"));
 }
 
+const OWNERS = ["perf-owner-a", "perf-owner-b", "perf-owner-c"];
+
+function git(cwd, ...args) {
+  execFileSync("git", ["-c", "user.name=perf", "-c", "user.email=perf@example.com", ...args], { cwd, stdio: "ignore" });
+}
+
+/** A Project like a used one: a GitHub-style origin, a main checkout and two Worktrees, a Chat in each. */
+function seedProject(work, index) {
+  const repo = path.join(work, "projects", `perf-${index}`);
+  fs.mkdirSync(repo, { recursive: true });
+  git(repo, "init", "-q", "-b", "main");
+  fs.writeFileSync(path.join(repo, ".gitignore"), ".milagre\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-q", "-m", "init");
+  git(repo, "remote", "add", "origin", `git@github.com:${OWNERS[index % OWNERS.length]}/perf-${index}.git`);
+  const worktrees = { 1: { id: 1, project_id: 1, path: repo, name: "main" } };
+  for (const id of [2, 3]) {
+    const worktreePath = path.join(work, "worktrees", `perf-${index}-${id}`);
+    git(repo, "worktree", "add", "-q", "-b", `perf-${id}`, worktreePath);
+    worktrees[id] = { id, project_id: 1, path: worktreePath, name: `perf-${id}` };
+  }
+  const sessions = {};
+  const messages = [];
+  for (const id of [1, 2, 3]) {
+    const chat = 10 + id;
+    sessions[chat] = { id: chat, worktree_id: id, agent_name: "main", status: "Created", provider: "claude", generatedTitle: `Perf ${index}.${id}` };
+    messages.push(
+      { id: 20 + id * 2, session_id: chat, role: "user", body: "Perf run" },
+      { id: 21 + id * 2, session_id: chat, role: "assistant", body: "Ready." },
+    );
+  }
+  fs.mkdirSync(path.join(repo, ".milagre"));
+  const empty = { connections: {}, events: [], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] };
+  const state = { next_id: 40, projects: { 1: { id: 1, name: `perf-${index}` } }, worktrees, sessions, messages, ...empty };
+  fs.writeFileSync(path.join(repo, ".milagre", "coordination.json"), JSON.stringify(state));
+  return repo;
+}
+
+/** Registers `repo` and n - 1 seeded Projects through the checkout's own registry and recents, as opening them in the app does. */
+async function seedProjects(work, repo, count, checkout) {
+  const core = (name) => require(path.join(checkout, "packages/core/src", name));
+  const { createProjectRegistry } = core("project-registry.cjs");
+  const { resolveProject } = core("project-identity.cjs");
+  const { createRecentProjects, rememberProject } = core("recent-projects.cjs");
+  const profile = path.join(work, "profile");
+  const registry = createProjectRegistry(path.join(profile, "project-registry.json"), { roots: [] });
+  const recents = createRecentProjects(path.join(profile, "recent-projects.json"));
+  const repos = [...Array.from({ length: count - 1 }, (_, index) => seedProject(work, index + 1)), repo];
+  for (const folder of repos) {
+    await registry.add(await resolveProject(folder));
+    await rememberProject(recents, folder);
+  }
+  await registry.list();
+}
+
 const median = (values) => {
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)];
@@ -205,6 +265,7 @@ async function run(options) {
   try {
     const repo = seedRepo(work);
     for (const dir of ["home", "profile", "chats", "tmp", "marks"]) fs.mkdirSync(path.join(work, dir));
+    if (options.projects) await seedProjects(work, repo, options.projects, options.root);
     const binDir = bin(work);
     if (options.realClis) linkRealClis(work);
     const runs = [];
@@ -212,7 +273,7 @@ async function run(options) {
       const result = await launchOnce(work, repo, launcher, binDir, options);
       runs.push(result);
       console.log(
-        `launch ${index + 1}/${options.runs}${index === 0 ? " (host starting)" : ""}: window ${result.windowMs} ms, paint ${result.firstPaintMs} ms, sidebar ${result.sidebarMs} ms, CPU ${result.cpu.total} s`,
+        `launch ${index + 1}/${options.runs}${index === 0 ? " (host starting)" : ""}: window ${result.windowMs} ms, paint ${result.firstPaintMs} ms, sidebar ${result.sidebarMs} ms, CPU ${result.cpu.total} s, ${result.rows} rows`,
       );
     }
     const warm = runs.slice(1);
@@ -227,6 +288,7 @@ async function run(options) {
       dist: options.dist ?? null,
       clis: options.realClis ? "real" : "stub",
       windowSeconds: options.windowSeconds,
+      projects: options.projects ?? 1,
       appArchiveMb: options.app ? archiveMb(options.app) : null,
       loadAverage: round(os.loadavg()[0]),
       firstLaunch: runs[0],
@@ -267,6 +329,7 @@ async function main() {
       trace: { type: "boolean", default: false },
       "real-clis": { type: "boolean", default: false },
       window: { type: "string", default: "8" },
+      projects: { type: "string" },
     },
   });
   if (positionals[0] === "compare") {
@@ -287,6 +350,7 @@ async function main() {
     trace: values.trace,
     realClis: values["real-clis"],
     windowSeconds: Number(values.window),
+    projects: values.projects ? Math.max(1, Number(values.projects)) : null,
   });
   const out = values.out ?? path.join(os.tmpdir(), `milagre-perf-launch-${Date.now()}.json`);
   fs.writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`);

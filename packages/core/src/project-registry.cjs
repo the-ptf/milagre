@@ -34,13 +34,31 @@ async function coordinationProjects(roots) {
   return found;
 }
 
+async function identityStamp(entry) {
+  const stamp = (file) =>
+    fs.lstat(file).then(
+      (stats) => (stats.isDirectory() ? `${stats.ino}` : `${stats.ino}:${stats.mtimeMs}:${stats.size}`),
+      () => "-",
+    );
+  const files = [entry.path, path.join(entry.path, ".git"), path.join(entry.id, "config")];
+  return [await fs.realpath(entry.path).catch(() => "-"), ...(await Promise.all(files.map(stamp)))].join("|");
+}
+
+const checked = new Map();
+
 async function present(entry) {
+  const key = `${entry.id}\0${entry.path}`;
+  const stamp = await identityStamp(entry);
+  if (checked.get(key)?.stamp === stamp) return checked.get(key).present;
+  let result;
   try {
     const identity = await resolveProject(entry.path);
-    return identity.id === entry.id && identity.path === entry.path;
+    result = identity.id === entry.id && identity.path === entry.path;
   } catch {
-    return false;
+    result = false;
   }
+  checked.set(key, { stamp, present: result });
+  return result;
 }
 
 async function gone(entry) {
