@@ -153,6 +153,30 @@ async function browserChecks() {
     await promptIs("Draft for alpha");
     console.log("PASS: Up and Down step through the Chat's sent prompts and restore the draft");
 
+    // A draft that wraps over several rows keeps Up and Down for moving the caret between them.
+    const wrapped = "wrapped words ".repeat(60).trim();
+    await type(wrapped);
+    await promptIs(wrapped);
+    await waitFor(`${prompt}.getBoundingClientRect().height > 60`);
+    await press("ArrowUp");
+    await delay(150);
+    await promptIs(wrapped);
+    await evaluate(`(() => {
+      const range = document.createRange();
+      range.setStart(${prompt}, 0);
+      range.collapse(true);
+      const selection = getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    })()`);
+    await press("ArrowUp");
+    await promptIs("Second alpha prompt");
+    await press("ArrowDown");
+    await promptIs(wrapped);
+    console.log("PASS: Up inside a wrapped draft moves the caret, and recalls history only from its top row");
+    await type("Draft for alpha");
+    await promptIs("Draft for alpha");
+
     await openChat("Alpha chat");
     await setPermissionMode("Auto");
     await openChat("Beta chat");
