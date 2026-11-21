@@ -9,9 +9,7 @@ const { connect } = require("./client.cjs");
 const { largeProject } = require("./large-project-fixture.cjs");
 const { savedRows } = require("@milagre/core/message-store");
 
-// Lazy message memory (#321) on the large Project #389 measures (79 Chats, 881 messages, 5.4 MB of them): once its
-// Chats are idle the daemon holds none of their messages, and every reader still gets all 881, in order.
-test("the large Project's idle Chats leave the daemon's memory, and every reader still gets every message", async (t) => {
+async function openLarge(t) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-lazy-large-")));
   const dataDir = path.join(root, "profile");
   const project = path.join(root, "project");
@@ -47,6 +45,13 @@ test("the large Project's idle Chats leave the daemon's memory, and every reader
   await desktop.call("daemon:flush");
   assert.equal(savedRows(project).size, fixture.messages.length);
   await daemon.unloadIdle();
+  return { project, fixture, daemon, desktop, older, chats };
+}
+
+// Lazy message memory (#321) on the large Project #389 measures (79 Chats, 881 messages, 5.4 MB of them): once its
+// Chats are idle the daemon holds none of their messages, and every reader still gets all 881, in order.
+test("the large Project's idle Chats leave the daemon's memory, and every reader still gets every message", async (t) => {
+  const { project, fixture, desktop, older, chats } = await openLarge(t);
   assert.equal(savedRows(project).size, 0, "no message of an idle Chat stays in memory");
 
   const ids = (messages) => messages.map((message) => message.id);
@@ -88,6 +93,29 @@ test("the large Project's idle Chats leave the daemon's memory, and every reader
   const page = await desktop.call("chat:messages", [project, longest, { turns: 10 }]);
   assert.equal(page.total, fixture.messages.filter((message) => message.session_id === longest).length);
   assert.ok([...savedRows(project).values()].every((row) => row.chat === longest));
+});
+
+test("a snapshot taken while subagent transcripts are read back still leads its client to a change made meanwhile", async (t) => {
+  const { project, desktop, older, chats } = await openLarge(t);
+  require("@milagre/core/project-content").forgetWholeTranscripts(Number.MAX_SAFE_INTEGER);
+  const files = require("node:fs/promises");
+  const readFile = files.readFile;
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const reads = t.mock.method(files, "readFile", async (file, ...rest) => {
+    if (String(file).includes(`${path.sep}subagents${path.sep}`)) await gate;
+    return readFile.call(files, file, ...rest);
+  });
+  const seen = [];
+  older.on("event", (event) => seen.push(event));
+  const taking = older.call("daemon:snapshot");
+  while (!reads.mock.calls.length) await new Promise((resolve) => setImmediate(resolve));
+  await desktop.call("chat:patch", [project, chats[2], { title: "Changed meanwhile" }]);
+  release();
+  const snapshot = await taking;
+  const shown = snapshot.projects.find((item) => item.path === project).state.sessions[chats[2]].title === "Changed meanwhile";
+  const later = seen.some((event) => event.channel === "project:state" && event.seq > snapshot.eventSeq);
+  assert.ok(shown || later, "the change is in the snapshot or in an event after it");
 });
 
 test("a state with every message for a client that takes transcript tails expires with the whole-state cache", async (t) => {

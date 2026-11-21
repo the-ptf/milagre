@@ -370,17 +370,14 @@ async function startDaemon({
   async function readState(owner, form = WHOLE, { withRest = false } = {}) {
     if (typeof owner !== "string" || !owner) throw new Error("Choose a Project or Link");
     const link = isLinkScopeKey(owner);
-    const answer = async () => {
-      const sent = await order.latest(form, () => sentStates.get(owner));
-      return { ...snapshotRest.get(owner), state: leanState(sent.state, form), version: sent.version, epoch };
-    };
+    const answer = (sent) => ({ ...snapshotRest.get(owner), state: sent.state, version: sent.version, epoch });
     const sent = sentStates.get(owner);
-    if (sent && ((!form.messages && !withRest) || snapshotRest.has(owner))) return answer();
+    if (sent && ((!form.messages && !withRest) || snapshotRest.has(owner))) return answer(sent);
     const { state, ...rest } = await runtime.invoke(link ? "link:snapshot" : "project:snapshot", [link ? scopeFromKey(owner).linkId : owner]);
     snapshotRest.set(owner, rest);
     if (sentStates.get(owner)?.state !== state)
       broadcast(link ? "link:state" : "project:state", link ? { linkId: scopeFromKey(owner).linkId, state } : { path: owner, state });
-    return answer();
+    return answer(sentStates.get(owner));
   }
   const phone = createPhone({
     dataDir,
@@ -429,6 +426,7 @@ async function startDaemon({
     formOf,
     leanResult,
     prepareResult: (result, form) => order.prepare(form, resultStates(result)),
+    inOrder: (key, send) => order.inOrder(key, patchClients.get(key), [], send),
     dataDir,
     homeDir,
     version,

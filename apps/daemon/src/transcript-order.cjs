@@ -26,15 +26,7 @@ function createTranscriptOrder({ onError }) {
   async function prepare(form, states) {
     if (takesTranscripts(form)) await prepareWholeTranscripts(states);
   }
-  async function latest(form, read) {
-    let sent = read();
-    while (takesTranscripts(form) && !wholeTranscriptsReady(sent.state)) {
-      await prepareWholeTranscripts([sent.state]);
-      sent = read();
-    }
-    return sent;
-  }
-  return { inOrder, prepare, latest };
+  return { inOrder, prepare };
 }
 
 module.exports = { createTranscriptOrder };

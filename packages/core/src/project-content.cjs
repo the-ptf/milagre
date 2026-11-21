@@ -312,9 +312,9 @@ function union(parts, own) {
 
 const isUnloaded = (agent) => unloaded.has(agent?.transcript);
 
-function wholeAgent(agent, transcript) {
+function loadedAgent(agent, stub, { parts, failed }) {
   const { transcriptLength: _length, ...rest } = agent;
-  return { ...rest, transcript };
+  return { ...rest, transcript: union(parts, stub.rows), ...(failed.length ? { transcriptFiles: failed } : {}) };
 }
 
 function unload(agent, whole, stub) {
@@ -365,36 +365,45 @@ async function hydrateSubagents(projectPath, state, { unloadFinished = false } =
   return state;
 }
 
-/** `agent` as it was before its transcript left memory: every entry, read back from its sidecars. */
-async function loadSubagent(agent) {
-  const stub = unloaded.get(agent?.transcript);
-  if (!stub) return agent;
-  const cached = wholeAgents.get(agent);
-  if (cached) return cached;
+async function readSidecars(stub) {
   const parts = [];
+  const failed = [];
   const directory = await contentDirectory(stub.projectPath, "subagents").catch(() => null);
   for (const ref of refsOf(stub.saved)) {
     const rows = directory && (await readTranscript(directory, ref).catch(() => null));
     if (rows) parts.push(rows);
+    else failed.push(ref);
   }
-  return wholeAgent(agent, union(parts, stub.rows));
+  return { parts, failed };
 }
 
-function loadTranscriptSync(agent) {
-  const stub = unloaded.get(agent.transcript);
+function readSidecarsSync(stub) {
   const parts = [];
+  const failed = [];
   for (const ref of refsOf(stub.saved)) {
     try {
       parts.push(readTranscriptSync(stub.projectPath, ref));
-    } catch {}
+    } catch {
+      failed.push(ref);
+    }
   }
-  return union(parts, stub.rows);
+  return { parts, failed };
 }
 
-function wholeSubagent(agent) {
-  let whole = wholeAgents.get(agent);
-  if (!whole) wholeAgents.set(agent, (whole = wholeAgent(agent, loadTranscriptSync(agent))));
+/** `agent` as it was before its transcript left memory, read back from its sidecars; one that can't be read stays listed, as on open. */
+async function loadSubagent(agent) {
+  const stub = unloaded.get(agent?.transcript);
+  if (!stub) return agent;
+  return wholeAgents.get(agent) ?? loadedAgent(agent, stub, await readSidecars(stub));
+}
+
+const remember = (agent, whole) => {
+  if (!whole.transcriptFiles) wholeAgents.set(agent, whole);
   return whole;
+};
+
+function wholeSubagent(agent) {
+  return wholeAgents.get(agent) ?? remember(agent, loadedAgent(agent, unloaded.get(agent.transcript), readSidecarsSync(unloaded.get(agent.transcript))));
 }
 
 /** `state` with every subagent's whole transcript, for a reader that takes them all; the same object while it lasts. */
@@ -411,7 +420,7 @@ function withWholeTranscripts(state) {
         subagents: session.subagents.map((agent) => (isUnloaded(agent) ? wholeSubagent(agent) : agent)),
       };
   whole = sessions ? { ...state, sessions } : state;
-  wholeStates.set(state, whole);
+  if (!coldAgents(state).length) wholeStates.set(state, whole);
   return whole;
 }
 
@@ -429,10 +438,11 @@ async function prepareWholeTranscripts(states) {
     Array.from({ length: Math.min(HYDRATE_CONCURRENCY, agents.length) }, async () => {
       while (cursor < agents.length) {
         const agent = agents[cursor++];
-        wholeAgents.set(agent, await loadSubagent(agent));
+        remember(agent, await loadSubagent(agent));
       }
     }),
   );
+  wholesUsedAt = Date.now();
 }
 
 function forgetWholeTranscripts(now = Date.now()) {

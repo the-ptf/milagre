@@ -102,11 +102,13 @@ function daemonStatus(request, { policy }, { runtime, desktopCommands, computers
   };
 }
 
-async function desktopMethod(request, { policy, key, connection }, { desktopCommands }) {
+async function desktopMethod(request, { policy, key, connection }, { desktopCommands, inOrder }) {
   if (policy) throw Object.assign(new Error("Desktop capabilities are available only to local clients"), { code: "NOT_AVAILABLE_REMOTELY" });
   const input = request.args[0] ?? {};
   if (request.method === "desktop:register")
-    return desktopCommands.register(key, input.methods, (payload) => connection.send({ v: VERSION, event: { channel: "desktop:request", payload } }));
+    return desktopCommands.register(key, input.methods, (payload) =>
+      inOrder(key, () => connection.send({ v: VERSION, event: { channel: "desktop:request", payload } })),
+    );
   if (request.method === "desktop:respond") return desktopCommands.respond(key, input);
   if (request.method === "desktop:invoke") return desktopCommands.invoke(input.method, input.args);
   throw new Error(`Unknown command: ${request.method}`);
@@ -200,10 +202,10 @@ function serviceMethods({ runtime, push, liveActivity, hostUpdates, browserSignI
 function hostMethods({ runtime, computers, patchClients, readState, windowFocused, sentNumber, formOf, leanResult, prepareResult, eventSeq, epoch }) {
   return {
     "daemon:snapshot": async (request, { key, capturePages }) => {
-      const whole = runtime.snapshot();
+      const whole = { ...runtime.snapshot(), eventSeq: eventSeq() };
+      if (request.args[0]?.paged !== true) return whole;
       await prepareResult?.(whole, patchClients.get(key));
-      const snapshot = { ...leanResult(whole, patchClients.get(key)), eventSeq: eventSeq() };
-      if (request.args[0]?.paged !== true) return snapshot;
+      const snapshot = leanResult(whole, patchClients.get(key));
       const pages = await capturePages(JSON.stringify(snapshot));
       if (!pages) return NO_REPLY;
       return { snapshotId: pages.pageId, pageCount: pages.pageCount, eventSeq: snapshot.eventSeq };
@@ -269,7 +271,7 @@ function createDaemonMethods(deps) {
     if (request.method.startsWith("computers:")) {
       if (connection.policy) throw Object.assign(new Error("Computer management requires a local owner connection"), { code: "NOT_AVAILABLE_REMOTELY" });
       return deps.computers.invoke(request.method, request.args, {
-        send: (channel, payload) => connection.connection.send({ v: VERSION, event: { channel, payload } }),
+        send: (channel, payload) => deps.inOrder(connection.key, () => connection.connection.send({ v: VERSION, event: { channel, payload } })),
       });
     }
     if (request.method.startsWith("desktop:")) return desktopMethod(request, connection, deps);

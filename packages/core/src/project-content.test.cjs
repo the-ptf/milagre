@@ -218,6 +218,64 @@ test("sidecars of every size read back whole on open, and a damaged one is treat
   assert.deepEqual(withWholeTranscripts(await readProjectState(p, { unloadSubagents: true })).sessions, whole.sessions);
 });
 
+const NOW = { sweepMinAgeMs: 0 };
+const unreadable = async (p, name) => {
+  const file = path.join(p, ".milagre", "subagents", name);
+  await fs.chmod(file, 0);
+  return () => fs.chmod(file, 0o600);
+};
+async function updatedWhileUnreadable(p, name) {
+  const { saveProjectState, readProjectState } = require("./project-store.cjs");
+  const { withLoadedSubagent } = require("./project-content.cjs");
+  const { applyAgentEvent } = require("@milagre/shared/agent-runs");
+  const held = await readProjectState(p, { unloadSubagents: true });
+  const restore = await unreadable(p, name);
+  const latest = { id: "new", kind: "message", text: "New result" };
+  const event = { type: "subagent-update", agent: { id: "child", title: "Review", status: "completed", startedAt: 1, updatedAt: 3, transcript: [latest] } };
+  const updated = applyAgentEvent(await withLoadedSubagent(held, 1, event), {}, p, `${p}#1`, event).state;
+  await restore();
+  await saveProjectState(p, updated, NOW);
+  return { latest, restored: (await readProjectState(p)).sessions[1].subagents[0].transcript };
+}
+
+test("a held subagent updated while its sidecar can't be read keeps every entry through a save, a sweep and a restart", async (t) => {
+  const { saveProjectState, stateFile } = require("./project-store.cjs");
+  const p = await project(t);
+  const agent = { id: "child", title: "Review", status: "completed", startedAt: 1, updatedAt: 2, transcript: rows("a", 12) };
+  await saveProjectState(p, { next_id: 2, sessions: { 1: { id: 1, subagents: [agent] } }, messages: [] }, NOW);
+  const name = JSON.parse(await fs.readFile(stateFile(p), "utf8")).sessions[1].subagents[0].transcriptFile;
+  const { latest, restored } = await updatedWhileUnreadable(p, name);
+  assert.deepEqual(restored, [...rows("a", 12), latest]);
+});
+
+test("a held subagent updated while one of its two sidecars can't be read keeps every entry", async (t) => {
+  const p = await project(t);
+  const { older } = await twoSidecarAgent(p);
+  const { latest, restored } = await updatedWhileUnreadable(p, older);
+  assert.deepEqual(restored, [...rows("a", 6), ...rows("b", 6), latest]);
+});
+
+test("while a sidecar can't be read, readers get what a sidecar missing at open shows, and the whole transcript once it can", async (t) => {
+  const { readProjectState } = require("./project-store.cjs");
+  const { loadSubagent, withWholeTranscripts, prepareWholeTranscripts, wholeTranscriptsReady } = require("./project-content.cjs");
+  const p = await project(t);
+  const { older } = await twoSidecarAgent(p);
+  const whole = await readProjectState(p);
+  const held = await readProjectState(p, { unloadSubagents: true });
+  const restore = await unreadable(p, older);
+  const missingAtOpen = await readProjectState(p);
+  assert.deepEqual(missingAtOpen.sessions[1].subagents[0].transcriptFiles, [older]);
+  assert.deepEqual(await loadSubagent(held.sessions[1].subagents[0]), missingAtOpen.sessions[1].subagents[0]);
+  await prepareWholeTranscripts([held]);
+  assert.equal(wholeTranscriptsReady(held), false, "a partial read is not kept as whole");
+  assert.deepEqual(withWholeTranscripts(held).sessions, missingAtOpen.sessions);
+  await restore();
+  assert.deepEqual(await loadSubagent(held.sessions[1].subagents[0]), whole.sessions[1].subagents[0]);
+  assert.deepEqual(withWholeTranscripts(held).sessions, whole.sessions);
+  await prepareWholeTranscripts([held]);
+  assert.equal(wholeTranscriptsReady(held), true);
+});
+
 test("a subagent with a missing sidecar stays in memory as before, and keeps the reference", async (t) => {
   const { readProjectState } = require("./project-store.cjs");
   const p = await project(t);

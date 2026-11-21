@@ -186,7 +186,7 @@ function acceptConnectionWith(deps, { send, end, destroy, isClosed, requireAuthe
     const validId = Number.isSafeInteger(request?.id) || (typeof request?.id === "string" && request.id.length <= 128);
     const id = validId ? request.id : null;
     function fail(code, message) {
-      connection.send({ v: VERSION, id, error: { code, message } });
+      return inOrder(key, null, () => connection.send({ v: VERSION, id, error: { code, message } }));
     }
     if (authenticationRejected) return;
     if (!authenticated) {
