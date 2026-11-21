@@ -9655,7 +9655,7 @@ function simulatorHost(client, file = "simulator.tsx", { modules = {}, native: n
       "expo-clipboard": { setStringAsync: async () => {} },
       "@hugeicons/core-free-icons": {},
       "@milagre/shared/simulator-receiver": require("../packages/shared/src/simulator-receiver.mjs"),
-      "@milagre/shared/simulator": { SIMLOCK_DEVICE_PREFIX: "simlock:" },
+      "@milagre/shared/simulator": require("../packages/shared/src/simulator.ts"),
       "./session": { useSession: () => ({ client }) },
       "./icons": { Icon: "Icon" },
       "./status-pill": { StatusPill: "StatusPill" },

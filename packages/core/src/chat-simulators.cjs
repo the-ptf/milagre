@@ -135,7 +135,8 @@ function simulatorToolDefinitions(chatId, api) {
   return [
     {
       name: "simulator_list",
-      description: "List simulators attached to this Chat and other running devices available to attach. Discovery does not attach devices or start capture.",
+      description:
+        "List simulators attached to this Chat and other running devices available to attach, each with its catalog identity: deviceType, productFamily (iPhone, iPad, Watch, TV, Vision), runtimeIdentifier, runtimeVersion and, for emulators, apiLevel; null when unknown. Read the kind of device from these, never from its name. Discovery does not attach devices or start capture.",
       input: {},
       readOnly: true,
       run: async () => JSON.stringify(await api.list({ chatId })),
@@ -184,7 +185,7 @@ function simlockToolDefinitions(chatId, simlock) {
     },
     {
       name: "simulator_lease_models",
-      description: "List the device models the Simlock pool can lease, with each one's newest OS.",
+      description: "List the device models the Simlock pool can lease, with each one's newest OS and kind (phone or tablet).",
       input: {},
       readOnly: true,
       run: async () => JSON.stringify({ models: await simlock.models() }),

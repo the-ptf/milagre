@@ -92,6 +92,8 @@ test("the screen's corner radius follows the model identifier even when the simu
     assert.equal(appearance({ platform: "ios", name: "QA device", deviceType: `com.apple.CoreSimulator.SimDeviceType.${model}` }).radius, radius, model);
   }
   assert.equal(appearance({ platform: "ios", name: "Unknown simulator" }).radius, 0.09);
+  assert.equal(appearance({ platform: "ios", name: "iPad lookalike", productFamily: "iPhone", deviceType: null }).radius, 0.09);
+  assert.equal(appearance({ platform: "ios", name: "QA", productFamily: "iPad", deviceType: null }).radius, 0.045);
 });
 test("touches cannot start on the rounded bezel, while a captured drag still clamps at the edge", () => {
   const geometry = { left: 100, top: 20, width: 200, height: 400, rotation: 0 };
