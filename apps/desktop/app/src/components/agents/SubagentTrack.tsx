@@ -429,7 +429,7 @@ export const SubagentDetail = memo(function SubagentDetail({
   );
 });
 
-function SubagentRow({ agent, provider, now }: { agent: Subagent; provider: ModelProvider; now: number }) {
+function SubagentRow({ agent, provider }: { agent: Subagent; provider: ModelProvider }) {
   const running = subagentActive(agent);
   const counts = planCounts(agent.tasks);
   const said = agent.progress?.said ?? lastSaid(subagentSteps(agent.transcript));
@@ -463,7 +463,6 @@ function SubagentRow({ agent, provider, now }: { agent: Subagent; provider: Mode
               {running ? <SpinnerRing size={12} /> : agent.status === "failed" && <Icon icon={AlertCircleIcon} size={12} />}
             </>
           )}
-          <span className="shrink-0 text-11 text-ink-3 tabular-nums">{elapsed(agent, now)}</span>
         </span>
         {line && (
           <span className={`line-clamp-2 break-words ${running ? "text-ink-2" : "text-ink-3"}`} title={line}>
@@ -517,9 +516,10 @@ export function SubagentTrack({
         title={`${agent.title} (${labels[agent.status]})`}
         className="flex min-w-0 flex-1 py-2 pl-1 text-left text-13"
       >
-        <SubagentRow agent={agent} provider={provider} now={now} />
+        <SubagentRow agent={agent} provider={provider} />
       </button>
-      <span className="flex shrink-0 items-center gap-1 pt-1.5">
+      {/* The row's actions sit left of the elapsed time, so the time stays at the edge while they're hidden. */}
+      <span className="flex shrink-0 items-center gap-1 pt-1.5 pr-1">
         <AdvisorControls agent={agent} onStop={onStop} onRetry={onRetry} />
         <NativeStop agent={agent} chatKey={chatKey} hoverOnly />
         <span className={HOVER_ONLY}>
@@ -532,6 +532,9 @@ export function SubagentTrack({
               onClick={() => onArchive?.(agent.id, !archived)}
             />
           </Tooltip>
+        </span>
+        <span data-subagent-elapsed className="text-11 text-ink-3 tabular-nums">
+          {elapsed(agent, now)}
         </span>
       </span>
     </li>
