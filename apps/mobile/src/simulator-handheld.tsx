@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { BackHandler, Modal, Pressable, StyleSheet, Text, View } from "react-native";
-import { StatusBar } from "expo-status-bar";
+import { BackHandler, Modal, Pressable, StatusBar, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaFrame, useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureDetector, useCompetingGestures, usePanGesture, useTapGesture } from "react-native-gesture-handler";
 import Animated, { cancelAnimation, ReduceMotion, useAnimatedStyle, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
@@ -9,7 +8,7 @@ import * as SecureStore from "expo-secure-store";
 import { useKeepAwake } from "expo-keep-awake";
 import { ArrowLeft01Icon, Home01Icon, MinimizeScreenIcon, Refresh01Icon, Rotate01Icon, TouchInteraction01Icon } from "@hugeicons/core-free-icons";
 import type { SimulatorConnectionState } from "@milagre/shared/simulator-receiver";
-import { createHandheldSpotStore, DEFAULT_HANDHELD_SPOT, handheldSpotPoint, landHandheldSpot, type HandheldSpot } from "./handheld-spot";
+import { createHandheldSpotStore, DEFAULT_HANDHELD_SPOT, handheldSpotPoint, landHandheldSpot } from "./handheld-spot";
 import { Icon, type IconData } from "./icons";
 import { duration, lineHeight, radius, space, type } from "./design-tokens";
 import { springTo, useMotionScale } from "./motion";
@@ -61,7 +60,6 @@ export function HandheldStage({ docked, handheld, onExit, children }: { docked: 
       statusBarTranslucent
       onRequestClose={onExit}
     >
-      <StatusBar hidden />
       <View style={{ flex: 1, backgroundColor: colors.media }}>{children}</View>
     </Modal>
   );
@@ -121,10 +119,14 @@ export function HandheldControls({
     });
     return () => subscription.remove();
   }, [menu, onExit]);
-  const settle = useCallback((next: HandheldSpot) => {
-    setSpot(next);
-    void spots.save(next);
-  }, []);
+  const settle = useCallback(
+    (atX: number, atY: number) => {
+      const next = landHandheldSpot(atX, atY, SIZE, width, height);
+      setSpot(next);
+      void spots.save(next);
+    },
+    [width, height],
+  );
   const open = useCallback(() => {
     tap();
     setMenu(true);
@@ -152,7 +154,7 @@ export function HandheldControls({
     onDeactivate: (event) => {
       "worklet";
       if (event.canceled) return;
-      scheduleOnRN(settle, landHandheldSpot(x.get(), y.get(), SIZE, width, height));
+      scheduleOnRN(settle, x.get(), y.get());
     },
     onFinalize: () => {
       "worklet";
@@ -175,6 +177,7 @@ export function HandheldControls({
   };
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+      <StatusBar hidden />
       <View pointerEvents="box-none" style={{ position: "absolute", left, top, width, height }}>
         <GestureDetector gesture={gesture}>
           <Animated.View
@@ -191,15 +194,14 @@ export function HandheldControls({
         </GestureDetector>
       </View>
       {menu && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Close handheld menu"
-          onPress={() => setMenu(false)}
-          style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center", backgroundColor: colors.scrim }]}
-        >
+        <View accessibilityViewIsModal style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close handheld menu"
+            onPress={() => setMenu(false)}
+            style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }]}
+          />
           <View
-            accessibilityViewIsModal
-            onStartShouldSetResponder={() => true}
             style={{
               width: 264,
               flexDirection: "row",
@@ -233,7 +235,7 @@ export function HandheldControls({
               </Pressable>
             ))}
           </View>
-        </Pressable>
+        </View>
       )}
     </View>
   );

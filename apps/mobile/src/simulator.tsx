@@ -4,7 +4,6 @@ import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
-import { StatusBar } from "expo-status-bar";
 import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, MaximizeScreenIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import {
   SIMLOCK_DEVICE_PREFIX,
@@ -383,7 +382,6 @@ function SimulatorPage({ fullscreen, background, children }: { fullscreen: boole
         fullscreen ? { flex: 1, backgroundColor: colors.media } : { flex: 1, backgroundColor: background, paddingTop: insets.top, paddingBottom: insets.bottom }
       }
     >
-      {fullscreen && <StatusBar hidden />}
       {children}
     </View>
   );
