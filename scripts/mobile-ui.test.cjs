@@ -9659,6 +9659,11 @@ function simulatorHost(client, file = "simulator.tsx", { modules = {}, native: n
       "./session": { useSession: () => ({ client }) },
       "./icons": { Icon: "Icon" },
       "./status-pill": { StatusPill: "StatusPill" },
+      "./simulator-handheld": {
+        HandheldControls: "HandheldControls",
+        HandheldStage: "HandheldStage",
+        useHandheldMode: () => ({ handheld: false, fullscreen: false, enter() {}, exit() {} }),
+      },
       "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
       "./theme": {
         hex: () => ({
@@ -9682,7 +9687,8 @@ function simulatorHost(client, file = "simulator.tsx", { modules = {}, native: n
       ...modules,
     },
     file === "simulator.tsx"
-      ? "\nexports.TestSimulatorWebView = SimulatorWebView;"
+      ? // The live WebView sits in a View that also holds handheld mode's overlay.
+        '\nexports.TestSimulatorWebView = (props) => { const tree = SimulatorWebView(props); return (tree?.type === "View" && [tree.props.children].flat().find((child) => child?.type === "DomWebView")) || tree; };'
       : file === "ports.tsx"
         ? // The Chat screen reads the ports once and hands them to the pill (app/chat.tsx).
           "\nexports.TestChatPorts = ({ chatId }) => PortsChip({ chatId, ports: useChatPorts(useSession().client, chatId).ports });"

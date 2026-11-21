@@ -67,6 +67,7 @@ import { dockLayer, useCloseWhenArtifactExpands, useDockArea, useSidePanelRoom }
 import { useSidePanel } from "./PanelToggles";
 import { ResizableDockSlide } from "./DockSlide";
 import { usePanelWidth } from "./panel-width";
+import { SimulatorFocusButton, simulatorDockLayout, useSimulatorFocus } from "./simulator-focus";
 import { onAnyAgentEvent, useBridge } from "../../lib/computer-bridge";
 import { isTurnEnd } from "@milagre/shared/agent-runs";
 import { thisComputer } from "../../lib/shortcut-hints";
@@ -101,7 +102,8 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
   useCloseWhenArtifactExpands(close);
   // Docked, its width plus the 12px gap to the chat. The chat panes reserve it through --simulator-dock.
   const resize = usePanelWidth("simulator");
-  useSidePanelRoom("simulator", opened && docked, resize.width + 12, close);
+  const focus = useSimulatorFocus(opened && docked, chatId, close);
+  useSidePanelRoom("simulator", opened && docked && !focus.focused, resize.width + 12, close);
   const bounds = useAnchoredPopover({
     opened: opened && !docked,
     setOpened: (value) => {
@@ -293,11 +295,12 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
               />
               {SIMULATOR_CONNECTION_LABELS[connectionState]}
             </div>
+            <SimulatorFocusButton focus={focus} />
             <Tooltip label="Close simulator">
               <IconButton label="Close simulator" icon={Cancel01Icon} size={32} onClick={close} />
             </Tooltip>
           </header>
-          <SimulatorFrame key={selected.id} api={api} device={selected} chatId={chatId} onClose={close} onConnection={setConnection} />
+          <SimulatorFrame key={selected.id} api={api} device={selected} chatId={chatId} onClose={focus.closeFrame} onConnection={setConnection} />
         </>
       ) : (
         <ScrollArea className="p-1">
@@ -421,7 +424,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   // changes panel; the chat makes room through --simulator-dock. A drag on its edge doesn't render the
                   panel="simulator"
                   label="Resize simulator"
-                  width={resize.width}
+                  {...simulatorDockLayout(focus.focused, dock, resize.width)}
                   reserve="--simulator-dock"
                   ref={panel}
                   id={panelId}
@@ -431,8 +434,6 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   tabIndex={-1}
                   data-slot="simulator-popover"
                   data-docked
-                  style={{ top: dock?.top ?? 40, right: (dock?.right ?? 0) + 12, bottom: dock?.bottom ?? 12 }}
-                  className="fixed z-[42] focus:outline-none"
                   panelClassName="overflow-hidden rounded-card bg-surface text-ink shadow-raised"
                 >
                   {panelContent}

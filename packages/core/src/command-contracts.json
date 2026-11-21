@@ -1650,7 +1650,8 @@
               "terminal.new",
               "artifacts.toggle",
               "browser.toggle",
-              "simulator.toggle"
+              "simulator.toggle",
+              "simulator.focus"
             ]
           }
         },
@@ -1705,7 +1706,8 @@
               "terminal.new",
               "artifacts.toggle",
               "browser.toggle",
-              "simulator.toggle"
+              "simulator.toggle",
+              "simulator.focus"
             ]
           }
         }
