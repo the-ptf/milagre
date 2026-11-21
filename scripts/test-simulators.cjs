@@ -17,6 +17,7 @@ window.deviceCount = 3;
 window.attachedIds = [0,1];
 window.stoppedIds = [];
 window.simulatorCalls = [];
+window.simulatorLists = [];
 window.simulatorClosed = [];
 window.simulatorVideo = false;
 window.simulatorControlling = true;
@@ -73,10 +74,11 @@ const status = viewerId => {
  const viewer=viewers.get(viewerId),sideways=viewer?.platform==='android' && viewer.orientation.startsWith('landscape');
  return {width:sideways?1280:588,height:sideways?588:1280,orientation:viewer?.orientation??'portrait',generation:viewer?.generation??1,displayGeneration:viewer?.displayGeneration??1,controlling:window.simulatorControlling,ready:window.simulatorReady,...window.simulatorInputHint,...window.simulatorHinge};
 };
+const fullList = chatId => ({chatId,devices:window.attachedIds.filter(i=>!window.stoppedIds.includes(i)).map(device),attached:window.attachedIds.map(device),available:Array.from({length:window.deviceCount},(_,i)=>i).filter(i=>!window.attachedIds.includes(i)).map(device),supported:true});
 window.milagre = { simulators: {
- list: async ({chatId}) => ({chatId,devices:window.attachedIds.filter(i=>!window.stoppedIds.includes(i)).map(device),attached:window.attachedIds.map(device),available:Array.from({length:window.deviceCount},(_,i)=>i).filter(i=>!window.attachedIds.includes(i)).map(device),supported:true}),
- attach: async ({chatId,deviceId}) => {window.attachedIds.push(Number(deviceId.split('-')[1]));return window.milagre.simulators.list({chatId});},
- detach: async ({chatId,deviceId}) => {window.attachedIds=window.attachedIds.filter(i=>device(i).id!==deviceId);return window.milagre.simulators.list({chatId});},
+ list: async ({chatId,attachedOnly}) => {window.simulatorLists.push(attachedOnly===true);return attachedOnly && !window.attachedIds.length ? {chatId,devices:[],attached:[],available:[],supported:true} : fullList(chatId);},
+ attach: async ({chatId,deviceId}) => {window.attachedIds.push(Number(deviceId.split('-')[1]));return fullList(chatId);},
+ detach: async ({chatId,deviceId}) => {window.attachedIds=window.attachedIds.filter(i=>device(i).id!==deviceId);return fullList(chatId);},
  open: async args => { window.simulatorCalls.push(args);const viewerId='view-'+window.simulatorCalls.length,currentDevice=device(Number(args.deviceId.split('-')[1]));viewers.set(viewerId,{orientation:'portrait',generation:1,displayGeneration:1,platform:currentDevice.platform});return {viewerId,device:currentDevice,iceServers:[],...(window.simulatorFrames?{transport:"frames"}:{})}; },
  frame: async ({viewerId}) => {
    if(window.simulatorFrameBroken) throw Error('Frame link interrupted');
@@ -179,6 +181,10 @@ async function browserChecks() {
     console.log("Fixture loaded");
     await waitFor('document.querySelector("[data-slot=simulator-track]")?.textContent.includes("2")');
     assert.equal(await evaluate("window.simulatorCalls.length"), 0, "closed pill must not start capture");
+    assert.ok(
+      await evaluate("window.simulatorLists.length > 0 && window.simulatorLists.every(Boolean)"),
+      "the window asks attachedOnly, so a Chat with nothing attached lists no devices",
+    );
     assert.ok(await evaluate('!!document.querySelector("[data-slot=simulator-track] svg")'), "phone icon");
     assert.ok(
       await evaluate(

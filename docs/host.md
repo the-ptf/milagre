@@ -28,6 +28,8 @@ Rejected: keeping the renderer as the writer and opening several Projects at onc
 
 Desktop attaches to a host advertising `desktop-v1`, or starts the bundled daemon detached, run by the packaged Electron binary in Node mode.
 
+Both read the login shell's environment at start, because an app opened from Finder gets only launchd's `PATH`. Only the host also asks `npm prefix -g` for npm's global folder: it runs the agent CLIs npm installs there, while the desktop's main process only looks for editors, and npm's start costs it about 0.15 s of CPU on every launch.
+
 - Desktop quit flushes accepted changes and disconnects. The host and its agents keep running. A failed flush keeps the window open for retry.
 - An explicit daemon stop is the full shutdown: refuse new commands, wait for accepted ones and background work, save resumable turns, stop agent and setup processes (the whole descendant tree on Windows), drain writes, release locks.
 - Installing an update saves and stops the host before replacing its code. A normal quit never installs an update under a running host.

@@ -113,6 +113,7 @@ const kindOf = (command) => {
   if (/--type=renderer/.test(command)) return "renderer";
   if (/--type=gpu/.test(command)) return "gpu";
   if (/--type=/.test(command)) return "utility";
+  if (/trace-exec\.sh/.test(command)) return "trace";
   if (/cli\.cjs serve/.test(command)) return "host";
   return /fake-claude/.test(command) ? "stub" : "main";
 };

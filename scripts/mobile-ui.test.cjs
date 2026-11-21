@@ -9780,8 +9780,8 @@ test("mobile simulator chooses the sole running device, but a list never starts 
     const calls = [];
     const h = simulatorHost({
       url: "mac",
-      call: async (method) => {
-        calls.push(method);
+      call: async (method, args) => {
+        calls.push([method, args]);
         return { chatId: "/p#7", supported: true, devices, attached: devices, available: [] };
       },
     });
@@ -9790,7 +9790,11 @@ test("mobile simulator chooses the sole running device, but a list never starts 
     const tree = h.render("SimulatorSheet", { hostId: "mac", chatId: "/p#7" });
     assert.equal(tree.props.style.paddingBottom, 34, "controls clear the phone home indicator");
     assert.equal(!!find(tree, (node) => node.props?.deviceId === "one"), devices.length === 1);
-    assert.deepEqual(calls, ["simulator:list"]);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(calls)),
+      [["simulator:list", [{ chatId: "/p#7", attachedOnly: false }]]],
+      "the viewer lists every running device",
+    );
     if (devices.length === 2) assert.ok(find(tree, (node) => node.type === "Pressable"));
     h.cleanup();
   }
@@ -11900,10 +11904,22 @@ test("mobile simulator pill stays hidden until this Chat has attachments, includ
   const device = { id: "a", name: "My iPhone", platform: "ios", version: "27" };
   for (const attached of [[], [device]]) {
     const gate = deferred();
-    const h = simulatorHost({ url: "mac", call: () => gate.promise });
+    const calls = [];
+    const h = simulatorHost({
+      url: "mac",
+      call: (method, args) => {
+        calls.push([method, args]);
+        return gate.promise;
+      },
+    });
     t.after(() => h.cleanup());
     const render = () => h.render("SimulatorChip", { chatId: "/p#7" });
     assert.equal(render(), null, "loading must not flash an empty pill");
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(calls)),
+      [["simulator:list", [{ chatId: "/p#7", attachedOnly: true }]]],
+      "the pill lists no devices while nothing is attached",
+    );
     gate.resolve({ chatId: "/p#7", supported: true, devices: [], attached, available: [device] });
     await settle();
     if (attached.length) assert.equal(render().props.accessibilityLabel, "Simulators, 1 attached to this Chat");

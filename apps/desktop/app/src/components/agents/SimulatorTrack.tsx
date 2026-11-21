@@ -81,7 +81,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
       busy = true;
       const started = revision.current;
       try {
-        const result = await api.list({ chatId });
+        const result = await api.list({ chatId, attachedOnly: true });
         if (result.chatId !== chatId) throw new Error(`Update Milagre on ${thisComputer} to attach simulators to Chats.`);
         if (!disposed && started === revision.current) {
           setList(result);
