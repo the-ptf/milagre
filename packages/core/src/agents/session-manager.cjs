@@ -257,6 +257,10 @@ class SessionManager {
     return entry && !entry.session.closed ? backgroundCount(entry) : 0;
   }
 
+  stopsSubagents(chatId) {
+    return this.sessions.get(chatId)?.session.stopsSubagents?.() === true;
+  }
+
   canStopSubagent(chatId, id) {
     return this.sessions.get(chatId)?.session.canStopSubagent?.(id) === true;
   }

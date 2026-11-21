@@ -654,6 +654,11 @@ class CodexSession {
     markEnded?.();
   }
 
+  /** Whether this session stops one subagent on its own; a child can still be waiting for its thread. */
+  stopsSubagents() {
+    return Boolean(this.rpc);
+  }
+
   canStopSubagent(id) {
     return Boolean(this.rpc && this.state.subagents?.has(id));
   }

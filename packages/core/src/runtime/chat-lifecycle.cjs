@@ -50,6 +50,8 @@ function registerChatControls({
       await agents.stopSubagent(chatId, id);
       return { stopped: true, requiresSessionStop: false };
     }
+    // A provider that stops children one by one never offers to stop the whole Chat: its child is only not ready yet.
+    if (agents.stopsSubagents(chatId)) throw new Error("That subagent isn't ready to stop yet. Try again in a moment.");
     if (!stopSession) return { stopped: false, requiresSessionStop: true };
     await stopChat(chatId);
     await agents.closeChat(chatId);

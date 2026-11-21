@@ -591,6 +591,11 @@ class ClaudeSession {
     markEnded();
   }
 
+  /** Whether this session stops one subagent on its own; a child can still be waiting for its SDK task ID. */
+  stopsSubagents() {
+    return typeof this.query?.stopTask === "function";
+  }
+
   canStopSubagent(id) {
     return Boolean(this.query?.stopTask && [...(this.state.taskAgents ?? [])].some(([, agent]) => agent === id));
   }

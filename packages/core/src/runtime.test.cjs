@@ -2425,6 +2425,10 @@ test("subagent stop targets the selected child and asks before stopping a shared
   assert.deepEqual(calls, ["child"]);
   assert.equal(session.closed, false);
   session.canStopSubagent = () => false;
+  session.stopsSubagents = () => true;
+  await assert.rejects(runtime.invoke("subagent:stop", [chatId, "child", true]), /isn't ready to stop yet/);
+  assert.equal(session.closed, false);
+  session.stopsSubagents = () => false;
   assert.deepEqual(await runtime.invoke("subagent:stop", [chatId, "child", true]), { stopped: true, requiresSessionStop: false });
   assert.equal(session.closed, true);
 });
