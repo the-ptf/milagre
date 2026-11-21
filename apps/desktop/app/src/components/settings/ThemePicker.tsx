@@ -61,7 +61,15 @@ export function ThemePicker() {
                   id={theme.id}
                   label={group === "Milagre" ? theme.name : `${group} ${theme.name}`}
                   name={theme.name}
-                  detail={theme.id === "milagre-blue" ? "Default" : theme.id === "gray" ? "Classic" : `Light: ${theme.lightName}`}
+                  detail={
+                    theme.id === "milagre-blue"
+                      ? "Default"
+                      : theme.id === "gray"
+                        ? "Classic"
+                        : theme.id === "black"
+                          ? "True black"
+                          : `Light: ${theme.lightName}`
+                  }
                   focusable={theme.id === focus}
                 />
               ))}
