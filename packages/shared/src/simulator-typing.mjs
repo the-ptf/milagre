@@ -173,9 +173,7 @@ export function simulatorTyping(host) {
   document.addEventListener("paste", (event) => {
     if (!capturing()) return;
     event.preventDefault();
-    void sendText({ kind: "paste", text: event.clipboardData?.getData("text/plain") || "" }, () =>
-      note("Pasted. If the text doesn't appear, long-press the field and choose Paste."),
-    );
+    void sendText({ kind: "paste", text: event.clipboardData?.getData("text/plain") || "" }, () => note("Pasted into the simulator."));
   });
   document.addEventListener("copy", (event) => {
     if (!capturing() || !live().copy) return;
@@ -216,7 +214,7 @@ export function simulatorTyping(host) {
       }, 15000);
     });
     if (text === null) note("Couldn't read the clipboard. Allow Milagre to paste, then try again.");
-    else void sendText({ kind: "paste", text }, () => note("Pasted. If the text doesn't appear, long-press the field and choose Paste."));
+    else void sendText({ kind: "paste", text }, () => note("Pasted into the simulator."));
   });
   copyButton.addEventListener("click", () => void copyFromDevice(false));
   let held = "";

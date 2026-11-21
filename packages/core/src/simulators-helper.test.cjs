@@ -34,7 +34,7 @@ const server = http.createServer(async (req, res) => {
   if (!authenticated) { res.writeHead(401).end(); return; }
   if (req.url.startsWith('/vendor/serve-sim/api/pasteboard')) {
     res.setHeader('content-type', 'application/json');
-    if (req.url.includes('copy=1')) res.writeHead(504).end(JSON.stringify({ok:false,error:'Try again after selecting text.'}));
+    if (req.method === 'PUT') res.writeHead(data.includes('busy') ? 409 : 200).end(JSON.stringify(data.includes('busy') ? {ok:false,error:'Simulator clipboard is busy. Try again.'} : {ok:true}));
     else res.end(JSON.stringify({ok:true,text:'from sim é'}));
     return;
   }
@@ -62,7 +62,6 @@ wss.on('connection', (socket, req) => {
   socket.on('message', (bytes) => {
     if (mode === 'android') { log({gesture:JSON.parse(bytes.toString())}); return; }
     log({ tag: bytes[0], data: JSON.parse(bytes.subarray(1).toString()) });
-    if(bytes[0]===18) { const {requestId,text}=JSON.parse(bytes.subarray(1).toString()); socket.send(Buffer.concat([Buffer.from([146]),Buffer.from(JSON.stringify(text.includes('busy')?{requestId,ok:false,error:'Simulator clipboard is busy. Try again.'}:{requestId,ok:true}))])); }
     if(bytes[0]===16 && duo && mode!=='duo-timeout') {
       const {requestId,command}=JSON.parse(bytes.subarray(1).toString());
       setTimeout(()=>{
@@ -556,7 +555,7 @@ test("iOS typing sends US keystrokes, pastes other text through the pasteboard a
   await channel.clipboard({ kind: "paste", text: "plain" });
   await assert.rejects(channel.clipboard({ kind: "paste", text: "busy" }), /clipboard is busy/);
   assert.equal(await channel.clipboard({ kind: "copy", press: false }), "from sim \u00e9");
-  await assert.rejects(channel.clipboard({ kind: "copy", press: true }), /selecting text/);
+  assert.equal(await channel.clipboard({ kind: "copy", press: true }), "from sim \u00e9");
   const logs = await f.logs();
   assert.deepEqual(
     logs.filter((entry) => entry.tag === 6).map((entry) => entry.data),
@@ -573,19 +572,28 @@ test("iOS typing sends US keystrokes, pastes other text through the pasteboard a
       { type: "up", usage: 225 },
       { type: "down", usage: 40 },
       { type: "up", usage: 40 },
+      ...[25, 25, 6].flatMap((usage) => [
+        { type: "down", usage: 227 },
+        { type: "down", usage },
+        { type: "up", usage },
+        { type: "up", usage: 227 },
+      ]),
     ],
-  );
-  assert.deepEqual(
-    logs.filter((entry) => entry.tag === 18).map((entry) => entry.data.text),
-    ["caf\u00e9 \ud83e\udd56", "plain", "busy"],
   );
   const reads = logs.filter((entry) => entry.url?.startsWith("/vendor/serve-sim/api/pasteboard"));
   assert.deepEqual(
     reads.map((entry) => [entry.url, entry.method, entry.authenticated, /^http:\/\/127\.0\.0\.1:\d+$/.test(entry.origin)]),
     [
+      ["/vendor/serve-sim/api/pasteboard?device=" + DEVICE, "PUT", true, true],
+      ["/vendor/serve-sim/api/pasteboard?device=" + DEVICE, "PUT", true, true],
+      ["/vendor/serve-sim/api/pasteboard?device=" + DEVICE, "PUT", true, true],
       ["/vendor/serve-sim/api/pasteboard?device=" + DEVICE, "POST", true, true],
-      ["/vendor/serve-sim/api/pasteboard?device=" + DEVICE + "&copy=1", "POST", true, true],
+      ["/vendor/serve-sim/api/pasteboard?device=" + DEVICE, "POST", true, true],
     ],
+  );
+  assert.deepEqual(
+    reads.filter((entry) => entry.method === "PUT").map((entry) => entry.body.text),
+    ["caf\u00e9 \ud83e\udd56", "plain", "busy"],
   );
 });
 test("an iOS runtime without a hardware keyboard reports no typing support", async (t) => {

@@ -1,5 +1,8 @@
 const MAX_CLIPBOARD = 65536;
 const SHIFT = 225;
+const COMMAND = 227;
+const C_KEY = 6;
+const V_KEY = 25;
 const US_KEYS = new Map([
   ..."abcdefghijklmnopqrstuvwxyz".split("").flatMap((c, i) => [
     [c, [4 + i, false]],
@@ -90,27 +93,20 @@ async function readJson(response, limit) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-/** Typed text, paste and clipboard reads for one helper input socket. Pending pastes fail when the socket closes. */
+/**
+ * Typed text, paste and clipboard reads for one helper input socket. Command-V and Command-C go as separate HID presses:
+ * the helper's own paste shortcut does not reach the guest while its software keyboard is up.
+ */
 function createSimulatorTyping({ android, deviceId, socket, send, instance, ready }) {
   let keyboardUnavailable = false,
-    androidMeta = 0,
-    requestId = 0;
-  const requests = new Map();
+    androidMeta = 0;
   socket.addEventListener("message", ({ data }) => {
     if (android || !(data instanceof ArrayBuffer) || data.byteLength > 65536) return;
     const bytes = Buffer.from(data);
-    if (bytes[0] !== 0x82 && bytes[0] !== 0x92) return;
+    if (bytes[0] !== 0x82) return;
     try {
-      const reply = JSON.parse(bytes.subarray(1).toString("utf8"));
-      if (bytes[0] === 0x82) keyboardUnavailable = reply.keyboardUnavailable === true;
-      else
-        requests.get(reply.requestId)?.(
-          reply.ok === true ? null : new Error(typeof reply.error === "string" ? reply.error.slice(0, 300) : "The simulator refused the input."),
-        );
+      keyboardUnavailable = JSON.parse(bytes.subarray(1).toString("utf8")).keyboardUnavailable === true;
     } catch {}
-  });
-  socket.addEventListener("close", () => {
-    for (const settle of Array.from(requests.values())) settle(new Error("Simulator viewer closed."));
   });
   const paced = async (tag, payload) => {
     while (socket.readyState === WebSocket.OPEN && socket.bufferedAmount > 4096) await pause(10);
@@ -128,38 +124,41 @@ function createSimulatorTyping({ android, deviceId, socket, send, instance, read
       await pause(8);
     }
   };
-  const request = (tag, payload = {}) =>
-    new Promise((resolve, reject) => {
-      const id = ++requestId;
-      const settle = (error) => {
-        clearTimeout(timeout);
-        requests.delete(id);
-        if (error) reject(error);
-        else resolve();
-      };
-      const timeout = setTimeout(() => settle(new Error("The simulator did not finish. Try again.")), 20000);
-      requests.set(id, settle);
-      try {
-        send(tag, { ...payload, requestId: id });
-      } catch (error) {
-        settle(error);
-      }
-    });
-  const readPasteboard = async (press) => {
-    let body;
+  const command = async (usage) => {
+    for (const [type, key] of [
+      ["down", COMMAND],
+      ["down", usage],
+      ["up", usage],
+      ["up", COMMAND],
+    ]) {
+      await paced(6, { type, usage: key });
+      await pause(40);
+    }
+  };
+  const pasteboard = async (method, body) => {
+    let reply;
     try {
-      const response = await fetch(`${instance.base}/vendor/serve-sim/api/pasteboard?device=${encodeURIComponent(deviceId)}${press ? "&copy=1" : ""}`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${instance.token}`, origin: instance.base },
+      const response = await fetch(`${instance.base}/vendor/serve-sim/api/pasteboard?device=${encodeURIComponent(deviceId)}`, {
+        method,
+        headers: { authorization: `Bearer ${instance.token}`, origin: instance.base, "content-type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: AbortSignal.any([instance.abort.signal, AbortSignal.timeout(20000)]),
         redirect: "error",
       });
-      body = await readJson(response, MAX_CLIPBOARD * 4 + 4096);
+      reply = await readJson(response, MAX_CLIPBOARD * 4 + 4096);
     } catch {
-      throw new Error("Could not read the simulator clipboard. Try again.");
+      throw new Error("Could not reach the simulator clipboard. Try again.");
     }
-    if (body?.ok !== true) throw new Error(typeof body?.error === "string" ? body.error.slice(0, 300) : "Could not read the simulator clipboard.");
-    const text = typeof body.text === "string" ? body.text : "";
+    if (reply?.ok !== true) throw new Error(typeof reply?.error === "string" ? reply.error.slice(0, 300) : "Could not reach the simulator clipboard.");
+    return reply;
+  };
+  const readPasteboard = async (press) => {
+    if (press) {
+      await command(C_KEY);
+      await pause(400);
+    }
+    const reply = await pasteboard("POST");
+    const text = typeof reply.text === "string" ? reply.text : "";
     if (text.length > MAX_CLIPBOARD) throw new Error("The simulator clipboard holds more than 64 KB of text.");
     return text;
   };
@@ -191,7 +190,8 @@ function createSimulatorTyping({ android, deviceId, socket, send, instance, read
       }
       if (android) return typeAndroid(event.text);
       if (event.kind === "text" && Array.from(event.text).every((character) => US_KEYS.has(character))) return typeKeys(event.text);
-      return request(18, { text: event.text });
+      await pasteboard("PUT", { text: event.text });
+      return command(V_KEY);
     },
   };
 }
