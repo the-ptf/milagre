@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Artifact } from "@milagre/shared/artifact";
-import { designActionsMenu, designHtmlIn, designModeLabel, designModeMenu, shownDesignMode } from "./design-modes-menu.ts";
+import { designActionsMenu, designHtmlIn, designModeLabel, designModeMenu, pageModeChoices, pageModeMenu, shownDesignMode } from "./design-modes-menu.ts";
 
 const design = (tokens: Record<string, unknown>) =>
   ({
@@ -48,4 +48,29 @@ test("the shown mode falls back to light when a revision drops it, and the page 
   assert.equal(designModeLabel(dark, "light"), "");
   assert.match(designHtmlIn(dark, "dark"), /^<!doctype html><html data-design-mode="dark">/);
   assert.equal(designHtmlIn(dark, undefined), dark.html);
+});
+
+test("a page's Appearance offers every mode its designs define and sets each design it fits, light for the rest", () => {
+  const home = { ...design({ ink: { light: "#111", dark: "#eee", contrast: "#000" } }), id: "home" } as Artifact;
+  const rings = { ...design({ ink: { light: "#111", dark: "#eee" } }), id: "rings" } as Artifact;
+  const plain = { ...design({ ink: "#111" }), id: "plain" } as Artifact;
+  assert.deepEqual(pageModeMenu([plain], {}), [], "no Dark or Contrast anywhere");
+  const items = (chosen: Record<string, "light" | "dark" | "contrast">) =>
+    pageModeMenu([home, rings, plain], chosen)[0]?.items.map((item) => [item.id, item.checked]);
+  assert.deepEqual(items({}), [
+    ["page-mode:light", true],
+    ["page-mode:dark", false],
+    ["page-mode:contrast", false],
+  ]);
+  assert.deepEqual(pageModeChoices([home, rings, plain], "page-mode:contrast"), { home: "contrast", rings: "light", plain: "light" });
+  assert.deepEqual(
+    items({ home: "dark" }),
+    [
+      ["page-mode:light", false],
+      ["page-mode:dark", false],
+      ["page-mode:contrast", false],
+    ],
+    "mixed: nothing checked",
+  );
+  assert.equal(pageModeChoices([home], "mode:dark"), null);
 });

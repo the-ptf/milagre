@@ -447,6 +447,13 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
 
   {
     page: "phone-sharing",
+    title: "iPhones on a cable",
+    group: "Simulators",
+    description: "Chats list the paired iPhones on this computer's cable next to its simulators.",
+    keywords: "baguette physical real device iphone usb",
+  },
+  {
+    page: "phone-sharing",
     title: "Published pages",
     group: "Designs and artifacts",
     description: "Public links to designs and artifacts.",

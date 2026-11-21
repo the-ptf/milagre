@@ -1,10 +1,52 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { DURATION, EASE_OUT } from "../../lib/ease";
-import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, SmartphoneIcon } from "@hugeicons/core-free-icons";
-import { SIMLOCK_DEVICE_PREFIX, type SimlockModel, type SimulatorApi, type SimulatorDevice, type SimulatorList } from "@milagre/shared/simulator";
+import {
+  AndroidIcon,
+  ArrowDown01Icon,
+  ArrowLeft01Icon,
+  Cancel01Icon,
+  SmartphoneIcon,
+  SmartWatch01Icon,
+  Tablet01Icon,
+  Tv01Icon,
+  VrGlassesIcon,
+} from "@hugeicons/core-free-icons";
+import {
+  isCabledIPhone,
+  SIMLOCK_DEVICE_PREFIX,
+  simulatorKind,
+  simulatorQualityFor,
+  simulatorRuntimeLabel,
+  type SimlockModel,
+  type SimulatorApi,
+  type SimulatorDevice,
+  type SimulatorKind,
+  type SimulatorList,
+} from "@milagre/shared/simulator";
+
+const modelIcon = (model: SimlockModel) => (model.kind === "tablet" ? Tablet01Icon : model.platform === "android" ? AndroidIcon : SmartphoneIcon);
+function DeviceRuntime({ device }: { device: SimulatorDevice }) {
+  return (
+    <div className="mt-1 flex items-center gap-1 text-11 text-ink-3">
+      <Icon icon={KIND_ICONS[simulatorKind(device)]} size={12} className="shrink-0" />
+      <span className="truncate">
+        {simulatorRuntimeLabel(device)}
+        {device.id.startsWith(SIMLOCK_DEVICE_PREFIX) && " · Leased from Simlock"}
+      </span>
+    </div>
+  );
+}
+const KIND_ICONS: Record<SimulatorKind, typeof SmartphoneIcon> = {
+  iPhone: SmartphoneIcon,
+  iPad: Tablet01Icon,
+  Watch: SmartWatch01Icon,
+  TV: Tv01Icon,
+  Vision: VrGlassesIcon,
+  Android: AndroidIcon,
+};
 import { ipcErrorMessage } from "@milagre/shared/result";
 import {
   createSimulatorBridge,
@@ -26,6 +68,7 @@ import { dockLayer, useCloseWhenArtifactExpands, useDockArea, useSidePanelRoom }
 import { useSidePanel } from "./PanelToggles";
 import { ResizableDockSlide } from "./DockSlide";
 import { usePanelWidth } from "./panel-width";
+import { SimulatorFocusButton, simulatorDockLayout, useSimulatorFocus } from "./simulator-focus";
 import { onAnyAgentEvent, useBridge } from "../../lib/computer-bridge";
 import { isTurnEnd } from "@milagre/shared/agent-runs";
 import { thisComputer } from "../../lib/shortcut-hints";
@@ -60,7 +103,8 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
   useCloseWhenArtifactExpands(close);
   // Docked, its width plus the 12px gap to the chat. The chat panes reserve it through --simulator-dock.
   const resize = usePanelWidth("simulator");
-  useSidePanelRoom("simulator", opened && docked, resize.width + 12, close);
+  const focus = useSimulatorFocus(opened && docked, chatId, close);
+  useSidePanelRoom("simulator", opened && docked && !focus.focused, resize.width + 12, close);
   const bounds = useAnchoredPopover({
     opened: opened && !docked,
     setOpened: (value) => {
@@ -202,6 +246,18 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
   // The window's top-right corner offers the simulator too, while this Chat has one attached.
   useSidePanel("simulator", api && list.supported && attachedCount ? { open: opened, toggle: open } : null);
   if (!api || !list.supported || !attachedCount) return <AnimatePresence initial={false} />;
+  const renderDevice = (device: SimulatorDevice) => (
+    <DeviceRow
+      key={device.id}
+      device={device}
+      running={attaching || list.devices.some((d) => d.id === device.id)}
+      busy={busy}
+      attaching={attaching}
+      onPick={() => (attaching ? void mutate("attach", device) : setSelected(device))}
+      onRelease={() => void release(device)}
+      onDetach={() => void mutate("detach", device)}
+    />
+  );
   const panelContent = (
     <>
       {!selected && (
@@ -243,10 +299,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                 <span className="truncate">{selected.name}</span>
                 <Icon icon={ArrowDown01Icon} size={14} className="shrink-0 text-ink-3" />
               </button>
-              <div className="mt-1 text-11 text-ink-3">
-                {selected.platform === "android" ? "Android" : "iOS"} {selected.version}
-                {selected.id.startsWith(SIMLOCK_DEVICE_PREFIX) && " · Leased from Simlock"}
-              </div>
+              <DeviceRuntime device={selected} />
             </div>
             <div data-slot="simulator-connection" data-state={connectionState} className="flex shrink-0 items-center gap-1.5 text-11 text-ink-2">
               <span
@@ -255,11 +308,12 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
               />
               {SIMULATOR_CONNECTION_LABELS[connectionState]}
             </div>
+            <SimulatorFocusButton focus={focus} />
             <Tooltip label="Close simulator">
               <IconButton label="Close simulator" icon={Cancel01Icon} size={32} onClick={close} />
             </Tooltip>
           </header>
-          <SimulatorFrame key={selected.id} api={api} device={selected} chatId={chatId} onClose={close} onConnection={setConnection} />
+          <SimulatorFrame key={selected.id} api={api} device={selected} chatId={chatId} onClose={focus.closeFrame} onConnection={setConnection} />
         </>
       ) : (
         <ScrollArea className="p-1">
@@ -270,50 +324,8 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
           {!loading && !list.error && !(attaching ? list.available : list.attached)?.length && (
             <EmptyState size="compact" title={attaching ? `No other devices are running on ${thisComputer}` : "No simulators attached to this Chat"} />
           )}
-          {(attaching ? (list.available ?? []) : (list.attached ?? [])).map((device) => {
-            const running = attaching || list.devices.some((d) => d.id === device.id);
-            return (
-              <div key={device.id} className="flex items-center">
-                <button
-                  type="button"
-                  disabled={busy || !running}
-                  data-simulator-device={device.id}
-                  onClick={() => (attaching ? void mutate("attach", device) : setSelected(device))}
-                  className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-control px-3 text-left transition-colors hover:bg-hover-2 active:bg-hover-2 disabled:opacity-60"
-                >
-                  <Icon icon={SmartphoneIcon} size={16} />
-                  <span className="min-w-0 flex-1 truncate text-13">{device.name}</span>
-                  <span className="text-11 text-ink-3">{running ? `${device.platform === "android" ? "Android" : "iOS"} ${device.version}` : "Stopped"}</span>
-                </button>
-                {!attaching &&
-                  (device.id.startsWith(SIMLOCK_DEVICE_PREFIX) ? (
-                    <Tooltip label="Return to the Simlock pool">
-                      <button
-                        type="button"
-                        disabled={busy}
-                        aria-label={`Return ${device.name} to the Simlock pool`}
-                        onClick={() => void release(device)}
-                        className="rounded-control p-2 text-ink-3 hover:bg-hover"
-                      >
-                        <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
-                      </button>
-                    </Tooltip>
-                  ) : (
-                    <Tooltip label="Detach from Chat">
-                      <button
-                        type="button"
-                        disabled={busy}
-                        aria-label={`Detach ${device.name} from Chat`}
-                        onClick={() => void mutate("detach", device)}
-                        className="rounded-control p-2 text-ink-3 hover:bg-hover"
-                      >
-                        <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
-                      </button>
-                    </Tooltip>
-                  ))}
-              </div>
-            );
-          })}
+          {(attaching ? (list.available ?? []).filter((device) => !isCabledIPhone(device)) : (list.attached ?? [])).map(renderDevice)}
+          {attaching && <CabledIPhones devices={list.available} render={renderDevice} />}
           {!attaching && (
             <button
               type="button"
@@ -345,7 +357,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   onClick={() => void lease(model)}
                   className="flex w-full items-center gap-2 rounded-control px-3 py-2 text-left hover:bg-hover disabled:opacity-50"
                 >
-                  <HugeiconsIcon icon={SmartphoneIcon} size={16} aria-hidden />
+                  <HugeiconsIcon icon={modelIcon(model)} size={16} aria-hidden />
                   <span className="min-w-0 flex-1 truncate text-13">{model.model}</span>
                   <span className="text-11 text-ink-3">
                     {model.platform === "android" ? "Android" : "iOS"} {model.version}
@@ -383,7 +395,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   // changes panel; the chat makes room through --simulator-dock. A drag on its edge doesn't render the
                   panel="simulator"
                   label="Resize simulator"
-                  width={resize.width}
+                  {...simulatorDockLayout(focus.focused, dock, resize.width)}
                   reserve="--simulator-dock"
                   ref={panel}
                   id={panelId}
@@ -393,8 +405,6 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   tabIndex={-1}
                   data-slot="simulator-popover"
                   data-docked
-                  style={{ top: dock?.top ?? 40, right: (dock?.right ?? 0) + 12, bottom: dock?.bottom ?? 12 }}
-                  className="fixed z-[42] focus:outline-none"
                   panelClassName="overflow-hidden rounded-card bg-surface text-ink shadow-raised"
                 >
                   {panelContent}
@@ -427,6 +437,77 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
   );
 }
 
+function CabledIPhones({ devices, render }: { devices?: SimulatorDevice[]; render(device: SimulatorDevice): ReactNode }) {
+  const phones = devices?.filter(isCabledIPhone) ?? [];
+  if (!phones.length) return null;
+  return (
+    <section aria-label="iPhones on a cable" data-slot="cabled-iphones" className="mt-1 border-t border-line pt-1">
+      <div className="px-3 pb-1 pt-2 text-11 text-ink-3">iPhones on a cable, through Baguette</div>
+      {phones.map(render)}
+    </section>
+  );
+}
+
+function DeviceRow({
+  device,
+  running,
+  busy,
+  attaching,
+  onPick,
+  onRelease,
+  onDetach,
+}: {
+  device: SimulatorDevice;
+  running: boolean;
+  busy: boolean;
+  attaching: boolean;
+  onPick(): void;
+  onRelease(): void;
+  onDetach(): void;
+}) {
+  return (
+    <div className="flex items-center">
+      <button
+        type="button"
+        disabled={busy || !running}
+        data-simulator-device={device.id}
+        onClick={onPick}
+        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-control px-3 text-left transition-colors hover:bg-hover-2 active:bg-hover-2 disabled:opacity-60"
+      >
+        <Icon icon={KIND_ICONS[simulatorKind(device)]} size={16} />
+        <span className="min-w-0 flex-1 truncate text-13">{device.name}</span>
+        <span className="text-11 text-ink-3">{running ? simulatorRuntimeLabel(device) : "Stopped"}</span>
+      </button>
+      {!attaching &&
+        (device.id.startsWith(SIMLOCK_DEVICE_PREFIX) ? (
+          <Tooltip label="Return to the Simlock pool">
+            <button
+              type="button"
+              disabled={busy}
+              aria-label={`Return ${device.name} to the Simlock pool`}
+              onClick={onRelease}
+              className="rounded-control p-2 text-ink-3 hover:bg-hover"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
+            </button>
+          </Tooltip>
+        ) : (
+          <Tooltip label="Detach from Chat">
+            <button
+              type="button"
+              disabled={busy}
+              aria-label={`Detach ${device.name} from Chat`}
+              onClick={onDetach}
+              className="rounded-control p-2 text-ink-3 hover:bg-hover"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
+            </button>
+          </Tooltip>
+        ))}
+    </div>
+  );
+}
+
 function SimulatorFrame({
   api,
   device,
@@ -442,7 +523,7 @@ function SimulatorFrame({
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const deviceId = device.id;
-  const [html] = useState(() => createSimulatorReceiverHtml({ deviceId, device, theme: viewerTheme() }));
+  const [html] = useState(() => createSimulatorReceiverHtml({ deviceId, device, theme: viewerTheme(), quality: simulatorQualityFor(chatId) }));
   const syncTheme = useCallback(() => frame.current?.contentWindow?.postMessage({ channel: "milagre-simulator-theme", theme: viewerTheme() }, "*"), []);
   useEffect(() => {
     const observer = new MutationObserver(syncTheme);
@@ -462,6 +543,15 @@ function SimulatorFrame({
       }
       if (event.data?.channel === "milagre-simulator" && event.data.event === "close") {
         onClose();
+        return;
+      }
+      if (event.data?.channel === "milagre-simulator" && event.data.event === "clipboard") {
+        if (event.data.action === "write" && typeof event.data.text === "string") void navigator.clipboard.writeText(event.data.text).catch(() => {});
+        else if (event.data.action === "read")
+          void navigator.clipboard
+            .readText()
+            .catch(() => null)
+            .then((text) => frame.current?.contentWindow?.postMessage({ channel: "milagre-simulator-clipboard", text }, "*"));
         return;
       }
       void bridge.receive(event.data);

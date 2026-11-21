@@ -14,6 +14,7 @@ import { Select } from "../primitives/Select";
 import { Group, Row } from "./SettingsGroup";
 import { ComputerResourceList, type ResourceComputer } from "./ComputerResources";
 import { SimlockSettings } from "./SimlockSettings";
+import { BaguetteSettings } from "./BaguetteSettings";
 import { ComputerUseRow, ComputerUseSettings } from "./ComputerUseSettings";
 import { thisComputer } from "../../lib/shortcut-hints";
 import { Icon, SECONDARY_BUTTON, DANGER_BUTTON } from "./settings-parts";
@@ -40,6 +41,7 @@ export function PhoneSharingPage({ title }: { title?: string }) {
       <h1 className="text-22 font-semibold tracking-[-0.01em] text-ink">{title}</h1>
       <DevicesSettings />
       <Group title="Simulators">
+        <BaguetteSettings />
         <SimlockSettings />
       </Group>
       <Group title="Designs and artifacts">

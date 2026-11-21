@@ -17,8 +17,9 @@ import "/src/styles.css";
 const { ipcRenderer } = window.require("electron");
 const state = { next_id: 3, projects: { 1: { id: 1, name: "shop" } }, worktrees: { 1: { id: 1, name: "main", path: "/fixture", project_id: 1 } }, sessions: { 2: { id: 2, worktree_id: 1, agent_name: "Claude", provider: "claude", status: "Idle" } }, connections: {}, events: [], messages: [], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] };
 window.milagre = new Proxy({
-  // Phone & sharing lists Simlock and Computer use only for a bridge that has them; this one doesn't.
+  // Phone & sharing lists Baguette, Simlock and Computer use only for a bridge that has them; this one doesn't.
   simlock: undefined,
+  baguette: undefined,
   computerUse: undefined,
   getRuntimeConnection: async () => ({ connected: true }),
   getAgentPorts: async () => ({}),

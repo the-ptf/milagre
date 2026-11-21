@@ -228,12 +228,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 391,
+            "max": 358,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 56]
+        "complexity": ["error", 51]
       }
     },
     {
@@ -943,15 +943,7 @@
     {
       "files": ["apps/mobile/src/simulator.tsx"],
       "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 302,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
-        "complexity": ["error", 54]
+        "complexity": ["error", 51]
       }
     },
     {
@@ -1416,7 +1408,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 589,
+            "max": 569,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1429,7 +1421,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 342,
+            "max": 333,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1535,7 +1527,7 @@
         "max-lines": [
           "error",
           {
-            "max": 982,
+            "max": 931,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1543,12 +1535,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 743,
+            "max": 689,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 50]
+        "complexity": ["error", 49]
       }
     },
     {

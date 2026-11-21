@@ -62,3 +62,41 @@ Debug output, by environment variable: `PERF_LAYERS=1` prints the composited lay
 - The hidden window gets focus at the first DevTools input event, not at `element.focus()`, so the run presses Shift before the settle. Otherwise the window's focus listeners (the simulator pill and the Browser panel list again) would run as the prompt is typed, 150 ms before Enter, and work in that gap wakes the CPU: the Git calls and the agent spawn between Enter and the first chunk then run 10–30 ms faster, and a change that drops work from a focus listener reads as slower `firstTextMs`. A person's window has focus long before they press Enter.
 - `loadAverage` is saved with each result. Timing moves with what else the Mac is doing, so compare runs made under similar load and repeat them before trusting a small change. CPU share and memory are steadier than latency.
 - Tested on macOS. It needs `ps` and a POSIX shell, so it won't run on Windows.
+
+## Simulator viewer
+
+`simulator.cjs` measures the simulator viewer from tap to painted pixel. It needs a booted iPhone simulator (or a running Android emulator with Chrome past its first-run screens) and nothing built:
+
+```sh
+npm run perf:simulator                                   # iOS: desktop, LAN and relay paths, still and animating screen
+npm run perf:simulator -- --platform android
+npm run perf:simulator -- --paths desktop --scenes still --seconds 10 --taps 10
+npm run perf:simulator -- compare before.json after.json
+```
+
+It opens `simulator-fixture.html` in the device's browser: a tile that changes colour on every touch, over a background that stays still or animates every frame (`?mode=animate`). For each path it starts its own daemon (`simulator-host.cjs`) with phone access on, a local relay running the real room code, and an Electron window holding the same receiver page and simulator bridge as the Simulators panel. Taps go in as pointer events on that page, so they take the viewer's real input path. A probe in the receiver page samples every frame the viewer paints, whatever drew it (`<img>`, the WebCodecs canvas or `<video>`), so the numbers hold across transports.
+
+| Path      | Viewer to daemon                                                                           |
+| --------- | ------------------------------------------------------------------------------------------ |
+| `desktop` | The daemon's socket, as the desktop app's main process                                     |
+| `lan`     | The phone app's encrypted transport (`apps/mobile/src/relay-transport.ts`) to the LAN host |
+| `relay`   | The same transport through a local relay                                                   |
+
+Options: `--device <udid or serial>` (default: the first booted iPhone, or the first emulator), `--seconds n` (passive window per run, default 20), `--taps n` (default 30), `--visible` (an on-screen window instead of offscreen rendering), `--out file`.
+
+Results are keyed `<path>.<scene>`:
+
+| Field                                       | Meaning                                                                                                   |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `tapToPhotonMs`                             | p50/p95/p99 from the viewer's `pointerdown` to the first animation frame after the new colour was decoded |
+| `tapToDecodeMs`                             | The same, to the decoded frame                                                                            |
+| `tapMisses`                                 | Taps with no new colour within 3 s                                                                        |
+| `ttffMs`                                    | Receiver start to its first painted frame; `cold` marks the first run of a path, when the helper starts   |
+| `paintedFps`, `changedFps`                  | Frames painted per second, and those whose pixels changed                                                 |
+| `frameIntervalMs`, `frameIntervalStddevMs`  | Gaps between changed frames on the animating screen, between painted frames on the still one              |
+| `freezesPerMinute`, `longestGapMs`          | Animating screen only: gaps over 200 ms without a changed frame                                           |
+| `viewerMessagesPerSec`, `viewerBytesPerSec` | Replies reaching the viewer, and their size                                                               |
+| `wireBytesPerSec`                           | Phone paths: encrypted bytes on the socket                                                                |
+| `cpuPercent`                                | Share of one core: `daemon` (the host process), `helper` (its child processes), `viewer` (Electron)       |
+
+The phone paths measure the phone's transport, not its WebView: frames are decoded by Electron's Chromium on this Mac, and the phone app's step of writing each frame to a file is left out. The local relay leaves out the internet round trip to `relay.milagre.cloud`. Leave the device alone while it runs: the bench taps it for a few minutes and returns an Android emulator to its home screen.

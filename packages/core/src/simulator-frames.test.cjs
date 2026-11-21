@@ -69,6 +69,33 @@ test("a display switch discards cached pixels without resetting frame sequence",
   stream.enqueue(part(jpeg));
   assert.equal((await next).sequence, 2);
 });
+test("an unchanged MJPEG picture is not sent again, so a still screen costs nothing", async (t) => {
+  let stream;
+  const source = createMjpegFrames(
+    async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            stream = controller;
+          },
+        }),
+        { headers: { "content-type": "multipart/x-mixed-replace; boundary=frame" } },
+      ),
+  );
+  t.after(() => source.close());
+  const first = source.read(0);
+  await new Promise(setImmediate);
+  stream.enqueue(part(jpeg));
+  assert.equal((await first).sequence, 1);
+  const abort = new AbortController();
+  const next = source.read(1, abort.signal);
+  stream.enqueue(part(jpeg));
+  stream.enqueue(part(jpeg));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const changed = Buffer.from([0xff, 0xd8, 9, 0xff, 0xd9]);
+  stream.enqueue(part(changed));
+  assert.equal((await next).sequence, 2, "the repeats were skipped and the change went through");
+});
 test("Android snapshots over the relay cap are encoded on the Mac and temporary images are removed", async () => {
   const fs = require("node:fs/promises");
   let directory;

@@ -9655,10 +9655,15 @@ function simulatorHost(client, file = "simulator.tsx", { modules = {}, native: n
       "expo-clipboard": { setStringAsync: async () => {} },
       "@hugeicons/core-free-icons": {},
       "@milagre/shared/simulator-receiver": require("../packages/shared/src/simulator-receiver.mjs"),
-      "@milagre/shared/simulator": { SIMLOCK_DEVICE_PREFIX: "simlock:" },
+      "@milagre/shared/simulator": require("../packages/shared/src/simulator.ts"),
       "./session": { useSession: () => ({ client }) },
       "./icons": { Icon: "Icon" },
       "./status-pill": { StatusPill: "StatusPill" },
+      "./simulator-handheld": {
+        HandheldControls: "HandheldControls",
+        HandheldStage: "HandheldStage",
+        useHandheldMode: () => ({ handheld: false, fullscreen: false, enter() {}, exit() {} }),
+      },
       "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
       "./theme": {
         hex: () => ({
@@ -9682,7 +9687,8 @@ function simulatorHost(client, file = "simulator.tsx", { modules = {}, native: n
       ...modules,
     },
     file === "simulator.tsx"
-      ? "\nexports.TestSimulatorWebView = SimulatorWebView;"
+      ? // The live WebView sits in a View that also holds handheld mode's overlay.
+        '\nexports.TestSimulatorWebView = (props) => { const tree = SimulatorWebView(props); return (tree?.type === "View" && [tree.props.children].flat().find((child) => child?.type === "DomWebView")) || tree; };'
       : file === "ports.tsx"
         ? // The Chat screen reads the ports once and hands them to the pill (app/chat.tsx).
           "\nexports.TestChatPorts = ({ chatId }) => PortsChip({ chatId, ports: useChatPorts(useSession().client, chatId).ports });"
@@ -14820,10 +14826,12 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
     "../mac-feature-row": { MacFeatureRow: "MacFeatureRow" },
   });
   assert.equal(find(integrations, (n) => n.type === "MacFeatureRow").props.href, "/babysit-prs");
-  // Phone & sharing: Simlock devices, then Designs and artifacts.
+  // Phone & sharing: iPhones on a cable and Simlock devices, then Designs and artifacts.
   const sharing = page("app/(settings)/phone-sharing.tsx", "Phone & sharing", "published-pages-section", "PublishedPagesSection", {
     "../mac-feature-row": { MacFeatureRow: "MacFeatureRow" },
+    "../baguette-row": { BaguetteRow: "BaguetteRow" },
   });
+  assert.ok(find(sharing, (n) => n.type === "BaguetteRow"));
   assert.equal(find(sharing, (n) => n.type === "MacFeatureRow").props.href, "/simlock");
   assert.ok(find(sharing, (n) => n.type === "SectionLabel" && n.props.children === "Designs and artifacts"));
   page("app/(settings)/experimental.tsx", "Church", "experimental-section", "ExperimentalSection");
@@ -23524,13 +23532,25 @@ test("Open Design library in the phone's Artifact menu opens the Project's whole
   assert.deepEqual(globalThis.openedDesignLibrary, ["mac", "/work/habits", "habits"]);
 });
 
-function libraryScreenHost(client, pushes) {
+function libraryScreenHost(client, pushes, { wide = false, params = {} } = {}) {
   const react = hookHost({ effects: true });
   const screen = load("design-library-page.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Alert: { alert: (_title, _message, buttons) => buttons?.[0]?.onPress?.() }, Text: "Text", View: "View" },
-    "expo-router": { router: { push: (route) => pushes.push(route) }, Stack: { Screen: "Stack.Screen" }, useFocusEffect: () => {} },
+    "react-native": {
+      Alert: { alert: (_title, _message, buttons) => buttons?.[0]?.onPress?.() },
+      StyleSheet: { hairlineWidth: 1 },
+      Text: "Text",
+      View: "View",
+    },
+    "expo-linear-gradient": { LinearGradient: "LinearGradient" },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 24, bottom: 20, left: 0, right: 0 }) },
+    "./split-context": { useSplitLayout: () => ({ widthClass: wide ? "wide" : "compact" }) },
+    "expo-router": {
+      router: { push: (route) => pushes.push(route), setParams: (next) => pushes.push({ setParams: next }) },
+      Stack: { Screen: "Stack.Screen" },
+      useFocusEffect: () => {},
+    },
     "@hugeicons/core-free-icons": {},
     "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
     "./session": { useSession: () => ({ client }) },
@@ -23539,6 +23559,8 @@ function libraryScreenHost(client, pushes) {
     "./theme": { useTheme: () => ({ colors: { canvas: "#eee" } }) },
     "./confirm-store": { confirm: async () => true },
     "./ui": {
+      CircleButton: "CircleButton",
+      SheetHeader: "SheetHeader",
       EmptyState: "EmptyState",
       ErrorNotice: "ErrorNotice",
       Group: "Group",
@@ -23547,7 +23569,7 @@ function libraryScreenHost(client, pushes) {
       useStyles: () => ({ caption: {}, text: {} }),
     },
   });
-  const props = { hostId: "mac", path: "/p", name: "Habits" };
+  const props = { hostId: "mac", path: "/p", name: "Habits", ...params };
   const render = () => {
     react.begin();
     const tree = screen.DesignLibraryScreen(props);
@@ -23630,6 +23652,42 @@ test("a Project's Design library page on the phone lists its pages and recent ed
     "an empty library says how designs get there",
   );
   assert.match(textOf(find(tree, (node) => node.type === "EmptyState")), /Add to Project library.*ask an agent/);
+});
+
+test("on an iPad the Design library page shows its lists beside the chosen page's canvas", async (t) => {
+  const watch = { ...libraryDesign("library:rings", 1), title: "Rings", page: "watch", edits: [{ version: 1, at: 5 }] };
+  const library = projectLibrary();
+  library.pages.push({ id: "watch", name: "Watch", designs: [watch] });
+  const client = { url: "mac", call: async (method) => (method === "design-library:list" ? library : {}) };
+  const pushes = [];
+  const render = async (params) => {
+    const h = libraryScreenHost(client, pushes, { wide: true, params });
+    t.after(() => h.cleanup());
+    h.render();
+    await settle();
+    return h.render();
+  };
+  let tree = await render({});
+  const sheet = () => find(tree, (node) => node.type === "LibrarySheet");
+  same({ ...sheet().props, onClose: undefined }, { hostId: "mac", projectPath: "/p", page: "iphone", id: undefined, onClose: undefined });
+  assert.equal(typeof sheet().props.onClose, "function", "embedded: no close button");
+  assert.equal(find(tree, (node) => node.type === "Stack.Screen").props.options.headerShown, false, "the lists column has its own header");
+  const header = find(tree, (node) => node.type === "SheetHeader");
+  same([header.props.title, header.props.subtitle, header.props.leading.props.label], ["Design library", "Habits", "Back"]);
+  const selected = () => findAll(tree, (node) => node.type?.name === "LibraryRow" && node.props.selected).map((node) => node.props.title);
+  same(selected(), ["iPhone"]);
+  const rows = (title) =>
+    findAll(
+      find(tree, (node) => node.type === "Group" && node.props.title === title),
+      (node) => node.type === "PullDown",
+    );
+  rows("Recent edits")[0].props.onPress();
+  same(pushes.at(-1), { setParams: { library: "watch", id: "library:rings" } }, "the canvas changes in place, no sheet pushed");
+  rows("Pages")[0].props.onPress();
+  same(pushes.at(-1), { setParams: { library: "iphone", id: "" } });
+  tree = await render({ page: "watch", id: "library:rings" });
+  same([sheet().props.page, sheet().props.id], ["watch", "library:rings"]);
+  same(selected(), ["Rings"]);
 });
 
 test("a library design renames and moves through the computer, by its Chat or its Project", async (t) => {

@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runInNewContext } from "node:vm";
 import * as receiverModule from "./simulator-receiver.mjs";
+import { simulatorKeyUsage } from "./simulator-typing.mjs";
+import { simulatorHiddenControls } from "./simulator-controls.mjs";
 import {
   simulatorGeometry,
   simulatorPoint,
@@ -92,6 +94,8 @@ test("the screen's corner radius follows the model identifier even when the simu
     assert.equal(appearance({ platform: "ios", name: "QA device", deviceType: `com.apple.CoreSimulator.SimDeviceType.${model}` }).radius, radius, model);
   }
   assert.equal(appearance({ platform: "ios", name: "Unknown simulator" }).radius, 0.09);
+  assert.equal(appearance({ platform: "ios", name: "iPad lookalike", productFamily: "iPhone", deviceType: null }).radius, 0.09);
+  assert.equal(appearance({ platform: "ios", name: "QA", productFamily: "iPad", deviceType: null }).radius, 0.045);
 });
 test("touches cannot start on the rounded bezel, while a captured drag still clamps at the edge", () => {
   const geometry = { left: 100, top: 20, width: 200, height: 400, rotation: 0 };
@@ -264,11 +268,12 @@ test("bundled script stays identical to tested source and every device uses the 
 });
 
 /** Exercise the exact bundled browser script, with only browser/WebRTC boundaries replaced. */
-function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
+function browserHarness(call, { playVideo = true, device, webCodecs, quality, handheld } = {}) {
   const listeners = {},
     elements = {},
     timers = new Map(),
     intervals = new Map(),
+    intervalDelays = new Map(),
     peers = [],
     states = [];
   let serial = 0;
@@ -303,6 +308,16 @@ function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
     "pose-tent",
     "hinge-angle",
     "hinge-apply",
+    "keyboard",
+    "typing",
+    "type-row",
+    "type-text",
+    "type-send",
+    "paste",
+    "copy",
+    "typing-note",
+    "keys-hint",
+    "toast",
   ])
     elements[id] = {
       ...eventTarget(),
@@ -313,13 +328,20 @@ function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
       },
       clientWidth: 600,
       clientHeight: 600,
-      dataset: { config: JSON.stringify({ deviceId: "sim", device }) },
+      dataset: { config: JSON.stringify({ deviceId: "sim", device, handheld, ...(quality ? { quality } : {}) }) },
       getBoundingClientRect: () => ({ left: 0, top: 0 }),
       setPointerCapture() {},
       setAttribute(name, value) {
         this[name] = value;
       },
+      focus() {
+        document.activeElement = this;
+      },
+      click() {
+        this.emit("click");
+      },
     };
+  const clipboard = [];
   const track = { ...eventTarget(), stop() {} };
   elements.back.hidden = true;
   elements.video.play = async () => {
@@ -359,6 +381,7 @@ function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
       postMessage: (json) => {
         const message = JSON.parse(json);
         if (message.event === "state") states.push(message.state);
+        else if (message.event === "clipboard") clipboard.push(message);
         else void bridge.receive(message);
       },
     },
@@ -401,9 +424,10 @@ function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
       return id;
     },
     clearTimeout: (id) => timers.delete(id),
-    setInterval: (fn) => {
+    setInterval: (fn, delay) => {
       const id = ++serial;
       intervals.set(id, fn);
+      intervalDelays.set(id, delay);
       return id;
     },
     clearInterval: (id) => intervals.delete(id),
@@ -417,8 +441,10 @@ function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
     peers,
     bridge,
     intervals,
+    intervalDelays,
     states,
     drawn,
+    clipboard,
     timeout(delay) {
       for (const [id, value] of timers)
         if (value.delay === delay) {
@@ -499,6 +525,29 @@ test("Duo actions follow host capability, preserve reported pose, and pause touc
   assert.equal(h.elements.duo.hidden, true);
   h.bridge.dispose();
 });
+test("handheld mode fills the view with the screen and lets the phone's overlay press only enabled controls", async () => {
+  const calls = [],
+    status = { ...readyStatus, controlling: false };
+  const h = browserHarness(fakeHost(calls, status), { handheld: true });
+  assert.equal(h.document.documentElement.dataset.handheld, "true");
+  await h.flush();
+  assert.equal(h.elements.video.style.width, "300px");
+  h.window.simulatorAction("home");
+  await h.flush();
+  assert.equal(calls.filter(([method]) => method === "input").length, 0);
+  status.controlling = true;
+  for (const poll of h.intervals.values()) await poll();
+  for (const name of ["home", "back", "eval", "constructor"]) h.window.simulatorAction(name);
+  await h.flush();
+  assert.deepEqual(
+    calls.filter(([method]) => method === "input").map(([, args]) => args.event),
+    [{ kind: "button", button: "home" }],
+  );
+  h.window.simulatorHandheld(false);
+  assert.equal(h.document.documentElement.dataset.handheld, "false");
+  assert.equal(h.elements.video.style.width, "276px");
+  h.bridge.dispose();
+});
 test("additional controls expand inline, preserve the viewer and close before Escape dismisses it", async () => {
   const calls = [],
     h = browserHarness(fakeHost(calls));
@@ -511,6 +560,35 @@ test("additional controls expand inline, preserve the viewer and close before Es
   assert.equal(h.elements.extras.hidden, true);
   assert.equal(calls.filter(([method]) => method === "open").length, 1);
   h.bridge.dispose();
+});
+test("controls follow the device's capabilities, and an older host's status keeps every control", async () => {
+  const calls = [],
+    state = { ...readyStatus, capabilities: ["touch", "home"] };
+  const h = browserHarness(fakeHost(calls, state));
+  await h.flush();
+  assert.deepEqual(
+    ["home", "rotate", "back", "repair"].map((id) => h.elements[id].hidden),
+    [false, true, true, true],
+  );
+  delete state.capabilities;
+  for (const poll of h.intervals.values()) await poll();
+  assert.deepEqual(
+    ["home", "rotate", "back", "repair"].map((id) => h.elements[id].hidden),
+    [false, false, true, false],
+  );
+  h.bridge.dispose();
+  const phone = { platform: "ios", capabilities: ["touch", "home"] };
+  assert.deepEqual(simulatorHiddenControls(phone, null), { back: true, home: false, rotate: true, repair: true, keyboard: true, typingStatus: null });
+  assert.deepEqual(simulatorHiddenControls(phone, { keyboard: true, copy: true }).typingStatus, { keyboard: false, copy: false });
+  assert.deepEqual(simulatorHiddenControls(phone, { capabilities: ["touch"] }).home, true);
+  assert.deepEqual(simulatorHiddenControls({ platform: "android" }, null), {
+    back: false,
+    home: false,
+    rotate: false,
+    repair: true,
+    keyboard: false,
+    typingStatus: null,
+  });
 });
 
 test("the framed viewer reports connection and ownership states to its native header", async () => {
@@ -1274,4 +1352,188 @@ test("a viewer without WebCodecs explains that it cannot show Simlock video", as
   await h.flush();
   await h.flush();
   assert.match(h.elements.failure.textContent, /cannot decode simulator video/);
+});
+
+const formatsHost = (calls, frames, opens = []) => {
+  const host = fakeHost(calls);
+  return async (method, args) => {
+    if (method === "open") {
+      opens.push(args);
+      return { viewerId: `viewer-${opens.length}`, transport: "frames", formats: ["video/avcc", "image"] };
+    }
+    if (method === "frame") {
+      calls.push([method, args]);
+      return frames.shift() ?? null;
+    }
+    return host(method, args);
+  };
+};
+test("a host that lists formats gets H.264 requests at this viewer's quality, and the status poll slows down", async () => {
+  const calls = [],
+    log = [];
+  const frames = [
+    { sequence: 2, reset: true, mimeType: "video/avcc", data: avccBatch(envelope(1, [1, 0x64, 0, 0x1f]), envelope(2, [7])), status: readyStatus },
+  ];
+  const h = browserHarness(formatsHost(calls, frames), { webCodecs: fakeWebCodecs(log), quality: "reduced" });
+  await h.flush();
+  await h.flush();
+  await h.flush();
+  const [, args] = calls.find(([method]) => method === "frame");
+  assert.deepEqual(args, { viewerId: "viewer-1", after: 0, format: "video/avcc", quality: "reduced" });
+  assert.deepEqual(
+    log.filter((entry) => entry[0] === "decode"),
+    [["decode", "key", [7]]],
+  );
+  assert.deepEqual([...h.intervalDelays.values()], [3000], "frames carry status, so polls only renew the viewer");
+  h.window.simulatorDispose();
+});
+test("a viewer without WebCodecs asks such a host for images", async () => {
+  const calls = [];
+  const h = browserHarness(formatsHost(calls, [{ sequence: 1, data: "aW1hZ2U=", mimeType: "image/jpeg", status: readyStatus }]));
+  await h.flush();
+  await h.flush();
+  assert.deepEqual(calls.find(([method]) => method === "frame")[1], { viewerId: "viewer-1", after: 0, format: "image", quality: "full" });
+  assert.deepEqual([...h.intervalDelays.values()], [1000]);
+  h.window.simulatorDispose();
+});
+test("H.264 the decoder refuses reopens the viewer on images before anything is painted", async () => {
+  const calls = [],
+    log = [],
+    opens = [];
+  const webCodecs = fakeWebCodecs(log);
+  webCodecs.VideoDecoder.isConfigSupported = async (config) => ({ supported: config.codec !== "avc1.64001f" });
+  const frames = [
+    { sequence: 2, reset: true, mimeType: "video/avcc", data: avccBatch(envelope(1, [1, 0x64, 0, 0x1f]), envelope(2, [7])), status: readyStatus },
+    { sequence: 1, data: "aW1hZ2U=", mimeType: "image/jpeg", status: readyStatus },
+  ];
+  const h = browserHarness(formatsHost(calls, frames, opens), { webCodecs });
+  for (let step = 0; step < 6; step++) await h.flush();
+  assert.equal(opens.length, 2);
+  assert.deepEqual(
+    calls.filter(([method]) => method === "frame").map(([, args]) => args.format),
+    ["video/avcc", "image"],
+  );
+  assert.equal(h.elements.failure.hidden, true);
+  h.window.simulatorDispose();
+});
+const key = (code, keyValue, extra = {}) => {
+  const event = { code, key: keyValue, shiftKey: false, metaKey: false, repeat: false, ...extra };
+  event.preventDefault = () => {
+    event.prevented = true;
+  };
+  event.stopPropagation = () => {};
+  return event;
+};
+test("simulatorKeyUsage maps KeyboardEvent codes to HID usages and leaves Command keys out", () => {
+  assert.equal(simulatorKeyUsage("KeyA"), 4);
+  assert.equal(simulatorKeyUsage("KeyZ"), 29);
+  assert.equal(simulatorKeyUsage("Digit1"), 30);
+  assert.equal(simulatorKeyUsage("Digit0"), 39);
+  assert.equal(simulatorKeyUsage("Enter"), 40);
+  assert.equal(simulatorKeyUsage("ArrowUp"), 82);
+  assert.equal(simulatorKeyUsage("ShiftLeft"), 225);
+  for (const code of ["MetaLeft", "MetaRight", "F5", "constructor", ""]) assert.equal(simulatorKeyUsage(code), 0);
+});
+test("a focused screen sends keys to the simulator, leaves Command chords alone and releases held keys on blur", async () => {
+  const calls = [];
+  const h = browserHarness(fakeHost(calls, { ...readyStatus, keyboard: true }));
+  await h.flush();
+  h.elements.stage.emit("pointerdown", pointer(1));
+  h.elements.stage.emit("pointerup", pointer(1));
+  await h.flush();
+  assert.equal(h.document.activeElement, h.elements.stage);
+  h.elements.stage.emit("focus");
+  assert.equal(h.elements.stage.dataset.keys, "true");
+  assert.equal(h.elements["keys-hint"].hidden, false);
+  const shift = key("ShiftLeft", "Shift", { shiftKey: true });
+  h.elements.stage.emit("keydown", shift);
+  const letter = key("KeyA", "A", { shiftKey: true });
+  h.elements.stage.emit("keydown", letter);
+  h.elements.stage.emit("keydown", key("KeyA", "A", { shiftKey: true, repeat: true }));
+  const chord = key("KeyR", "r", { metaKey: true });
+  h.elements.stage.emit("keydown", chord);
+  h.elements.stage.emit("keyup", key("KeyA", "A"));
+  await h.flush();
+  assert.equal(letter.prevented, true);
+  assert.equal(chord.prevented, undefined);
+  h.document.activeElement = null;
+  h.elements.stage.emit("blur");
+  await h.flush();
+  const keys = calls.filter(([method, args]) => method === "input" && args.event.kind === "key").map(([, args]) => args.event);
+  assert.deepEqual(keys, [
+    { kind: "key", phase: "down", usage: 225 },
+    { kind: "key", phase: "down", usage: 4, key: "A", shifted: true },
+    { kind: "key", phase: "up", usage: 4 },
+    { kind: "key", phase: "up", usage: 225 },
+  ]);
+  assert.equal(h.elements.stage.dataset.keys, "false");
+});
+test("older hosts without keyboard support keep keys with the page and hide typing controls", async () => {
+  const calls = [];
+  const h = browserHarness(fakeHost(calls));
+  await h.flush();
+  assert.equal(h.elements.keyboard.hidden, true);
+  h.elements.stage.emit("pointerdown", pointer(1));
+  h.elements.stage.emit("pointerup", pointer(1));
+  h.document.activeElement = h.elements.stage;
+  const letter = key("KeyA", "a");
+  h.elements.stage.emit("keydown", letter);
+  await h.flush();
+  assert.equal(letter.prevented, undefined);
+  assert.equal(calls.filter(([method, args]) => method === "input" && args.event.kind === "key").length, 0);
+});
+test("Type and paste sends typed text, pastes the client clipboard and copies the simulator clipboard back", async () => {
+  const calls = [];
+  const base = fakeHost(calls, { ...readyStatus, keyboard: true, copy: true });
+  const h = browserHarness(async (method, args) =>
+    method === "input" && args.event.kind === "copy" ? (calls.push([method, args]), { accepted: true, text: "from sim" }) : base(method, args),
+  );
+  await h.flush();
+  assert.equal(h.elements.keyboard.hidden, false);
+  h.elements.keyboard.emit("click");
+  assert.equal(h.elements.typing.hidden, false);
+  assert.equal(h.document.activeElement, h.elements["type-text"]);
+  h.elements["type-text"].value = "Hello\r\nworld";
+  h.elements["type-text"].emit("keydown", key("Enter", "Enter"));
+  await h.flush();
+  assert.equal(h.elements["type-text"].value, "");
+  h.elements.paste.emit("click");
+  assert.deepEqual(h.clipboard.at(-1), { channel: "milagre-simulator", event: "clipboard", action: "read" });
+  h.window.simulatorClipboard("héllo 🥖");
+  await h.flush();
+  assert.equal(h.elements.copy.hidden, false);
+  h.elements.copy.emit("click");
+  await h.flush();
+  const events = calls.filter(([method, args]) => method === "input" && args.event.kind !== "touch").map(([, args]) => args.event);
+  assert.deepEqual(events, [
+    { kind: "text", text: "Hello\nworld" },
+    { kind: "paste", text: "héllo 🥖" },
+    { kind: "copy", press: false },
+  ]);
+  assert.deepEqual(h.clipboard.at(-1), { channel: "milagre-simulator", event: "clipboard", action: "write", text: "from sim" });
+  assert.equal(h.elements["typing-note"].textContent, "Copied from the simulator.");
+});
+test("a viewer without control sees typing disabled and a host error leaves the viewer live", async () => {
+  const calls = [];
+  const status = { ...readyStatus, keyboard: true, controlling: false };
+  const base = fakeHost(calls, status);
+  const h = browserHarness(async (method, args) => {
+    if (method === "input" && args.event.kind === "paste") throw new Error("Simulator clipboard is busy. Try again.");
+    return base(method, args);
+  });
+  await h.flush();
+  h.elements.keyboard.emit("click");
+  assert.equal(h.elements["type-text"].disabled, true);
+  assert.equal(h.elements.paste.disabled, true);
+  assert.equal(h.elements.control.hidden, false);
+  assert.equal(h.elements["typing-note"].textContent, "Take control to type into the simulator.");
+  status.controlling = true;
+  h.elements.control.emit("click");
+  await h.flush();
+  assert.equal(h.elements.paste.disabled, false);
+  h.elements.paste.emit("click");
+  h.window.simulatorClipboard("text");
+  await h.flush();
+  assert.equal(h.elements["typing-note"].textContent, "Simulator clipboard is busy. Try again.");
+  assert.equal(h.elements.failure.hidden, true);
 });

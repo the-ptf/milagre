@@ -19,13 +19,15 @@ function fixture(t, options = {}) {
       const channel = {
         deviceId,
         ...(options.frame ? { frame: options.frame } : {}),
-        state: { width: 588, height: 1280, orientation: "portrait", ready: true },
+        ...(options.formats ? { formats: options.formats, configure: options.configure } : {}),
+        state: { width: 588, height: 1280, orientation: "portrait", ready: true, ...options.state },
         status() {
           return { ...this.state };
         },
         send(event) {
           events.push(structuredClone(event));
         },
+        ...(options.clipboard ? { clipboard: options.clipboard } : {}),
         async close() {
           this.closed = true;
         },
@@ -476,4 +478,110 @@ test("frame replies contain current input geometry and keep the viewer alive", a
   assert.equal(frame.status.controlling, true);
   f.advance(25000);
   assert.equal((await f.service.status({ viewerId: v.viewerId }, v.owner)).ready, true);
+});
+
+test("a host that lists formats serves each viewer its own, and runs the shared encoder for its most demanding H.264 viewer", async (t) => {
+  const configured = [],
+    asked = [];
+  const f = await fixture(t, {
+    formats: ["video/avcc", "image"],
+    configure: (quality) => configured.push(quality),
+    frame: async (_after, _signal, choice) => {
+      asked.push(choice?.format);
+      return null;
+    },
+  });
+  const desktop = await f.service.open({ deviceId: DEVICE.id }, "desktop");
+  const phone = await f.service.open({ deviceId: DEVICE.id }, "phone");
+  assert.deepEqual(desktop.formats, ["video/avcc", "image"]);
+  await f.service.frame({ viewerId: phone.viewerId, after: 0, format: "video/avcc", quality: "reduced" }, "phone");
+  await f.service.frame({ viewerId: desktop.viewerId, after: 0, format: "video/avcc", quality: "full" }, "desktop");
+  await f.service.frame({ viewerId: desktop.viewerId, after: 0, format: "video/avcc", quality: "full" }, "desktop");
+  await f.service.frame({ viewerId: desktop.viewerId, after: 0 }, "desktop");
+  assert.deepEqual(asked, ["video/avcc", "video/avcc", "video/avcc", undefined], "a viewer that names no format keeps the older default");
+  assert.deepEqual(configured, ["reduced", "full", "reduced"]);
+  await f.service.frame({ viewerId: desktop.viewerId, after: 0, format: "video/avcc", quality: "full" }, "desktop");
+  await f.service.closeViewer({ viewerId: desktop.viewerId }, "desktop");
+  assert.deepEqual(configured, ["reduced", "full", "reduced", "full", "reduced"], "the last full viewer leaving lowers the encoder again");
+  await assert.rejects(f.service.frame({ viewerId: phone.viewerId, after: 0, format: "video/hevc" }, "phone"), /format/);
+  await assert.rejects(f.service.frame({ viewerId: phone.viewerId, after: 0, format: "image", quality: "best" }, "phone"), /quality/);
+});
+
+test("a host without formats refuses a format it never offered", async (t) => {
+  const f = await fixture(t, { frame: async () => null });
+  const v = await controller(f);
+  assert.equal(v.formats, undefined);
+  await assert.rejects(f.service.frame({ viewerId: v.viewerId, after: 0, format: "video/avcc" }, v.owner), /format/);
+});
+test("typed text, paste and copy reach the device only from its controller", async (t) => {
+  const typed = [];
+  const f = fixture(t, {
+    state: { keyboard: true, copy: true },
+    clipboard: async (event) => {
+      typed.push(event);
+      return event.kind === "copy" ? "from sim" : undefined;
+    },
+  });
+  const a = await controller(f);
+  assert.equal(a.keyboard, true);
+  assert.equal(a.copy, true);
+  assert.deepEqual(await input(f, a, { kind: "text", text: "Hi" }, 1), { accepted: true });
+  assert.deepEqual(await input(f, a, { kind: "paste", text: "h\u00e9llo \ud83e\udd56" }, 2), { accepted: true });
+  assert.deepEqual(await input(f, a, { kind: "copy", press: true }, 3), { accepted: true, text: "from sim" });
+  for (const event of [
+    { kind: "text", text: "" },
+    { kind: "text", text: "x".repeat(2001) },
+    { kind: "paste", text: 5 },
+    { kind: "copy", press: "yes" },
+  ])
+    await assert.rejects(input(f, a, event, 9), /Invalid simulator input/);
+  const b = await f.service.open({ deviceId: DEVICE.id }, "owner-b");
+  assert.deepEqual(await f.service.input({ viewerId: b.viewerId, sequence: 1, generation: a.generation, event: { kind: "paste", text: "no" } }, "owner-b"), {
+    accepted: false,
+  });
+  assert.deepEqual(typed, [
+    { kind: "text", text: "Hi" },
+    { kind: "paste", text: "h\u00e9llo \ud83e\udd56" },
+    { kind: "copy", press: true },
+  ]);
+});
+test("a clipboard failure is reported without revoking control, and devices without typing refuse text", async (t) => {
+  const f = fixture(t, {
+    state: { keyboard: true },
+    clipboard: async () => {
+      throw new Error("Simulator clipboard is busy. Try again.");
+    },
+  });
+  const a = await controller(f);
+  assert.equal(a.copy, undefined);
+  await assert.rejects(input(f, a, { kind: "paste", text: "x" }, 1), /clipboard is busy/);
+  await assert.rejects(input(f, a, { kind: "copy" }, 2), /does not take typed text/);
+  assert.equal((await f.service.status({ viewerId: a.viewerId }, a.owner)).controlling, true);
+  assert.deepEqual(await input(f, a, BEGIN, 3), { accepted: true });
+  const plain = fixture(t);
+  const c = await controller(plain);
+  assert.equal(c.keyboard, undefined);
+  await assert.rejects(input(plain, c, { kind: "text", text: "x" }, 1), /does not take typed text/);
+});
+
+test("a device's capabilities reach its viewers, and controls it lacks are refused before they reach it", async (t) => {
+  const f = fixture(t);
+  const viewer = await f.service.open({ deviceId: DEVICE.id }, "owner-a");
+  f.channels[0].state.capabilities = ["touch", "home", "teleport"];
+  const status = await f.service.control({ viewerId: viewer.viewerId, takeOver: false }, "owner-a");
+  assert.deepEqual(status.capabilities, ["touch", "home"]);
+  const lead = { ...viewer, ...status, owner: "owner-a" };
+  assert.deepEqual(await input(f, lead, { kind: "button", button: "home" }, 1), { accepted: true });
+  await assert.rejects(input(f, lead, { kind: "rotate", orientation: "landscape-left" }, 2), /does not take that control/);
+  await assert.rejects(input(f, lead, { kind: "key", phase: "down", usage: 4 }, 3), /does not take that control/);
+  await assert.rejects(input(f, lead, { kind: "paste", text: "x" }, 4), /does not take that control/);
+  assert.deepEqual(f.events, [{ kind: "button", button: "home" }]);
+  assert.equal((await f.service.status({ viewerId: viewer.viewerId }, "owner-a")).controlling, true);
+});
+
+test("a device without capabilities keeps every control of its platform", async (t) => {
+  const f = fixture(t),
+    viewer = await controller(f);
+  assert.equal(viewer.capabilities, undefined);
+  assert.deepEqual(await input(f, viewer, { kind: "rotate", orientation: "landscape-left" }), { accepted: true });
 });

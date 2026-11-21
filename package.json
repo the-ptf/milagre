@@ -29,6 +29,7 @@
     "benchmark:chat-flow": "node scripts/benchmark-chat-flow.cjs",
     "benchmark:mobile-preview": "node scripts/benchmark-mobile-preview.cjs",
     "perf": "node scripts/perf/run.cjs",
+    "perf:simulator": "node scripts/perf/simulator.cjs",
     "release:preview": "node scripts/plan-release.cjs preview",
     "package:mac": "npm run build && electron-builder --mac dmg zip --publish never",
     "package:win": "npm run build && electron-builder --win nsis --x64 --publish never --config.npmRebuild=false",

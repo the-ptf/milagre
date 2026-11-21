@@ -70,7 +70,12 @@ export function DesignLibraryPage({ target }: { target: DesignLibraryTarget }) {
           </EmptyState>
         ) : (
           <>
-            <aside data-slot="library-rail" aria-label="Library pages and recent edits" className="flex w-60 shrink-0 flex-col border-r border-line">
+            <aside data-slot="library-rail" aria-label="Library pages and recent edits" className="relative flex w-60 shrink-0 flex-col">
+              <span
+                aria-hidden
+                data-slot="library-rail-edge"
+                className="pointer-events-none absolute inset-y-0 right-0 w-px bg-[linear-gradient(to_bottom,transparent,var(--color-line)_96px,var(--color-line)_calc(100%-96px),transparent)]"
+              />
               <ScrollArea className="flex-1 pb-4">
                 <nav aria-label="Library pages">
                   <RailHeading>Pages</RailHeading>

@@ -55,6 +55,7 @@ const PATHS = Object.freeze({
   "computer-use:status": denied,
   "computer-use:guide": denied,
   "computer-use:frame": denied,
+  "baguette:status": denySimulator,
   "simlock:settings:read": denySimulator,
   "simlock:settings:save": denySimulator,
   "simlock:identity": denySimulator,

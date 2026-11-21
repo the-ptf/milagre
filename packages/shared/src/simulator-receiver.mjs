@@ -1,5 +1,8 @@
 import { SIMULATOR_RECEIVER_SCRIPT } from "./simulator-browser.mjs";
-import { avcCodecString, avccEnvelopes, simulatorAvcConfig } from "./simulator-avc.mjs";
+import { avcCodecString, avccEnvelopes, simulatorAvcConfig, simulatorFrameRequest, simulatorImage, simulatorVideo } from "./simulator-avc.mjs";
+import { SIMULATOR_HANDHELD_STYLE, simulatorHandheldControls } from "./simulator-handheld.mjs";
+import { SIMULATOR_TYPING_CSS, SIMULATOR_TYPING_HTML, simulatorKeyUsage, simulatorTyping } from "./simulator-typing.mjs";
+import { simulatorHiddenControls } from "./simulator-controls.mjs";
 export { SIMULATOR_RECEIVER_SCRIPT } from "./simulator-browser.mjs";
 
 export const SIMULATOR_CONNECTION_LABELS = {
@@ -41,7 +44,7 @@ export function simulatorGeometry(status, box, inset = 0) {
 export function simulatorAppearance(device) {
   const model = String(device?.deviceType || device?.name || "").replaceAll(/[-_]/g, " ");
   if (device?.platform === "android") return { radius: 0.09 };
-  if (/iPad/i.test(model)) return { radius: 0.045 };
+  if (device?.productFamily === "iPad" || (!device?.productFamily && /iPad/i.test(model))) return { radius: 0.045 };
   if (/iPhone\s*SE/i.test(model)) return { radius: 0.025 };
   const phone = /iPhone\s*(\d+)e?(?:\s|$)/i.exec(model);
   if (phone) return { radius: Number(phone[1]) >= 11 ? 0.14 : 0.025 };
@@ -205,7 +208,7 @@ export function createSimulatorBridge(call, respond, transform = (_method, resul
 }
 
 // This function is serialized with its dependencies as arguments. It must not close over module state.
-function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, codecFor, avcConfigFor, envelopesFor) {
+function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, videoFor, imageFor, requestFor, usageFor, typingFor, handheldFor, hiddenFor) {
   window.simulatorTheme = (theme) => {
     if (!theme || typeof theme !== "object") return;
     const style = document.documentElement.style;
@@ -250,7 +253,6 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
   hingeAngle.addEventListener("input", () => {
     hingeDraft = true;
   });
-  back.hidden = config.device?.platform !== "android";
   let nextId = 0,
     epoch = 0,
     viewerId = null,
@@ -268,8 +270,8 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
     decoder = null,
     decoding = false,
     decodeStatus = null,
-    needKeyframe = true,
-    decodeTime = 0;
+    videoBroken = false,
+    videoFallback = null;
   let heartbeat = null,
     deadline = null,
     disconnected = null,
@@ -291,6 +293,13 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
     if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(data));
     else window.parent.postMessage(data, "*");
   };
+  const typingUi = typingFor({
+    usageFor,
+    post,
+    render: () => render(),
+    viewer: () => ({ epoch, status: displayReady() && !repairing ? status : null }),
+    input: (event, direct) => (direct ? rpc("input", { viewerId, sequence: ++sequence, generation: status.generation, event }) : queue?.push(event)),
+  });
   const reportState = (state) => {
     if (connectionState === state) return;
     connectionState = state;
@@ -300,7 +309,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
     new Promise((resolve, reject) => {
       const id = ++nextId;
       // Helper startup and the host's bounded 20-second offer may run slowly on a busy Mac.
-      const timeout = method === "open" || method === "offer" || method === "repair" ? 25000 : 12000;
+      const timeout = ["open", "offer", "repair"].includes(method) || /^(text|paste|copy)$/.test(args.event?.kind) ? 25000 : 12000;
       const timer = setTimeout(() => {
         pending.delete(id);
         if (method === "open") post({ channel: "milagre-simulator", id, event: "cancel" });
@@ -326,7 +335,8 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
   });
   const capture = () => (status?.width > 0 && status?.height > 0 ? status : lastCapture || { width: 390, height: 844, orientation: "portrait" });
   // The same inset geometry lays out the screen and maps touches. The bezel stays outside it.
-  const geometry = () => geometryFor(capture(), { width: stage.clientWidth, height: stage.clientHeight }, 24);
+  const geometry = () =>
+    geometryFor(capture(), { width: stage.clientWidth, height: stage.clientHeight }, document.documentElement.dataset.handheld === "true" ? 0 : 24);
   const layout = () => {
     const g = geometry();
     deviceFrame.hidden = !g;
@@ -384,13 +394,15 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
     blocked.hidden = !(inputHint || confirmRepair || repairing);
     back.disabled = home.disabled = rotate.disabled = !(ready && status.controlling);
     duo.hidden = hinge.hidden = status?.supportsHingeAngle !== true;
-    repair.hidden = device?.platform === "android";
+    const hidden = hiddenFor(device, status);
+    ({ back: back.hidden, home: home.hidden, rotate: rotate.hidden, repair: repair.hidden } = hidden);
     repair.disabled = !(ready && status.controlling) || repairing;
     for (const [pose, button] of poses) {
       button.disabled = !(ready && status.controlling);
       button.setAttribute("aria-pressed", String(status?.hingePose === pose));
     }
     hingeAngle.disabled = hingeApply.disabled = !(ready && status.controlling);
+    typingUi.render(hidden.typingStatus, ready);
     if (!hingeDraft && document.activeElement !== hingeAngle) hingeAngle.value = Number.isFinite(status?.hingeAngle) ? String(status.hingeAngle) : "";
     control.disabled = !ready || claiming;
     control.hidden = !ready || !!status?.controlling;
@@ -436,7 +448,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
     frameTimer = null;
     cancelImage?.();
     image.removeAttribute("src");
-    if (decoder && decoder.state !== "closed") decoder.close();
+    decoder?.close();
     decoder = null;
     decoding = false;
     decodeStatus = null;
@@ -545,9 +557,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
       }
     }
   };
-  control.addEventListener("click", () => {
-    void claim(true);
-  });
+  control.addEventListener("click", () => void claim(true));
   // Restarting the simulator's input closes its apps, so the first tap only says so.
   repair.addEventListener("click", async () => {
     if (repairing || !viewerId || !displayReady() || !status.controlling) return;
@@ -584,6 +594,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
   });
   back.addEventListener("click", () => queue?.push({ kind: "button", button: "back" }));
   home.addEventListener("click", () => queue?.push({ kind: "button", button: "home" }));
+  handheldFor(layout, { home, back, rotate, control, retry }, config.handheld);
   const changeGeometry = (event) => {
     if (!queue || pointers.size || !displayReady() || repairing || !status.controlling) return;
     rotatingGeneration = status.generation;
@@ -668,58 +679,25 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
   stage.addEventListener("lostpointercapture", (event) => {
     if (pointers.has(event.pointerId)) cancelTouches();
   });
-  window.addEventListener("blur", () => {
-    sendTouch("end");
-    pointers.clear();
-  });
+  window.addEventListener("blur", cancelTouches);
   stage.addEventListener("contextmenu", (event) => event.preventDefault());
-  // Simlock leases relay H.264 as serve-sim envelopes: 1 decoder configuration, 2 keyframe, 3 delta.
-  const decodeVideo = async (frame, currentEpoch) => {
-    if (typeof VideoDecoder !== "function" || typeof EncodedVideoChunk !== "function")
-      throw new Error("This viewer cannot decode simulator video. Update the app, or watch from the Milagre desktop app.");
+  const validData = (data) => typeof data === "string" && data.length <= 2796204 && /^[A-Za-z0-9+/]*={0,2}$/.test(data);
+  const decodeVideo = async (frame) => {
     decoding = true;
     decodeStatus = frame.status;
-    for (const { tag, payload } of envelopesFor(frame.data)) {
-      if (currentEpoch !== epoch) return;
-      if (tag === 1) {
-        const settings = { codec: codecFor(payload), description: avcConfigFor(payload), optimizeForLatency: true };
-        const support = await VideoDecoder.isConfigSupported(settings).catch(() => null);
-        if (currentEpoch !== epoch) return;
-        if (!support?.supported) throw new Error("This viewer cannot decode the simulator's " + settings.codec + " video.");
-        if (decoder && decoder.state !== "closed") decoder.close();
-        const context = canvas.getContext("2d");
-        const current = (decoder = new VideoDecoder({
-          output: (picture) => {
-            try {
-              if (current !== decoder || currentEpoch !== epoch) return;
-              if (canvas.width !== picture.displayWidth || canvas.height !== picture.displayHeight) {
-                canvas.width = picture.displayWidth;
-                canvas.height = picture.displayHeight;
-              }
-              context.drawImage(picture, 0, 0, canvas.width, canvas.height);
-            } finally {
-              picture.close();
-            }
-            const generation = displayGeneration(decodeStatus);
-            if (!frames || paintedGeneration !== generation) {
-              frames = true;
-              paintedGeneration = generation;
-              render();
-            }
-          },
-          error: () => {
-            if (current === decoder && currentEpoch === epoch && !repairing) fail(new Error("The simulator video could not be decoded. Retry to reconnect."));
-          },
-        }));
-        current.configure(settings);
-        needKeyframe = true;
-      } else if (tag === 2 || tag === 3) {
-        if (!decoder || decoder.state !== "configured" || (tag === 3 && needKeyframe)) continue;
-        if (tag === 2) needKeyframe = false;
-        decodeTime += 33333;
-        decoder.decode(new EncodedVideoChunk({ type: tag === 2 ? "key" : "delta", timestamp: decodeTime, data: payload }));
-      }
-    }
+    decoder ??= videoFor(canvas, {
+      painted() {
+        const generation = displayGeneration(decodeStatus);
+        if (frames && paintedGeneration === generation) return;
+        frames = true;
+        paintedGeneration = generation;
+        render();
+      },
+      failed() {
+        if (!repairing && !videoFallback?.()) fail(new Error("The simulator video could not be decoded. Retry to reconnect."));
+      },
+    });
+    await decoder.decode(frame.data);
   };
   const start = async () => {
     const closing = stop(false);
@@ -743,22 +721,24 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
         return;
       }
       device = opened.device || config.device;
-      back.hidden = device?.platform !== "android";
       layout();
       viewerId = opened.viewerId;
       let polling = false,
         triedControl = false;
+      const adopt = async (value) => {
+        acceptStatus(value);
+        if (value.ready && !triedControl) {
+          triedControl = true;
+          await claim(false);
+        }
+      };
       const poll = async () => {
         if (polling || currentEpoch !== epoch || repairing) return;
         polling = true;
         try {
           const value = await rpc("status", { viewerId });
           if (currentEpoch !== epoch || repairing) return;
-          acceptStatus(value);
-          if (value.ready && !triedControl) {
-            triedControl = true;
-            await claim(false);
-          }
+          await adopt(value);
         } catch (error) {
           if (currentEpoch === epoch && !repairing) fail(error);
         } finally {
@@ -768,70 +748,47 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
       relaying = opened.transport === "frames";
       if (relaying) {
         let after = 0;
+        const request = await requestFor(opened.formats, config.quality, !videoBroken);
+        if (currentEpoch !== epoch) return;
+        videoFallback = () => {
+          if (request.format !== "video/avcc" || frames || !opened.formats.includes("image") || currentEpoch !== epoch) return false;
+          videoBroken = true;
+          void start();
+          return true;
+        };
         const pull = async () => {
           if (currentEpoch !== epoch || repairing) return;
           try {
-            const frame = await rpc("frame", { viewerId, after });
+            const frame = await rpc("frame", { viewerId, after, ...request });
             if (currentEpoch !== epoch || repairing) return;
             if (frame && frame.mimeType === "video/avcc") {
               if (!Number.isSafeInteger(frame.sequence) || frame.sequence <= after) throw new Error("Invalid simulator frame.");
-              if (typeof frame.data !== "string" || frame.data.length > 2796204 || !/^[A-Za-z0-9+/]*={0,2}$/.test(frame.data))
-                throw new Error("Invalid simulator video data.");
-              await decodeVideo(frame, currentEpoch);
-              if (currentEpoch !== epoch || repairing) return;
-              after = frame.sequence;
-              acceptStatus(frame.status);
-              render();
-              if (frame.status.ready && !triedControl) {
-                triedControl = true;
-                await claim(false);
-              }
+              if (!validData(frame.data)) throw new Error("Invalid simulator video data.");
+              await decodeVideo(frame);
             } else if (frame) {
               if (!Number.isSafeInteger(frame.sequence) || frame.sequence <= after || !["image/jpeg", "image/png"].includes(frame.mimeType))
                 throw new Error("Invalid simulator frame.");
-              let source;
-              if (window.ReactNativeWebView && typeof frame.uri === "string" && frame.uri.startsWith("file:///")) source = frame.uri;
-              else {
-                if (typeof frame.data !== "string" || frame.data.length > 2796204 || !/^[A-Za-z0-9+/]*={0,2}$/.test(frame.data))
-                  throw new Error("Invalid simulator frame data.");
-                source = "data:" + frame.mimeType + ";base64," + frame.data;
-              }
-              await new Promise((resolve, reject) => {
-                const done = (error) => {
-                  clearTimeout(timer);
-                  cancelImage = null;
-                  image.removeEventListener("load", loaded);
-                  image.removeEventListener("error", failed);
-                  if (error) reject(error);
-                  else resolve();
-                };
-                const timer = setTimeout(() => done(new Error("The simulator frame did not load. Retry to reconnect.")), 8000);
-                cancelImage = () => done(new Error("Viewer closed."));
-                const loaded = () => done();
-                const failed = () => done(new Error("The simulator frame could not be displayed."));
-                image.addEventListener("load", loaded);
-                image.addEventListener("error", failed);
-                image.src = source;
-              });
+              const local = window.ReactNativeWebView && typeof frame.uri === "string" && frame.uri.startsWith("file:///");
+              if (!local && !validData(frame.data)) throw new Error("Invalid simulator frame data.");
+              const source = local ? frame.uri : "data:" + frame.mimeType + ";base64," + frame.data;
+              await imageFor(image, source, (cancel) => (cancelImage = cancel));
               if (currentEpoch !== epoch || repairing) return;
-              after = frame.sequence;
               frames = true;
               paintedGeneration = displayGeneration(frame.status);
-              acceptStatus(frame.status);
-              render();
-              if (frame.status.ready && !triedControl) {
-                triedControl = true;
-                await claim(false);
-              }
+            }
+            if (currentEpoch !== epoch || repairing) return;
+            if (frame) {
+              after = frame.sequence;
+              await adopt(frame.status);
             }
             if (currentEpoch === epoch) frameTimer = setTimeout(() => void pull(), decoding ? 0 : 67);
           } catch (error) {
-            if (currentEpoch === epoch && !repairing) fail(error);
+            if (currentEpoch === epoch && !repairing && !videoFallback?.()) fail(error);
           }
         };
         void pull();
         await poll();
-        if (currentEpoch === epoch && active) heartbeat = setInterval(poll, 1000);
+        if (currentEpoch === epoch && active) heartbeat = setInterval(poll, request.format === "video/avcc" ? 3000 : 1000);
         return;
       }
       const connection = new RTCPeerConnection({
@@ -950,21 +907,12 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
     void start();
   });
   window.addEventListener("pagehide", dispose);
-  window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      if (!extras.hidden) {
-        extras.hidden = true;
-        more.setAttribute("aria-expanded", "false");
-        more.focus?.();
-      } else post({ channel: "milagre-simulator", event: "close" });
-    }
-  });
   void start();
 }
 
 /** Build-time only. A checked-in string keeps script bytes stable across Vite/Metro minification and CSP hashing. */
 export function buildSimulatorReceiverScript() {
-  return `(${receiver.toString()})(JSON.parse(document.getElementById('config').dataset.config),${simulatorGeometry.toString()},${simulatorPoint.toString()},${createSimulatorInputQueue.toString()},${simulatorAppearance.toString()},${avcCodecString.toString()},${simulatorAvcConfig.toString()},${avccEnvelopes.toString()});`;
+  return `(${receiver.toString()})(JSON.parse(document.getElementById('config').dataset.config),${simulatorGeometry.toString()},${simulatorPoint.toString()},${createSimulatorInputQueue.toString()},${simulatorAppearance.toString()},((video, codec, config, envelopes) => (canvas, hooks) => video(canvas, hooks, codec, config, envelopes))(${simulatorVideo.toString()},${avcCodecString.toString()},${simulatorAvcConfig.toString()},${avccEnvelopes.toString()}),${simulatorImage.toString()},${simulatorFrameRequest.toString()},${simulatorKeyUsage.toString()},${simulatorTyping.toString()},${simulatorHandheldControls.toString()},${simulatorHiddenControls.toString()});`;
 }
 
 /** No hosted asset or native resource: this string travels inside desktop and OTA JS bundles. */
@@ -1011,6 +959,6 @@ html[data-touch-controls=true] #extras button,html[data-touch-controls=true] #hi
 #duo button[aria-pressed=true]{background:var(--hover);color:var(--accent)}
 #hinge label{display:flex;align-items:center;gap:6px;color:var(--ink2)}
 #hinge-angle{font:inherit;width:52px;min-height:35px;box-sizing:border-box;padding:4px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
-button svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
-</style></head><body><div id="config" hidden data-config="${escaped}"></div><div id="viewer"><div id="viewport"><div id="stage" aria-label="Simulator touch screen"><div id="device"><div id="screen"><video id="video" autoplay muted playsinline></video><img id="image" alt="" hidden><canvas id="canvas" hidden></canvas><span id="waiting" aria-hidden="true">Connecting...</span></div></div><p id="failure" role="alert" hidden></p></div><aside id="rail" aria-label="Simulator controls"><nav aria-label="General controls"><button id="home" aria-label="Home" title="Home" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg></button><button id="back" aria-label="Back" title="Back" hidden disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7"/></svg></button><button id="rotate" aria-label="Rotate" title="Rotate" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="5" width="9" height="14" rx="2" transform="rotate(30 12.5 12)"/><path d="M3 10a9 9 0 0 1 14-7M3 5v5h5m13 4a9 9 0 0 1-14 7m14-2v-5h-5"/></svg></button><button id="more" type="button" aria-label="More simulator controls" title="More controls" aria-expanded="false" aria-controls="extras"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button><button id="control" aria-label="Take control" title="Take control" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V6a2 2 0 0 1 4 0v6-2a2 2 0 0 1 4 0v2a2 2 0 0 1 4 0v4c0 4-3 6-6 6h-1c-2 0-3-1-4-2l-5-6a2 2 0 0 1 3-2l1 1Z"/></svg></button></nav><div id="duo" role="group" aria-label="Duo pose" hidden><nav aria-label="Fold shape"><button id="pose-closed" type="button" aria-label="Closed" title="Closed" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="3" width="8" height="18" rx="2"/><path d="M13 6h1"/></svg></button><button id="pose-book" type="button" aria-label="Book" title="Book" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 6-8-3v15l8 3 8-3V3l-8 3Zm0 0v15"/></svg></button><button id="pose-open" type="button" aria-label="Open" title="Open" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/></svg></button></nav><nav aria-label="Device stand"><button id="pose-laptop" type="button" aria-label="Laptop" title="Laptop" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v10H5zM3 20l2-6h14l2 6H3Z"/></svg></button><button id="pose-tent" type="button" aria-label="Tent" title="Tent" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 19 8-14h2l8 14-9-3-9 3ZM12 5v11"/></svg></button></nav></div></aside></div></div><section id="extras" aria-label="Additional simulator controls" hidden><div class="extra-actions"><button id="retry" aria-label="Retry" title="Retry" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5m5 0a8 8 0 1 0-2 6"/></svg><span>Reconnect</span></button><button id="repair" type="button">Reset input</button></div><div id="blocked" hidden><span id="blocked-text">If touches don't respond, reset input.</span></div><div id="hinge" hidden><label>Hinge <input id="hinge-angle" type="number" min="0" max="180" step="1" inputmode="decimal" aria-label="Hinge angle in degrees">°</label><button id="hinge-apply" type="button" aria-label="Apply hinge angle" title="Apply hinge angle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button></div></section><footer><p id="message" role="status" aria-live="polite">Connecting...</p></footer><script>${SIMULATOR_RECEIVER_SCRIPT}</script></body></html>`;
+button svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}${SIMULATOR_TYPING_CSS}${SIMULATOR_HANDHELD_STYLE}
+</style></head><body><div id="config" hidden data-config="${escaped}"></div><div id="viewer"><div id="viewport"><div id="stage" tabindex="0" aria-label="Simulator screen. Select it to type into the simulator."><div id="device"><div id="screen"><video id="video" autoplay muted playsinline></video><img id="image" alt="" hidden><canvas id="canvas" hidden></canvas><span id="waiting" aria-hidden="true">Connecting...</span></div></div><p id="failure" role="alert" hidden></p>${SIMULATOR_TYPING_HTML.stage}</div><aside id="rail" aria-label="Simulator controls"><nav aria-label="General controls"><button id="home" aria-label="Home" title="Home" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg></button><button id="back" aria-label="Back" title="Back" hidden disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7"/></svg></button><button id="rotate" aria-label="Rotate" title="Rotate" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="5" width="9" height="14" rx="2" transform="rotate(30 12.5 12)"/><path d="M3 10a9 9 0 0 1 14-7M3 5v5h5m13 4a9 9 0 0 1-14 7m14-2v-5h-5"/></svg></button>${SIMULATOR_TYPING_HTML.button}<button id="more" type="button" aria-label="More simulator controls" title="More controls" aria-expanded="false" aria-controls="extras"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button><button id="control" aria-label="Take control" title="Take control" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V6a2 2 0 0 1 4 0v6-2a2 2 0 0 1 4 0v2a2 2 0 0 1 4 0v4c0 4-3 6-6 6h-1c-2 0-3-1-4-2l-5-6a2 2 0 0 1 3-2l1 1Z"/></svg></button></nav><div id="duo" role="group" aria-label="Duo pose" hidden><nav aria-label="Fold shape"><button id="pose-closed" type="button" aria-label="Closed" title="Closed" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="3" width="8" height="18" rx="2"/><path d="M13 6h1"/></svg></button><button id="pose-book" type="button" aria-label="Book" title="Book" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 6-8-3v15l8 3 8-3V3l-8 3Zm0 0v15"/></svg></button><button id="pose-open" type="button" aria-label="Open" title="Open" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/></svg></button></nav><nav aria-label="Device stand"><button id="pose-laptop" type="button" aria-label="Laptop" title="Laptop" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v10H5zM3 20l2-6h14l2 6H3Z"/></svg></button><button id="pose-tent" type="button" aria-label="Tent" title="Tent" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 19 8-14h2l8 14-9-3-9 3ZM12 5v11"/></svg></button></nav></div></aside></div></div><section id="extras" aria-label="Additional simulator controls" hidden><div class="extra-actions"><button id="retry" aria-label="Retry" title="Retry" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5m5 0a8 8 0 1 0-2 6"/></svg><span>Reconnect</span></button><button id="repair" type="button">Reset input</button></div><div id="blocked" hidden><span id="blocked-text">If touches don't respond, reset input.</span></div><div id="hinge" hidden><label>Hinge <input id="hinge-angle" type="number" min="0" max="180" step="1" inputmode="decimal" aria-label="Hinge angle in degrees">°</label><button id="hinge-apply" type="button" aria-label="Apply hinge angle" title="Apply hinge angle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button></div></section>${SIMULATOR_TYPING_HTML.section}<footer><p id="message" role="status" aria-live="polite">Connecting...</p></footer><script>${SIMULATOR_RECEIVER_SCRIPT}</script></body></html>`;
 }

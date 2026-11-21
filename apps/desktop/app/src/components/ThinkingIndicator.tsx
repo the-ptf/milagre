@@ -60,7 +60,6 @@ function ThinkingIndicator({
   if (steps.length && !showLabel)
     return (
       <div className="flex min-w-0 flex-col">
-        {open && <LiveSteps steps={steps} />}
         <button
           type="button"
           aria-expanded={open}
@@ -85,6 +84,7 @@ function ThinkingIndicator({
             className={`shrink-0 transition-[color,rotate] duration-base ease-enter group-hover/live:text-ink ${open ? "rotate-180" : ""}`}
           />
         </button>
+        {open && <LiveSteps steps={steps} />}
       </div>
     );
 
