@@ -603,6 +603,12 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[data-slot=subagent-track]")');
     await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
     await waitFor('!!document.querySelector("[data-subagent-stop]")');
+    assert.deepEqual(
+      await evaluate(
+        '(b => [b.getAttribute("aria-label"), b.textContent.trim(), getComputedStyle(b.parentElement).opacity])(document.querySelector("[data-subagent-stop]"))',
+      ),
+      ["Stop Live child", "", "0"],
+    );
     await evaluate('document.querySelector("[data-subagent-stop]").click()');
     await waitFor('document.querySelector("dialog[open]")?.textContent.includes("other running work")');
     assert.deepEqual(await evaluate("window.stopCalls"), [["/fixture#1", "live", false]]);

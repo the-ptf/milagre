@@ -15,6 +15,7 @@ import {
   PencilEdit01Icon,
   ScrollIcon,
   Search01Icon,
+  StopIcon,
   Tick02Icon,
   WrenchIcon,
 } from "@hugeicons/core-free-icons";
@@ -79,7 +80,10 @@ function AdvisorControls({ agent, onStop, onRetry }: { agent: Subagent; onStop?:
   );
 }
 
-function NativeStop({ agent, chatKey }: { agent: Subagent; chatKey?: string | null }) {
+/** A row shows this only on hover or focus, like its Archive button; touch screens always show it. */
+const HOVER_ONLY = "flex opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100";
+
+function NativeStop({ agent, chatKey, hoverOnly = false }: { agent: Subagent; chatKey?: string | null; hoverOnly?: boolean }) {
   const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -98,9 +102,17 @@ function NativeStop({ agent, chatKey }: { agent: Subagent; chatKey?: string | nu
   };
   return (
     <>
-      <Button variant="secondary" size={24} disabled={busy} data-subagent-stop onClick={() => void stop()}>
-        Stop
-      </Button>
+      <span className={hoverOnly && !busy ? HOVER_ONLY : "flex"}>
+        <IconButton
+          label={`Stop ${agent.title}`}
+          icon={StopIcon}
+          size={24}
+          variant="danger-ghost"
+          disabled={busy}
+          data-subagent-stop
+          onClick={() => void stop()}
+        />
+      </span>
       {error && <InlineError>{error}</InlineError>}
       {confirm && (
         <Dialog
@@ -509,8 +521,8 @@ export function SubagentTrack({
       </button>
       <span className="flex shrink-0 items-center gap-1 pt-1.5">
         <AdvisorControls agent={agent} onStop={onStop} onRetry={onRetry} />
-        <NativeStop agent={agent} chatKey={chatKey} />
-        <span className="flex opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+        <NativeStop agent={agent} chatKey={chatKey} hoverOnly />
+        <span className={HOVER_ONLY}>
           <Tooltip label={archived ? "Restore subagent" : "Archive subagent"}>
             <IconButton
               label={`${archived ? "Restore" : "Archive"} ${agent.title}`}
