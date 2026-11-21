@@ -41,7 +41,7 @@ export function simulatorGeometry(status, box, inset = 0) {
 export function simulatorAppearance(device) {
   const model = String(device?.deviceType || device?.name || "").replaceAll(/[-_]/g, " ");
   if (device?.platform === "android") return { radius: 0.09 };
-  if (/iPad/i.test(model)) return { radius: 0.045 };
+  if (device?.productFamily === "iPad" || (!device?.productFamily && /iPad/i.test(model))) return { radius: 0.045 };
   if (/iPhone\s*SE/i.test(model)) return { radius: 0.025 };
   const phone = /iPhone\s*(\d+)e?(?:\s|$)/i.exec(model);
   if (phone) return { radius: Number(phone[1]) >= 11 ? 0.14 : 0.025 };

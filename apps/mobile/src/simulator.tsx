@@ -4,13 +4,26 @@ import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
-import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, SmartphoneIcon } from "@hugeicons/core-free-icons";
+import {
+  AndroidIcon,
+  ArrowDown01Icon,
+  ArrowLeft01Icon,
+  Cancel01Icon,
+  SmartphoneIcon,
+  SmartWatch01Icon,
+  Tablet01Icon,
+  Tv01Icon,
+  VrGlassesIcon,
+} from "@hugeicons/core-free-icons";
 import {
   SIMLOCK_DEVICE_PREFIX,
+  simulatorKind,
+  simulatorRuntimeLabel,
   type SimlockLease,
   type SimlockModel,
   type SimulatorDevice,
   type SimulatorFrame,
+  type SimulatorKind,
   type SimulatorList,
 } from "@milagre/shared/simulator";
 import {
@@ -29,6 +42,15 @@ import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
 import { CircleButton, ErrorNotice, PageScroll, PillButton, pressStyle, SheetHeader, useStyles } from "./ui";
 import { usePanelTabs } from "./panel-tabs";
+
+const KIND_ICONS: Record<SimulatorKind, typeof SmartphoneIcon> = {
+  iPhone: SmartphoneIcon,
+  iPad: Tablet01Icon,
+  Watch: SmartWatch01Icon,
+  TV: Tv01Icon,
+  Vision: VrGlassesIcon,
+  Android: AndroidIcon,
+};
 
 function useSimulators(client: Client | null, chatId?: string) {
   const [list, setList] = useState<SimulatorList | null>(null);
@@ -58,6 +80,7 @@ function useSimulators(client: Client | null, chatId?: string) {
           busy = false;
         }
       };
+
       void refresh();
       const timer = setInterval(refresh, 5000);
       const subscription = AppState.addEventListener("change", () => {
@@ -240,9 +263,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
                 </Text>
                 <Icon icon={ArrowDown01Icon} tone="ink3" size={16} />
               </Pressable>
-              <Text style={caption}>
-                {selected.platform === "android" ? "Android" : "iOS"} {selected.version}
-              </Text>
+              <Text style={caption}>{simulatorRuntimeLabel(selected)}</Text>
             </View>
             <View accessibilityLabel={SIMULATOR_CONNECTION_LABELS[connectionState]} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <View
@@ -274,7 +295,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
                 />
               ) : (
                 <View style={{ width: 40, alignItems: "center" }}>
-                  <Icon icon={SmartphoneIcon} tone="ink2" size={20} />
+                  <Icon icon={selected ? KIND_ICONS[simulatorKind(selected)] : SmartphoneIcon} tone="ink2" size={20} />
                 </View>
               )
             }
@@ -344,9 +365,9 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
                       pressStyle({ pressed, disabled: !running, kind: "row" }),
                     ]}
                   >
-                    <Icon icon={SmartphoneIcon} size={18} tone="ink2" />
+                    <Icon icon={KIND_ICONS[simulatorKind(device)]} size={18} tone="ink2" />
                     <Text style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{device.name}</Text>
-                    <Text style={styles.muted}>{running ? `${device.platform === "android" ? "Android" : "iOS"} ${device.version}` : "Stopped"}</Text>
+                    <Text style={styles.muted}>{running ? simulatorRuntimeLabel(device) : "Stopped"}</Text>
                   </Pressable>
                   {!attaching && (
                     <CircleButton
@@ -386,7 +407,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
                       backgroundColor: pressed ? colors.hover : docked ? colors.page : colors.surface,
                     })}
                   >
-                    <Icon icon={SmartphoneIcon} size={18} tone="ink2" />
+                    <Icon icon={model.kind === "tablet" ? Tablet01Icon : model.platform === "android" ? AndroidIcon : SmartphoneIcon} size={18} tone="ink2" />
                     <Text style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{model.model}</Text>
                     <Text style={styles.muted}>
                       {model.platform === "android" ? "Android" : "iOS"} {model.version}
