@@ -1,5 +1,6 @@
 import { SIMULATOR_RECEIVER_SCRIPT } from "./simulator-browser.mjs";
 import { avcCodecString, avccEnvelopes, simulatorAvcConfig } from "./simulator-avc.mjs";
+import { SIMULATOR_HANDHELD_STYLE, simulatorHandheldControls } from "./simulator-handheld.mjs";
 export { SIMULATOR_RECEIVER_SCRIPT } from "./simulator-browser.mjs";
 
 export const SIMULATOR_CONNECTION_LABELS = {
@@ -205,7 +206,7 @@ export function createSimulatorBridge(call, respond, transform = (_method, resul
 }
 
 // This function is serialized with its dependencies as arguments. It must not close over module state.
-function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, codecFor, avcConfigFor, envelopesFor) {
+function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, codecFor, avcConfigFor, envelopesFor, handheldFor) {
   window.simulatorTheme = (theme) => {
     if (!theme || typeof theme !== "object") return;
     const style = document.documentElement.style;
@@ -326,7 +327,8 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
   });
   const capture = () => (status?.width > 0 && status?.height > 0 ? status : lastCapture || { width: 390, height: 844, orientation: "portrait" });
   // The same inset geometry lays out the screen and maps touches. The bezel stays outside it.
-  const geometry = () => geometryFor(capture(), { width: stage.clientWidth, height: stage.clientHeight }, 24);
+  const geometry = () =>
+    geometryFor(capture(), { width: stage.clientWidth, height: stage.clientHeight }, document.documentElement.dataset.handheld === "true" ? 0 : 24);
   const layout = () => {
     const g = geometry();
     deviceFrame.hidden = !g;
@@ -545,9 +547,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
       }
     }
   };
-  control.addEventListener("click", () => {
-    void claim(true);
-  });
+  control.addEventListener("click", () => void claim(true));
   // Restarting the simulator's input closes its apps, so the first tap only says so.
   repair.addEventListener("click", async () => {
     if (repairing || !viewerId || !displayReady() || !status.controlling) return;
@@ -584,6 +584,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
   });
   back.addEventListener("click", () => queue?.push({ kind: "button", button: "back" }));
   home.addEventListener("click", () => queue?.push({ kind: "button", button: "home" }));
+  handheldFor(layout, { home, back, rotate, control, retry }, config.handheld);
   const changeGeometry = (event) => {
     if (!queue || pointers.size || !displayReady() || repairing || !status.controlling) return;
     rotatingGeneration = status.generation;
@@ -668,10 +669,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
   stage.addEventListener("lostpointercapture", (event) => {
     if (pointers.has(event.pointerId)) cancelTouches();
   });
-  window.addEventListener("blur", () => {
-    sendTouch("end");
-    pointers.clear();
-  });
+  window.addEventListener("blur", cancelTouches);
   stage.addEventListener("contextmenu", (event) => event.preventDefault());
   // Simlock leases relay H.264 as serve-sim envelopes: 1 decoder configuration, 2 keyframe, 3 delta.
   const decodeVideo = async (frame, currentEpoch) => {
@@ -964,7 +962,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
 
 /** Build-time only. A checked-in string keeps script bytes stable across Vite/Metro minification and CSP hashing. */
 export function buildSimulatorReceiverScript() {
-  return `(${receiver.toString()})(JSON.parse(document.getElementById('config').dataset.config),${simulatorGeometry.toString()},${simulatorPoint.toString()},${createSimulatorInputQueue.toString()},${simulatorAppearance.toString()},${avcCodecString.toString()},${simulatorAvcConfig.toString()},${avccEnvelopes.toString()});`;
+  return `(${receiver.toString()})(JSON.parse(document.getElementById('config').dataset.config),${simulatorGeometry.toString()},${simulatorPoint.toString()},${createSimulatorInputQueue.toString()},${simulatorAppearance.toString()},${avcCodecString.toString()},${simulatorAvcConfig.toString()},${avccEnvelopes.toString()},${simulatorHandheldControls.toString()});`;
 }
 
 /** No hosted asset or native resource: this string travels inside desktop and OTA JS bundles. */
@@ -1011,6 +1009,6 @@ html[data-touch-controls=true] #extras button,html[data-touch-controls=true] #hi
 #duo button[aria-pressed=true]{background:var(--hover);color:var(--accent)}
 #hinge label{display:flex;align-items:center;gap:6px;color:var(--ink2)}
 #hinge-angle{font:inherit;width:52px;min-height:35px;box-sizing:border-box;padding:4px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
-button svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+button svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}${SIMULATOR_HANDHELD_STYLE}
 </style></head><body><div id="config" hidden data-config="${escaped}"></div><div id="viewer"><div id="viewport"><div id="stage" aria-label="Simulator touch screen"><div id="device"><div id="screen"><video id="video" autoplay muted playsinline></video><img id="image" alt="" hidden><canvas id="canvas" hidden></canvas><span id="waiting" aria-hidden="true">Connecting...</span></div></div><p id="failure" role="alert" hidden></p></div><aside id="rail" aria-label="Simulator controls"><nav aria-label="General controls"><button id="home" aria-label="Home" title="Home" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg></button><button id="back" aria-label="Back" title="Back" hidden disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7"/></svg></button><button id="rotate" aria-label="Rotate" title="Rotate" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="5" width="9" height="14" rx="2" transform="rotate(30 12.5 12)"/><path d="M3 10a9 9 0 0 1 14-7M3 5v5h5m13 4a9 9 0 0 1-14 7m14-2v-5h-5"/></svg></button><button id="more" type="button" aria-label="More simulator controls" title="More controls" aria-expanded="false" aria-controls="extras"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button><button id="control" aria-label="Take control" title="Take control" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V6a2 2 0 0 1 4 0v6-2a2 2 0 0 1 4 0v2a2 2 0 0 1 4 0v4c0 4-3 6-6 6h-1c-2 0-3-1-4-2l-5-6a2 2 0 0 1 3-2l1 1Z"/></svg></button></nav><div id="duo" role="group" aria-label="Duo pose" hidden><nav aria-label="Fold shape"><button id="pose-closed" type="button" aria-label="Closed" title="Closed" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="3" width="8" height="18" rx="2"/><path d="M13 6h1"/></svg></button><button id="pose-book" type="button" aria-label="Book" title="Book" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 6-8-3v15l8 3 8-3V3l-8 3Zm0 0v15"/></svg></button><button id="pose-open" type="button" aria-label="Open" title="Open" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/></svg></button></nav><nav aria-label="Device stand"><button id="pose-laptop" type="button" aria-label="Laptop" title="Laptop" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v10H5zM3 20l2-6h14l2 6H3Z"/></svg></button><button id="pose-tent" type="button" aria-label="Tent" title="Tent" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 19 8-14h2l8 14-9-3-9 3ZM12 5v11"/></svg></button></nav></div></aside></div></div><section id="extras" aria-label="Additional simulator controls" hidden><div class="extra-actions"><button id="retry" aria-label="Retry" title="Retry" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5m5 0a8 8 0 1 0-2 6"/></svg><span>Reconnect</span></button><button id="repair" type="button">Reset input</button></div><div id="blocked" hidden><span id="blocked-text">If touches don't respond, reset input.</span></div><div id="hinge" hidden><label>Hinge <input id="hinge-angle" type="number" min="0" max="180" step="1" inputmode="decimal" aria-label="Hinge angle in degrees">°</label><button id="hinge-apply" type="button" aria-label="Apply hinge angle" title="Apply hinge angle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button></div></section><footer><p id="message" role="status" aria-live="polite">Connecting...</p></footer><script>${SIMULATOR_RECEIVER_SCRIPT}</script></body></html>`;
 }

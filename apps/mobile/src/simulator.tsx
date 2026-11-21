@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
-import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, SmartphoneIcon } from "@hugeicons/core-free-icons";
+import { StatusBar } from "expo-status-bar";
+import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, MaximizeScreenIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import {
   SIMLOCK_DEVICE_PREFIX,
   type SimlockLease,
@@ -29,6 +30,7 @@ import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
 import { CircleButton, ErrorNotice, PageScroll, PillButton, pressStyle, SheetHeader, useStyles } from "./ui";
 import { usePanelTabs } from "./panel-tabs";
+import { HandheldControls, HandheldStage, useHandheldMode } from "./simulator-handheld";
 
 function useSimulators(client: Client | null, chatId?: string) {
   const [list, setList] = useState<SimulatorList | null>(null);
@@ -96,6 +98,7 @@ export function SimulatorChip({ chatId }: { chatId: string }) {
 }
 
 const goBack = () => router.back();
+const noop = () => {};
 
 /** The viewer: a page of its own on a phone, a tab of the right panel on an iPad, which `onClose` closes. */
 export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: string; chatId?: string; onClose?: () => void }) {
@@ -104,9 +107,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
   const docked = onClose !== goBack;
   const background = docked ? colors.surface : colors.page;
   const styles = useStyles();
-  const caption = { color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 };
   const { client } = useSession();
-  const insets = useSafeAreaInsets();
   const source = client && chatId && (!hostId || hostId === client.url) ? client : null;
   const { list, setList } = useSimulators(source, chatId);
   const [attaching, setAttaching] = useState(false),
@@ -119,6 +120,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
     : ((chosen && list?.devices.find((d) => d.id === chosen.id)) ?? (!choosing && list?.devices.length === 1 ? list.devices[0] : null));
   const [paused, setPaused] = useState(AppState.currentState === "background");
   const connectionState = !source ? "error" : paused ? "paused" : connection?.deviceId === selected?.id && connection ? connection.state : "connecting";
+  const mode = useHandheldMode(selected?.id, !paused, docked);
   const [revision, setRevision] = useState(0);
   const pausedRef = useRef(paused);
   const pause = useCallback(() => {
@@ -208,55 +210,21 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
     }
   };
   return (
-    <View
-      style={{
-        flex: 1,
-        backgroundColor: background,
-        paddingTop: insets.top,
-        paddingBottom: insets.bottom,
-      }}
-    >
+    <SimulatorPage fullscreen={mode.fullscreen} background={background}>
       {/* One header view, kept by Fabric, sizes the native sheet. In the panel docked beside the Chat (an iPad), the panel's
       own button closes it. */}
-      <View collapsable={false} style={{ flexShrink: 0 }}>
+      <View collapsable={false} style={{ flexShrink: 0, display: mode.fullscreen ? "none" : "flex" }}>
         {selected ? (
-          <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, gap: 8 }}>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${selected.name}, choose simulator`}
-                onPress={() => {
-                  setChoosing(true);
-                  setSelected(null);
-                }}
-                hitSlop={12}
-                style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 4 }, pressStyle({ pressed })]}
-              >
-                <Text
-                  numberOfLines={1}
-                  style={{ flexShrink: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}
-                >
-                  {selected.name}
-                </Text>
-                <Icon icon={ArrowDown01Icon} tone="ink3" size={16} />
-              </Pressable>
-              <Text style={caption}>
-                {selected.platform === "android" ? "Android" : "iOS"} {selected.version}
-              </Text>
-            </View>
-            <View accessibilityLabel={SIMULATOR_CONNECTION_LABELS[connectionState]} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <View
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: radius.full,
-                  backgroundColor: connectionState === "live" ? colors.green : connectionState === "error" ? colors.red : colors.ink4,
-                }}
-              />
-              <Text style={caption}>{SIMULATOR_CONNECTION_LABELS[connectionState]}</Text>
-            </View>
-            {onClose === goBack && <CircleButton label="Close simulator" icon={Cancel01Icon} onPress={onClose} />}
-          </View>
+          <SimulatorDeviceHeader
+            device={selected}
+            state={connectionState}
+            onChoose={() => {
+              setChoosing(true);
+              setSelected(null);
+            }}
+            onHandheld={mode.enter}
+            onClose={onClose === goBack ? onClose : undefined}
+          />
         ) : (
           <SheetHeader
             title={attaching ? "Attach simulator" : "Simulators"}
@@ -291,15 +259,19 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
             <PillButton title="Retry" onPress={resume} />
           </View>
         ) : selected ? (
-          <SimulatorWebView
-            key={`${selected.id}:${revision}`}
-            client={source}
-            deviceId={selected.id}
-            device={selected}
-            chatId={chatId!}
-            background={background}
-            onConnection={setConnection}
-          />
+          <HandheldStage docked={docked} handheld={mode.handheld} onExit={mode.exit}>
+            <SimulatorWebView
+              key={`${selected.id}:${revision}`}
+              client={source}
+              deviceId={selected.id}
+              device={selected}
+              chatId={chatId!}
+              background={background}
+              handheld={mode.handheld}
+              onExitHandheld={mode.exit}
+              onConnection={setConnection}
+            />
+          </HandheldStage>
         ) : (
           <PageScroll
             style={{ flex: 1 }}
@@ -398,6 +370,75 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
           </PageScroll>
         )}
       </View>
+    </SimulatorPage>
+  );
+}
+
+function SimulatorPage({ fullscreen, background, children }: { fullscreen: boolean; background: string; children: ReactNode }) {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      style={
+        fullscreen ? { flex: 1, backgroundColor: colors.media } : { flex: 1, backgroundColor: background, paddingTop: insets.top, paddingBottom: insets.bottom }
+      }
+    >
+      {fullscreen && <StatusBar hidden />}
+      {children}
+    </View>
+  );
+}
+
+function SimulatorDeviceHeader({
+  device,
+  state,
+  onChoose,
+  onHandheld,
+  onClose,
+}: {
+  device: SimulatorDevice;
+  state: SimulatorConnectionState;
+  onChoose: () => void;
+  onHandheld: () => void;
+  onClose?: () => void;
+}) {
+  const { colors } = useTheme();
+  const caption = { color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 };
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, gap: 8 }}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${device.name}, choose simulator`}
+          onPress={onChoose}
+          hitSlop={12}
+          style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 4 }, pressStyle({ pressed })]}
+        >
+          <Text
+            numberOfLines={1}
+            style={{ flexShrink: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}
+          >
+            {device.name}
+          </Text>
+          <Icon icon={ArrowDown01Icon} tone="ink3" size={16} />
+        </Pressable>
+        <Text style={caption}>
+          {device.platform === "android" ? "Android" : "iOS"} {device.version}
+        </Text>
+      </View>
+      <View accessibilityLabel={SIMULATOR_CONNECTION_LABELS[state]} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <View
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: radius.full,
+            backgroundColor: state === "live" ? colors.green : state === "error" ? colors.red : colors.ink4,
+          }}
+        />
+        <Text style={caption}>{SIMULATOR_CONNECTION_LABELS[state]}</Text>
+      </View>
+      <CircleButton label="Handheld" icon={MaximizeScreenIcon} onPress={onHandheld} />
+      {onClose && <CircleButton label="Close simulator" icon={Cancel01Icon} onPress={onClose} />}
     </View>
   );
 }
@@ -408,6 +449,8 @@ function SimulatorWebView({
   device,
   chatId,
   background,
+  handheld = false,
+  onExitHandheld = noop,
   onConnection,
 }: {
   client: Client;
@@ -416,6 +459,8 @@ function SimulatorWebView({
   chatId: string;
   /** The viewer page's background: the sheet's page color, or the iPad panel's surface. */
   background: string;
+  handheld?: boolean;
+  onExitHandheld?: () => void;
   onConnection?(connection: SimulatorConnection): void;
 }) {
   const { colors, scheme } = useTheme();
@@ -428,6 +473,12 @@ function SimulatorWebView({
   const view = useRef<DomWebViewRef>(null);
   // The native viewer is keyed by device id; polling metadata never restarts its WebView.
   const [receiverConfig] = useState(() => ({ deviceId, device }));
+  const [viewerState, setViewerState] = useState<SimulatorConnectionState>("connecting");
+  const latestHandheld = useRef(handheld);
+  useEffect(() => {
+    latestHandheld.current = handheld;
+    view.current?.injectJavaScript(`window.simulatorHandheld?.(${handheld});true;`);
+  }, [handheld]);
   const syncTheme = useCallback(
     () => view.current?.injectJavaScript(`window.simulatorTheme?.(${JSON.stringify(latestTheme.current).replace(/</g, "\\u003c")});true;`),
     [],
@@ -489,6 +540,7 @@ function SimulatorWebView({
             ...receiverConfig,
             theme: latestTheme.current,
             touchControls: true,
+            handheld: latestHandheld.current,
           }),
         );
         setUri(file.uri);
@@ -536,39 +588,50 @@ function SimulatorWebView({
     );
   if (!uri) return <Text style={[styles.muted, { padding: 16 }]}>Preparing viewer…</Text>;
   return (
-    <DomWebView
-      key={uri}
-      ref={view}
-      source={{ uri }}
-      style={{ flex: 1 }}
-      containerStyle={{ flex: 1 }}
-      useExpoModulesBridge={false}
-      allowsInlineMediaPlayback
-      mediaPlaybackRequiresUserAction={false}
-      allowsPictureInPictureMediaPlayback={false}
-      allowsAirPlayForMediaPlayback={false}
-      scrollEnabled={false}
-      bounces={false}
-      automaticallyAdjustContentInsets={false}
-      contentInsetAdjustmentBehavior="never"
-      onMessage={(event) => {
-        try {
-          const message = JSON.parse(event.nativeEvent.data);
-          if (message.channel === "milagre-simulator" && message.event === "state" && Object.hasOwn(SIMULATOR_CONNECTION_LABELS, message.state)) {
-            onConnection?.({
-              deviceId,
-              state: message.state as SimulatorConnectionState,
-            });
-            return;
+    <View style={{ flex: 1 }}>
+      <DomWebView
+        key={uri}
+        ref={view}
+        source={{ uri }}
+        style={{ flex: 1 }}
+        containerStyle={{ flex: 1 }}
+        useExpoModulesBridge={false}
+        allowsInlineMediaPlayback
+        mediaPlaybackRequiresUserAction={false}
+        allowsPictureInPictureMediaPlayback={false}
+        allowsAirPlayForMediaPlayback={false}
+        scrollEnabled={false}
+        bounces={false}
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        onMessage={(event) => {
+          try {
+            const message = JSON.parse(event.nativeEvent.data);
+            if (message.channel === "milagre-simulator" && message.event === "state" && Object.hasOwn(SIMULATOR_CONNECTION_LABELS, message.state)) {
+              setViewerState(message.state as SimulatorConnectionState);
+              onConnection?.({
+                deviceId,
+                state: message.state as SimulatorConnectionState,
+              });
+              return;
+            }
+            if (message.channel === "milagre-simulator" && message.method === "open") syncTheme();
+            void bridge.current?.receive(message);
+          } catch {
+            /* Only typed simulator RPC messages enter the host. */
           }
-          if (message.channel === "milagre-simulator" && message.method === "open") syncTheme();
-          void bridge.current?.receive(message);
-        } catch {
-          /* Only typed simulator RPC messages enter the host. */
-        }
-      }}
-      onContentProcessDidTerminate={failed}
-      onRenderProcessGone={failed}
-    />
+        }}
+        onContentProcessDidTerminate={failed}
+        onRenderProcessGone={failed}
+      />
+      {handheld && (
+        <HandheldControls
+          state={viewerState}
+          android={device?.platform === "android"}
+          onAction={(action) => view.current?.injectJavaScript(`window.simulatorAction?.(${JSON.stringify(action)});true;`)}
+          onExit={onExitHandheld}
+        />
+      )}
+    </View>
   );
 }

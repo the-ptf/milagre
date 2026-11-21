@@ -264,7 +264,7 @@ test("bundled script stays identical to tested source and every device uses the 
 });
 
 /** Exercise the exact bundled browser script, with only browser/WebRTC boundaries replaced. */
-function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
+function browserHarness(call, { playVideo = true, device, webCodecs, handheld } = {}) {
   const listeners = {},
     elements = {},
     timers = new Map(),
@@ -313,11 +313,14 @@ function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
       },
       clientWidth: 600,
       clientHeight: 600,
-      dataset: { config: JSON.stringify({ deviceId: "sim", device }) },
+      dataset: { config: JSON.stringify({ deviceId: "sim", device, handheld }) },
       getBoundingClientRect: () => ({ left: 0, top: 0 }),
       setPointerCapture() {},
       setAttribute(name, value) {
         this[name] = value;
+      },
+      click() {
+        this.emit("click");
       },
     };
   const track = { ...eventTarget(), stop() {} };
@@ -497,6 +500,29 @@ test("Duo actions follow host capability, preserve reported pose, and pause touc
   state.supportsHingeAngle = false;
   for (const poll of h.intervals.values()) await poll();
   assert.equal(h.elements.duo.hidden, true);
+  h.bridge.dispose();
+});
+test("handheld mode fills the view with the screen and lets the phone's overlay press only enabled controls", async () => {
+  const calls = [],
+    status = { ...readyStatus, controlling: false };
+  const h = browserHarness(fakeHost(calls, status), { handheld: true });
+  assert.equal(h.document.documentElement.dataset.handheld, "true");
+  await h.flush();
+  assert.equal(h.elements.video.style.width, "300px");
+  h.window.simulatorAction("home");
+  await h.flush();
+  assert.equal(calls.filter(([method]) => method === "input").length, 0);
+  status.controlling = true;
+  for (const poll of h.intervals.values()) await poll();
+  for (const name of ["home", "back", "eval", "constructor"]) h.window.simulatorAction(name);
+  await h.flush();
+  assert.deepEqual(
+    calls.filter(([method]) => method === "input").map(([, args]) => args.event),
+    [{ kind: "button", button: "home" }],
+  );
+  h.window.simulatorHandheld(false);
+  assert.equal(h.document.documentElement.dataset.handheld, "false");
+  assert.equal(h.elements.video.style.width, "276px");
   h.bridge.dispose();
 });
 test("additional controls expand inline, preserve the viewer and close before Escape dismisses it", async () => {

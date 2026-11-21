@@ -46,4 +46,10 @@ export type SimulatorTheme = {
   accent: string;
   green?: string;
 };
-export function createSimulatorReceiverHtml(config: { deviceId: string; device?: SimulatorDevice; theme?: SimulatorTheme; touchControls?: boolean }): string;
+export function createSimulatorReceiverHtml(config: {
+  deviceId: string;
+  device?: SimulatorDevice;
+  theme?: SimulatorTheme;
+  touchControls?: boolean;
+  handheld?: boolean;
+}): string;
