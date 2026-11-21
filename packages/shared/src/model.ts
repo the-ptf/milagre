@@ -9,8 +9,10 @@ import type {
   SubchatWakeContext,
 } from "./subchat-escalation.mjs";
 
+import type { ContextUsage, ModelMeta, TurnMetrics } from "./model-meta.ts";
+
 export type SessionStatus = "Created" | "Running" | "Stopped";
-export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro";
+export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro" | "ollama";
 export type PermissionMode = "ask" | "auto" | "full";
 export type Isolation = "local" | "worktree";
 
@@ -29,23 +31,19 @@ export interface ModelCapability {
 
 export type ModelCapabilities = Record<ModelProvider, Record<string, ModelCapability>>;
 
-export interface ModelOption {
+export interface ModelOption extends ModelMeta {
   id: string;
   name: string;
   provider: ModelProvider;
   description: string;
   recommended?: boolean;
-  /** Kiro only: the model's credit multiplier, relative to Auto (2 means a turn costs twice what Auto would). */
-  credits?: number;
 }
 
-export interface ReportedModel extends ModelCapability {
+export interface ReportedModel extends ModelCapability, ModelMeta {
   id: string;
   name: string;
   description: string;
   recommended: boolean;
-  /** Kiro only: the model's credit multiplier, relative to Auto. */
-  credits?: number;
 }
 
 /** Each agent's reported models; null when its CLI is missing, too old, or couldn't be asked. */
@@ -253,10 +251,7 @@ export interface BackgroundTaskOutput {
   truncated: boolean;
 }
 
-export interface ContextUsage {
-  used: number;
-  size: number;
-}
+export type { ContextUsage, TurnMetrics } from "./model-meta.ts";
 
 export type ChatScope = { kind: "project"; projectPath: string } | { kind: "link"; linkId: string };
 export interface NamedProjectLink {
@@ -1079,7 +1074,7 @@ export type AgentEvent =
   | { type: "permission-resolved"; requestId: string; decision: PermissionDecision | "cancelled" }
   | ({ type: "question-request" } & QuestionRequest)
   | { type: "question-resolved"; requestId: string; outcome: QuestionOutcome }
-  | { type: "turn-completed"; quiet?: boolean; credits?: number }
+  | { type: "turn-completed"; quiet?: boolean; credits?: number; metrics?: TurnMetrics }
   | { type: "turn-cancelled"; quit?: boolean }
   | { type: "turn-failed"; message: string; notice?: boolean; login?: boolean; limit?: UsageLimit };
 

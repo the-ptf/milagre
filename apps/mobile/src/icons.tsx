@@ -1,7 +1,7 @@
 import { use, useCallback, useEffect, useId, useMemo, useState, useSyncExternalStore, type Context } from "react";
 import { Animated, AppState, Easing, View } from "react-native";
 import Svg, { Circle, Defs, FeGaussianBlur, Filter, G, LinearGradient, Mask, Path, Stop } from "react-native-svg";
-import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO, KIRO_LOGO, LINEAR_LOGO, providerLogoPath } from "@milagre/shared/provider-logos";
+import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO, KIRO_LOGO, LINEAR_LOGO, OLLAMA_LOGO, providerLogoPath } from "@milagre/shared/provider-logos";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native";
 import type { ModelProvider } from "@milagre/shared/model";
 import { useTheme, type Palette } from "./theme";
@@ -54,6 +54,7 @@ export function ProviderLogo({
         <>
           {provider === "claude" && <Path d={CLAUDE_LOGO.d} fill={CLAUDE_LOGO.fill} />}
           {provider === "kiro" && <Path d={KIRO_LOGO.d} fill={KIRO_LOGO.fill} fillRule="evenodd" clipRule="evenodd" />}
+          {provider === "ollama" && <Path d={OLLAMA_LOGO.d} fill={monochrome} fillRule="evenodd" clipRule="evenodd" />}
           {provider === "codex" && (
             <>
               <Defs>

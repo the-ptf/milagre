@@ -31,7 +31,7 @@ import { useOpenFolder } from "./ImportFolderDialog";
 import { OnboardingImport } from "./OnboardingImport";
 import { bridgeFor } from "../lib/computer-bridge";
 
-const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro"];
+const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro", "ollama"];
 
 const QUIET_EDGE = "-ml-3";
 
@@ -125,9 +125,11 @@ function agentRows(status: AgentCliStatus | null, accounts: AccountsSnapshot | n
 }
 
 /** Agents whose CLI people install and update themselves (cli-update.cjs refuses them): their row says how instead of
- * offering an Install that can only fail. Kiro's macOS installer is Homebrew; elsewhere it is on kiro.dev. */
+ * offering an Install that can only fail. Kiro's macOS installer is Homebrew; elsewhere it is on kiro.dev. Ollama's
+ * models run through Pi, which comes from npm; Ollama itself is a separate app. */
 const SELF_INSTALLED: Partial<Record<ModelProvider, { install?: string; update: string; site: string }>> = {
   kiro: { install: isMac ? "brew install --cask kiro-cli" : undefined, update: "kiro-cli update", site: "https://kiro.dev" },
+  ollama: { install: "npm install -g @earendil-works/pi-coding-agent", update: "pi update self", site: "https://ollama.com" },
 };
 
 function AgentStep({ onNext }: { onNext: () => void }) {

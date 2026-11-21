@@ -1,6 +1,6 @@
 # Providers
 
-How Milagre runs agents other than Claude and Codex over the Agent Client Protocol, and how the host owns provider Accounts.
+How Milagre runs agents other than Claude and Codex (over the Agent Client Protocol, or Pi's RPC mode for local models), and how the host owns provider Accounts.
 
 ## ACP client
 
@@ -37,6 +37,24 @@ AWS's Kiro agent runs on a Kiro license's credits.
 - **Helpers.** Titles, handover briefs, dictation cleanup and commit messages on a Kiro Chat use one small-model turn in a throwaway session.
 - **Cost.** Each turn's credits come from the `session_info_update` Kiro sends before the turn ends. The month's credits come from `kiro-cli chat --no-interactive /usage`, which is free but slow and leaves a session record, so it runs rarely, in a temp folder, and never holds up other providers' numbers. Calling the backend directly would need kiro-cli's token store.
 - Kiro's subagents stay plain steps.
+
+## Ollama
+
+Local models from the computer's Ollama server, run by the Pi coding agent (`@earendil-works/pi-coding-agent`) in RPC mode: one JSON record per line on stdio (`pi-rpc.cjs`, `pi-session.cjs`). Pi is the harness because Ollama serves models, not an agent loop.
+
+Rejected: Claude Code against Ollama's Anthropic-compatible API (works, but Claude's account, usage and limit logic would apply to models that have none) and a Milagre-owned agent loop (weeks to reach tools, edits and approvals).
+
+- **Install.** The user installs Pi (`npm install -g @earendil-works/pi-coding-agent`, 1.5.0 or later) and Ollama. Milagre finds `pi` on the PATH; `cli-update.cjs` refuses to update it. Ollama not answering on `OLLAMA_HOST` (default `127.0.0.1:11434`) is the provider's signed-out state, with a message that says to start it. Only this computer's server is used.
+- **Profile.** Pi runs from a Milagre-owned profile, `accounts/ollama-pi` (`PI_CODING_AGENT_DIR`), never `~/.pi`, with `PI_OFFLINE=1` and `PI_TELEMETRY=0`, so the user's own Pi settings and extensions don't load.
+- **Prompt size.** A local model reads the whole prompt on every cold start (about 280 tokens/s for a 27B model on this class of Mac), so the prompt is kept near 3K tokens: Pi runs with `--no-skills` (Pi would otherwise list every skill in `~/.agents/skills`, 18K tokens on a typical machine), and Ollama Chats get `localModelInstructions` in `events.cjs`, the rules that shape every reply plus one line pointing at tool search for Designs, artifacts, browsers and the rest. One Account, "This computer"; `addAccounts` is false.
+- **Models.** Read from Ollama on every model list (`/api/tags`, `/api/show`, `/api/ps`), so a model pulled a moment ago shows at once, and written to the profile's `models.json` as one `ollama` provider over Ollama's OpenAI-compatible API. Only models Ollama says can call tools are listed; ones that can think get Low, Medium and High. Ids carry an `ollama:` prefix. The context window is the loaded model's, else its `num_ctx`, else 32K: Ollama picks 4K, 32K or 256K by VRAM for a model without `num_ctx`.
+- **Approvals.** Pi asks nothing on its own. Milagre writes a small extension into the profile (`pi-extension.cjs`) that sends every tool call except reads through Pi's extension UI as a `select`, which the session answers. Pi's tools are mapped to their Claude Code names, so cards and steps look the same, and Ask, Auto (edits in the Chat's folders run, commands through `command-risk.cjs`) and Full behave as on Kiro. Always allow in this Chat is kept in the session.
+- **MCP.** The same extension registers the Chat's servers (passed in `MILAGRE_PI_MCP`) with `deferred` exposure: a local model's context is small, so tools load through Pi's tool search instead of being declared up front.
+- **Context.** The composer always shows the context meter on an Ollama Chat (0% of the model's window before the first turn). Pi's own automatic compaction is switched on for every session, and Compact (and Milagre's automatic compaction) becomes Pi's `compact` command, which reports through the same `compaction_start` and `compaction_end` events.
+- **Metrics.** Pi reports tokens per model call but no timings, so `createTurnMetrics` in `pi-events.cjs` times them: prefill from a call's start to its first streamed event, generation from there to the call's end. The completed turn carries `metrics` (time to first token, output and prefill tokens per second, prompt and output tokens, turn length), saved on the session's `contextUsage`, and desktop and phone show them in one line under the composer.
+- **Steering** works: a message sent mid-turn is Pi's `steer`, delivered before the next model call. Stop sends `clear_queue` and `abort`, and kills the process if it doesn't settle.
+- **Helpers.** Commit text and handover briefs use the loaded local model (else the newest) through one `pi -p` call with no tools, and never fall back to a cloud provider. Titles and dictation cleanup are off for Ollama Chats.
+- No usage or cost: Ollama has no limits, so its usage row is always unavailable and hidden.
 
 ## Accounts
 

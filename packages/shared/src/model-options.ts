@@ -20,6 +20,8 @@ export function capabilityFor(model: ModelOption, capabilities: ModelCapabilitie
       ? { efforts: known.efforts, ...(known.defaultEffort ? { defaultEffort: known.defaultEffort } : {}), ultracode: false, fastMode: false }
       : { efforts: [], ultracode: false, fastMode: false };
   }
+  // Ollama's models are whatever the computer has pulled; until the host lists them, none has an effort.
+  if (model.provider === "ollama") return { efforts: [], ultracode: false, fastMode: false };
   const fastMode = CLAUDE_FAST_MODELS.has(model.id);
   if (model.id.includes("haiku")) return { efforts: [], ultracode: false, fastMode };
   const modern = /claude-(opus|sonnet|fable)-5/.test(model.id);
@@ -34,7 +36,8 @@ const CODEX_WINDOW = 272_000;
 const GEMINI_WINDOW = 1_048_576;
 
 /** The model's context window in tokens, or undefined when it isn't known. */
-export function contextWindowFor(model: Pick<ModelOption, "provider" | "id">): number | undefined {
+export function contextWindowFor(model: Pick<ModelOption, "provider" | "id" | "contextWindow">): number | undefined {
+  if (model.provider === "ollama") return model.contextWindow;
   if (model.provider === "claude") return CLAUDE_200K.test(model.id) ? 200_000 : 1_000_000;
   if (model.provider === "codex") return CODEX_WINDOW;
   return model.id.startsWith("gemini") ? GEMINI_WINDOW : undefined;

@@ -1,4 +1,4 @@
-export type McpProvider = "claude" | "codex" | "antigravity" | "kiro";
+export type McpProvider = "claude" | "codex" | "antigravity" | "kiro" | "ollama";
 export type McpChipState = "connected" | "failed" | "needs-sign-in" | "pending" | "disabled" | "unchecked";
 export type McpTransport = "command" | "url" | "connector";
 export type McpScope = "user" | "project" | "local" | "plugin" | "claude.ai" | "built-in" | "everywhere";
@@ -230,7 +230,7 @@ export function mcpCatalogAuthHint(entry: McpCatalogEntry, remote: boolean): str
     : `Your browser opens if ${entry.name} needs you to sign in. Choose the account and access to allow.`;
 }
 
-const PROVIDER_NAMES: Record<McpProvider, string> = { claude: "Claude", codex: "Codex", antigravity: "Antigravity", kiro: "Kiro" };
+const PROVIDER_NAMES: Record<McpProvider, string> = { claude: "Claude", codex: "Codex", antigravity: "Antigravity", kiro: "Kiro", ollama: "Ollama" };
 
 function sourceOf(name: string, scope: McpScope): string {
   if (scope === "project") return "Project";

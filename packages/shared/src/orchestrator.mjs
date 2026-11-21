@@ -23,7 +23,7 @@ export const TASK_OUTCOME_DESCRIPTION =
   "Applies to new tasks. PR created needs a verified PR; PR merged waits for merge. Choose Agent finished for work that needs no PR.";
 export const MEMORY_GROUPS = Object.freeze(["work", "projects", "tools", "other"]);
 
-const PROVIDER_IDS = new Set(["claude", "codex", "antigravity", "kiro"]);
+const PROVIDER_IDS = new Set(["claude", "codex", "antigravity", "kiro", "ollama"]);
 const HINTS_MAX = 600;
 const INSTRUCTIONS_MAX = 4000;
 const NOTE_MAX = 300;

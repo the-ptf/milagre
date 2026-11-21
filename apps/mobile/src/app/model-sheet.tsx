@@ -21,12 +21,12 @@ import { CheckRow, Chip, CircleButton, InlineError, SectionLabel, SheetHeader, p
 import { lineHeight, radius, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
-function contextLabel(model: { provider: ModelProvider; id: string }) {
+function contextLabel(model: { provider: ModelProvider; id: string; contextWindow?: number }) {
   const size = contextWindowFor(model);
   return size ? formatTokens(size) : undefined;
 }
 
-function metaOf(model: { provider: ModelProvider; id: string; credits?: number }) {
+function metaOf(model: { provider: ModelProvider; id: string; credits?: number; contextWindow?: number }) {
   if (model.credits) return { label: formatCredits(model.credits), spoken: `${formatCredits(model.credits)} the credits Auto would use` };
   const label = contextLabel(model);
   return label ? { label, spoken: `${label} context window` } : null;

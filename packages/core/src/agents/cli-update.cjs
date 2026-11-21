@@ -240,6 +240,11 @@ async function upgradeWithHomebrew(name, channel, deps, satisfied) {
 
 async function runCliUpdate(name, deps = {}) {
   if (name === "antigravity") return updateAntigravity(deps);
+  if (name === "ollama")
+    return {
+      ok: false,
+      error: "Pi is installed and updated outside Milagre: `npm install -g @earendil-works/pi-coding-agent` installs it, `pi update self` updates it.",
+    };
   if (name === "kiro")
     return { ok: false, error: "Kiro CLI is installed and updated outside Milagre: `brew install --cask kiro-cli` installs it, `kiro-cli update` updates it." };
   if (deps.targetVersion) {

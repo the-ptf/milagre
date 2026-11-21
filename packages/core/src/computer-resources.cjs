@@ -50,9 +50,10 @@ const KINDS = [
   ["codex", /(^|\/)codex[\w-]*(\s|$)|@openai\/codex\//],
   ["antigravity", /agy_acp_server|localharness/],
   ["kiro", /(^|\/)kiro-cli-chat(\s|$)/],
+  ["ollama", /pi-coding-agent\/dist\/|(^|\/)pi --mode rpc/],
 ];
 const SHELL = /^-?(zsh|bash|fish|sh|nu|pwsh|tcsh|ksh)$/;
-const PART_ORDER = ["claude", "codex", "antigravity", "kiro", "terminals", "app"];
+const PART_ORDER = ["claude", "codex", "antigravity", "kiro", "ollama", "terminals", "app"];
 
 function kindOf(args) {
   const agent = KINDS.find(([, pattern]) => pattern.test(args))?.[0];

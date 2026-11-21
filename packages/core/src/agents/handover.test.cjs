@@ -301,7 +301,7 @@ test("handover models cover every provider; Antigravity writes the brief through
         : { problem: "missing" },
     clientVersion: "1.0.0",
   });
-  assert.deepEqual(Object.keys(models).toSorted(), ["antigravity", "claude", "codex", "kiro"]);
+  assert.deepEqual(Object.keys(models).toSorted(), ["antigravity", "claude", "codex", "kiro", "ollama"]);
   // The fake answers with JSON that isn't a brief: the minimal brief takes its place.
   const brief = await generateBrief(
     { transcript: "T", transcriptPath: "/x/3.md", provider: "antigravity", lastUserMessage: "go", changedFiles: async () => ["a.ts"] },

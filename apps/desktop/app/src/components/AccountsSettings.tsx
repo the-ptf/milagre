@@ -275,7 +275,7 @@ export function AccountsSettings() {
                       </button>
                       {(account.id !== "default" ||
                         group.provider === "antigravity" ||
-                        (group.provider !== "kiro" && (account.state === "signed-out" || account.state === "signing-in"))) && (
+                        (providerCapabilities(group.provider).addAccounts && (account.state === "signed-out" || account.state === "signing-in"))) && (
                         <div className="flex shrink-0 gap-2">
                           {account.state === "signing-in" ? (
                             <Button variant="secondary" size={28} disabled={busy} onClick={() => void act("cancel", group.provider, account.id)}>

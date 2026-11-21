@@ -17,7 +17,7 @@ function createChatBranchTools({ host, chatInput, read, act, mutate }) {
       {
         ...chatInput,
         prompt: z.string().trim().min(1).max(100000),
-        provider: z.enum(["claude", "codex", "antigravity", "kiro"]).optional(),
+        provider: z.enum(["claude", "codex", "antigravity", "kiro", "ollama"]).optional(),
         model: z.string().min(1).max(300).optional(),
       },
       (args) => host.sideQuestion(args, "ask"),

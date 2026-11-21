@@ -7,7 +7,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import type { ComponentProps, KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CleanIcon, Cancel01Icon, ArrowUp02Icon, Attachment01Icon, FlashIcon, Mic01Icon } from "@hugeicons/core-free-icons";
+import { ArrowUp02Icon, Attachment01Icon, Cancel01Icon, FlashIcon, Mic01Icon } from "@hugeicons/core-free-icons";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
 import { effortCopy, PERMISSION_MODE_LABEL } from "../model";
 import { cliNotice, messageParts } from "../lib/cli-status";
@@ -30,7 +30,8 @@ import { useSkills } from "./useSkills";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { useKnownFiles } from "./useKnownFiles";
-import { ContextRing } from "./ContextRing";
+import { ContextCapsule, shownContextUsage } from "./composer/ContextCapsule";
+import { LocalModelStats } from "./composer/LocalModelStats";
 import { compactButtonState } from "@milagre/shared/chat-display";
 import { PROMPT_PLACEHOLDER, matchingMentionChats, matchingMentionComputers } from "@milagre/shared/prompt-mentions";
 import { useChatMentions, useMentionComputers } from "./ChatMentions";
@@ -883,37 +884,13 @@ export function PromptComposer({
                   ✓ {compactionFeedback.percent}%<span className="@max-[700px]:hidden"> · {compactionFeedback.freed} freed</span>
                 </span>
               ) : (
-                !quiet &&
-                (compactButton.visible || compactQueued || compacting || (showContextSize && contextUsage && contextUsage.size > 0)) && (
-                  <div
-                    data-context-capsule
-                    className={`flex shrink-0 items-center overflow-hidden rounded-control ${compactButton.warning ? "bg-orange/15 text-orange-ink" : "text-ink-2"}`}
-                  >
-                    {(compactButton.visible || compactQueued || compacting) && (
-                      <button
-                        type="button"
-                        data-compact-context
-                        aria-label={compactQueued ? "Cancel queued compaction" : "Compact context"}
-                        disabled={Boolean(compactBlocked)}
-                        title={compactLabel}
-                        onClick={compactQueued ? onCancelCompact : onCompact}
-                        className="flex h-7 items-center gap-1 px-2 text-12 font-medium disabled:opacity-40"
-                      >
-                        <Icon icon={compactQueued ? Cancel01Icon : CleanIcon} size={14} />
-                        <span className="@max-[700px]:hidden">{compactLabel}</span>
-                      </button>
-                    )}
-                    {contextUsage && contextUsage.size > 0 && (
-                      <ContextRing
-                        {...contextUsage}
-                        onCompact={onCompact}
-                        compactBlocked={compactBlocked}
-                        compactLabel={running ? "Compact after turn" : "Compact now"}
-                        settings={contextSettings}
-                        showSize={showContextSize}
-                      />
-                    )}
-                  </div>
+                !quiet && (
+                  <ContextCapsule
+                    {...{ compactButton, compactQueued, compacting, compactLabel, compactBlocked, running, showContextSize, onCompact, onCancelCompact }}
+                    contextUsage={shownContextUsage(contextUsage, selectedModel)}
+                    alwaysShown={selectedModel.provider === "ollama"}
+                    settings={contextSettings}
+                  />
                 )
               )}
               <span className="relative flex shrink-0">
@@ -1017,6 +994,7 @@ export function PromptComposer({
           </div>
         </div>
       </div>
+      {selectedModel.provider === "ollama" && <LocalModelStats metrics={contextUsage?.metrics} />}
     </div>
   );
 }

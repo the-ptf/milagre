@@ -204,6 +204,67 @@
         }
       ]
     },
+    "subagent:stop": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "stopSession",
+          "optional": true,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
+    "advisor:stop": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "advisor:retry": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "accounts:list": {
       "parameters": [
         {
@@ -221,7 +282,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
           }
         },
         {
@@ -239,7 +300,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
           }
         },
         {
@@ -257,7 +318,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
           }
         },
         {
@@ -275,7 +336,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
           }
         },
         {
@@ -293,7 +354,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
           }
         },
         {
@@ -311,7 +372,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
           }
         },
         {
@@ -1876,7 +1937,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
           }
         },
         {
@@ -2008,7 +2069,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
           }
         },
         {
@@ -3191,7 +3252,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
           }
         },
         {
@@ -3541,7 +3602,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
           }
         },
         {
@@ -3591,73 +3652,12 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
           }
         },
         {
           "name": "targetVersion",
           "optional": true,
-          "schema": {
-            "type": "string"
-          }
-        }
-      ]
-    },
-    "subagent:stop": {
-      "parameters": [
-        {
-          "name": "chatId",
-          "optional": false,
-          "schema": {
-            "type": "string"
-          }
-        },
-        {
-          "name": "id",
-          "optional": false,
-          "schema": {
-            "type": "string"
-          }
-        },
-        {
-          "name": "stopSession",
-          "optional": true,
-          "schema": {
-            "enum": [false, true]
-          }
-        }
-      ]
-    },
-    "advisor:stop": {
-      "parameters": [
-        {
-          "name": "chatId",
-          "optional": false,
-          "schema": {
-            "type": "string"
-          }
-        },
-        {
-          "name": "id",
-          "optional": false,
-          "schema": {
-            "type": "string"
-          }
-        }
-      ]
-    },
-    "advisor:retry": {
-      "parameters": [
-        {
-          "name": "chatId",
-          "optional": false,
-          "schema": {
-            "type": "string"
-          }
-        },
-        {
-          "name": "id",
-          "optional": false,
           "schema": {
             "type": "string"
           }
@@ -4787,7 +4787,7 @@
           "type": "string"
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
         },
         "model": {
           "type": "string"
@@ -4958,7 +4958,7 @@
       "type": "object",
       "properties": {
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
         },
         "model": {
           "type": "string"
@@ -4995,6 +4995,9 @@
             },
             {
               "const": "kiro"
+            },
+            {
+              "const": "ollama"
             }
           ]
         },
@@ -6625,6 +6628,9 @@
             },
             {
               "const": "kiro"
+            },
+            {
+              "const": "ollama"
             }
           ]
         },
@@ -6740,7 +6746,7 @@
       "type": "object",
       "properties": {
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
         },
         "model": {
           "type": "string"
@@ -6854,7 +6860,7 @@
           "type": "string"
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
         },
         "model": {
           "type": "string"
@@ -7168,7 +7174,7 @@
           ]
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
         },
         "model": {
           "type": "string"
@@ -7322,7 +7328,7 @@
       "type": "object",
       "properties": {
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
         },
         "accountId": {
           "type": "string"
@@ -7594,7 +7600,7 @@
           "type": "string"
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
         },
         "chat": {
           "$ref": "#/$defs/T156"
@@ -8068,7 +8074,7 @@
           "description": "What the agent is sent: the body with the attached files listed."
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
         },
         "model": {
           "type": "string"
@@ -8399,7 +8405,7 @@
           "description": "What the agent is sent: the body with the attached files listed."
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "ollama"]
         },
         "model": {
           "type": "string"

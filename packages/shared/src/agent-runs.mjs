@@ -184,6 +184,15 @@ export function applyRunEvent(runs, chatId, event, model = "") {
 }
 
 /** `changed` is true when `state` must be saved; streamed text lives only in `runs` until the turn ends. */
+// What a finished turn leaves on its session: the context it used and, on Ollama, how fast the model ran.
+function withTurnTotals(state, sessionId, session, run, event) {
+  const metrics = event.type === "turn-completed" ? event.metrics : undefined;
+  const usage = run.contextUsage ?? (metrics ? session.contextUsage : undefined);
+  if (!usage) return state;
+  const contextUsage = metrics ? { ...usage, metrics } : usage;
+  return { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, contextUsage } } };
+}
+
 export function applyAgentEvent(state, runs, projectPath, chatId, event) {
   const sessionId = sessionIdFromKey(chatId);
   let session = state.sessions[sessionId];
@@ -311,7 +320,7 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
         session = { ...rest, ...(suggestionTurnId ? { suggestionTurnId } : {}) };
         state = { ...state, sessions: { ...state.sessions, [sessionId]: session } };
       }
-      if (run.contextUsage) state = { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, contextUsage: run.contextUsage } } };
+      state = withTurnTotals(state, sessionId, session, run, event);
       const unfinished = pendingCompaction(state, sessionId);
       if (unfinished) state = withContext(state, unfinished, { ...unfinished.context, status: "failed" });
       if (event.type === "turn-completed" && run.split && !run.text.trim() && !run.steps.length)

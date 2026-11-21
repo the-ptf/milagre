@@ -57,3 +57,14 @@ test("an explicitly chosen provider never falls back to another account", async 
   assert.deepEqual(calls, ["codex"]);
   assert.deepEqual(result, { text: "open miracle", polished: false });
 });
+
+test("a local model's Chat keeps dictation local: no cloud model cleans it up", async () => {
+  let asked = 0;
+  const cloud = async () => {
+    asked += 1;
+    return JSON.stringify({ text: "run npm test" });
+  };
+  const result = await polishDictation({ text: "run npm test", provider: "ollama" }, { models: { claude: cloud, codex: cloud } });
+  assert.deepEqual(result, { text: "run npm test", polished: false });
+  assert.equal(asked, 0);
+});

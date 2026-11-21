@@ -15,6 +15,7 @@ const table = {
   codex: flags({ ...DEFAULT_CAPABILITIES, steer: true, subagentRecovery: true, advisor: true, addAccounts: true }),
   antigravity: flags({ ...DEFAULT_CAPABILITIES, subagentRecovery: true, managedInstall: true, addAccounts: true }),
   kiro: flags({ ...DEFAULT_CAPABILITIES }),
+  ollama: flags({ ...DEFAULT_CAPABILITIES, steer: true, compact: true }),
 };
 
 /** The provider's capabilities, frozen; an unknown provider gets DEFAULT_CAPABILITIES. */

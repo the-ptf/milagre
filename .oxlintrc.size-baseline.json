@@ -390,7 +390,7 @@
         "max-lines": [
           "error",
           {
-            "max": 985,
+            "max": 963,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -398,12 +398,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 874,
+            "max": 851,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 159]
+        "complexity": ["error", 145]
       }
     },
     {
@@ -1394,7 +1394,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1678,
+            "max": 1669,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1402,7 +1402,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 1588,
+            "max": 1582,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1464,7 +1464,7 @@
     {
       "files": ["packages/shared/src/agent-runs.mjs"],
       "rules": {
-        "complexity": ["error", 101]
+        "complexity": ["error", 100]
       }
     },
     {
@@ -1516,7 +1516,7 @@
         "max-lines": [
           "error",
           {
-            "max": 926,
+            "max": 922,
             "skipBlankLines": true,
             "skipComments": true
           }
