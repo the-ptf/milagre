@@ -3,6 +3,9 @@ const { randomBytes, randomUUID } = require("node:crypto");
 const ORIENTATIONS = new Set(["portrait", "portrait-upside-down", "landscape-left", "landscape-right"]);
 const POSES = new Set(["closed", "open", "book", "laptop", "tent"]);
 const MAX_SDP_BYTES = 262144;
+const MAX_TYPED = 2000;
+const MAX_PASTE = 65536;
+const TEXT_KINDS = new Set(["text", "paste", "copy"]);
 function identifier() {
   return randomBytes(24).toString("base64url");
 }
@@ -20,6 +23,9 @@ function validEvent(event) {
   if (event.kind === "rotate") return ORIENTATIONS.has(event.orientation);
   if (event.kind === "pose") return POSES.has(event.pose);
   if (event.kind === "hinge") return Number.isFinite(event.angle) && event.angle >= 0 && event.angle <= 180;
+  if (event.kind === "text" || event.kind === "paste")
+    return typeof event.text === "string" && event.text.length > 0 && event.text.length <= (event.kind === "text" ? MAX_TYPED : MAX_PASTE);
+  if (event.kind === "copy") return event.press === undefined || typeof event.press === "boolean";
   return (
     event.kind === "key" &&
     ["down", "up"].includes(event.phase) &&
@@ -36,6 +42,8 @@ function cleanEvent(event) {
   if (event.kind === "rotate") return { kind: "rotate", orientation: event.orientation };
   if (event.kind === "pose") return { kind: "pose", pose: event.pose };
   if (event.kind === "hinge") return { kind: "hinge", angle: event.angle };
+  if (event.kind === "text" || event.kind === "paste") return { kind: event.kind, text: event.text };
+  if (event.kind === "copy") return { kind: "copy", press: event.press === true };
   return {
     kind: "key",
     phase: event.phase,
@@ -43,6 +51,35 @@ function cleanEvent(event) {
     ...(event.key === undefined ? {} : { key: event.key }),
     ...(event.shifted === undefined ? {} : { shifted: event.shifted }),
   };
+}
+
+function capabilities(state, channel) {
+  return {
+    ...(state.supportsHingeAngle === true
+      ? {
+          supportsHingeAngle: true,
+          ...(Number.isFinite(state.hingeAngle) && state.hingeAngle >= 0 && state.hingeAngle <= 180 ? { hingeAngle: state.hingeAngle } : {}),
+          ...(POSES.has(state.hingePose) ? { hingePose: state.hingePose } : {}),
+        }
+      : {}),
+    ...(state.deviceHubInputActive ? { deviceHubInputActive: true, inputBlocked: true } : {}),
+    ...(state.keyboard === true && channel.clipboard ? { keyboard: true, ...(state.copy === true ? { copy: true } : {}) } : {}),
+  };
+}
+function startTyping(device, state, event) {
+  if (!state.keyboard || !device.channel.clipboard || (event.kind === "copy" && !state.copy))
+    throw new Error("This device does not take typed text. Update Milagre on the computer it runs on.");
+  if (device.typing) throw new Error("The simulator is still handling the last text. Try again in a moment.");
+  device.typing = true;
+  return { device, event };
+}
+async function finishTyping({ device, event }) {
+  try {
+    const text = await device.channel.clipboard(event);
+    return { accepted: true, ...(event.kind === "copy" ? { text: typeof text === "string" ? text : "" } : {}) };
+  } finally {
+    device.typing = false;
+  }
 }
 
 function createSimulators(options = {}) {
@@ -131,14 +168,7 @@ function createSimulators(options = {}) {
       displayGeneration: device.displayGeneration,
       controlling: device.controller === v.id,
       ready: state.ready,
-      ...(state.supportsHingeAngle === true
-        ? {
-            supportsHingeAngle: true,
-            ...(Number.isFinite(state.hingeAngle) && state.hingeAngle >= 0 && state.hingeAngle <= 180 ? { hingeAngle: state.hingeAngle } : {}),
-            ...(POSES.has(state.hingePose) ? { hingePose: state.hingePose } : {}),
-          }
-        : {}),
-      ...(state.deviceHubInputActive ? { deviceHubInputActive: true, inputBlocked: true } : {}),
+      ...capabilities(state, device.channel),
     };
   }
   async function remove(v) {
@@ -292,8 +322,8 @@ function createSimulators(options = {}) {
         return statusOf(v);
       });
     },
-    input(request, owner) {
-      return serial(async () => {
+    async input(request, owner) {
+      const result = await serial(async () => {
         const v = await active(request, owner),
           device = v.device;
         if (!Number.isSafeInteger(request.sequence) || request.sequence < 0 || !Number.isSafeInteger(request.generation) || !validEvent(request.event))
@@ -314,6 +344,11 @@ function createSimulators(options = {}) {
         }
         v.inputTokens--;
         const event = cleanEvent(request.event);
+        if (TEXT_KINDS.has(event.kind)) {
+          releaseHeld(device);
+          v.heartbeat = now();
+          return startTyping(device, state, event);
+        }
         if (event.kind === "touch") {
           if (event.phase === "begin" ? !!device.touch : !device.touch || device.touch.points.length !== event.points.length) return { accepted: false };
         }
@@ -346,6 +381,7 @@ function createSimulators(options = {}) {
         v.heartbeat = now();
         return { accepted: true };
       });
+      return result.device ? finishTyping(result) : result;
     },
     repair(request, owner) {
       return serial(async () => {

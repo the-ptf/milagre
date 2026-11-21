@@ -22,6 +22,10 @@ export type SimulatorStatus = {
   deviceHubInputActive?: boolean;
   /** @deprecated Compatibility alias for the same unverified input-mode hint. */
   inputBlocked?: boolean;
+  /** The host takes key, typed text and paste events; older hosts omit it. */
+  keyboard?: boolean;
+  /** The host reads the device clipboard back with a copy event. */
+  copy?: boolean;
 };
 export type SimulatorInput =
   | { kind: "touch"; phase: "begin" | "move" | "end"; points: { x: number; y: number }[] }
@@ -29,7 +33,9 @@ export type SimulatorInput =
   | { kind: "rotate"; orientation: SimulatorOrientation }
   | { kind: "pose"; pose: "closed" | "open" | "book" | "laptop" | "tent" }
   | { kind: "hinge"; angle: number }
-  | { kind: "key"; phase: "down" | "up"; usage: number; key?: string; shifted?: boolean };
+  | { kind: "key"; phase: "down" | "up"; usage: number; key?: string; shifted?: boolean }
+  | { kind: "text" | "paste"; text: string }
+  | { kind: "copy"; press?: boolean };
 export type SimulatorList = {
   devices: SimulatorDevice[];
   chatId?: string;
@@ -55,7 +61,7 @@ export interface SimulatorApi {
   offer(request: { viewerId: string; sdp: string }): Promise<{ type: "answer"; sdp: string }>;
   status(request: { viewerId: string }): Promise<SimulatorStatus>;
   control(request: { viewerId: string; takeOver: boolean }): Promise<SimulatorStatus>;
-  input(request: { viewerId: string; sequence: number; generation: number; event: SimulatorInput }): Promise<{ accepted: boolean }>;
+  input(request: { viewerId: string; sequence: number; generation: number; event: SimulatorInput }): Promise<{ accepted: boolean; text?: string }>;
   /** Restarts the simulator's input, closing its running apps. Every viewer of the device reopens. */
   repair(request: { viewerId: string }): Promise<null>;
   close(request: { viewerId: string }): Promise<null>;

@@ -3,6 +3,7 @@ const { promisify } = require("node:util");
 const path = require("node:path");
 
 const { createMjpegFrames, createSnapshotFrames, normalizeAndroidSnapshot } = require("./simulator-frames.cjs");
+const { createSimulatorTyping, readJson } = require("./simulator-typing.cjs");
 
 const PREFIX = "/vendor/serve-sim/helper";
 const UUID = /^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$/;
@@ -221,20 +222,7 @@ function createSimulatorHelper(options = {}) {
         throw new Error("helper response");
       }
       if (route === "webrtc/close" && response.status === 204) return null;
-      const reader = response.body.getReader();
-      const chunks = [];
-      let length = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        length += value.byteLength;
-        if (length > 524288) {
-          await reader.cancel();
-          throw new Error("oversized response");
-        }
-        chunks.push(value);
-      }
-      return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      return await readJson(response, 524288);
     } catch {
       throw new Error("Simulator connection failed. Reopen the viewer to retry.");
     }
@@ -345,6 +333,7 @@ function createSimulatorHelper(options = {}) {
         if (socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > 16384) throw new Error("Simulator input socket is unavailable.");
         socket.send(android ? JSON.stringify(tag) : Buffer.concat([Buffer.from([tag]), Buffer.from(JSON.stringify(payload))]));
       };
+      const typing = createSimulatorTyping({ android, deviceId, socket, send, instance, ready: () => channel.status().ready });
       const channel = {
         fail,
         async frame(after, signal) {
@@ -397,8 +386,14 @@ function createSimulatorHelper(options = {}) {
           }
         },
         status() {
-          return { ...state, ready: state.ready && !displayChange, ...(hubInputActive ? { deviceHubInputActive: true } : {}) };
+          return {
+            ...state,
+            ready: state.ready && !displayChange,
+            ...(hubInputActive ? { deviceHubInputActive: true } : {}),
+            ...typing.capabilities(),
+          };
         },
+        clipboard: (event) => typing.clipboard(event),
         send(event) {
           if (!state.ready || displayChange) throw new Error("Simulator input is not ready.");
           if (event.kind === "pose" || event.kind === "hinge") {
@@ -462,7 +457,7 @@ function createSimulatorHelper(options = {}) {
             void request(instance, deviceId, "api/orientation", { orientation: event.orientation.startsWith("landscape") ? "landscape" : "portrait" }).catch(
               () => fail("Android rotation failed. Reopen the viewer."),
             );
-          } else throw new Error("Use the emulator screen keyboard.");
+          } else typing.sendAndroid(event);
         },
         async close() {
           if (localClosed) return;

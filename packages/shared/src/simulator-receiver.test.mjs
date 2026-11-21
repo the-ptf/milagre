@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runInNewContext } from "node:vm";
 import * as receiverModule from "./simulator-receiver.mjs";
+import { simulatorKeyUsage } from "./simulator-typing.mjs";
 import {
   simulatorGeometry,
   simulatorPoint,
@@ -303,6 +304,16 @@ function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
     "pose-tent",
     "hinge-angle",
     "hinge-apply",
+    "keyboard",
+    "typing",
+    "type-row",
+    "type-text",
+    "type-send",
+    "paste",
+    "copy",
+    "typing-note",
+    "keys-hint",
+    "toast",
   ])
     elements[id] = {
       ...eventTarget(),
@@ -319,7 +330,11 @@ function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
       setAttribute(name, value) {
         this[name] = value;
       },
+      focus() {
+        document.activeElement = this;
+      },
     };
+  const clipboard = [];
   const track = { ...eventTarget(), stop() {} };
   elements.back.hidden = true;
   elements.video.play = async () => {
@@ -359,6 +374,7 @@ function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
       postMessage: (json) => {
         const message = JSON.parse(json);
         if (message.event === "state") states.push(message.state);
+        else if (message.event === "clipboard") clipboard.push(message);
         else void bridge.receive(message);
       },
     },
@@ -419,6 +435,7 @@ function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
     intervals,
     states,
     drawn,
+    clipboard,
     timeout(delay) {
       for (const [id, value] of timers)
         if (value.delay === delay) {
@@ -1274,4 +1291,126 @@ test("a viewer without WebCodecs explains that it cannot show Simlock video", as
   await h.flush();
   await h.flush();
   assert.match(h.elements.failure.textContent, /cannot decode simulator video/);
+});
+
+const key = (code, keyValue, extra = {}) => {
+  const event = { code, key: keyValue, shiftKey: false, metaKey: false, repeat: false, ...extra };
+  event.preventDefault = () => {
+    event.prevented = true;
+  };
+  event.stopPropagation = () => {};
+  return event;
+};
+test("simulatorKeyUsage maps KeyboardEvent codes to HID usages and leaves Command keys out", () => {
+  assert.equal(simulatorKeyUsage("KeyA"), 4);
+  assert.equal(simulatorKeyUsage("KeyZ"), 29);
+  assert.equal(simulatorKeyUsage("Digit1"), 30);
+  assert.equal(simulatorKeyUsage("Digit0"), 39);
+  assert.equal(simulatorKeyUsage("Enter"), 40);
+  assert.equal(simulatorKeyUsage("ArrowUp"), 82);
+  assert.equal(simulatorKeyUsage("ShiftLeft"), 225);
+  for (const code of ["MetaLeft", "MetaRight", "F5", "constructor", ""]) assert.equal(simulatorKeyUsage(code), 0);
+});
+test("a focused screen sends keys to the simulator, leaves Command chords alone and releases held keys on blur", async () => {
+  const calls = [];
+  const h = browserHarness(fakeHost(calls, { ...readyStatus, keyboard: true }));
+  await h.flush();
+  h.elements.stage.emit("pointerdown", pointer(1));
+  h.elements.stage.emit("pointerup", pointer(1));
+  await h.flush();
+  assert.equal(h.document.activeElement, h.elements.stage);
+  h.elements.stage.emit("focus");
+  assert.equal(h.elements.stage.dataset.keys, "true");
+  assert.equal(h.elements["keys-hint"].hidden, false);
+  const shift = key("ShiftLeft", "Shift", { shiftKey: true });
+  h.elements.stage.emit("keydown", shift);
+  const letter = key("KeyA", "A", { shiftKey: true });
+  h.elements.stage.emit("keydown", letter);
+  h.elements.stage.emit("keydown", key("KeyA", "A", { shiftKey: true, repeat: true }));
+  const chord = key("KeyR", "r", { metaKey: true });
+  h.elements.stage.emit("keydown", chord);
+  h.elements.stage.emit("keyup", key("KeyA", "A"));
+  await h.flush();
+  assert.equal(letter.prevented, true);
+  assert.equal(chord.prevented, undefined);
+  h.document.activeElement = null;
+  h.elements.stage.emit("blur");
+  await h.flush();
+  const keys = calls.filter(([method, args]) => method === "input" && args.event.kind === "key").map(([, args]) => args.event);
+  assert.deepEqual(keys, [
+    { kind: "key", phase: "down", usage: 225 },
+    { kind: "key", phase: "down", usage: 4, key: "A", shifted: true },
+    { kind: "key", phase: "up", usage: 4 },
+    { kind: "key", phase: "up", usage: 225 },
+  ]);
+  assert.equal(h.elements.stage.dataset.keys, "false");
+});
+test("older hosts without keyboard support keep keys with the page and hide typing controls", async () => {
+  const calls = [];
+  const h = browserHarness(fakeHost(calls));
+  await h.flush();
+  assert.equal(h.elements.keyboard.hidden, true);
+  h.elements.stage.emit("pointerdown", pointer(1));
+  h.elements.stage.emit("pointerup", pointer(1));
+  h.document.activeElement = h.elements.stage;
+  const letter = key("KeyA", "a");
+  h.elements.stage.emit("keydown", letter);
+  await h.flush();
+  assert.equal(letter.prevented, undefined);
+  assert.equal(calls.filter(([method, args]) => method === "input" && args.event.kind === "key").length, 0);
+});
+test("Type and paste sends typed text, pastes the client clipboard and copies the simulator clipboard back", async () => {
+  const calls = [];
+  const base = fakeHost(calls, { ...readyStatus, keyboard: true, copy: true });
+  const h = browserHarness(async (method, args) =>
+    method === "input" && args.event.kind === "copy" ? (calls.push([method, args]), { accepted: true, text: "from sim" }) : base(method, args),
+  );
+  await h.flush();
+  assert.equal(h.elements.keyboard.hidden, false);
+  h.elements.keyboard.emit("click");
+  assert.equal(h.elements.typing.hidden, false);
+  assert.equal(h.document.activeElement, h.elements["type-text"]);
+  h.elements["type-text"].value = "Hello\r\nworld";
+  h.elements["type-text"].emit("keydown", key("Enter", "Enter"));
+  await h.flush();
+  assert.equal(h.elements["type-text"].value, "");
+  h.elements.paste.emit("click");
+  assert.deepEqual(h.clipboard.at(-1), { channel: "milagre-simulator", event: "clipboard", action: "read" });
+  h.window.simulatorClipboard("héllo 🥖");
+  await h.flush();
+  assert.equal(h.elements.copy.hidden, false);
+  h.elements.copy.emit("click");
+  await h.flush();
+  const events = calls.filter(([method, args]) => method === "input" && args.event.kind !== "touch").map(([, args]) => args.event);
+  assert.deepEqual(events, [
+    { kind: "text", text: "Hello\nworld" },
+    { kind: "paste", text: "héllo 🥖" },
+    { kind: "copy", press: false },
+  ]);
+  assert.deepEqual(h.clipboard.at(-1), { channel: "milagre-simulator", event: "clipboard", action: "write", text: "from sim" });
+  assert.equal(h.elements["typing-note"].textContent, "Copied from the simulator.");
+});
+test("a viewer without control sees typing disabled and a host error leaves the viewer live", async () => {
+  const calls = [];
+  const status = { ...readyStatus, keyboard: true, controlling: false };
+  const base = fakeHost(calls, status);
+  const h = browserHarness(async (method, args) => {
+    if (method === "input" && args.event.kind === "paste") throw new Error("Simulator clipboard is busy. Try again.");
+    return base(method, args);
+  });
+  await h.flush();
+  h.elements.keyboard.emit("click");
+  assert.equal(h.elements["type-text"].disabled, true);
+  assert.equal(h.elements.paste.disabled, true);
+  assert.equal(h.elements.control.hidden, false);
+  assert.equal(h.elements["typing-note"].textContent, "Take control to type into the simulator.");
+  status.controlling = true;
+  h.elements.control.emit("click");
+  await h.flush();
+  assert.equal(h.elements.paste.disabled, false);
+  h.elements.paste.emit("click");
+  h.window.simulatorClipboard("text");
+  await h.flush();
+  assert.equal(h.elements["typing-note"].textContent, "Simulator clipboard is busy. Try again.");
+  assert.equal(h.elements.failure.hidden, true);
 });

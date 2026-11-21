@@ -30,8 +30,14 @@ const log = (entry) => fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(
 const server = http.createServer(async (req, res) => {
   let data = ''; for await (const chunk of req) data += chunk;
   const authenticated = req.headers.authorization === 'Bearer ' + token;
-  log({ url: req.url, method: req.method, authenticated, body: data ? JSON.parse(data) : null });
+  log({ url: req.url, method: req.method, authenticated, body: data ? JSON.parse(data) : null, ...(req.headers.origin ? { origin: req.headers.origin } : {}) });
   if (!authenticated) { res.writeHead(401).end(); return; }
+  if (req.url.startsWith('/vendor/serve-sim/api/pasteboard')) {
+    res.setHeader('content-type', 'application/json');
+    if (req.url.includes('copy=1')) res.writeHead(504).end(JSON.stringify({ok:false,error:'Try again after selecting text.'}));
+    else res.end(JSON.stringify({ok:true,text:'from sim é'}));
+    return;
+  }
   if (req.url.split('?')[0].endsWith('/stream.mjpeg')) {
     res.writeHead(200, {'content-type':'multipart/x-mixed-replace; boundary=frame'});
     const part=Buffer.concat([Buffer.from('--frame\\r\\nContent-Type: image/jpeg\\r\\nContent-Length: 6\\r\\n\\r\\n'),Buffer.from([255,216,1,2,255,217]),Buffer.from('\\r\\n')]);
@@ -48,7 +54,7 @@ wss.on('connection', (socket, req) => {
   const duo = mode.startsWith('duo');
   let hinge = {supportsHingeAngle:true,hingeAngle:0,hingePose:'closed'};
   let panel = {screenId:1,orientation:'portrait',physicalOrientation:'portrait',tableMode:false,observedDeviceState:{hingeAngle:0,physicalOrientation:'portrait'}};
-  const config = () => socket.send(Buffer.concat([Buffer.from([0x82]), Buffer.from(JSON.stringify({width:588,height:1280,orientation:'portrait',inputUnavailable:mode==='unavailable',...(duo?{...hinge,...panel}:{})}))]));
+  const config = () => socket.send(Buffer.concat([Buffer.from([0x82]), Buffer.from(JSON.stringify({width:588,height:1280,orientation:'portrait',inputUnavailable:mode==='unavailable',keyboardUnavailable:mode==='no-keyboard',...(duo?{...hinge,...panel}:{})}))]));
   if (mode !== 'unadmitted' && mode !== 'android') {
     socket.send(Buffer.from([0x83])); if (mode !== 'admission-only') config();
     if (mode === 'unavailable') socket.send(Buffer.concat([Buffer.from([0x82]), Buffer.from(JSON.stringify({width:588,height:1280,orientation:'portrait'}))]));
@@ -56,6 +62,7 @@ wss.on('connection', (socket, req) => {
   socket.on('message', (bytes) => {
     if (mode === 'android') { log({gesture:JSON.parse(bytes.toString())}); return; }
     log({ tag: bytes[0], data: JSON.parse(bytes.subarray(1).toString()) });
+    if(bytes[0]===18) { const {requestId,text}=JSON.parse(bytes.subarray(1).toString()); socket.send(Buffer.concat([Buffer.from([146]),Buffer.from(JSON.stringify(text.includes('busy')?{requestId,ok:false,error:'Simulator clipboard is busy. Try again.'}:{requestId,ok:true}))])); }
     if(bytes[0]===16 && duo && mode!=='duo-timeout') {
       const {requestId,command}=JSON.parse(bytes.subarray(1).toString());
       setTimeout(()=>{
@@ -238,7 +245,7 @@ test("helper uses private loopback authentication, exact query socket route and 
   const f = await fixture(t),
     channel = await f.helper.connect(DEVICE);
   await waitFor(() => channel.status().ready);
-  assert.deepEqual(channel.status(), { width: 588, height: 1280, orientation: "portrait", ready: true });
+  assert.deepEqual(channel.status(), { width: 588, height: 1280, orientation: "portrait", ready: true, keyboard: true, copy: true });
   channel.send({
     kind: "touch",
     phase: "begin",
@@ -538,4 +545,83 @@ test("an Android capture failure makes the shared channel replaceable on reconne
   const frame = await service.frame({ viewerId: reopened.viewerId, after: 0 }, "three");
   assert.equal(frame.data, png.toString("base64"));
   await assert.rejects(service.status({ viewerId: second.viewerId }, "two"), /unknown/i, "a failed shared capture is not retained by another viewer");
+});
+
+test("iOS typing sends US keystrokes, pastes other text through the pasteboard and copies it back", async (t) => {
+  const f = await fixture(t),
+    channel = await f.helper.connect(DEVICE);
+  await waitFor(() => channel.status().ready);
+  await channel.clipboard({ kind: "text", text: "Hi!\n" });
+  await channel.clipboard({ kind: "text", text: "caf\u00e9 \ud83e\udd56" });
+  await channel.clipboard({ kind: "paste", text: "plain" });
+  await assert.rejects(channel.clipboard({ kind: "paste", text: "busy" }), /clipboard is busy/);
+  assert.equal(await channel.clipboard({ kind: "copy", press: false }), "from sim \u00e9");
+  await assert.rejects(channel.clipboard({ kind: "copy", press: true }), /selecting text/);
+  const logs = await f.logs();
+  assert.deepEqual(
+    logs.filter((entry) => entry.tag === 6).map((entry) => entry.data),
+    [
+      { type: "down", usage: 225 },
+      { type: "down", usage: 11, key: "H", shifted: true },
+      { type: "up", usage: 11, key: "H", shifted: true },
+      { type: "up", usage: 225 },
+      { type: "down", usage: 12, key: "i", shifted: false },
+      { type: "up", usage: 12, key: "i", shifted: false },
+      { type: "down", usage: 225 },
+      { type: "down", usage: 30, key: "!", shifted: true },
+      { type: "up", usage: 30, key: "!", shifted: true },
+      { type: "up", usage: 225 },
+      { type: "down", usage: 40 },
+      { type: "up", usage: 40 },
+    ],
+  );
+  assert.deepEqual(
+    logs.filter((entry) => entry.tag === 18).map((entry) => entry.data.text),
+    ["caf\u00e9 \ud83e\udd56", "plain", "busy"],
+  );
+  const reads = logs.filter((entry) => entry.url?.startsWith("/vendor/serve-sim/api/pasteboard"));
+  assert.deepEqual(
+    reads.map((entry) => [entry.url, entry.method, entry.authenticated, /^http:\/\/127\.0\.0\.1:\d+$/.test(entry.origin)]),
+    [
+      ["/vendor/serve-sim/api/pasteboard?device=" + DEVICE, "POST", true, true],
+      ["/vendor/serve-sim/api/pasteboard?device=" + DEVICE + "&copy=1", "POST", true, true],
+    ],
+  );
+});
+test("an iOS runtime without a hardware keyboard reports no typing support", async (t) => {
+  const f = await fixture(t, "no-keyboard"),
+    channel = await f.helper.connect(DEVICE);
+  await waitFor(() => channel.status().ready);
+  assert.equal(channel.status().keyboard, undefined);
+});
+test("Android keys become keycodes with modifier state and text is typed as bounded ASCII chunks", async (t) => {
+  const f = await fixture(t, "android");
+  const channel = await f.helper.connect("emulator-5554");
+  await waitFor(() => channel.status().ready);
+  assert.equal(channel.status().keyboard, true);
+  assert.equal(channel.status().copy, undefined);
+  channel.send({ kind: "key", phase: "down", usage: 225 });
+  channel.send({ kind: "key", phase: "down", usage: 4, key: "A", shifted: true });
+  channel.send({ kind: "key", phase: "up", usage: 4 });
+  channel.send({ kind: "key", phase: "up", usage: 225 });
+  channel.send({ kind: "key", phase: "down", usage: 200 });
+  await channel.clipboard({ kind: "paste", text: "a".repeat(301) + "\nb" });
+  await assert.rejects(channel.clipboard({ kind: "text", text: "caf\u00e9" }), /plain ASCII/);
+  await assert.rejects(channel.clipboard({ kind: "copy" }), /isn't available/);
+  await waitFor(async () => (await f.logs()).filter((x) => x.gesture).length >= 9);
+  assert.deepEqual(
+    (await f.logs()).filter((x) => x.gesture).map((x) => x.gesture),
+    [
+      { type: "key", keycode: 59, action: "down", metaState: 0x41 },
+      { type: "key", keycode: 29, action: "down", metaState: 0x41 },
+      { type: "key", keycode: 29, action: "up", metaState: 0x41 },
+      { type: "key", keycode: 59, action: "up", metaState: 0 },
+      { type: "text", text: "a".repeat(300) },
+      { type: "text", text: "a" },
+      { type: "key", keycode: 66, action: "down", metaState: 0 },
+      { type: "key", keycode: 66, action: "up", metaState: 0 },
+      { type: "text", text: "b" },
+    ],
+  );
+  await channel.close();
 });

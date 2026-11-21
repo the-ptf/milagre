@@ -26,6 +26,10 @@ export interface SimulatorStatus {
   deviceHubInputActive?: boolean;
   /** @deprecated Compatibility alias for the same unverified input-mode hint. */
   inputBlocked?: boolean;
+  /** The host takes key, typed text and paste events; older hosts omit it. */
+  keyboard?: boolean;
+  /** The host reads the device clipboard back with a copy event. */
+  copy?: boolean;
 }
 export type SimulatorInput =
   | { kind: "touch"; phase: "begin" | "move" | "end"; points: { x: number; y: number }[] }
@@ -33,7 +37,9 @@ export type SimulatorInput =
   | { kind: "rotate"; orientation: SimulatorOrientation }
   | { kind: "pose"; pose: "closed" | "open" | "book" | "laptop" | "tent" }
   | { kind: "hinge"; angle: number }
-  | { kind: "key"; phase: "down" | "up"; usage: number; key?: string; shifted?: boolean };
+  | { kind: "key"; phase: "down" | "up"; usage: number; key?: string; shifted?: boolean }
+  | { kind: "text" | "paste"; text: string }
+  | { kind: "copy"; press?: boolean };
 export interface SimulatorChannel {
   frame?(
     after: number,
@@ -41,6 +47,8 @@ export interface SimulatorChannel {
   ): Promise<{ sequence: number; data: string; mimeType: "image/jpeg" | "image/png" | "video/avcc"; reset?: boolean } | null>;
   status(): Omit<SimulatorStatus, "generation" | "controlling"> & { error?: string };
   send(event: SimulatorInput): void | Promise<void>;
+  /** Types, pastes or reads the clipboard; copy resolves with the device's clipboard text. */
+  clipboard?(event: Extract<SimulatorInput, { kind: "text" | "paste" | "copy" }>): Promise<string | void>;
   close(): Promise<void>;
 }
 export interface SimulatorAdapter {
@@ -75,7 +83,10 @@ export interface Simulators {
   offer(request: { viewerId: string; sdp: string }, owner: string): Promise<{ type: "answer"; sdp: string }>;
   status(request: { viewerId: string }, owner: string): Promise<SimulatorStatus>;
   control(request: { viewerId: string; takeOver: boolean }, owner: string): Promise<SimulatorStatus>;
-  input(request: { viewerId: string; sequence: number; generation: number; event: SimulatorInput }, owner: string): Promise<{ accepted: boolean }>;
+  input(
+    request: { viewerId: string; sequence: number; generation: number; event: SimulatorInput },
+    owner: string,
+  ): Promise<{ accepted: boolean; text?: string }>;
   repair(request: { viewerId: string }, owner: string): Promise<null>;
   closeViewer(request: { viewerId: string }, owner: string): Promise<null>;
   disconnect(owner: string): Promise<void>;
