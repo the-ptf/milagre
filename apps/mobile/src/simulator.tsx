@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -107,6 +107,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
   const background = docked ? colors.surface : colors.page;
   const styles = useStyles();
   const { client } = useSession();
+  const insets = useSafeAreaInsets();
   const source = client && chatId && (!hostId || hostId === client.url) ? client : null;
   const { list, setList } = useSimulators(source, chatId);
   const [attaching, setAttaching] = useState(false),
@@ -209,21 +210,22 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
     }
   };
   return (
-    <SimulatorPage fullscreen={mode.fullscreen} background={background}>
+    <View style={pageStyle(mode.fullscreen, mode.fullscreen ? colors.media : background, insets)}>
       {/* One header view, kept by Fabric, sizes the native sheet. In the panel docked beside the Chat (an iPad), the panel's
       own button closes it. */}
       <View collapsable={false} style={{ flexShrink: 0, display: mode.fullscreen ? "none" : "flex" }}>
         {selected ? (
-          <SimulatorDeviceHeader
-            device={selected}
-            state={connectionState}
-            onChoose={() => {
+          deviceHeader({
+            colors,
+            device: selected,
+            state: connectionState,
+            onChoose: () => {
               setChoosing(true);
               setSelected(null);
-            }}
-            onHandheld={mode.enter}
-            onClose={onClose === goBack ? onClose : undefined}
-          />
+            },
+            onHandheld: mode.enter,
+            onClose: onClose === goBack ? onClose : undefined,
+          })
         ) : (
           <SheetHeader
             title={attaching ? "Attach simulator" : "Simulators"}
@@ -369,38 +371,32 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
           </PageScroll>
         )}
       </View>
-    </SimulatorPage>
-  );
-}
-
-function SimulatorPage({ fullscreen, background, children }: { fullscreen: boolean; background: string; children: ReactNode }) {
-  const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
-  return (
-    <View
-      style={
-        fullscreen ? { flex: 1, backgroundColor: colors.media } : { flex: 1, backgroundColor: background, paddingTop: insets.top, paddingBottom: insets.bottom }
-      }
-    >
-      {children}
     </View>
   );
 }
 
-function SimulatorDeviceHeader({
+const pageStyle = (fullscreen: boolean, backgroundColor: string, insets: { top: number; bottom: number }) => ({
+  flex: 1,
+  backgroundColor,
+  paddingTop: fullscreen ? 0 : insets.top,
+  paddingBottom: fullscreen ? 0 : insets.bottom,
+});
+
+function deviceHeader({
+  colors,
   device,
   state,
   onChoose,
   onHandheld,
   onClose,
 }: {
+  colors: ReturnType<typeof useTheme>["colors"];
   device: SimulatorDevice;
   state: SimulatorConnectionState;
   onChoose: () => void;
   onHandheld: () => void;
   onClose?: () => void;
 }) {
-  const { colors } = useTheme();
   const caption = { color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 };
   return (
     <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, gap: 8 }}>

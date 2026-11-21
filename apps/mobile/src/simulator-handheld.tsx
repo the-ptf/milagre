@@ -26,7 +26,7 @@ export type HandheldAction = "home" | "back" | "rotate" | "control" | "retry";
 type Item = { action: HandheldAction | "exit"; label: string; icon: IconData; disabled?: boolean };
 
 /** What the menu offers in a connection state. The helper has no App Switcher button, so the menu has none either. */
-export function handheldMenu(state: SimulatorConnectionState, android: boolean): Item[] {
+function handheldMenu(state: SimulatorConnectionState, android: boolean): Item[] {
   const live = state === "live";
   return [
     { action: "home", label: "Home", icon: Home01Icon, disabled: !live },
