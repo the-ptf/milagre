@@ -154,7 +154,7 @@ async function browserChecks() {
     await screenshot("model-picker-open");
     assert.equal(
       await evaluate(`[...document.querySelectorAll('[data-picker-panel] [data-provider-tabs] > button')].map((tab) => tab.disabled).join()`),
-      "false,false,false,false",
+      "false,false,false,false,false",
       "A provider tab stays clickable while its CLI needs an update",
     );
     // Each provider's models, with its logo in color and each model's context window (Kiro: its credit multiplier) beside its name.
@@ -170,13 +170,13 @@ async function browserChecks() {
     }
     const tabs = `[...document.querySelectorAll('[data-picker-panel] [data-provider-tabs] > button')].map((tab) => tab.getAttribute('aria-label')).join()`;
     await evaluate(`window.setCliStatus((current) => ({ ...current, antigravity: { state: 'missing', message: 'Antigravity is not installed.' } }))`);
-    await waitFor(`${tabs} === "Codex,Claude,Antigravity,Kiro"`);
+    await waitFor(`${tabs} === "Codex,Claude,Antigravity,Kiro,Ollama"`);
     await click(model);
     await click(model);
-    await waitFor(`${tabs} === "Codex,Claude,Kiro"`);
+    await waitFor(`${tabs} === "Codex,Claude,Kiro,Ollama"`);
     await screenshot("model-picker-missing-hidden");
     await evaluate(`window.setCliStatus((current) => ({ ...current, antigravity: { state: 'ready' } }))`);
-    await waitFor(`${tabs} === "Codex,Claude,Antigravity,Kiro"`);
+    await waitFor(`${tabs} === "Codex,Claude,Antigravity,Kiro,Ollama"`);
     await click("[data-picker-panel] input");
     assert.equal(await panels(), 1, "Pressing inside the picker keeps it open");
     await click("[data-prompt-editor]");
