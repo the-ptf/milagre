@@ -30,8 +30,10 @@ function announcement({ tagName, url, body, isPrerelease }) {
 
 async function announce(release, webhookUrl, fetchImpl = fetch) {
   const embed = announcement(release);
+  const target = new URL(webhookUrl);
+  target.searchParams.set("wait", "true");
   const post = async (extra) => {
-    const response = await fetchImpl(webhookUrl, {
+    const response = await fetchImpl(target.toString(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ embeds: [embed], allowed_mentions: { parse: [] }, ...extra }),

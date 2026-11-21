@@ -29,7 +29,7 @@ test("a release posts its notes as one embed that links to the release and pings
   const { calls, fetchImpl } = discord([204]);
   await announce({ tagName: "v0.233.0-beta.1", url: URL, body: NOTES, isPrerelease: true }, "https://discord.test/hook", fetchImpl);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, "https://discord.test/hook");
+  assert.equal(calls[0].url, "https://discord.test/hook?wait=true");
   const { embeds, allowed_mentions: mentions } = calls[0].payload;
   assert.deepEqual(mentions, { parse: [] });
   assert.equal(embeds[0].title, "Nova versão beta do Milagre: v0.233.0-beta.1");
@@ -60,6 +60,7 @@ test("a forum channel gets the announcement as a new post named after the releas
   await announce({ tagName: "v0.233.0", url: URL, body: NOTES, isPrerelease: false }, "https://discord.test/hook", fetchImpl);
   assert.equal(calls.length, 2);
   assert.equal(calls[0].payload.thread_name, undefined);
+  assert.equal(calls[1].url, "https://discord.test/hook?wait=true");
   assert.equal(calls[1].payload.thread_name, "Nova versão do Milagre: v0.233.0");
 });
 
@@ -70,4 +71,10 @@ test("any other rejection fails with Discord's answer and is not retried", async
     /Discord answered 404: .*Unknown Webhook/,
   );
   assert.equal(calls.length, 1);
+});
+
+test("existing webhook query parameters are kept next to wait=true", async () => {
+  const { calls, fetchImpl } = discord([200]);
+  await announce({ tagName: "v0.233.0", url: URL, body: NOTES, isPrerelease: false }, "https://discord.test/hook?thread_id=42", fetchImpl);
+  assert.equal(calls[0].url, "https://discord.test/hook?thread_id=42&wait=true");
 });

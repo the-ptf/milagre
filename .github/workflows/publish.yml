@@ -379,17 +379,26 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --target "$TARGET" --prerelease --title "$RELEASE_TAG" --notes-file "$NOTES_FILE" "${assets[@]}"
           fi
-      - name: Announce on Discord
-        continue-on-error: true
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: gh release view "$RELEASE_TAG" --json tagName,url,body,isPrerelease | node scripts/announce-release.cjs
       # The release just shipped is now the previous one; the draft lists only what is newer. Its tag is fetched first.
       - name: Refresh the Next beta draft
         continue-on-error: true
         run: |
           git fetch --quiet --tags origin
           node scripts/plan-release.cjs next-draft
+  announce:
+    needs: [prepare, publish]
+    if: always() && needs.publish.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Announce on Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,url,body,isPrerelease | node scripts/announce-release.cjs
   deploy-linux-repository:
     needs: [prepare, publish]
     # always(): publish follows the skipped windows job, and a job downstream of a skipped one is skipped without it.

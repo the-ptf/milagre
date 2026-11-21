@@ -80,7 +80,7 @@ Required repository secrets:
 | Cloudflare deployment | `CLOUDFLARE_PACKAGES_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`                                               |
 | Discord announcement  | `DISCORD_WEBHOOK_URL`                                                                                  |
 
-After each release, Publish posts its notes to the Discord channel behind `DISCORD_WEBHOOK_URL` (`scripts/announce-release.cjs`). A forum channel gets one post per release. A failed post never fails the release. To announce a past release by hand: `gh release view <tag> --json tagName,url,body,isPrerelease | DISCORD_WEBHOOK_URL=<url> node scripts/announce-release.cjs`.
+After each release, the `announce` job in Publish (separate from `publish`, so a slow post can't time out the release or skip the stable Linux deploy) posts its notes to the Discord channel behind `DISCORD_WEBHOOK_URL` (`scripts/announce-release.cjs`). A forum channel gets one post per release. The post uses `wait=true` so Discord reports a failed save. A failed post never fails the release. To announce a past release by hand: `gh release view <tag> --json tagName,url,body,isPrerelease | DISCORD_WEBHOOK_URL=<url> node scripts/announce-release.cjs`.
 
 Apple and Linux signing secrets and the Cloudflare account ID are configured. Windows signing and the dedicated Cloudflare deployment token still need setup. The existing local Cloudflare token stays in its private environment file; it is not copied into GitHub. Use a dedicated deployment token for the repository workflow.
 

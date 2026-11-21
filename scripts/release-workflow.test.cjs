@@ -284,14 +284,19 @@ test("the macOS build stages its installers on the channel Publish asks for and 
   assert.match(build.run, /--config\.publish\.channel="\$\{CHANNEL\}"/);
 });
 
-test("Publish announces the release on Discord only after it exists, and a failed post never fails it", () => {
-  const steps = publishWorkflow.jobs.publish.steps;
-  const names = steps.map((step) => step.name);
-  const announce = steps.find((step) => step.name === "Announce on Discord");
-  assert.ok(names.indexOf("Publish the release") < names.indexOf("Announce on Discord"));
-  assert.equal(announce["continue-on-error"], true);
+test("the Discord announcement runs in its own job after Publish, so a slow post cannot hold up the release or the Linux deploy", () => {
+  const job = publishWorkflow.jobs.announce;
+  const announce = job.steps.find((step) => step.name === "Announce on Discord");
+  assert.deepEqual(job.needs, ["prepare", "publish"]);
+  assert.match(job.if, /needs\.publish\.result == 'success'/);
+  assert.ok(job["timeout-minutes"] <= 5);
   assert.deepEqual(announce.env, { DISCORD_WEBHOOK_URL: "${{ secrets.DISCORD_WEBHOOK_URL }}" });
-  assert.match(announce.run, /gh release view "\$RELEASE_TAG" --json tagName,url,body,isPrerelease \| node scripts\/announce-release\.cjs/);
+  assert.match(
+    announce.run,
+    /gh release view "\$RELEASE_TAG" --repo "\$GITHUB_REPOSITORY" --json tagName,url,body,isPrerelease \| node scripts\/announce-release\.cjs/,
+  );
+  assert.ok(!publishWorkflow.jobs.publish.steps.some((step) => step.name === "Announce on Discord"));
+  assert.ok(!publishWorkflow.jobs["deploy-linux-repository"].needs.includes("announce"));
 });
 
 test("every platform builds the planned commit, and the release tag exists only once Publish creates it", () => {
