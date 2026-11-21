@@ -14810,10 +14810,12 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
     "../mac-feature-row": { MacFeatureRow: "MacFeatureRow" },
   });
   assert.equal(find(integrations, (n) => n.type === "MacFeatureRow").props.href, "/babysit-prs");
-  // Phone & sharing: Simlock devices, then Designs and artifacts.
+  // Phone & sharing: iPhones on a cable and Simlock devices, then Designs and artifacts.
   const sharing = page("app/(settings)/phone-sharing.tsx", "Phone & sharing", "published-pages-section", "PublishedPagesSection", {
     "../mac-feature-row": { MacFeatureRow: "MacFeatureRow" },
+    "../baguette-row": { BaguetteRow: "BaguetteRow" },
   });
+  assert.ok(find(sharing, (n) => n.type === "BaguetteRow"));
   assert.equal(find(sharing, (n) => n.type === "MacFeatureRow").props.href, "/simlock");
   assert.ok(find(sharing, (n) => n.type === "SectionLabel" && n.props.children === "Designs and artifacts"));
   page("app/(settings)/experimental.tsx", "Church", "experimental-section", "ExperimentalSection");

@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { DURATION, EASE_OUT } from "../../lib/ease";
@@ -15,6 +15,7 @@ import {
   VrGlassesIcon,
 } from "@hugeicons/core-free-icons";
 import {
+  isCabledIPhone,
   SIMLOCK_DEVICE_PREFIX,
   simulatorKind,
   simulatorQualityFor,
@@ -245,6 +246,18 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
   // The window's top-right corner offers the simulator too, while this Chat has one attached.
   useSidePanel("simulator", api && list.supported && attachedCount ? { open: opened, toggle: open } : null);
   if (!api || !list.supported || !attachedCount) return <AnimatePresence initial={false} />;
+  const renderDevice = (device: SimulatorDevice) => (
+    <DeviceRow
+      key={device.id}
+      device={device}
+      running={attaching || list.devices.some((d) => d.id === device.id)}
+      busy={busy}
+      attaching={attaching}
+      onPick={() => (attaching ? void mutate("attach", device) : setSelected(device))}
+      onRelease={() => void release(device)}
+      onDetach={() => void mutate("detach", device)}
+    />
+  );
   const panelContent = (
     <>
       {!selected && (
@@ -311,50 +324,8 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
           {!loading && !list.error && !(attaching ? list.available : list.attached)?.length && (
             <EmptyState size="compact" title={attaching ? `No other devices are running on ${thisComputer}` : "No simulators attached to this Chat"} />
           )}
-          {(attaching ? (list.available ?? []) : (list.attached ?? [])).map((device) => {
-            const running = attaching || list.devices.some((d) => d.id === device.id);
-            return (
-              <div key={device.id} className="flex items-center">
-                <button
-                  type="button"
-                  disabled={busy || !running}
-                  data-simulator-device={device.id}
-                  onClick={() => (attaching ? void mutate("attach", device) : setSelected(device))}
-                  className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-control px-3 text-left transition-colors hover:bg-hover-2 active:bg-hover-2 disabled:opacity-60"
-                >
-                  <Icon icon={KIND_ICONS[simulatorKind(device)]} size={16} />
-                  <span className="min-w-0 flex-1 truncate text-13">{device.name}</span>
-                  <span className="text-11 text-ink-3">{running ? simulatorRuntimeLabel(device) : "Stopped"}</span>
-                </button>
-                {!attaching &&
-                  (device.id.startsWith(SIMLOCK_DEVICE_PREFIX) ? (
-                    <Tooltip label="Return to the Simlock pool">
-                      <button
-                        type="button"
-                        disabled={busy}
-                        aria-label={`Return ${device.name} to the Simlock pool`}
-                        onClick={() => void release(device)}
-                        className="rounded-control p-2 text-ink-3 hover:bg-hover"
-                      >
-                        <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
-                      </button>
-                    </Tooltip>
-                  ) : (
-                    <Tooltip label="Detach from Chat">
-                      <button
-                        type="button"
-                        disabled={busy}
-                        aria-label={`Detach ${device.name} from Chat`}
-                        onClick={() => void mutate("detach", device)}
-                        className="rounded-control p-2 text-ink-3 hover:bg-hover"
-                      >
-                        <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
-                      </button>
-                    </Tooltip>
-                  ))}
-              </div>
-            );
-          })}
+          {(attaching ? (list.available ?? []).filter((device) => !isCabledIPhone(device)) : (list.attached ?? [])).map(renderDevice)}
+          {attaching && <CabledIPhones devices={list.available} render={renderDevice} />}
           {!attaching && (
             <button
               type="button"
@@ -463,6 +434,77 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
         )}
       </PillSlot>
     </AnimatePresence>
+  );
+}
+
+function CabledIPhones({ devices, render }: { devices?: SimulatorDevice[]; render(device: SimulatorDevice): ReactNode }) {
+  const phones = devices?.filter(isCabledIPhone) ?? [];
+  if (!phones.length) return null;
+  return (
+    <section aria-label="iPhones on a cable" data-slot="cabled-iphones" className="mt-1 border-t border-line pt-1">
+      <div className="px-3 pb-1 pt-2 text-11 text-ink-3">iPhones on a cable, through Baguette</div>
+      {phones.map(render)}
+    </section>
+  );
+}
+
+function DeviceRow({
+  device,
+  running,
+  busy,
+  attaching,
+  onPick,
+  onRelease,
+  onDetach,
+}: {
+  device: SimulatorDevice;
+  running: boolean;
+  busy: boolean;
+  attaching: boolean;
+  onPick(): void;
+  onRelease(): void;
+  onDetach(): void;
+}) {
+  return (
+    <div className="flex items-center">
+      <button
+        type="button"
+        disabled={busy || !running}
+        data-simulator-device={device.id}
+        onClick={onPick}
+        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-control px-3 text-left transition-colors hover:bg-hover-2 active:bg-hover-2 disabled:opacity-60"
+      >
+        <Icon icon={KIND_ICONS[simulatorKind(device)]} size={16} />
+        <span className="min-w-0 flex-1 truncate text-13">{device.name}</span>
+        <span className="text-11 text-ink-3">{running ? simulatorRuntimeLabel(device) : "Stopped"}</span>
+      </button>
+      {!attaching &&
+        (device.id.startsWith(SIMLOCK_DEVICE_PREFIX) ? (
+          <Tooltip label="Return to the Simlock pool">
+            <button
+              type="button"
+              disabled={busy}
+              aria-label={`Return ${device.name} to the Simlock pool`}
+              onClick={onRelease}
+              className="rounded-control p-2 text-ink-3 hover:bg-hover"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
+            </button>
+          </Tooltip>
+        ) : (
+          <Tooltip label="Detach from Chat">
+            <button
+              type="button"
+              disabled={busy}
+              aria-label={`Detach ${device.name} from Chat`}
+              onClick={onDetach}
+              className="rounded-control p-2 text-ink-3 hover:bg-hover"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
+            </button>
+          </Tooltip>
+        ))}
+    </div>
   );
 }
 

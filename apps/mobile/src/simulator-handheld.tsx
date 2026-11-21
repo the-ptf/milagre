@@ -8,6 +8,7 @@ import * as SecureStore from "expo-secure-store";
 import { useKeepAwake } from "expo-keep-awake";
 import { ArrowLeft01Icon, Home01Icon, MinimizeScreenIcon, Refresh01Icon, Rotate01Icon, TouchInteraction01Icon } from "@hugeicons/core-free-icons";
 import type { SimulatorConnectionState } from "@milagre/shared/simulator-receiver";
+import type { SimulatorCapability } from "@milagre/shared/simulator";
 import { createHandheldSpotStore, DEFAULT_HANDHELD_SPOT, handheldSpotPoint, landHandheldSpot } from "./handheld-spot";
 import { Icon, type IconData } from "./icons";
 import { duration, lineHeight, radius, space, type } from "./design-tokens";
@@ -25,10 +26,12 @@ const spots = createHandheldSpotStore(SecureStore);
 export type HandheldAction = "home" | "back" | "rotate" | "control" | "retry";
 type Item = { action: HandheldAction | "exit"; label: string; icon: IconData; disabled?: boolean };
 
-/** What the menu offers in a connection state. The helper has no App Switcher button, so the menu has none either. */
-function handheldMenu(state: SimulatorConnectionState, android: boolean): Item[] {
+/** What the menu offers in a connection state, less the controls the device lacks. The helper has no App Switcher button, so the menu has none either. */
+function handheldMenu(state: SimulatorConnectionState, android: boolean, capabilities?: SimulatorCapability[]): Item[] {
   const live = state === "live";
-  return [
+  const lacks = (item: Item) =>
+    !!capabilities && ["home", "back", "rotate"].includes(item.action) && !capabilities.includes(item.action as SimulatorCapability);
+  const items: Item[] = [
     { action: "home", label: "Home", icon: Home01Icon, disabled: !live },
     ...(android ? [{ action: "back", label: "Back", icon: ArrowLeft01Icon, disabled: !live } as const] : []),
     { action: "rotate", label: "Rotate", icon: Rotate01Icon, disabled: !live },
@@ -36,6 +39,7 @@ function handheldMenu(state: SimulatorConnectionState, android: boolean): Item[]
     ...(state === "error" || state === "paused" ? [{ action: "retry", label: "Reconnect", icon: Refresh01Icon } as const] : []),
     { action: "exit", label: "Exit handheld", icon: MinimizeScreenIcon },
   ];
+  return items.filter((item) => !lacks(item));
 }
 
 /** Handheld mode belongs to the device it was entered for, while its viewer is on screen. `fullscreen` where the viewer page itself goes black and bare (a phone). */
@@ -73,11 +77,13 @@ export function HandheldStage({ docked, handheld, onExit, children }: { docked: 
 export function HandheldControls({
   state,
   android,
+  capabilities,
   onAction,
   onExit,
 }: {
   state: SimulatorConnectionState;
   android: boolean;
+  capabilities?: SimulatorCapability[];
   onAction: (action: HandheldAction) => void;
   onExit: () => void;
 }) {
@@ -214,7 +220,7 @@ export function HandheldControls({
               boxShadow: colors.shadowOverlay,
             }}
           >
-            {handheldMenu(state, android).map((item) => (
+            {handheldMenu(state, android, capabilities).map((item) => (
               <Pressable
                 key={item.action}
                 accessibilityRole="button"

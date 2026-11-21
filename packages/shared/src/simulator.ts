@@ -15,7 +15,11 @@ export type SimulatorDevice = {
   runtimeVersion?: string | null;
   /** An Android emulator's API level. */
   apiLevel?: number | null;
+  /** The controls it takes, as its status reports them, so a viewer that can't connect still hides the rest. */
+  capabilities?: SimulatorCapability[];
 };
+/** A control a device takes from the viewer. Older hosts send none, which means every control its platform offers. */
+export type SimulatorCapability = "touch" | "home" | "back" | "rotate" | "keyboard" | "copy" | "repair" | "hinge";
 export type SimulatorFamily = "iPhone" | "iPad" | "Watch" | "TV" | "Vision";
 export type SimulatorKind = SimulatorFamily | "Android";
 /** What a device is. Metadata decides; the editable name is read only when an older host sent none. */
@@ -29,9 +33,12 @@ export function simulatorKind(device: Pick<SimulatorDevice, "platform" | "name" 
   if (/Vision/i.test(model)) return "Vision";
   return "iPhone";
 }
-/** "iOS 26.4" or "Android 15", from the runtime when the host sent it. */
-export function simulatorRuntimeLabel(device: Pick<SimulatorDevice, "platform" | "version" | "runtimeVersion">): string {
-  return `${device.platform === "android" ? "Android" : "iOS"} ${device.runtimeVersion || device.version}`.trim();
+/** "iOS 26.4" or "Android 15", from the runtime when the host sent it; an iPhone on a cable says so first. */
+export function simulatorRuntimeLabel(device: Pick<SimulatorDevice, "platform" | "version" | "runtimeVersion"> & { id?: string }): string {
+  const version = device.runtimeVersion || device.version;
+  const os = `${device.platform === "android" ? "Android" : "iOS"} ${version}`.trim();
+  if (!device.id?.startsWith(BAGUETTE_DEVICE_PREFIX)) return os;
+  return version ? `On a cable · ${os}` : "On a cable";
 }
 export type SimulatorOrientation = "portrait" | "portrait-upside-down" | "landscape-left" | "landscape-right";
 export type SimulatorStatus = {
@@ -53,6 +60,7 @@ export type SimulatorStatus = {
   keyboard?: boolean;
   /** The host reads the device clipboard back with a copy event. */
   copy?: boolean;
+  capabilities?: SimulatorCapability[];
 };
 export type SimulatorInput =
   | { kind: "touch"; phase: "begin" | "move" | "end"; points: { x: number; y: number }[] }
@@ -145,3 +153,28 @@ export interface SimlockApi {
 }
 /** Simlock leases are listed with ids under this prefix. */
 export const SIMLOCK_DEVICE_PREFIX = "simlock:";
+
+/** iPhones on a cable, reached through the optional Baguette CLI, are listed with ids under this prefix. */
+export const BAGUETTE_DEVICE_PREFIX = "baguette:";
+export const isCabledIPhone = (device: Pick<SimulatorDevice, "id">) => device.id.startsWith(BAGUETTE_DEVICE_PREFIX);
+/** Whether this computer found Baguette, which lists and streams its iPhones on a cable. Milagre doesn't install it. */
+export type BaguetteStatus = {
+  found: boolean;
+  path?: string;
+  version?: string;
+  /** Found at `minVersion` or later. */
+  supported: boolean;
+  minVersion: string;
+  /** A `baguette serve` this host started is running on loopback now. */
+  serving?: boolean;
+};
+export interface BaguetteApi {
+  status(): Promise<BaguetteStatus>;
+}
+/** Settings' one line on Baguette, with the command that installs or updates it. */
+export function baguetteStatusLine(status: BaguetteStatus) {
+  if (!status.found) return "Baguette isn't installed. Install it with brew install baguette, then reopen Settings.";
+  if (!status.supported)
+    return `Baguette ${status.version ?? "of an unknown version"} is too old. Update it to ${status.minVersion} or later with brew upgrade baguette.`;
+  return `Baguette ${status.version} is installed${status.serving ? " and streaming now" : ""}.`;
+}

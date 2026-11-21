@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { runInNewContext } from "node:vm";
 import * as receiverModule from "./simulator-receiver.mjs";
 import { simulatorKeyUsage } from "./simulator-typing.mjs";
+import { simulatorHiddenControls } from "./simulator-controls.mjs";
 import {
   simulatorGeometry,
   simulatorPoint,
@@ -559,6 +560,35 @@ test("additional controls expand inline, preserve the viewer and close before Es
   assert.equal(h.elements.extras.hidden, true);
   assert.equal(calls.filter(([method]) => method === "open").length, 1);
   h.bridge.dispose();
+});
+test("controls follow the device's capabilities, and an older host's status keeps every control", async () => {
+  const calls = [],
+    state = { ...readyStatus, capabilities: ["touch", "home"] };
+  const h = browserHarness(fakeHost(calls, state));
+  await h.flush();
+  assert.deepEqual(
+    ["home", "rotate", "back", "repair"].map((id) => h.elements[id].hidden),
+    [false, true, true, true],
+  );
+  delete state.capabilities;
+  for (const poll of h.intervals.values()) await poll();
+  assert.deepEqual(
+    ["home", "rotate", "back", "repair"].map((id) => h.elements[id].hidden),
+    [false, false, true, false],
+  );
+  h.bridge.dispose();
+  const phone = { platform: "ios", capabilities: ["touch", "home"] };
+  assert.deepEqual(simulatorHiddenControls(phone, null), { back: true, home: false, rotate: true, repair: true, keyboard: true, typingStatus: null });
+  assert.deepEqual(simulatorHiddenControls(phone, { keyboard: true, copy: true }).typingStatus, { keyboard: false, copy: false });
+  assert.deepEqual(simulatorHiddenControls(phone, { capabilities: ["touch"] }).home, true);
+  assert.deepEqual(simulatorHiddenControls({ platform: "android" }, null), {
+    back: false,
+    home: false,
+    rotate: false,
+    repair: true,
+    keyboard: false,
+    typingStatus: null,
+  });
 });
 
 test("the framed viewer reports connection and ownership states to its native header", async () => {

@@ -113,6 +113,7 @@ const METHODS = new Set([
   "computer-use:status",
   "computer-use:guide",
   "computer-use:frame",
+  "baguette:status",
   "simlock:settings:read",
   "simlock:settings:save",
   "simlock:identity",
