@@ -527,7 +527,7 @@ async function main() {
   console.log(`Saved ${out}`);
 }
 
-module.exports = { connect, electronPath, processes, seedRepo, bin, stop, until, round };
+module.exports = { compare, connect, electronPath, processes, seedRepo, bin, stop, until, round };
 
 if (require.main === module) {
   main().catch((error) => {
