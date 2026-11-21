@@ -1,8 +1,8 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { Alert, StyleSheet, Text, View } from "react-native";
-import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, Stack, useFocusEffect } from "expo-router";
-import { ArrowRight01Icon, DashboardSquare01Icon, LibraryIcon, PaintBoardIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowRight01Icon, DashboardSquare01Icon, LibraryIcon, PaintBoardIcon } from "@hugeicons/core-free-icons";
 import { designScope, libraryCardLine, libraryRecent, libraryRecentLine, type DesignLibrary, type DesignLibraryEntry } from "@milagre/shared/artifact";
 import { useSession } from "./session";
 import { allComputers } from "./all-computers";
@@ -13,7 +13,7 @@ import { lineHeight, radius, space, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { LibrarySheet } from "./library-sheet";
 import { useSplitLayout } from "./split-context";
-import { EmptyState, ErrorNotice, Group, PageScroll, PullDown, useStyles, type MenuSection } from "./ui";
+import { CircleButton, EmptyState, ErrorNotice, Group, PageScroll, PullDown, SheetHeader, useStyles, type MenuSection } from "./ui";
 
 const RECENT = 6;
 const PAGE_SECTIONS: MenuSection[] = [{ items: [{ id: "rename-page", title: "Rename page", systemImage: "pencil" }] }];
@@ -60,7 +60,6 @@ export function DesignLibraryScreen({
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const wide = useSplitLayout().widthClass !== "compact";
-  const sheetInsets = useMemo(() => ({ ...insets, top: 0 }), [insets]);
   const { client } = useSession();
   const source = hostId && client?.url === hostId ? client : hostId ? allComputers.clientFor(hostId) : client;
   const [reads, setReads] = useState(0);
@@ -76,6 +75,7 @@ export function DesignLibraryScreen({
   const sheetHost = hostId ?? source?.url ?? "";
   const shownPage = pages.find((item) => item.id === pageParam) ?? pages[0];
   const shownId = shownPage && shownPage.id === pageParam ? idParam : undefined;
+  const twoColumns = wide && !!shownPage && !!path;
   const open = (page: string, id?: string) =>
     wide
       ? router.setParams({ library: page, id: id ?? "" })
@@ -88,7 +88,7 @@ export function DesignLibraryScreen({
   };
   const lists = (
     <PageScroll style={{ flex: 1 }} contentContainerStyle={{ gap: 12 }}>
-      {name ? <Text style={styles.caption}>{name}</Text> : null}
+      {name && !twoColumns ? <Text style={styles.caption}>{name}</Text> : null}
       {!source || !path ? <ErrorNotice message="Reconnect to your computer to open this Project's Design library." /> : null}
       {library && !pages.length ? (
         <EmptyState icon={LibraryIcon} title="No designs in this Project's library yet">
@@ -143,21 +143,22 @@ export function DesignLibraryScreen({
   );
   return (
     <>
-      <Stack.Screen options={{ title: "Design library", headerBackTitle: name }} />
-      {wide && shownPage && path ? (
+      <Stack.Screen options={{ title: "Design library", headerBackTitle: name, headerShown: !twoColumns }} />
+      {twoColumns ? (
         <View style={{ flex: 1, flexDirection: "row" }}>
-          <View style={{ width: 340, borderRightWidth: StyleSheet.hairlineWidth, borderColor: colors.line }}>{lists}</View>
+          <View style={{ width: 340, paddingTop: insets.top, borderRightWidth: StyleSheet.hairlineWidth, borderColor: colors.line }}>
+            <SheetHeader title="Design library" subtitle={name} leading={<CircleButton label="Back" icon={ArrowLeft01Icon} onPress={() => router.back()} />} />
+            {lists}
+          </View>
           <View style={{ flex: 1 }}>
-            <SafeAreaInsetsContext.Provider value={sheetInsets}>
-              <LibrarySheet
-                key={`${shownPage.id}:${shownId ?? ""}`}
-                hostId={sheetHost}
-                projectPath={path}
-                page={shownPage.id}
-                id={shownId || undefined}
-                onClose={() => {}}
-              />
-            </SafeAreaInsetsContext.Provider>
+            <LibrarySheet
+              key={`${shownPage.id}:${shownId ?? ""}`}
+              hostId={sheetHost}
+              projectPath={path}
+              page={shownPage.id}
+              id={shownId || undefined}
+              onClose={() => {}}
+            />
           </View>
         </View>
       ) : (

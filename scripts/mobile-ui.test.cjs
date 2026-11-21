@@ -23519,7 +23519,7 @@ function libraryScreenHost(client, pushes, { wide = false, params = {} } = {}) {
       Text: "Text",
       View: "View",
     },
-    "react-native-safe-area-context": { SafeAreaInsetsContext: { Provider: "Insets" }, useSafeAreaInsets: () => ({ top: 24, bottom: 20, left: 0, right: 0 }) },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 24, bottom: 20, left: 0, right: 0 }) },
     "./split-context": { useSplitLayout: () => ({ widthClass: wide ? "wide" : "compact" }) },
     "expo-router": {
       router: { push: (route) => pushes.push(route), setParams: (next) => pushes.push({ setParams: next }) },
@@ -23534,6 +23534,8 @@ function libraryScreenHost(client, pushes, { wide = false, params = {} } = {}) {
     "./theme": { useTheme: () => ({ colors: { canvas: "#eee" } }) },
     "./confirm-store": { confirm: async () => true },
     "./ui": {
+      CircleButton: "CircleButton",
+      SheetHeader: "SheetHeader",
       EmptyState: "EmptyState",
       ErrorNotice: "ErrorNotice",
       Group: "Group",
@@ -23644,7 +23646,9 @@ test("on an iPad the Design library page shows its lists beside the chosen page'
   const sheet = () => find(tree, (node) => node.type === "LibrarySheet");
   same({ ...sheet().props, onClose: undefined }, { hostId: "mac", projectPath: "/p", page: "iphone", id: undefined, onClose: undefined });
   assert.equal(typeof sheet().props.onClose, "function", "embedded: no close button");
-  assert.equal(find(tree, (node) => node.type === "Insets").props.value.top, 0, "under the page's own header");
+  assert.equal(find(tree, (node) => node.type === "Stack.Screen").props.options.headerShown, false, "the lists column has its own header");
+  const header = find(tree, (node) => node.type === "SheetHeader");
+  same([header.props.title, header.props.subtitle, header.props.leading.props.label], ["Design library", "Habits", "Back"]);
   const selected = () => findAll(tree, (node) => node.type?.name === "LibraryRow" && node.props.selected).map((node) => node.props.title);
   same(selected(), ["iPhone"]);
   const rows = (title) =>
