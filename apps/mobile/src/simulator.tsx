@@ -3,6 +3,7 @@ import { AppState, Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
+import * as Clipboard from "expo-clipboard";
 import { File, Paths } from "expo-file-system";
 import {
   AndroidIcon,
@@ -581,6 +582,14 @@ function SimulatorWebView({
               deviceId,
               state: message.state as SimulatorConnectionState,
             });
+            return;
+          }
+          if (message.channel === "milagre-simulator" && message.event === "clipboard") {
+            if (message.action === "write" && typeof message.text === "string") void Clipboard.setStringAsync(message.text).catch(() => {});
+            else if (message.action === "read")
+              void Clipboard.getStringAsync()
+                .catch(() => null)
+                .then((text) => view.current?.injectJavaScript(`window.simulatorClipboard?.(${JSON.stringify(text).replace(/</g, "\\u003c")});true;`));
             return;
           }
           if (message.channel === "milagre-simulator" && message.method === "open") syncTheme();

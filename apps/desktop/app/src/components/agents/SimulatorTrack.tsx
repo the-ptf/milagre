@@ -502,6 +502,15 @@ function SimulatorFrame({
         onClose();
         return;
       }
+      if (event.data?.channel === "milagre-simulator" && event.data.event === "clipboard") {
+        if (event.data.action === "write" && typeof event.data.text === "string") void navigator.clipboard.writeText(event.data.text).catch(() => {});
+        else if (event.data.action === "read")
+          void navigator.clipboard
+            .readText()
+            .catch(() => null)
+            .then((text) => frame.current?.contentWindow?.postMessage({ channel: "milagre-simulator-clipboard", text }, "*"));
+        return;
+      }
       void bridge.receive(event.data);
     };
     window.addEventListener("message", receive);
