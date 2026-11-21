@@ -4,7 +4,14 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { DURATION, EASE_OUT } from "../../lib/ease";
 import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, SmartphoneIcon } from "@hugeicons/core-free-icons";
-import { SIMLOCK_DEVICE_PREFIX, type SimlockModel, type SimulatorApi, type SimulatorDevice, type SimulatorList } from "@milagre/shared/simulator";
+import {
+  SIMLOCK_DEVICE_PREFIX,
+  simulatorQualityFor,
+  type SimlockModel,
+  type SimulatorApi,
+  type SimulatorDevice,
+  type SimulatorList,
+} from "@milagre/shared/simulator";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import {
   createSimulatorBridge,
@@ -442,7 +449,7 @@ function SimulatorFrame({
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const deviceId = device.id;
-  const [html] = useState(() => createSimulatorReceiverHtml({ deviceId, device, theme: viewerTheme() }));
+  const [html] = useState(() => createSimulatorReceiverHtml({ deviceId, device, theme: viewerTheme(), quality: simulatorQualityFor(chatId) }));
   const syncTheme = useCallback(() => frame.current?.contentWindow?.postMessage({ channel: "milagre-simulator-theme", theme: viewerTheme() }, "*"), []);
   useEffect(() => {
     const observer = new MutationObserver(syncTheme);

@@ -1,3 +1,5 @@
+import { LOCAL_COMPUTER, computerOfKey } from "./chat-scopes.mjs";
+
 export type SimulatorDevice = {
   id: string;
   name: string;
@@ -52,6 +54,10 @@ export type SimulatorOpen = {
 export type SimulatorFrameFormat = "video/avcc" | "image";
 /** The encoder is shared per device: it runs at `full` while any H.264 viewer asks for it, else `reduced`. */
 export type SimulatorFrameQuality = "full" | "reduced";
+/** A viewer on the computer that runs the device asks for `full`; across a Link or the relay it asks for `reduced`, as the phone does. */
+export function simulatorQualityFor(chatKey: string): SimulatorFrameQuality {
+  return computerOfKey(chatKey) === LOCAL_COMPUTER ? "full" : "reduced";
+}
 export interface SimulatorApi {
   list(request: { chatId: string }): Promise<SimulatorList>;
   attach(request: { chatId: string; deviceId: string }): Promise<SimulatorList>;
