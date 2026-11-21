@@ -61,8 +61,8 @@ const server = http.createServer(async (req, res) => {
 });
 const wss = new WebSocketServer({ server, handleProtocols: (protocols) => [...protocols][0] });
 wss.on('connection', (socket, req) => {
-  if (mode.startsWith('android') && !req.url.includes('video=0')) socket.send(Buffer.from([0, 0, 0, 1, ...SPS, 0, 0, 0, 1, ...PPS, 0, 0, 1, ...IDR]));
   log({ url: req.url, authenticated: req.headers['sec-websocket-protocol'] === (mode.startsWith('android') ? 'serve-emu.token.' : 'serve-sim.token.') + token });
+  if (mode.startsWith('android') && !req.url.includes('video=0')) socket.send(Buffer.from([0, 0, 0, 1, ...SPS, 0, 0, 0, 1, ...PPS, 0, 0, 1, ...IDR]));
   const duo = mode.startsWith('duo');
   let hinge = {supportsHingeAngle:true,hingeAngle:0,hingePose:'closed'};
   let panel = {screenId:1,orientation:'portrait',physicalOrientation:'portrait',tableMode:false,observedDeviceState:{hingeAngle:0,physicalOrientation:'portrait'}};
@@ -575,9 +575,8 @@ test("Android H.264 arrives over serve-emu's video socket as AVCC envelopes", as
   assert.deepEqual(tagsOf(frame), [1, 2]);
   const raw = Buffer.from(frame.data, "base64");
   assert.deepEqual([...raw.subarray(5, 13)], [1, 0x42, 0xc0, 0x1f, 0xff, 0xe1, 0, 6], "an avcC record built from the inline SPS and PPS");
-  const logs = await f.logs();
-  assert.ok(logs.some((entry) => entry.url === "/vendor/serve-emu/ws?device=emulator-5554" && entry.authenticated));
-  assert.ok(logs.some((entry) => entry.method === "PATCH" && entry.url === "/vendor/serve-emu/api/stream-settings?device=emulator-5554"));
+  await waitFor(async () => (await f.logs()).some((entry) => entry.url === "/vendor/serve-emu/ws?device=emulator-5554" && entry.authenticated));
+  assert.ok((await f.logs()).some((entry) => entry.method === "PATCH" && entry.url === "/vendor/serve-emu/api/stream-settings?device=emulator-5554"));
   const [argv] = await f.launches();
   assert.deepEqual(argv.slice(argv.indexOf("--stream-source"), argv.indexOf("--stream-source") + 4), [
     "--stream-source",
