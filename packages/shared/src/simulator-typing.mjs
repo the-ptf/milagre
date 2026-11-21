@@ -205,19 +205,18 @@ export function simulatorTyping(host) {
       submitText();
     }
   });
-  pasteButton.addEventListener("click", () => {
+  pasteButton.addEventListener("click", async () => {
     if (texting || !typable()) return;
-    void new Promise((resolve) => {
+    const text = await new Promise((resolve) => {
       clipboardRead?.(null);
       clipboardRead = resolve;
       host.post({ channel: "milagre-simulator", event: "clipboard", action: "read" });
       setTimeout(() => {
         if (clipboardRead === resolve) window.simulatorClipboard(null);
       }, 15000);
-    }).then((text) => {
-      if (text === null) note("Couldn't read the clipboard. Allow Milagre to paste, then try again.");
-      else void sendText({ kind: "paste", text }, () => note("Pasted. If the text doesn't appear, long-press the field and choose Paste."));
     });
+    if (text === null) note("Couldn't read the clipboard. Allow Milagre to paste, then try again.");
+    else void sendText({ kind: "paste", text }, () => note("Pasted. If the text doesn't appear, long-press the field and choose Paste."));
   });
   copyButton.addEventListener("click", () => void copyFromDevice(false));
   let held = "";
