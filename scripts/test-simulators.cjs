@@ -451,6 +451,33 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[data-slot=simulator-frame]")');
     await evaluate("window.setDark(true)");
     await waitFor(footerMatches);
+    const dockState = 'document.querySelector("[data-slot=simulator-popover]")';
+    const fillsWindow = `(()=>{const r=${dockState}.getBoundingClientRect();return ${dockState}.dataset.focused==="true"&&r.left<=12&&r.right>=innerWidth-12})()`;
+    await click("[data-slot=simulator-focus]");
+    await waitFor(fillsWindow);
+    assert.equal(
+      await evaluate('(document.querySelector("[data-dock-layer]") ?? document.body).style.getPropertyValue("--simulator-dock")'),
+      "",
+      "the focused viewer covers the chat instead of narrowing it",
+    );
+    await screenshot("focus-dark");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    await waitFor(`!${dockState}.dataset.focused`);
+    assert.ok(await evaluate(`!!${dockState}`), "Escape leaves focus mode before it closes the viewer");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "F", modifiers: [process.platform === "darwin" ? "meta" : "control", "shift"] });
+    await waitFor(fillsWindow);
+    await evaluate(
+      `document.querySelector("[data-slot=simulator-frame]").contentWindow.eval('parent.postMessage({channel:"milagre-simulator",event:"close"},"*")')`,
+    );
+    await waitFor(`!${dockState}.dataset.focused`);
+    assert.ok(await evaluate(`!!${dockState}`), "Escape inside the viewer leaves focus mode first");
+    await click("[data-slot=simulator-focus]");
+    await waitFor(fillsWindow);
+    await click('[aria-label="Close simulator"]');
+    await waitFor(`!${dockState}`);
+    await click("[data-slot=simulator-track] button");
+    await click('[data-simulator-device="device-0"]');
+    await waitFor(`!!${dockState} && !${dockState}.dataset.focused`);
     await click('[aria-label="Close simulator"]');
     await waitFor('!document.querySelector("[data-slot=simulator-popover]") && window.simulatorClosed.length>0');
     assert.equal(
@@ -497,7 +524,7 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-slot=simulator-track]") && !document.querySelector("[data-slot=simulator-popover]")');
     await screenshot("last-detached");
     console.log(
-      "PASS: icon/count and composer placement, on-demand capture, chooser, the viewer docked beside the chat, close cleanup, Escape, light/dark screenshots",
+      "PASS: icon/count and composer placement, on-demand capture, chooser, the viewer docked beside the chat, focus mode, close cleanup, Escape, light/dark screenshots",
     );
     app.exit(0);
   } catch (error) {

@@ -53,4 +53,5 @@ export function createSimulatorReceiverHtml(config: {
   touchControls?: boolean;
   /** The H.264 quality this viewer asks the host for; desktop defaults to `full`. */
   quality?: SimulatorFrameQuality;
+  handheld?: boolean;
 }): string;

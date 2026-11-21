@@ -37,6 +37,7 @@ export const KEYBINDING_COMMANDS = Object.freeze([
   { id: "artifacts.toggle", title: "Show or hide the Artifact panel", group: "Panels", defaults: ["mod+shift+a"], forward: true },
   { id: "browser.toggle", title: "Show or hide the browser", group: "Panels", defaults: ["mod+shift+b"], forward: true },
   { id: "simulator.toggle", title: "Show or hide the simulator", group: "Panels", defaults: ["mod+shift+s"], forward: true },
+  { id: "simulator.focus", title: "Fill the window with the simulator", group: "Panels", defaults: ["mod+shift+f"], forward: true },
 ]);
 
 const COMMANDS = new Map(KEYBINDING_COMMANDS.map((command) => [command.id, command]));
