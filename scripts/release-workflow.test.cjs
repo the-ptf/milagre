@@ -284,6 +284,16 @@ test("the macOS build stages its installers on the channel Publish asks for and 
   assert.match(build.run, /--config\.publish\.channel="\$\{CHANNEL\}"/);
 });
 
+test("Publish announces the release on Discord only after it exists, and a failed post never fails it", () => {
+  const steps = publishWorkflow.jobs.publish.steps;
+  const names = steps.map((step) => step.name);
+  const announce = steps.find((step) => step.name === "Announce on Discord");
+  assert.ok(names.indexOf("Publish the release") < names.indexOf("Announce on Discord"));
+  assert.equal(announce["continue-on-error"], true);
+  assert.deepEqual(announce.env, { DISCORD_WEBHOOK_URL: "${{ secrets.DISCORD_WEBHOOK_URL }}" });
+  assert.match(announce.run, /gh release view "\$RELEASE_TAG" --json tagName,url,body,isPrerelease \| node scripts\/announce-release\.cjs/);
+});
+
 test("every platform builds the planned commit, and the release tag exists only once Publish creates it", () => {
   const sha = "${{ needs.prepare.outputs.sha }}";
   assert.equal(publishWorkflow.jobs.macos.with.ref, sha);

@@ -78,6 +78,9 @@ Required repository secrets:
 | Windows Azure signing | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` (OIDC; replaces the certificate secrets) |
 | Linux signing         | `LINUX_REPOSITORY_PRIVATE_KEY`, `LINUX_REPOSITORY_KEY_FINGERPRINT`                                     |
 | Cloudflare deployment | `CLOUDFLARE_PACKAGES_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`                                               |
+| Discord announcement  | `DISCORD_WEBHOOK_URL`                                                                                  |
+
+After each release, Publish posts its notes to the Discord channel behind `DISCORD_WEBHOOK_URL` (`scripts/announce-release.cjs`). A forum channel gets one post per release. A failed post never fails the release. To announce a past release by hand: `gh release view <tag> --json tagName,url,body,isPrerelease | DISCORD_WEBHOOK_URL=<url> node scripts/announce-release.cjs`.
 
 Apple and Linux signing secrets and the Cloudflare account ID are configured. Windows signing and the dedicated Cloudflare deployment token still need setup. The existing local Cloudflare token stays in its private environment file; it is not copied into GitHub. Use a dedicated deployment token for the repository workflow.
 

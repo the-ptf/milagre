@@ -379,6 +379,11 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --target "$TARGET" --prerelease --title "$RELEASE_TAG" --notes-file "$NOTES_FILE" "${assets[@]}"
           fi
+      - name: Announce on Discord
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: gh release view "$RELEASE_TAG" --json tagName,url,body,isPrerelease | node scripts/announce-release.cjs
       # The release just shipped is now the previous one; the draft lists only what is newer. Its tag is fetched first.
       - name: Refresh the Next beta draft
         continue-on-error: true
