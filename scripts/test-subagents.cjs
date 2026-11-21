@@ -597,6 +597,22 @@ async function browserChecks() {
     await clickLabel("Collapse subagents");
     await evaluate("window.setChildren([])");
     await waitFor('!document.querySelector("[data-slot=subagent-track]")');
+    await evaluate(
+      `window.stopCalls = []; window.milagre = { ...window.milagre, stopSubagent: async (...args) => { window.stopCalls.push(args); return { stopped: !!args[2], requiresSessionStop: !args[2] }; } }; window.setBackgroundTasks([]); window.setChildren([{ id: "live", title: "Live child", status: "running", startedAt: Date.now(), updatedAt: Date.now(), transcript: [] }]);`,
+    );
+    await waitFor('!!document.querySelector("[data-slot=subagent-track]")');
+    await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
+    await waitFor('!!document.querySelector("[data-subagent-stop]")');
+    await evaluate('document.querySelector("[data-subagent-stop]").click()');
+    await waitFor('document.querySelector("dialog[open]")?.textContent.includes("other running work")');
+    assert.deepEqual(await evaluate("window.stopCalls"), [["/fixture#1", "live", false]]);
+    await evaluate('[...document.querySelectorAll("dialog button")].find(b => b.textContent === "Cancel").click()');
+    assert.equal(await evaluate("window.stopCalls.length"), 1);
+    await evaluate('document.querySelector("[data-subagent-stop]").click()');
+    await waitFor('!!document.querySelector("dialog[open]")');
+    await evaluate('[...document.querySelectorAll("dialog button")].find(b => b.textContent === "Stop all work").click()');
+    await waitFor("window.stopCalls.length === 3");
+    assert.deepEqual(await evaluate("window.stopCalls[2]"), ["/fixture#1", "live", true]);
     console.log(
       "PASS: subagent list/archive/transcript checks, subagent plan and glance, advisor rows and result cards, Antigravity children, whole transcripts from a host that sends tails, and archived subagents read on demand",
     );

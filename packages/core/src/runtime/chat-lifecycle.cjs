@@ -8,7 +8,7 @@ const { issueFirstMessage, linearIssueContext, linearIssuePrompt, linearIssueReq
 const { createProviderUpdates, releaseVersion } = require("../agents/provider-updates.cjs");
 const { runCliUpdate } = require("../agents/cli-update.cjs");
 const { worktreeStatus } = require("../worktree-cleanup.cjs");
-const { chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { subagentActive, chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { archiveFinishedSubagents, archiveSubagent, deleteSession, patchSession } = require("@milagre/shared/project-edits");
 const { isRunChat, withRunChatsHidden } = require("../routines/runtime-adapter.cjs");
 const { doneDue } = require("@milagre/shared/done");
@@ -38,6 +38,22 @@ function registerChatControls({
   commands.handle("agent:interrupt", async (_event, chatId) => {
     await existingChat("stopping advisors")(chatId);
     await stopChat(chatId);
+  });
+
+  commands.handle("subagent:stop", async (_event, chatId, id, stopSession = false) => {
+    await existingChat("stopping a subagent")(chatId);
+    if (typeof id !== "string" || !id || id.length > 200 || typeof stopSession !== "boolean") throw new Error("That subagent isn't valid.");
+    const state = await scopeStates.get(projectOfKey(chatId));
+    const agent = state.sessions[sessionIdFromKey(chatId)]?.subagents?.find((item) => item.id === id);
+    if (!agent || !subagentActive(agent) || agent.source === "milagre-advisor") throw new Error("That subagent is no longer running.");
+    if (agents.canStopSubagent(chatId, id)) {
+      await agents.stopSubagent(chatId, id);
+      return { stopped: true, requiresSessionStop: false };
+    }
+    if (!stopSession) return { stopped: false, requiresSessionStop: true };
+    await stopChat(chatId);
+    await agents.closeChat(chatId);
+    return { stopped: true, requiresSessionStop: false };
   });
 
   commands.handle("chat:queue-send", async (_event, chatId, id) => {

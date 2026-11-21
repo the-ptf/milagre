@@ -3603,6 +3603,31 @@
         }
       ]
     },
+    "subagent:stop": {
+      "parameters": [
+        {
+          "name": "chatId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "stopSession",
+          "optional": true,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
     "advisor:stop": {
       "parameters": [
         {

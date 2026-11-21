@@ -1,4 +1,7 @@
 import { memo, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { bridgeForKey } from "../../lib/computer-bridge";
+import { ipcErrorMessage } from "@milagre/shared/result";
+import { Dialog } from "../primitives/Dialog";
 import { useDisplayNow } from "../../lib/display-clock";
 import { formatElapsed } from "@milagre/shared/display-clock";
 import {
@@ -73,6 +76,50 @@ function AdvisorControls({ agent, onStop, onRetry }: { agent: Subagent; onStop?:
     >
       {action === "stop" ? "Stop" : "Retry"}
     </Button>
+  );
+}
+
+function NativeStop({ agent, chatKey }: { agent: Subagent; chatKey?: string | null }) {
+  const [confirm, setConfirm] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (agent.source === "milagre-advisor" || !subagentActive(agent) || !chatKey) return null;
+  const stop = async (session = false) => {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await bridgeForKey(chatKey).stopSubagent(chatKey, agent.id, session);
+      setConfirm(result.requiresSessionStop);
+    } catch (failure) {
+      setError(ipcErrorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <Button variant="secondary" size={24} disabled={busy} data-subagent-stop onClick={() => void stop()}>
+        Stop
+      </Button>
+      {error && <InlineError>{error}</InlineError>}
+      {confirm && (
+        <Dialog
+          title="Stop this Chat's work?"
+          description="This provider cannot stop this subagent on its own. Stopping it will also stop the Chat and its other running work."
+          onClose={() => setConfirm(false)}
+          actions={
+            <>
+              <Button variant="secondary" onClick={() => setConfirm(false)}>
+                Cancel
+              </Button>
+              <Button variant="danger" disabled={busy} onClick={() => void stop(true)}>
+                Stop all work
+              </Button>
+            </>
+          }
+        />
+      )}
+    </>
   );
 }
 
@@ -291,6 +338,7 @@ export const SubagentDetail = memo(function SubagentDetail({
         {agent.model && <span>{agent.model}</span>}
         <span className="flex-1" />
         <AdvisorControls agent={agent} onStop={onStop} onRetry={onRetry} />
+        <NativeStop agent={agent} chatKey={chatKey} />
       </div>
       {plan ? (
         <PlanList tasks={plan} said={said} tool={running ? [tool, totals && `${totals} so far`].filter(Boolean).join(" · ") : undefined} />
@@ -461,6 +509,7 @@ export function SubagentTrack({
       </button>
       <span className="flex shrink-0 items-center gap-1 pt-1.5">
         <AdvisorControls agent={agent} onStop={onStop} onRetry={onRetry} />
+        <NativeStop agent={agent} chatKey={chatKey} />
         <span className="flex opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
           <Tooltip label={archived ? "Restore subagent" : "Archive subagent"}>
             <IconButton

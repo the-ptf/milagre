@@ -1649,3 +1649,26 @@ test("a Codex that refuses Everywhere servers keeps the off entries and milagre 
   assert.deepEqual(reported, [true]);
   assert.deepEqual(events.at(-1), { type: "turn-completed" });
 });
+
+test("stopSubagent interrupts only the selected Codex thread", async () => {
+  const session = new CodexSession({
+    cwd: os.tmpdir(),
+    command: "codex",
+    emit: () => {},
+  });
+  const calls = [];
+  session.state.subagents = new Map([["child", { id: "child", status: "running" }]]);
+  session.rpc = {
+    request: async (method, params) => {
+      calls.push({ method, params });
+      if (method === "thread/turns/list") return { data: [{ id: "child-turn", status: "inProgress" }] };
+      return {};
+    },
+  };
+  await session.stopSubagent("child");
+  assert.deepEqual(calls.at(-1), {
+    method: "turn/interrupt",
+    params: { threadId: "child", turnId: "child-turn" },
+  });
+  await assert.rejects(session.stopSubagent("unknown"), /not available/i);
+});

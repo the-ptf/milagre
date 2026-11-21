@@ -479,6 +479,7 @@ function makeBridge(invoke, listen, send) {
     getCliStatus: (scopeKey) => invoke("agent:cli-status", scopeKey),
     getProviderUpdates: () => invoke("agent:provider-updates"),
     updateCli: (provider, targetVersion) => invoke("agent:update-cli", provider, targetVersion),
+    stopSubagent: (chatId, id, stopSession) => invoke("subagent:stop", chatId, id, stopSession),
     stopAdvisor: (chatId, id) => invoke("advisor:stop", chatId, id),
     retryAdvisor: (chatId, id) => invoke("advisor:retry", chatId, id),
     onCliProgress: (callback) => listen("agent:cli-progress", callback),
