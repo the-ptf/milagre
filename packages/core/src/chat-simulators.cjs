@@ -2,6 +2,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { z } = require("zod");
+const { BAGUETTE_PREFIX } = require("./baguette.cjs");
 
 const matches = (a, b) => a.id === b.id && a.platform === b.platform && (a.platform !== "android" || a.name === b.name);
 function createChatSimulators({ simulators, file, validateChat, ended = () => false }) {
@@ -135,7 +136,8 @@ function simulatorToolDefinitions(chatId, api) {
   return [
     {
       name: "simulator_list",
-      description: "List simulators attached to this Chat and other running devices available to attach. Discovery does not attach devices or start capture.",
+      description:
+        "List simulators attached to this Chat and other running devices available to attach, including iPhones on a cable when this computer has Baguette. Discovery does not attach devices or start capture.",
       input: {},
       readOnly: true,
       run: async () => JSON.stringify(await api.list({ chatId })),
@@ -143,14 +145,15 @@ function simulatorToolDefinitions(chatId, api) {
     {
       name: "simulator_attach",
       description:
-        "Attach the exact iOS simulator or Android emulator you are using to this Chat so the user can view it from desktop or phone. Does not boot a device or start streaming. Get its deviceId from simulator_list.",
+        "Attach the exact iOS simulator, Android emulator or iPhone on a cable you are using to this Chat so the user can view it from desktop or phone. Does not boot a device or start streaming. Get its deviceId from simulator_list.",
       input: { deviceId: z.string().min(1).max(256) },
       readOnly: false,
       run: async ({ deviceId }) =>
         JSON.stringify({
           ...(await api.attach({ chatId, deviceId })),
-          guidance:
-            "This device is attached to the current Chat. Use its exact id with your device automation tools. Keep it attached for the user to inspect. simulator_detach removes only this Chat association and leaves the device running.",
+          guidance: deviceId.startsWith(BAGUETTE_PREFIX)
+            ? `This iPhone on a cable is attached to the current Chat. Its UDID is ${deviceId.slice(BAGUETTE_PREFIX.length)}: pass that to \`baguette\` (tap, swipe, screenshot, describe-ui) or \`xcrun devicectl\`. It takes touches only. Keep it attached for the user to inspect. simulator_detach removes only this Chat association.`
+            : "This device is attached to the current Chat. Use its exact id with your device automation tools. Keep it attached for the user to inspect. simulator_detach removes only this Chat association and leaves the device running.",
         }),
     },
     {

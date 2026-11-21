@@ -1,9 +1,11 @@
+export type SimulatorCapability = "touch" | "home" | "back" | "rotate" | "keyboard" | "repair" | "hinge";
 export type SimulatorOrientation = "portrait" | "portrait-upside-down" | "landscape-left" | "landscape-right";
 export interface SimulatorDevice {
   id: string;
   name: string;
   platform: "ios" | "android";
   version: string;
+  capabilities?: SimulatorCapability[];
 }
 export interface SimulatorIceServer {
   urls: string | string[];
@@ -26,6 +28,8 @@ export interface SimulatorStatus {
   deviceHubInputActive?: boolean;
   /** @deprecated Compatibility alias for the same unverified input-mode hint. */
   inputBlocked?: boolean;
+  /** The controls this device takes. Absent: every control its platform offers. */
+  capabilities?: SimulatorCapability[];
 }
 export type SimulatorInput =
   | { kind: "touch"; phase: "begin" | "move" | "end"; points: { x: number; y: number }[] }

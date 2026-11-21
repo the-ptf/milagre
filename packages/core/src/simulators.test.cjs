@@ -477,3 +477,24 @@ test("frame replies contain current input geometry and keep the viewer alive", a
   f.advance(25000);
   assert.equal((await f.service.status({ viewerId: v.viewerId }, v.owner)).ready, true);
 });
+
+test("a device's capabilities reach its viewers, and controls it lacks are refused before they reach it", async (t) => {
+  const f = fixture(t);
+  const viewer = await f.service.open({ deviceId: DEVICE.id }, "owner-a");
+  f.channels[0].state.capabilities = ["touch", "home", "teleport"];
+  const status = await f.service.control({ viewerId: viewer.viewerId, takeOver: false }, "owner-a");
+  assert.deepEqual(status.capabilities, ["touch", "home"]);
+  const lead = { ...viewer, ...status, owner: "owner-a" };
+  assert.deepEqual(await input(f, lead, { kind: "button", button: "home" }, 1), { accepted: true });
+  await assert.rejects(input(f, lead, { kind: "rotate", orientation: "landscape-left" }, 2), /does not take that control/);
+  await assert.rejects(input(f, lead, { kind: "key", phase: "down", usage: 4 }, 3), /does not take that control/);
+  assert.deepEqual(f.events, [{ kind: "button", button: "home" }]);
+  assert.equal((await f.service.status({ viewerId: viewer.viewerId }, "owner-a")).controlling, true);
+});
+
+test("a device without capabilities keeps every control of its platform", async (t) => {
+  const f = fixture(t),
+    viewer = await controller(f);
+  assert.equal(viewer.capabilities, undefined);
+  assert.deepEqual(await input(f, viewer, { kind: "rotate", orientation: "landscape-left" }), { accepted: true });
+});

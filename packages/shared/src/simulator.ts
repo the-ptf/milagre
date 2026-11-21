@@ -5,7 +5,11 @@ export type SimulatorDevice = {
   version: string;
   /** CoreSimulator's model identifier, independent of the device's editable name. */
   deviceType?: string;
+  /** The controls it takes, as its status reports them, so a viewer that can't connect still hides the rest. */
+  capabilities?: SimulatorCapability[];
 };
+/** A control a device takes from the viewer. Older hosts send none, which means every control its platform offers. */
+export type SimulatorCapability = "touch" | "home" | "back" | "rotate" | "keyboard" | "repair" | "hinge";
 export type SimulatorOrientation = "portrait" | "portrait-upside-down" | "landscape-left" | "landscape-right";
 export type SimulatorStatus = {
   width: number;
@@ -22,6 +26,7 @@ export type SimulatorStatus = {
   deviceHubInputActive?: boolean;
   /** @deprecated Compatibility alias for the same unverified input-mode hint. */
   inputBlocked?: boolean;
+  capabilities?: SimulatorCapability[];
 };
 export type SimulatorInput =
   | { kind: "touch"; phase: "begin" | "move" | "end"; points: { x: number; y: number }[] }
@@ -101,3 +106,34 @@ export interface SimlockApi {
 }
 /** Simlock leases are listed with ids under this prefix. */
 export const SIMLOCK_DEVICE_PREFIX = "simlock:";
+
+/** iPhones on a cable, reached through the optional Baguette CLI, are listed with ids under this prefix. */
+export const BAGUETTE_DEVICE_PREFIX = "baguette:";
+export const isCabledIPhone = (device: Pick<SimulatorDevice, "id">) => device.id.startsWith(BAGUETTE_DEVICE_PREFIX);
+/** The line under a device's name: its OS, and for an iPhone on a cable, that it is one. */
+export function simulatorDeviceLine(device: SimulatorDevice) {
+  const os = `${device.platform === "android" ? "Android" : "iOS"} ${device.version}`.trim();
+  if (!isCabledIPhone(device)) return os;
+  return device.version ? `On a cable · ${os}` : "On a cable";
+}
+/** Whether this computer found Baguette, which lists and streams its iPhones on a cable. Milagre doesn't install it. */
+export type BaguetteStatus = {
+  found: boolean;
+  path?: string;
+  version?: string;
+  /** Found at `minVersion` or later. */
+  supported: boolean;
+  minVersion: string;
+  /** A `baguette serve` this host started is running on loopback now. */
+  serving?: boolean;
+};
+export interface BaguetteApi {
+  status(): Promise<BaguetteStatus>;
+}
+/** Settings' one line on Baguette, with the command that installs or updates it. */
+export function baguetteStatusLine(status: BaguetteStatus) {
+  if (!status.found) return "Baguette isn't installed. Install it with brew install baguette, then reopen Settings.";
+  if (!status.supported)
+    return `Baguette ${status.version ?? "of an unknown version"} is too old. Update it to ${status.minVersion} or later with brew upgrade baguette.`;
+  return `Baguette ${status.version} is installed${status.serving ? " and streaming now" : ""}.`;
+}

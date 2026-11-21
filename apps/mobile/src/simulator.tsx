@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -6,7 +6,9 @@ import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
 import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import {
+  isCabledIPhone,
   SIMLOCK_DEVICE_PREFIX,
+  simulatorDeviceLine,
   type SimlockLease,
   type SimlockModel,
   type SimulatorDevice,
@@ -207,6 +209,18 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
       setBusy(false);
     }
   };
+  const renderDevice = (device: SimulatorDevice) =>
+    deviceRow({
+      device,
+      running: attaching || !!list?.devices.some((d) => d.id === device.id),
+      busy,
+      attaching,
+      background: docked ? colors.page : colors.surface,
+      styles,
+      colors,
+      onPick: () => (attaching ? void mutate("attach", device) : setSelected(device)),
+      onDetach: () => void mutate("detach", device),
+    });
   return (
     <View
       style={{
@@ -240,9 +254,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
                 </Text>
                 <Icon icon={ArrowDown01Icon} tone="ink3" size={16} />
               </Pressable>
-              <Text style={caption}>
-                {selected.platform === "android" ? "Android" : "iOS"} {selected.version}
-              </Text>
+              <Text style={caption}>{simulatorDeviceLine(selected)}</Text>
             </View>
             <View accessibilityLabel={SIMULATOR_CONNECTION_LABELS[connectionState]} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <View
@@ -313,52 +325,8 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
             {list?.supported && !list.error && !(attaching ? list.available : list.attached)?.length && (
               <Text style={styles.muted}>{attaching ? "No other devices are running on this computer." : "No simulators attached to this Chat."}</Text>
             )}
-            {(attaching ? (list?.available ?? []) : (list?.attached ?? [])).map((device) => {
-              const running = attaching || list?.devices.some((d) => d.id === device.id);
-              return (
-                <View
-                  key={device.id}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 4,
-                  }}
-                >
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`${attaching ? "Attach " : ""}${device.name}`}
-                    disabled={busy || !running}
-                    onPress={() => (attaching ? void mutate("attach", device) : setSelected(device))}
-                    style={({ pressed }) => [
-                      {
-                        flex: 1,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        minHeight: 48,
-                        padding: 12,
-                        gap: 12,
-                        borderRadius: radius.control,
-                        borderCurve: "continuous",
-                        backgroundColor: docked ? colors.page : colors.surface,
-                      },
-                      pressStyle({ pressed, disabled: !running, kind: "row" }),
-                    ]}
-                  >
-                    <Icon icon={SmartphoneIcon} size={18} tone="ink2" />
-                    <Text style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{device.name}</Text>
-                    <Text style={styles.muted}>{running ? `${device.platform === "android" ? "Android" : "iOS"} ${device.version}` : "Stopped"}</Text>
-                  </Pressable>
-                  {!attaching && (
-                    <CircleButton
-                      label={device.id.startsWith(SIMLOCK_DEVICE_PREFIX) ? `Return ${device.name} to the Simlock pool` : `Detach ${device.name} from Chat`}
-                      icon={Cancel01Icon}
-                      disabled={busy}
-                      onPress={() => void mutate("detach", device)}
-                    />
-                  )}
-                </View>
-              );
-            })}
+            {(attaching ? (list?.available ?? []).filter((device) => !isCabledIPhone(device)) : (list?.attached ?? [])).map(renderDevice)}
+            {cabledIPhones(attaching, list?.available, renderDevice, styles)}
             {!attaching && <PillButton title="Attach simulator" onPress={() => setAttaching(true)} />}
             {attaching && pool && (
               <View accessibilityLabel="Lease from Simlock" style={{ gap: 8, paddingTop: 8 }}>
@@ -398,6 +366,88 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
           </PageScroll>
         )}
       </View>
+    </View>
+  );
+}
+
+function cabledIPhones(
+  shown: boolean,
+  devices: SimulatorDevice[] | undefined,
+  render: (device: SimulatorDevice) => ReactNode,
+  styles: ReturnType<typeof useStyles>,
+) {
+  const phones = devices?.filter(isCabledIPhone) ?? [];
+  if (!shown || !phones.length) return null;
+  return (
+    <View accessibilityLabel="iPhones on a cable" style={{ gap: 8, paddingTop: 8 }}>
+      <Text style={styles.caption}>iPhones on a cable, through Baguette</Text>
+      {phones.map(render)}
+    </View>
+  );
+}
+
+function deviceRow({
+  device,
+  running,
+  busy,
+  attaching,
+  background,
+  styles,
+  colors,
+  onPick,
+  onDetach,
+}: {
+  device: SimulatorDevice;
+  running: boolean;
+  busy: boolean;
+  attaching: boolean;
+  background: string;
+  styles: ReturnType<typeof useStyles>;
+  colors: ReturnType<typeof useTheme>["colors"];
+  onPick(): void;
+  onDetach(): void;
+}) {
+  return (
+    <View
+      key={device.id}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+      }}
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${attaching ? "Attach " : ""}${device.name}`}
+        disabled={busy || !running}
+        onPress={onPick}
+        style={({ pressed }) => [
+          {
+            flex: 1,
+            flexDirection: "row",
+            alignItems: "center",
+            minHeight: 48,
+            padding: 12,
+            gap: 12,
+            borderRadius: radius.control,
+            borderCurve: "continuous",
+            backgroundColor: background,
+          },
+          pressStyle({ pressed, disabled: !running, kind: "row" }),
+        ]}
+      >
+        <Icon icon={SmartphoneIcon} size={18} tone="ink2" />
+        <Text style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{device.name}</Text>
+        <Text style={styles.muted}>{running ? simulatorDeviceLine(device) : "Stopped"}</Text>
+      </Pressable>
+      {!attaching && (
+        <CircleButton
+          label={device.id.startsWith(SIMLOCK_DEVICE_PREFIX) ? `Return ${device.name} to the Simlock pool` : `Detach ${device.name} from Chat`}
+          icon={Cancel01Icon}
+          disabled={busy}
+          onPress={onDetach}
+        />
+      )}
     </View>
   );
 }

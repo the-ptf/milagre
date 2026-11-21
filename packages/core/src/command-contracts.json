@@ -121,6 +121,9 @@
         }
       ]
     },
+    "baguette:status": {
+      "parameters": []
+    },
     "chat:delete": {
       "parameters": [
         {

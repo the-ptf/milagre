@@ -3,6 +3,10 @@ const { randomBytes, randomUUID } = require("node:crypto");
 const ORIENTATIONS = new Set(["portrait", "portrait-upside-down", "landscape-left", "landscape-right"]);
 const POSES = new Set(["closed", "open", "book", "laptop", "tent"]);
 const MAX_SDP_BYTES = 262144;
+const CAPABILITIES = new Set(["touch", "home", "back", "rotate", "keyboard", "repair", "hinge"]);
+const lacks = (state, event) =>
+  Array.isArray(state.capabilities) &&
+  !state.capabilities.includes({ touch: "touch", button: event.button, rotate: "rotate", key: "keyboard", pose: "hinge", hinge: "hinge" }[event.kind]);
 function identifier() {
   return randomBytes(24).toString("base64url");
 }
@@ -45,6 +49,27 @@ function cleanEvent(event) {
   };
 }
 
+function releaseHeld(device) {
+  const touch = device.touch;
+  device.touch = null;
+  if (touch) {
+    try {
+      device.channel.send({ ...touch, phase: "end" });
+    } catch {}
+  }
+  for (const usage of device.keys) {
+    try {
+      device.channel.send({ kind: "key", phase: "up", usage });
+    } catch {}
+  }
+  device.keys.clear();
+}
+function revoke(device) {
+  releaseHeld(device);
+  device.controller = null;
+  device.generation++;
+}
+
 function createSimulators(options = {}) {
   const supported = options.supported ?? (process.platform === "darwin" && process.arch === "arm64");
   const adapter = options.adapter ?? require("./simulators-helper.cjs").createSimulatorAdapter(options);
@@ -85,26 +110,6 @@ function createSimulators(options = {}) {
     if (!v || v.owner !== owner || v.ownerState.dead) throw new Error("Unknown simulator viewer or owner. Reopen the viewer.");
     return v;
   }
-  function releaseHeld(device) {
-    const touch = device.touch;
-    device.touch = null;
-    if (touch) {
-      try {
-        device.channel.send({ ...touch, phase: "end" });
-      } catch {}
-    }
-    for (const usage of device.keys) {
-      try {
-        device.channel.send({ kind: "key", phase: "up", usage });
-      } catch {}
-    }
-    device.keys.clear();
-  }
-  function revoke(device) {
-    releaseHeld(device);
-    device.controller = null;
-    device.generation++;
-  }
   function metadata(device) {
     const state = device.channel.status();
     const signature = `${state.width}:${state.height}:${state.orientation}:${state.ready}:${state.hingeAngle ?? ""}:${state.hingePose ?? ""}:${state.error ?? ""}`;
@@ -139,6 +144,7 @@ function createSimulators(options = {}) {
           }
         : {}),
       ...(state.deviceHubInputActive ? { deviceHubInputActive: true, inputBlocked: true } : {}),
+      ...(Array.isArray(state.capabilities) ? { capabilities: state.capabilities.filter((name) => CAPABILITIES.has(name)) } : {}),
     };
   }
   async function remove(v) {
@@ -301,6 +307,7 @@ function createSimulators(options = {}) {
         if (request.event.kind === "button" && request.event.button === "back" && device.platform !== "android")
           throw new Error("Back is available only on Android.");
         const state = metadata(device);
+        if (lacks(state, request.event)) throw new Error("This device does not take that control from Milagre.");
         if ((request.event.kind === "pose" || request.event.kind === "hinge") && (device.platform !== "ios" || !state.supportsHingeAngle))
           throw new Error("This simulator does not support hinge controls.");
         if (device.controller !== v.id || !state.ready || request.generation !== device.generation || request.sequence <= v.sequence)

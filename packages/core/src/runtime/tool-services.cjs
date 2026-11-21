@@ -34,11 +34,13 @@ function createDeviceTools({ options, dataDir, emit, commands, existingChat, cha
       directory: path.join(dataDir, "simlock"),
       log: (message, fields) => console.warn(`Simlock: ${message}`, fields),
     });
+  const { createBaguette, withBaguette } = require("../baguette.cjs");
+  const baguette = options.baguette ?? createBaguette();
   const simulators = createChatSimulators({
     simulators:
       options.simulators ??
       require("../simulators.cjs").createSimulators({
-        adapter: require("../simlock-channel.cjs").withSimlock(require("../simulators-helper.cjs").createSimulatorAdapter(), simlock),
+        adapter: withBaguette(require("../simlock-channel.cjs").withSimlock(require("../simulators-helper.cjs").createSimulatorAdapter(), simlock), baguette),
       }),
     file: path.join(dataDir, "simulator-attachments.json"),
     validateChat: existingChat("attaching a simulator"),
@@ -89,6 +91,7 @@ function createDeviceTools({ options, dataDir, emit, commands, existingChat, cha
     await existingChat("viewing its screen")(request.chatId);
     return frame;
   });
+  commands.handle("baguette:status", () => baguette.detect());
   commands.handle("simlock:settings:read", () => simlockSettings.read());
   commands.handle("simlock:settings:save", (_context, patch) => simlockSettings.save(patch));
   commands.handle("simlock:identity", (_context, request) => simlock.identity(request ?? {}));

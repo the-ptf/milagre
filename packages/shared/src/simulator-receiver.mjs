@@ -1,5 +1,6 @@
 import { SIMULATOR_RECEIVER_SCRIPT } from "./simulator-browser.mjs";
 import { avcCodecString, avccEnvelopes, simulatorAvcConfig } from "./simulator-avc.mjs";
+import { simulatorHiddenControls } from "./simulator-controls.mjs";
 export { SIMULATOR_RECEIVER_SCRIPT } from "./simulator-browser.mjs";
 
 export const SIMULATOR_CONNECTION_LABELS = {
@@ -205,7 +206,7 @@ export function createSimulatorBridge(call, respond, transform = (_method, resul
 }
 
 // This function is serialized with its dependencies as arguments. It must not close over module state.
-function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, codecFor, avcConfigFor, envelopesFor) {
+function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, codecFor, avcConfigFor, envelopesFor, hiddenFor) {
   window.simulatorTheme = (theme) => {
     if (!theme || typeof theme !== "object") return;
     const style = document.documentElement.style;
@@ -250,7 +251,6 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
   hingeAngle.addEventListener("input", () => {
     hingeDraft = true;
   });
-  back.hidden = config.device?.platform !== "android";
   let nextId = 0,
     epoch = 0,
     viewerId = null,
@@ -384,7 +384,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
     blocked.hidden = !(inputHint || confirmRepair || repairing);
     back.disabled = home.disabled = rotate.disabled = !(ready && status.controlling);
     duo.hidden = hinge.hidden = status?.supportsHingeAngle !== true;
-    repair.hidden = device?.platform === "android";
+    ({ back: back.hidden, home: home.hidden, rotate: rotate.hidden, repair: repair.hidden } = hiddenFor(device, status));
     repair.disabled = !(ready && status.controlling) || repairing;
     for (const [pose, button] of poses) {
       button.disabled = !(ready && status.controlling);
@@ -743,7 +743,6 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
         return;
       }
       device = opened.device || config.device;
-      back.hidden = device?.platform !== "android";
       layout();
       viewerId = opened.viewerId;
       let polling = false,
@@ -964,7 +963,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor, code
 
 /** Build-time only. A checked-in string keeps script bytes stable across Vite/Metro minification and CSP hashing. */
 export function buildSimulatorReceiverScript() {
-  return `(${receiver.toString()})(JSON.parse(document.getElementById('config').dataset.config),${simulatorGeometry.toString()},${simulatorPoint.toString()},${createSimulatorInputQueue.toString()},${simulatorAppearance.toString()},${avcCodecString.toString()},${simulatorAvcConfig.toString()},${avccEnvelopes.toString()});`;
+  return `(${receiver.toString()})(JSON.parse(document.getElementById('config').dataset.config),${simulatorGeometry.toString()},${simulatorPoint.toString()},${createSimulatorInputQueue.toString()},${simulatorAppearance.toString()},${avcCodecString.toString()},${simulatorAvcConfig.toString()},${avccEnvelopes.toString()},${simulatorHiddenControls.toString()});`;
 }
 
 /** No hosted asset or native resource: this string travels inside desktop and OTA JS bundles. */

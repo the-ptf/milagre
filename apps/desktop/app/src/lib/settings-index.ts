@@ -57,7 +57,7 @@ export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   notifications: "alerts sounds chimes push routines unread runs",
   connections: "linear issues integrations babysit pull requests",
   mcp: "servers tools model context protocol milagre mcp",
-  devices: "phone pairing computers remote qr published pages share simlock simulators reset access",
+  devices: "phone pairing computers remote qr published pages share simlock baguette iphone simulators reset access",
   experimental: "church experimental beta labs orchestrator",
   about: "version update privacy support",
 };
@@ -618,6 +618,14 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "new code revoke phones",
   },
   { page: "devices", title: "Simulators" },
+  {
+    page: "devices",
+    title: "iPhones on a cable",
+    group: "Simulators",
+    description:
+      "Chats list the paired iPhones on this computer's cable next to its simulators, to watch and touch. Through Baguette, which Milagre doesn't install.",
+    keywords: "baguette physical real device iphone usb",
+  },
   {
     page: "devices",
     title: "Simlock devices",
