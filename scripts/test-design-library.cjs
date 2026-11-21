@@ -1,6 +1,7 @@
 // Run with node scripts/test-design-library.cjs. Checks the Project's Design library page: the sidebar Project menu
 // opens it with no Chat; its library pages and most recent edits run down the left, and the chosen page's designs lie
-// side by side on the library canvas (All has a row per page) with versions and who saved each; a recent edit shows its
+// side by side on the library canvas (All has a row per page) with versions and who saved each, and one switch sets every
+// design's color mode; a recent edit shows its
 // design, moving to its page; a frame's ⋯ menu renames and moves it, its delete removes it, through the host; a page
 // renames; the page follows the host's change event; and an empty library says how designs get there. Set
 // MILAGRE_SCREENSHOT_DIR to keep screenshots.
@@ -196,6 +197,24 @@ async function browserChecks() {
     assert.equal(await evaluate(`${recent}[1].textContent`), "HomeCodex in Polish · 2 h ago");
     assert.equal(await evaluate(`${recent}[1].getAttribute("aria-label")`), "Show Home. iPhone · v2 · Edited in Polish · Codex · 2 h ago");
     await screenshot("all");
+
+    // The page's designs define Dark, so one switch above the canvas sets every design's mode; a frame's own choice
+    // makes the page mixed, with no segment chosen.
+    const pageMode = `${page}.querySelector("[data-slot=library-page-mode]")`;
+    const checkedMode = `${pageMode}?.querySelector("[role=radio][aria-checked=true]")?.textContent ?? null`;
+    await waitFor(`!!${pageMode}`);
+    assert.deepEqual(await evaluate(`[...${pageMode}.querySelectorAll("[role=radio]")].map((node) => node.textContent)`), ["Light", "Dark"]);
+    assert.equal(await evaluate(checkedMode), "Light");
+    await evaluate(`${pageMode}.querySelector("[data-library-mode=dark]").click()`);
+    await waitFor(`${checkedMode} === "Dark"`);
+    await evaluate(`${frame("watch")}.querySelector("[data-slot=artifact-more]").click()`);
+    await waitFor('!!document.querySelector("[role=menu] [data-slot=artifact-mode][aria-checked=true]")');
+    assert.equal(await evaluate('document.querySelector("[role=menu] [data-slot=artifact-mode][aria-checked=true]").textContent'), "Dark");
+    await evaluate('[...document.querySelectorAll("[role=menu] [data-slot=artifact-mode]")].find((node) => node.textContent === "Light").click()');
+    await waitFor(`${checkedMode} === null`);
+    await screenshot("page-mode");
+    await evaluate(`${pageMode}.querySelector("[data-library-mode=light]").click()`);
+    await waitFor(`${checkedMode} === "Light"`);
 
     // A page shows only its designs.
     await evaluate(`${row("Watch")}.querySelector("button").click()`);

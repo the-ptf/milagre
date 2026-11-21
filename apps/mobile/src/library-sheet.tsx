@@ -3,7 +3,7 @@ import { Alert, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { DomWebViewRef } from "@expo/dom-webview";
-import { Cancel01Icon, DashboardSquare01Icon, MoreHorizontalIcon, PlayIcon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, ContrastIcon, DashboardSquare01Icon, MoreHorizontalIcon, PlayIcon } from "@hugeicons/core-free-icons";
 import {
   artifactDocument,
   designGroups,
@@ -22,7 +22,7 @@ import { confirmSheet } from "./confirm-store";
 import { loadCanvasDesign } from "./design-font-cache";
 import { editLibraryDesign, libraryEditSections, useDesignLibrary } from "./design-library";
 import { DesignsCanvas } from "./designs-sheet";
-import { designHtmlIn, designModeLabel, designModeMenu, shownDesignMode } from "./design-modes-menu";
+import { designHtmlIn, designModeLabel, designModeMenu, pageModeChoices, pageModeMenu, shownDesignMode } from "./design-modes-menu";
 import type { DesignMode } from "@milagre/shared/design-modes";
 import type { DesignsTab } from "./panel-tabs";
 import { useSession } from "./session";
@@ -224,6 +224,14 @@ export function LibrarySheet({
           ),
         ].filter(Boolean)}
         trailing={[
+          canvasMode && (
+            <PageModeButton
+              key="page-mode"
+              artifacts={ordered.flatMap((design) => loaded[design.id] ?? [])}
+              modes={modes}
+              onModes={(next) => setModes((current) => ({ ...current, ...next }))}
+            />
+          ),
           tryable && (
             <CircleButton
               key="try"
@@ -254,6 +262,32 @@ export function LibrarySheet({
         )}
       </View>
     </View>
+  );
+}
+
+/** The canvas view's page appearance menu: one color mode for every design on the page. None when no design defines another mode. */
+function PageModeButton({
+  artifacts,
+  modes,
+  onModes,
+}: {
+  artifacts: Artifact[];
+  modes: Record<string, DesignMode>;
+  onModes: (next: Record<string, DesignMode>) => void;
+}) {
+  const sections = pageModeMenu(artifacts, modes);
+  if (!sections.length) return null;
+  return (
+    <PullDown
+      label="Page appearance"
+      sections={sections}
+      onSelect={(action) => {
+        const next = pageModeChoices(artifacts, action);
+        if (next) onModes(next);
+      }}
+    >
+      <CircleButton label="Page appearance" icon={ContrastIcon} asTrigger />
+    </PullDown>
   );
 }
 

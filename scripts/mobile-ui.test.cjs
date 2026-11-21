@@ -23508,13 +23508,24 @@ test("Open Design library in the phone's Artifact menu opens the Project's whole
   assert.deepEqual(globalThis.openedDesignLibrary, ["mac", "/work/habits", "habits"]);
 });
 
-function libraryScreenHost(client, pushes) {
+function libraryScreenHost(client, pushes, { wide = false, params = {} } = {}) {
   const react = hookHost({ effects: true });
   const screen = load("design-library-page.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Alert: { alert: (_title, _message, buttons) => buttons?.[0]?.onPress?.() }, Text: "Text", View: "View" },
-    "expo-router": { router: { push: (route) => pushes.push(route) }, Stack: { Screen: "Stack.Screen" }, useFocusEffect: () => {} },
+    "react-native": {
+      Alert: { alert: (_title, _message, buttons) => buttons?.[0]?.onPress?.() },
+      StyleSheet: { hairlineWidth: 1 },
+      Text: "Text",
+      View: "View",
+    },
+    "react-native-safe-area-context": { SafeAreaInsetsContext: { Provider: "Insets" }, useSafeAreaInsets: () => ({ top: 24, bottom: 20, left: 0, right: 0 }) },
+    "./split-context": { useSplitLayout: () => ({ widthClass: wide ? "wide" : "compact" }) },
+    "expo-router": {
+      router: { push: (route) => pushes.push(route), setParams: (next) => pushes.push({ setParams: next }) },
+      Stack: { Screen: "Stack.Screen" },
+      useFocusEffect: () => {},
+    },
     "@hugeicons/core-free-icons": {},
     "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
     "./session": { useSession: () => ({ client }) },
@@ -23531,7 +23542,7 @@ function libraryScreenHost(client, pushes) {
       useStyles: () => ({ caption: {}, text: {} }),
     },
   });
-  const props = { hostId: "mac", path: "/p", name: "Habits" };
+  const props = { hostId: "mac", path: "/p", name: "Habits", ...params };
   const render = () => {
     react.begin();
     const tree = screen.DesignLibraryScreen(props);
@@ -23614,6 +23625,40 @@ test("a Project's Design library page on the phone lists its pages and recent ed
     "an empty library says how designs get there",
   );
   assert.match(textOf(find(tree, (node) => node.type === "EmptyState")), /Add to Project library.*ask an agent/);
+});
+
+test("on an iPad the Design library page shows its lists beside the chosen page's canvas", async (t) => {
+  const watch = { ...libraryDesign("library:rings", 1), title: "Rings", page: "watch", edits: [{ version: 1, at: 5 }] };
+  const library = projectLibrary();
+  library.pages.push({ id: "watch", name: "Watch", designs: [watch] });
+  const client = { url: "mac", call: async (method) => (method === "design-library:list" ? library : {}) };
+  const pushes = [];
+  const render = async (params) => {
+    const h = libraryScreenHost(client, pushes, { wide: true, params });
+    t.after(() => h.cleanup());
+    h.render();
+    await settle();
+    return h.render();
+  };
+  let tree = await render({});
+  const sheet = () => find(tree, (node) => node.type === "LibrarySheet");
+  same({ ...sheet().props, onClose: undefined }, { hostId: "mac", projectPath: "/p", page: "iphone", id: undefined, onClose: undefined });
+  assert.equal(typeof sheet().props.onClose, "function", "embedded: no close button");
+  assert.equal(find(tree, (node) => node.type === "Insets").props.value.top, 0, "under the page's own header");
+  const selected = () => findAll(tree, (node) => node.type?.name === "LibraryRow" && node.props.selected).map((node) => node.props.title);
+  same(selected(), ["iPhone"]);
+  const rows = (title) =>
+    findAll(
+      find(tree, (node) => node.type === "Group" && node.props.title === title),
+      (node) => node.type === "PullDown",
+    );
+  rows("Recent edits")[0].props.onPress();
+  same(pushes.at(-1), { setParams: { library: "watch", id: "library:rings" } }, "the canvas changes in place, no sheet pushed");
+  rows("Pages")[0].props.onPress();
+  same(pushes.at(-1), { setParams: { library: "iphone", id: "" } });
+  tree = await render({ page: "watch", id: "library:rings" });
+  same([sheet().props.page, sheet().props.id], ["watch", "library:rings"]);
+  same(selected(), ["Rings"]);
 });
 
 test("a library design renames and moves through the computer, by its Chat or its Project", async (t) => {
