@@ -20,13 +20,14 @@ function fixture(t, options = {}) {
         deviceId,
         ...(options.frame ? { frame: options.frame } : {}),
         ...(options.formats ? { formats: options.formats, configure: options.configure } : {}),
-        state: { width: 588, height: 1280, orientation: "portrait", ready: true },
+        state: { width: 588, height: 1280, orientation: "portrait", ready: true, ...options.state },
         status() {
           return { ...this.state };
         },
         send(event) {
           events.push(structuredClone(event));
         },
+        ...(options.clipboard ? { clipboard: options.clipboard } : {}),
         async close() {
           this.closed = true;
         },
@@ -511,4 +512,54 @@ test("a host without formats refuses a format it never offered", async (t) => {
   const v = await controller(f);
   assert.equal(v.formats, undefined);
   await assert.rejects(f.service.frame({ viewerId: v.viewerId, after: 0, format: "video/avcc" }, v.owner), /format/);
+});
+test("typed text, paste and copy reach the device only from its controller", async (t) => {
+  const typed = [];
+  const f = fixture(t, {
+    state: { keyboard: true, copy: true },
+    clipboard: async (event) => {
+      typed.push(event);
+      return event.kind === "copy" ? "from sim" : undefined;
+    },
+  });
+  const a = await controller(f);
+  assert.equal(a.keyboard, true);
+  assert.equal(a.copy, true);
+  assert.deepEqual(await input(f, a, { kind: "text", text: "Hi" }, 1), { accepted: true });
+  assert.deepEqual(await input(f, a, { kind: "paste", text: "h\u00e9llo \ud83e\udd56" }, 2), { accepted: true });
+  assert.deepEqual(await input(f, a, { kind: "copy", press: true }, 3), { accepted: true, text: "from sim" });
+  for (const event of [
+    { kind: "text", text: "" },
+    { kind: "text", text: "x".repeat(2001) },
+    { kind: "paste", text: 5 },
+    { kind: "copy", press: "yes" },
+  ])
+    await assert.rejects(input(f, a, event, 9), /Invalid simulator input/);
+  const b = await f.service.open({ deviceId: DEVICE.id }, "owner-b");
+  assert.deepEqual(await f.service.input({ viewerId: b.viewerId, sequence: 1, generation: a.generation, event: { kind: "paste", text: "no" } }, "owner-b"), {
+    accepted: false,
+  });
+  assert.deepEqual(typed, [
+    { kind: "text", text: "Hi" },
+    { kind: "paste", text: "h\u00e9llo \ud83e\udd56" },
+    { kind: "copy", press: true },
+  ]);
+});
+test("a clipboard failure is reported without revoking control, and devices without typing refuse text", async (t) => {
+  const f = fixture(t, {
+    state: { keyboard: true },
+    clipboard: async () => {
+      throw new Error("Simulator clipboard is busy. Try again.");
+    },
+  });
+  const a = await controller(f);
+  assert.equal(a.copy, undefined);
+  await assert.rejects(input(f, a, { kind: "paste", text: "x" }, 1), /clipboard is busy/);
+  await assert.rejects(input(f, a, { kind: "copy" }, 2), /does not take typed text/);
+  assert.equal((await f.service.status({ viewerId: a.viewerId }, a.owner)).controlling, true);
+  assert.deepEqual(await input(f, a, BEGIN, 3), { accepted: true });
+  const plain = fixture(t);
+  const c = await controller(plain);
+  assert.equal(c.keyboard, undefined);
+  await assert.rejects(input(plain, c, { kind: "text", text: "x" }, 1), /does not take typed text/);
 });
