@@ -27,7 +27,14 @@ The daemon holds a Chat's messages in memory only while the Chat is in use. A Ch
 - **Only what is saved leaves.** A sweep unloads a Chat only when `chats.db` holds exactly what memory does, with no save waiting or running. A save touches rows only for Chats the state holds. A details sidecar an unloaded Chat points at is kept.
 - **Writers name their Chats.** A state change lists the Chats it reads or writes, and those load first; a change that names none loads every Chat. Reads across Chats (search, lookups, the chat list) read unloaded rows for that call without loading them.
 - **Clients see no difference.** An unloaded Chat's messages are never reported as removed, and a client that takes whole states gets every message, read back from `chats.db`.
-- A Project still reads every message on open; the sweep unloads afterwards. `MILAGRE_LAZY_MESSAGES=0` keeps everything in memory.
+- A Project still reads every message on open; the sweep unloads afterwards. `MILAGRE_LAZY_MESSAGES=0` keeps everything in memory, finished subagents' transcripts included.
+
+### Finished subagents' transcripts
+
+A subagent's transcript lives in a sidecar under `.milagre/subagents/` (`project-content.cjs`). Once it is completed, failed or cancelled and its sidecars hold all of it, memory keeps only its last entries and `transcriptLength`: exactly what a client taking tails (`subagent-tails-v1`) is sent, so those clients see no difference. On open that holds for every such subagent with all its sidecars present; one finished in this session leaves at the next sweep after a save wrote its transcript.
+
+- **Readers load it.** `chat:subagent` reads the whole transcript back for that call and keeps nothing. A client that takes whole transcripts gets them read back, cached for a minute after its last read. An update for a subagent loads it into memory first, so a subagent that runs again saves all of its transcript, old entries and new.
+- **Saves keep its references.** A save writes the held subagent's sidecar references as they were, so the sweep never removes a file it still needs. A subagent with a missing sidecar stays whole in memory, as before.
 
 Rejected: stubbing each message's payload while keeping it in the array (every reader would see an empty body, and a save could write the stub over the row); a full message store behind every reader at once (dozens more call sites changed in one step).
 

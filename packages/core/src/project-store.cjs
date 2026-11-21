@@ -4,6 +4,7 @@ const {
   migrateImages,
   compactSubagents,
   hydrateSubagents,
+  unloadSaved,
   referencedSidecars,
   sweepSubagentContent,
   compactDetails,
@@ -99,7 +100,7 @@ async function saveProjectState(projectPath, state, { sweepMinAgeMs = SWEEP_MIN_
     stateBytes: Buffer.byteLength(contents),
   };
 }
-async function readProjectState(projectPath) {
+async function readProjectState(projectPath, { unloadSubagents = false } = {}) {
   const raw = withoutSuggestions(JSON.parse(await fs.readFile(stateFile(projectPath), "utf8")));
   resetStore(projectPath);
   if (isMarker(raw.messages)) {
@@ -108,8 +109,11 @@ async function readProjectState(projectPath) {
     raw.messages = rows.map((row) => row.message);
     setSavedRows(projectPath, new Map(rows.map((row) => [row.message.id, row])));
   }
-  const state = await hydrateSubagents(projectPath, raw);
+  const state = await hydrateSubagents(projectPath, raw, { unloadFinished: unloadSubagents });
   return compactDetails(projectPath, state);
+}
+function unloadSavedSubagents(projectPath, state) {
+  return unloadSaved(projectPath, state, settled.get(projectPath));
 }
 async function compactProjectDetails(projectPath, next, previous) {
   if (next.messages === previous?.messages) return next;
@@ -130,4 +134,4 @@ async function syncDirectory(directory) {
     await handle?.close().catch(() => {});
   }
 }
-module.exports = { saveProjectState, readProjectState, compactProjectDetails, compactProjectState, stateFile, syncDirectory };
+module.exports = { saveProjectState, readProjectState, unloadSavedSubagents, compactProjectDetails, compactProjectState, stateFile, syncDirectory };

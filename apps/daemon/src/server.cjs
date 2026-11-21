@@ -3,6 +3,7 @@ const { diffState } = require("@milagre/shared/state-patch");
 const { sessionWithArchivedSummaries, sessionWithTranscriptTails, withArchivedSummary, withTranscriptTail } = require("@milagre/shared/subagent-transcript");
 const { preparePrivateDirectory } = require("@milagre/core/private-files");
 const { wholeState, unloadedChats, isFromDisk } = require("@milagre/core/message-store");
+const { withWholeTranscripts } = require("@milagre/core/project-content");
 const { prepareToken } = require("./local-auth.cjs");
 const net = require("node:net");
 const os = require("node:os");
@@ -67,16 +68,17 @@ function leanSessions(sessions, form) {
 }
 function leanState(state, form = WHOLE) {
   if (!state || typeof state !== "object") return state;
-  if (isWhole(form)) return wholeState(state);
+  const transcripts = form.transcripts ? withWholeTranscripts(state) : state;
+  if (isWhole(form)) return wholeState(transcripts);
   const key = formKey(form);
   let cache = leanStates.get(key);
   if (!cache) leanStates.set(key, (cache = new WeakMap()));
-  const base = form.messages ? wholeState(state) : state;
+  const base = form.messages ? wholeState(transcripts) : transcripts;
   let lean = cache.get(base);
   if (!lean) {
     lean = { ...base };
     if (!form.messages) Object.assign(lean, { messages: NO_MESSAGES, messagesInChats: true });
-    if (!wholeSubagents(form)) lean.sessions = leanSessions(state.sessions, form);
+    if (!wholeSubagents(form)) lean.sessions = leanSessions(base.sessions, form);
     cache.set(base, lean);
   }
   return lean;
@@ -302,7 +304,7 @@ async function startDaemon({
           patched && taker
             ? patched.form(taker)
             : (taker && !wholeSubagents(taker) && agentFrame(taker)) ||
-              (whole ??= eventFrame(channel, hasState(payload) ? { ...payload, state: wholeState(payload.state) } : payload, seq, inlineLimit));
+              (whole ??= eventFrame(channel, hasState(payload) ? { ...payload, state: leanState(payload.state) } : payload, seq, inlineLimit));
         connection.send(null, frame.json, frame.bytes);
       } catch (error) {
         onError(new Error(`Milagre couldn't send a ${channel} event: ${error.message}`));

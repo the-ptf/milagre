@@ -2,7 +2,7 @@ const path = require("node:path");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const { originId } = require("@milagre/shared/project-origin");
 const { realpathSync, existsSync } = require("node:fs");
-const { withDetails } = require("../project-content.cjs");
+const { withDetails, loadSubagent } = require("../project-content.cjs");
 const { chatPage, chatSearch } = require("../chat-pages.cjs");
 const { dbFile: chatDbFile, readChatRows } = require("../chat-db.cjs");
 const { createProjectFinder } = require("../project-finder.cjs");
@@ -225,7 +225,7 @@ function registerChatReads({
   commands.handle("chat:subagent", async (_event, scope, chatId, agentId) => {
     const agent = (await readScope(scope)).sessions?.[chatId]?.subagents?.find((item) => item.id === agentId);
     if (!agent) throw new Error("That subagent is no longer in this Chat.");
-    return agent;
+    return loadSubagent(agent);
   });
   commands.handle("project:chat-image", (_event, projectPath, requested) => chats.images.resolve(projectPath, requested));
   commands.handle("project:worktree-paths", async (_event, projectPath) => {

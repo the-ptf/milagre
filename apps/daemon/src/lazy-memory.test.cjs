@@ -56,6 +56,18 @@ test("the large Project's idle Chats leave the daemon's memory, and every reader
   const summaries = (await desktop.call("state:read", [project])).state.sessions;
   for (const chat of chats)
     assert.equal(summaries[chat].summary.count, fixture.messages.filter((message) => message.session_id === chat).length, `Chat ${chat}'s summary`);
+  // Its finished subagents' transcripts left memory too: a client taking tails gets the same tails, an older one the
+  // whole transcripts, and so does anyone opening one.
+  const whole = (await older.call("state:read", [project])).state.sessions;
+  const lean = (await desktop.call("state:read", [project])).state.sessions;
+  for (const session of Object.values(fixture.sessions))
+    for (const agent of session.subagents ?? []) {
+      const taken = lean[session.id].subagents.find((item) => item.id === agent.id);
+      const tail = agent.transcript.length > 4 ? [agent.transcript.slice(-4), agent.transcript.length] : [agent.transcript, undefined];
+      assert.deepEqual([taken.transcript, taken.transcriptLength], tail);
+      assert.deepEqual(whole[session.id].subagents.find((item) => item.id === agent.id).transcript, agent.transcript);
+      assert.deepEqual((await desktop.call("chat:subagent", [project, session.id, agent.id])).transcript, agent.transcript);
+    }
   // The long Chat reads back page by page, and only it comes back into memory.
   const longest = chats[0];
   const page = await desktop.call("chat:messages", [project, longest, { turns: 10 }]);
