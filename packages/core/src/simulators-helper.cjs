@@ -5,6 +5,7 @@ const path = require("node:path");
 const { createMjpegFrames, createSnapshotFrames, normalizeAndroidSnapshot } = require("./simulator-frames.cjs");
 
 const PREFIX = "/vendor/serve-sim/helper";
+const FAMILIES = { iPhone: "iPhone", iPad: "iPad", "Apple Watch": "Watch", "Apple TV": "TV", "Apple Vision": "Vision" };
 const UUID = /^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$/;
 const EMULATOR = /^emulator-[0-9]{4,5}$/;
 const ORIENTATIONS = new Set(["portrait", "portrait-upside-down", "landscape-left", "landscape-right"]);
@@ -47,6 +48,28 @@ function packet(event) {
   throw new Error("Invalid simulator input event.");
 }
 
+function bootedDevices(parsed) {
+  const result = [],
+    families = new Map((parsed.devicetypes ?? []).map((type) => [type?.identifier, FAMILIES[type?.productFamily] ?? null])),
+    runtimeVersions = new Map((parsed.runtimes ?? []).map((item) => [item?.identifier, typeof item?.version === "string" ? item.version.slice(0, 40) : null]));
+  for (const [runtime, devices] of Object.entries(parsed.devices ?? {})) {
+    const version = /\.iOS-([\d-]+)$/.exec(runtime)?.[1]?.replaceAll("-", ".");
+    if (!version || !Array.isArray(devices)) continue;
+    for (const device of devices)
+      if (device.state === "Booted" && device.isAvailable !== false && UUID.test(device.udid))
+        result.push({
+          id: device.udid,
+          name: String(device.name ?? "iOS Simulator").slice(0, 200),
+          platform: "ios",
+          version,
+          deviceType: typeof device.deviceTypeIdentifier === "string" ? device.deviceTypeIdentifier.slice(0, 200) : null,
+          productFamily: families.get(device.deviceTypeIdentifier) ?? null,
+          runtimeIdentifier: runtime.slice(0, 200),
+          runtimeVersion: runtimeVersions.get(runtime) ?? version,
+        });
+  }
+  return result;
+}
 function createSimulatorHelper(options = {}) {
   const android = options.platform === "android";
   const validDevice = android ? EMULATOR : UUID;
@@ -245,26 +268,12 @@ function createSimulatorHelper(options = {}) {
       if (discovery && Date.now() - discoveryAt < 2000) return structuredClone(discovery);
       if (discoveryPromise) return structuredClone(await discoveryPromise);
       discoveryPromise = (async () => {
-        const { stdout } = await execFile("/usr/bin/xcrun", ["simctl", "list", "devices", "booted", "--json"], {
+        const { stdout } = await execFile("/usr/bin/xcrun", ["simctl", "list", "devices", "booted", "devicetypes", "runtimes", "--json"], {
           timeout: 5000,
-          maxBuffer: 2097152,
+          maxBuffer: 4194304,
           encoding: "utf8",
         });
-        const parsed = JSON.parse(stdout),
-          result = [];
-        for (const [runtime, devices] of Object.entries(parsed.devices ?? {})) {
-          const version = /\.iOS-([\d-]+)$/.exec(runtime)?.[1]?.replaceAll("-", ".");
-          if (!version || !Array.isArray(devices)) continue;
-          for (const device of devices)
-            if (device.state === "Booted" && device.isAvailable !== false && UUID.test(device.udid))
-              result.push({
-                id: device.udid,
-                name: String(device.name ?? "iOS Simulator").slice(0, 200),
-                platform: "ios",
-                version,
-                ...(typeof device.deviceTypeIdentifier === "string" ? { deviceType: device.deviceTypeIdentifier.slice(0, 200) } : {}),
-              });
-        }
+        const result = bootedDevices(JSON.parse(stdout));
         discovery = result;
         discoveryAt = Date.now();
         return result;
@@ -665,8 +674,21 @@ function createSimulatorAdapter(options = {}) {
     const devices = [];
     for (const id of ids) {
       try {
-        const [name, version] = await Promise.all([run(["-s", id, "emu", "avd", "name"]), run(["-s", id, "shell", "getprop", "ro.build.version.release"])]);
-        devices.push({ id, name: name.stdout.split(/\r?\n/)[0].trim().slice(0, 200) || id, platform: "android", version: version.stdout.trim().slice(0, 40) });
+        const [name, version, level] = await Promise.all([
+          run(["-s", id, "emu", "avd", "name"]),
+          run(["-s", id, "shell", "getprop", "ro.build.version.release"]),
+          run(["-s", id, "shell", "getprop", "ro.build.version.sdk"]).catch(() => null),
+        ]);
+        const apiLevel = /^\d{1,3}$/.test(level?.stdout.trim() ?? "") ? Number(level.stdout.trim()) : null;
+        devices.push({
+          id,
+          name: name.stdout.split(/\r?\n/)[0].trim().slice(0, 200) || id,
+          platform: "android",
+          version: version.stdout.trim().slice(0, 40),
+          productFamily: null,
+          runtimeVersion: version.stdout.trim().slice(0, 40) || null,
+          apiLevel,
+        });
       } catch {}
     }
     return devices;

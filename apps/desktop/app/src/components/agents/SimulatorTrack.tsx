@@ -3,8 +3,48 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { DURATION, EASE_OUT } from "../../lib/ease";
-import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, SmartphoneIcon } from "@hugeicons/core-free-icons";
-import { SIMLOCK_DEVICE_PREFIX, type SimlockModel, type SimulatorApi, type SimulatorDevice, type SimulatorList } from "@milagre/shared/simulator";
+import {
+  AndroidIcon,
+  ArrowDown01Icon,
+  ArrowLeft01Icon,
+  Cancel01Icon,
+  SmartphoneIcon,
+  SmartWatch01Icon,
+  Tablet01Icon,
+  Tv01Icon,
+  VrGlassesIcon,
+} from "@hugeicons/core-free-icons";
+import {
+  SIMLOCK_DEVICE_PREFIX,
+  simulatorKind,
+  simulatorRuntimeLabel,
+  type SimlockModel,
+  type SimulatorApi,
+  type SimulatorDevice,
+  type SimulatorKind,
+  type SimulatorList,
+} from "@milagre/shared/simulator";
+
+const modelIcon = (model: SimlockModel) => (model.kind === "tablet" ? Tablet01Icon : model.platform === "android" ? AndroidIcon : SmartphoneIcon);
+function DeviceRuntime({ device }: { device: SimulatorDevice }) {
+  return (
+    <div className="mt-1 flex items-center gap-1 text-11 text-ink-3">
+      <Icon icon={KIND_ICONS[simulatorKind(device)]} size={12} className="shrink-0" />
+      <span className="truncate">
+        {simulatorRuntimeLabel(device)}
+        {device.id.startsWith(SIMLOCK_DEVICE_PREFIX) && " · Leased from Simlock"}
+      </span>
+    </div>
+  );
+}
+const KIND_ICONS: Record<SimulatorKind, typeof SmartphoneIcon> = {
+  iPhone: SmartphoneIcon,
+  iPad: Tablet01Icon,
+  Watch: SmartWatch01Icon,
+  TV: Tv01Icon,
+  Vision: VrGlassesIcon,
+  Android: AndroidIcon,
+};
 import { ipcErrorMessage } from "@milagre/shared/result";
 import {
   createSimulatorBridge,
@@ -243,10 +283,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                 <span className="truncate">{selected.name}</span>
                 <Icon icon={ArrowDown01Icon} size={14} className="shrink-0 text-ink-3" />
               </button>
-              <div className="mt-1 text-11 text-ink-3">
-                {selected.platform === "android" ? "Android" : "iOS"} {selected.version}
-                {selected.id.startsWith(SIMLOCK_DEVICE_PREFIX) && " · Leased from Simlock"}
-              </div>
+              <DeviceRuntime device={selected} />
             </div>
             <div data-slot="simulator-connection" data-state={connectionState} className="flex shrink-0 items-center gap-1.5 text-11 text-ink-2">
               <span
@@ -281,9 +318,9 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   onClick={() => (attaching ? void mutate("attach", device) : setSelected(device))}
                   className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-control px-3 text-left transition-colors hover:bg-hover-2 active:bg-hover-2 disabled:opacity-60"
                 >
-                  <Icon icon={SmartphoneIcon} size={16} />
+                  <Icon icon={KIND_ICONS[simulatorKind(device)]} size={16} />
                   <span className="min-w-0 flex-1 truncate text-13">{device.name}</span>
-                  <span className="text-11 text-ink-3">{running ? `${device.platform === "android" ? "Android" : "iOS"} ${device.version}` : "Stopped"}</span>
+                  <span className="text-11 text-ink-3">{running ? simulatorRuntimeLabel(device) : "Stopped"}</span>
                 </button>
                 {!attaching &&
                   (device.id.startsWith(SIMLOCK_DEVICE_PREFIX) ? (
@@ -345,7 +382,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   onClick={() => void lease(model)}
                   className="flex w-full items-center gap-2 rounded-control px-3 py-2 text-left hover:bg-hover disabled:opacity-50"
                 >
-                  <HugeiconsIcon icon={SmartphoneIcon} size={16} aria-hidden />
+                  <HugeiconsIcon icon={modelIcon(model)} size={16} aria-hidden />
                   <span className="min-w-0 flex-1 truncate text-13">{model.model}</span>
                   <span className="text-11 text-ink-3">
                     {model.platform === "android" ? "Android" : "iOS"} {model.version}

@@ -5,7 +5,7 @@ description: Attach or detach an iOS simulator or Android emulator to the curren
 
 # Chat simulators
 
-1. Call Milagre's `simulator_list`. `devices` contains running devices attached to this Chat, `attached` also includes stopped attachments, and `available` contains other running devices on this Mac.
+1. Call Milagre's `simulator_list`. `devices` contains running devices attached to this Chat, `attached` also includes stopped attachments, and `available` contains other running devices on this Mac. Each device carries `deviceType`, `productFamily` (iPhone, iPad, Watch, TV, Vision), `runtimeIdentifier`, `runtimeVersion` and, for emulators, `apiLevel`, null when unknown: pick by these, not by the name, which the user can edit.
 2. Choose the exact device you will use. Call `simulator_attach` with its `deviceId` before interacting with it. The tool supplies the current Chat identity; do not pass a Chat id or edit association files.
 3. Use your existing device automation tools with that same device id. Attaching makes the device available in this Chat's Simulators pill on desktop and phone. It does not boot, stream, install or launch an app.
 4. Keep the device attached when finishing work so the user can inspect it. Call `simulator_detach` with its `deviceId` when the user asks to remove it or you replace it. Detach closes this Chat's viewers, preserves other Chats' attachments and leaves the device running.

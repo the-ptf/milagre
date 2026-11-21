@@ -4,8 +4,33 @@ export type SimulatorDevice = {
   platform: "ios" | "android";
   version: string;
   /** CoreSimulator's model identifier, independent of the device's editable name. */
-  deviceType?: string;
+  deviceType?: string | null;
+  /** CoreSimulator's product family for the device type; null when the host could not read it. Older hosts send neither. */
+  productFamily?: SimulatorFamily | null;
+  /** CoreSimulator's runtime identifier, such as `com.apple.CoreSimulator.SimRuntime.iOS-26-4`. */
+  runtimeIdentifier?: string | null;
+  /** The runtime's version, such as `26.4`. */
+  runtimeVersion?: string | null;
+  /** An Android emulator's API level. */
+  apiLevel?: number | null;
 };
+export type SimulatorFamily = "iPhone" | "iPad" | "Watch" | "TV" | "Vision";
+export type SimulatorKind = SimulatorFamily | "Android";
+/** What a device is. Metadata decides; the editable name is read only when an older host sent none. */
+export function simulatorKind(device: Pick<SimulatorDevice, "platform" | "name" | "productFamily" | "deviceType">): SimulatorKind {
+  if (device.platform === "android") return "Android";
+  if (device.productFamily) return device.productFamily;
+  const model = (device.deviceType ?? device.name).replaceAll(/[-_]/g, " ");
+  if (/iPad/i.test(model)) return "iPad";
+  if (/Watch/i.test(model)) return "Watch";
+  if (/Apple\s*TV/i.test(model)) return "TV";
+  if (/Vision/i.test(model)) return "Vision";
+  return "iPhone";
+}
+/** "iOS 26.4" or "Android 15", from the runtime when the host sent it. */
+export function simulatorRuntimeLabel(device: Pick<SimulatorDevice, "platform" | "version" | "runtimeVersion">): string {
+  return `${device.platform === "android" ? "Android" : "iOS"} ${device.runtimeVersion || device.version}`.trim();
+}
 export type SimulatorOrientation = "portrait" | "portrait-upside-down" | "landscape-left" | "landscape-right";
 export type SimulatorStatus = {
   width: number;

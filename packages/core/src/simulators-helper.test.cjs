@@ -328,11 +328,17 @@ test("discovery filters running iOS devices and never spawns the helper", async 
     execFile: async (file, args) => {
       calls++;
       assert.equal(file, "/usr/bin/xcrun");
-      assert.deepEqual(args, ["simctl", "list", "devices", "booted", "--json"]);
+      assert.deepEqual(args, ["simctl", "list", "devices", "booted", "devicetypes", "runtimes", "--json"]);
       return {
         stdout: JSON.stringify({
+          devicetypes: [
+            { identifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro", productFamily: "iPhone" },
+            { identifier: "com.apple.CoreSimulator.SimDeviceType.iPad-A16", productFamily: "iPad" },
+          ],
+          runtimes: [{ identifier: "com.apple.CoreSimulator.SimRuntime.iOS-27-0", version: "27.0.1" }],
           devices: {
             "com.apple.CoreSimulator.SimRuntime.iOS-27-0": [
+              { udid: "11111111-1111-1111-1111-111111111111", name: "Renamed", state: "Booted", isAvailable: true },
               {
                 udid: DEVICE,
                 name: "My QA device",
@@ -352,8 +358,28 @@ test("discovery filters running iOS devices and never spawns the helper", async 
     },
   });
   t.after(() => helper.stop());
+  const runtimeIdentifier = "com.apple.CoreSimulator.SimRuntime.iOS-27-0";
   assert.deepEqual(await helper.list(), [
-    { id: DEVICE, name: "My QA device", deviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro", platform: "ios", version: "27.0" },
+    {
+      id: "11111111-1111-1111-1111-111111111111",
+      name: "Renamed",
+      deviceType: null,
+      productFamily: null,
+      runtimeIdentifier,
+      runtimeVersion: "27.0.1",
+      platform: "ios",
+      version: "27.0",
+    },
+    {
+      id: DEVICE,
+      name: "My QA device",
+      deviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+      productFamily: "iPhone",
+      runtimeIdentifier,
+      runtimeVersion: "27.0.1",
+      platform: "ios",
+      version: "27.0",
+    },
   ]);
   await helper.list();
   assert.equal(calls, 1);
@@ -449,14 +475,16 @@ test("fleet discovers only ready emulators and tolerates unavailable Xcode", asy
       if (file === "/usr/bin/xcrun") throw new Error("no Xcode");
       if (args[0] === "devices") return { stdout: "List of devices attached\nemulator-5554 device\nemulator-5556 offline\nphysical-device device\n" };
       if (args.includes("emu")) return { stdout: "Pixel_Test\nOK\n" };
-      return { stdout: "16\n" };
+      return { stdout: args.includes("ro.build.version.sdk") ? "36\n" : "16\n" };
     },
     spawn: () => {
       throw new Error("Discovery must not start capture");
     },
   });
   t.after(() => adapter.stop());
-  assert.deepEqual(await adapter.list(), [{ id: "emulator-5554", name: "Pixel_Test", platform: "android", version: "16" }]);
+  assert.deepEqual(await adapter.list(), [
+    { id: "emulator-5554", name: "Pixel_Test", platform: "android", version: "16", productFamily: null, runtimeVersion: "16", apiLevel: 36 },
+  ]);
   await assert.rejects(adapter.connect("physical-device"), /device/i);
 });
 
