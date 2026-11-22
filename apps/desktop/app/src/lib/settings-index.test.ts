@@ -37,6 +37,7 @@ const rowSources = [`${COMPONENTS}Settings.tsx`, ...settingsDirectory.map((name)
 const pageSources = [
   ...rowSources,
   ...[
+    "AccountsPage",
     "AccountsSettings",
     "ProjectAccountsSettings",
     "ContextSettings",

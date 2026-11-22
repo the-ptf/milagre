@@ -235,10 +235,22 @@ test("another computer's Routines, Runs and targets come back naming it, and its
   ]);
 });
 
-test("remote usage can select a saved Project account while sign-ins and computer defaults stay local", () => {
-  for (const method of ["usage:read", "usage:cached", "accounts:scope", "accounts:assign"]) assert.equal(isLocalOnly(method), false, method);
-  for (const method of ["accounts:add", "accounts:select", "accounts:login", "accounts:cancel", "accounts:remove", "chat:limit-switch"])
-    assert.equal(isLocalOnly(method), true, method);
+test("a remote computer's accounts route to it while switching a Chat at its limit stays local", () => {
+  for (const method of [
+    "usage:read",
+    "usage:cached",
+    "accounts:scope",
+    "accounts:assign",
+    "accounts:list",
+    "accounts:add",
+    "accounts:select",
+    "accounts:login",
+    "accounts:cancel",
+    "accounts:code",
+    "accounts:remove",
+  ])
+    assert.equal(isLocalOnly(method), false, method);
+  assert.equal(isLocalOnly("chat:limit-switch"), true);
   assert.deepEqual(qualifyEvent(ID, "usage:changed", { scopeKey: "/p" }), { scopeKey: `${ID}|/p` });
   for (const method of ["accounts:scope", "accounts:assign"])
     for (const scopeKey of ["/p", `milagre-link:${LINK}`])

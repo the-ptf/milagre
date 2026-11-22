@@ -179,7 +179,7 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
                 size={24}
                 className="-mr-2"
                 disabled={busy || signingIn}
-                onClick={() => void act(() => window.milagre.accountAction("login", group.provider, effective!.id))}
+                onClick={() => void act(() => bridgeForKey(scope).accountAction("login", group.provider, effective!.id))}
               >
                 Re-authenticate
               </Button>
@@ -187,7 +187,14 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
           </div>
         )}
         {effective?.state === "signing-in" && effective.signInUrl && (
-          <SignInCode provider={group.provider} accountId={effective.id} url={effective.signInUrl} onDone={() => void load()} className="pl-7" />
+          <SignInCode
+            bridge={bridgeForKey(scope)}
+            provider={group.provider}
+            accountId={effective.id}
+            url={effective.signInUrl}
+            onDone={() => void load()}
+            className="pl-7"
+          />
         )}
         {effective?.message && !missing && (
           <p role="status" className="pl-7 text-12 text-ink-3">

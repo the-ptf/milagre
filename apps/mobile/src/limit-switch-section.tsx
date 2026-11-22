@@ -3,11 +3,13 @@ import { Text, View } from "react-native";
 import { space } from "./design-tokens";
 import { useFocusEffect } from "expo-router";
 import { useSession } from "./session";
+import type { Client } from "./client";
 import { ErrorNotice, InlineError, SectionLabel, Toggle, useStyles } from "./ui";
 
-export function LimitAutoSwitchSection() {
+export function LimitAutoSwitchSection({ client: chosen }: { client?: Client | null } = {}) {
   const styles = useStyles();
-  const session = useSession();
+  const sessionClient = useSession().client;
+  const session = { client: chosen ?? sessionClient };
   const [autoSwitch, setAutoSwitch] = useState<boolean | null>(null);
   const [autoSwitchError, setAutoSwitchError] = useState("");
   const [resumeAtReset, setResumeAtReset] = useState<boolean | null>(null);
