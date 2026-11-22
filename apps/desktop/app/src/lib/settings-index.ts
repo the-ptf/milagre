@@ -645,6 +645,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
 
   {
     page: "this-mac",
+    title: "Show computers as",
+    description:
+      "A map of the phones and computers around this one and the route each uses (LAN, Tailscale or the relay), or a list with their memory and disk.",
+    keywords: "map list routes relay lan tailscale network devices",
+  },
+  {
+    page: "this-mac",
     title: "Drive other computers",
     description: "Drive the chats of other computers running Milagre from this window. Their Projects join the sidebar.",
     keywords: "remote pair mac",

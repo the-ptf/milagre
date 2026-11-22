@@ -1,3 +1,4 @@
+import { machineKindOf } from "@milagre/shared/computer-map";
 import { outbox } from "./outbox";
 import { createClient } from "./client";
 import { nativeActivity } from "./live-activity-native";
@@ -22,7 +23,7 @@ export async function pingComputer(host: SavedHost): Promise<Reachability> {
   }
 }
 
-export const isDesktopComputer = (name: string) => /studio|mini|imac/i.test(name);
+export const isDesktopComputer = (name: string) => machineKindOf(name) === "desktop";
 
 export function routeLabel(host: SavedHost, reachability: Reachability): string {
   if (reachability === "online" && lanRoutes.kind(host.id) === "lan") return "Local network";

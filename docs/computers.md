@@ -4,6 +4,14 @@ How a Chat on another computer reaches the device the person is using: its Brows
 
 The Chat's computer always owns the Project, Worktrees, transcript and pages. The viewing device draws and queues; it never becomes a second owner.
 
+## Computer map
+
+Settings › This Mac and the phone's Computers screen show a Map beside the List (`@milagre/shared/computer-map` lays out both). Desktop puts the phones and computers that drive this Mac on the left, the ones it drives on the right; the phone stacks its computers under itself so the map fits the width without zooming.
+
+- **Routes are the real ones.** A driven computer's line names the route in use (`ComputerView.route`): LAN, Tailscale when the LAN address is in 100.64.0.0/10, else the relay's host. A paired device's line uses `PairedDevice.route`; on the phone, the current `lanRoutes` route. Not connected is gray, offline dashed, refused red.
+- **Two-way is joined by name.** A paired computer and a driven computer share no id (a device is keyed by its pairing key, a driven computer by this Mac's own id), so the map folds them into one two-way machine only when the name the device gave matches the driven computer's name. Renaming one side on this Mac splits them again. Phones never join.
+- Worktree Links aren't drawn: they never span computers.
+
 ## Browser pages on another computer
 
 A remote Chat's Browser panel pages open as webviews on the desktop being looked at, and every connection they make leaves from the Chat's computer. `localhost`, `127.0.0.1` and that computer's internal names resolve there, so a dev server bound to loopback works.
