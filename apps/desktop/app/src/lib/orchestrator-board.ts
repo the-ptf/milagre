@@ -6,6 +6,7 @@ import { chatActivity } from "@milagre/shared/chat-activity";
 import {
   autopilotPending,
   boardColumn,
+  placedColumn,
   pullRequestState,
   taskBlockedText,
   taskLimitText,
@@ -85,6 +86,7 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
     done: Boolean(session?.done_at || session?.archived),
     needsYou,
     pullRequest,
+    placed: placedColumn(session),
     finished: !run && (state.kind === "stopped" || (state.kind === "done" && (Boolean(session?.summary?.lastOutcome) || (session?.summary?.count ?? 0) > 1))),
   });
   return {

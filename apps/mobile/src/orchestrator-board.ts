@@ -1,6 +1,7 @@
 import {
   autopilotPending,
   boardColumn,
+  placedColumn,
   taskBlockedText,
   taskLimitText,
   taskOutcomeDetail,
@@ -62,6 +63,7 @@ export function boardItem(task: OrchestratorTask, chat: TaskChat | undefined, pu
     active,
     outcome: task.outcome,
     pullRequest,
+    placed: placedColumn(chat.chat),
     finished: !chat.run && (chat.chat.summary?.lastOutcome === "completed" || (chat.chat.summary?.count ?? chat.messages?.length ?? 0) > 1),
   });
   return {

@@ -114,3 +114,8 @@ test("a finished task is Done; one its agent marked blocked or that asks a quest
   assert.equal(boardItem(task({ outcome: "reply" }), { chat: blocked, run: run() }, null, 0).column, "running", "a new turn in a blocked task runs");
   assert.equal(boardItem(task({ outcome: "reply" }), { chat: { ...blocked, done_at: 5 } }, null, 0).column, "done", "marking the Chat Done accepts it");
 });
+
+test("a task the owner moved stays in that column on the phone too", () => {
+  const moved = chat({ summary: { count: 2, lastOutcome: "completed" } as never, orchestrator: { taskId: "t1", hidden: true, column: "running" } });
+  assert.equal(boardItem(task(), { chat: moved }, null, 0).column, "running");
+});

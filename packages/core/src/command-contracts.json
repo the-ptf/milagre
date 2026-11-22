@@ -507,6 +507,35 @@
         }
       ]
     },
+    "orchestrator:task:move": {
+      "parameters": [
+        {
+          "name": "taskId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "column",
+          "optional": false,
+          "schema": {
+            "enum": ["running", "needs", "review", "done"]
+          }
+        }
+      ]
+    },
+    "orchestrator:task:delete": {
+      "parameters": [
+        {
+          "name": "taskId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "orchestrator:task:reroute": {
       "parameters": [
         {

@@ -117,6 +117,11 @@ function registerOrchestrator(
       chatKey,
       stop: (key) => stopChat(key),
       archive: (projectPath, sessionId) => archiveChat(projectPath, sessionId),
+      deleteChat: (projectPath, sessionId) => commands.get("chat:delete")({}, projectPath, sessionId),
+      placeChat: async (projectPath, sessionId, column) => {
+        await commands.get("chat:patch")({}, projectPath, sessionId, { done: column === "done" });
+        await markTaskChat(updateProject, projectPath, sessionId, { column: column === "done" ? undefined : column });
+      },
       routerCall: (router) => routerCall(router),
       memoryCall: (router) => routerCall(router, MEMORY_SCHEMA),
       remote,
@@ -146,6 +151,8 @@ function registerOrchestrator(
   commands.handle("orchestrator:task:project", (_event, taskId, projectPath) => orchestrator.pickProject(String(taskId), String(projectPath)));
   commands.handle("orchestrator:task:sidebar", (_event, taskId, shown) => orchestrator.showInSidebar(String(taskId), shown === true));
   commands.handle("orchestrator:task:undo", (_event, taskId) => orchestrator.undo(String(taskId)));
+  commands.handle("orchestrator:task:move", (_event, taskId, column) => orchestrator.move(String(taskId), String(column)));
+  commands.handle("orchestrator:task:delete", (_event, taskId) => orchestrator.remove(String(taskId)));
   commands.handle("orchestrator:task:reroute", (_event, taskId, change) => orchestrator.reroute(String(taskId), change ?? {}));
   commands.handle("orchestrator:task:dismiss", (_event, taskId) => orchestrator.dismiss(String(taskId)));
   commands.handle("orchestrator:memory:import", () => orchestrator.importMemory());
@@ -182,7 +189,7 @@ function registerOrchestrator(
   });
   const taskTools = createTaskTools({
     taskOf: (chatId) => states.states.get(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)]?.orchestrator ?? null,
-    setBlocked: (chatId, blocked) => markTaskChat(updateProject, projectOfKey(chatId), sessionIdFromKey(chatId), { blocked: blocked ?? undefined }),
+    mark: (chatId, patch) => markTaskChat(updateProject, projectOfKey(chatId), sessionIdFromKey(chatId), patch),
   });
   const watcher = {
     observe(chatId, event) {

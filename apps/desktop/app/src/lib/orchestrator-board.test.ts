@@ -127,6 +127,11 @@ test("a task whose turn ended without a PR needs the owner", () => {
   assert.equal(boardCards([task("t1")], states as never, {}, NOW)[0]!.column, "needs");
 });
 
+test("a task the owner moved stays in that column", () => {
+  const states = { "/p/app": { sessions: { 1: { id: 1, summary: { count: 2 }, orchestrator: { taskId: "t1", hidden: true, column: "review" } } } } };
+  assert.equal(boardCards([task("t1")], states as never, {}, NOW)[0]!.column, "review");
+});
+
 test("a finished task is Done; one its agent marked blocked or that asks a question waits in Needs you with why", () => {
   const blocked = { reason: "Sign in to the resend MCP server with /mcp, then reply continue.", at: NOW - 5 };
   const states = {

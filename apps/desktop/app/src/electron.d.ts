@@ -12,6 +12,7 @@ import type {
   OrchestratorSettings,
   OrchestratorSnapshot,
   OrchestratorTask,
+  BoardColumn,
 } from "@milagre/shared/orchestrator";
 import type { DoneSettings } from "@milagre/shared/done";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
@@ -470,6 +471,8 @@ export type MilagreBridge = {
   pickOrchestratorProject: (taskId: string, projectPath: string) => Promise<OrchestratorTask | null>;
   showOrchestratorTaskInSidebar: (taskId: string, shown: boolean) => Promise<OrchestratorTask | null>;
   undoOrchestratorTask: (taskId: string) => Promise<null>;
+  moveOrchestratorTask: (taskId: string, column: BoardColumn) => Promise<unknown>;
+  deleteOrchestratorTask: (taskId: string) => Promise<null>;
   rerouteOrchestratorTask: (taskId: string, change: { projectPath?: string; role?: string }) => Promise<OrchestratorTask | null>;
   dismissOrchestratorTask: (taskId: string) => Promise<null>;
   importOrchestratorMemory: () => Promise<OrchestratorMemory>;

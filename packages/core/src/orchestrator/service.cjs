@@ -8,6 +8,7 @@ const {
   recordTrust,
   normalizeTaskOutcome,
   taskOutcomePrompt,
+  BOARD_COLUMNS,
 } = require("@milagre/shared/orchestrator");
 const { createAccounts, createLimitWatch } = require("./limits.cjs");
 const { routeTask } = require("./router.cjs");
@@ -67,6 +68,57 @@ async function readMemoryInto({ store, ports, settings, now }) {
     },
   }));
 }
+
+/** What the owner does to a task by hand: show it in the sidebar, move it on the board, delete, undo or dismiss it. */
+function taskActions({ store, ports, chatKeyOf, dropChat, forget }) {
+  const drop = (taskId) => {
+    store.update((current) => ({ ...current, tasks: current.tasks.filter((entry) => entry.id !== taskId) }));
+    ports.images.drop(taskId);
+  };
+  return {
+    async showInSidebar(taskId, shown) {
+      const task = store.task(taskId);
+      if (task?.remoteTaskId) return ports.remote.invoke(task.remoteComputerId, "orchestrator:task:sidebar", [task.remoteTaskId, shown]);
+      if (!task?.projectPath || task.sessionId === null) return task;
+      await ports.setHidden(task.projectPath, task.sessionId, !shown);
+      return task;
+    },
+    async move(taskId, column) {
+      if (!BOARD_COLUMNS.includes(column)) throw new Error("Move it to Running, Needs you, In review or Done.");
+      const task = store.task(taskId);
+      if (task?.remoteTaskId) return ports.remote.invoke(task.remoteComputerId, "orchestrator:task:move", [task.remoteTaskId, column]);
+      if (!task?.projectPath || task.sessionId === null) throw new Error("This task has no Chat to move yet.");
+      await ports.placeChat(task.projectPath, task.sessionId, column);
+      return task;
+    },
+    async remove(taskId) {
+      const task = store.task(taskId);
+      if (!task) return null;
+      if (task.remoteTaskId) await ports.remote.invoke(task.remoteComputerId, "orchestrator:task:delete", [task.remoteTaskId]);
+      else if (chatKeyOf(task))
+        await ports.deleteChat(task.projectPath, task.sessionId).catch(async (error) => {
+          console.warn("[orchestrator] couldn't delete a task's Chat, archiving it:", error.message);
+          await dropChat(task);
+        });
+      forget(taskId);
+      drop(taskId);
+      return null;
+    },
+    async undo(taskId) {
+      const task = store.task(taskId);
+      if (!task) return null;
+      if (task.remoteTaskId) await ports.remote.invoke(task.remoteComputerId, "orchestrator:task:undo", [task.remoteTaskId]).catch(() => {});
+      else await dropChat(task);
+      drop(taskId);
+      return null;
+    },
+    dismiss(taskId) {
+      drop(taskId);
+      return null;
+    },
+  };
+}
+
 function createOrchestrator({ store, ports, now = () => Date.now() }) {
   const hints = new Map();
   const starting = new Set();
@@ -258,22 +310,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       learn("project");
       return startInBackground(taskId, { projectPath, role: task.role, title: task.title, reason: "You picked it" });
     },
-    async showInSidebar(taskId, shown) {
-      const task = store.task(taskId);
-      if (task?.remoteTaskId) return ports.remote.invoke(task.remoteComputerId, "orchestrator:task:sidebar", [task.remoteTaskId, shown]);
-      if (!task?.projectPath || task.sessionId === null) return task;
-      await ports.setHidden(task.projectPath, task.sessionId, !shown);
-      return task;
-    },
-    async undo(taskId) {
-      const task = store.task(taskId);
-      if (!task) return null;
-      if (task.remoteTaskId) await ports.remote.invoke(task.remoteComputerId, "orchestrator:task:undo", [task.remoteTaskId]).catch(() => {});
-      else await dropChat(task);
-      store.update((current) => ({ ...current, tasks: current.tasks.filter((entry) => entry.id !== taskId) }));
-      ports.images.drop(taskId);
-      return null;
-    },
+    ...taskActions({ store, ports, chatKeyOf, dropChat, forget: (taskId) => limitWatch.forget(taskId) }),
     async reroute(taskId, change = {}) {
       const task = store.task(taskId);
       if (!task) return null;
@@ -291,11 +328,6 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
         title: task.title,
         reason: change.projectPath ? "You picked it" : task.reason.project,
       });
-    },
-    dismiss(taskId) {
-      store.update((current) => ({ ...current, tasks: current.tasks.filter((entry) => entry.id !== taskId) }));
-      ports.images.drop(taskId);
-      return null;
     },
     importMemory() {
       if (!importing) importing = readMemory().finally(() => (importing = null));

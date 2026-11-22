@@ -51,6 +51,8 @@ const ALLOWED: Record<string, string[]> = {
     "pickOrchestratorProject",
     "rerouteOrchestratorTask",
     "undoOrchestratorTask",
+    "moveOrchestratorTask",
+    "deleteOrchestratorTask",
     "dismissOrchestratorTask",
     "showOrchestratorTaskInSidebar",
     "importOrchestratorMemory",
