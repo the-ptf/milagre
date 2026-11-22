@@ -261,7 +261,8 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     page: "babysit-prs",
     title: "Babysit new PRs",
     group: "Babysit PRs",
-    description: "Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done.",
+    description:
+      "Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done. Orchestrator task Chats still on the board are always babysat.",
     keywords: "pull request heartbeat wake the agent for review comments failed checks merge conflicts branch behind",
   },
   {
