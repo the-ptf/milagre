@@ -29,7 +29,7 @@ function drivenDetail(view: ComputerView, routes: number, now: number): string {
 }
 
 /** A computer this Mac drives: its line shows the route in use, or the relay it falls back to while it isn't connected. */
-export function drivenMachine(view: ComputerView, now: number): MapMachine {
+function drivenMachine(view: ComputerView, now: number): MapMachine {
   const routes = 1 + (view.lan || view.lanRoutes.length > 0 ? 1 : 0);
   const route = view.state === "online" ? view.route : view.lanRoutes.length > 0 && !view.relayHost ? "lan" : "relay";
   return {
@@ -44,7 +44,7 @@ export function drivenMachine(view: ComputerView, now: number): MapMachine {
 }
 
 /** A phone or computer paired to this Mac, which drives it: in use while it is connected, standby otherwise. */
-export function pairedMachine(device: PairedDevice, now: number, relayHost: string | null = null): MapMachine {
+function pairedMachine(device: PairedDevice, now: number, relayHost: string | null = null): MapMachine {
   const name = deviceName(device);
   return {
     id: `device:${device.key}`,
