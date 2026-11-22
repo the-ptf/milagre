@@ -1,4 +1,4 @@
-import { sinceLabel, type TaskCard } from "../../lib/orchestrator-board";
+import type { TaskCard } from "../../lib/orchestrator-board";
 import { modelName } from "../../lib/orchestrator-names";
 import { usePanelWidth } from "../agents/panel-width";
 import { ResizeHandle } from "../primitives/ResizeHandle";
@@ -6,7 +6,7 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import { SectionLabel } from "../primitives/SectionLabel";
 import { COLUMNS } from "./OrchestratorBoard";
 import { PebbleBox } from "./PebbleBox";
-import { ProjectIcon, StatusMark, type CardEnv } from "./TaskCards";
+import { CardTime, ProjectIcon, StatusMark, type CardEnv } from "./TaskCards";
 
 export function OrchestratorTaskList({
   cards,
@@ -69,7 +69,9 @@ export function OrchestratorTaskList({
                         </span>
                       </span>
                     </span>
-                    <span className="shrink-0 self-start pt-1.5 text-11 text-ink-3">{sinceLabel(task.createdAt, env.now)}</span>
+                    <span className="shrink-0 self-start pt-1.5 text-11 text-ink-3">
+                      <CardTime card={card} now={env.now} />
+                    </span>
                   </button>
                 );
               })}

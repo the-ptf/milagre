@@ -1,5 +1,14 @@
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { CheckmarkCircle02Icon, ComputerIcon, GitMergeIcon, GitPullRequestIcon, Image01Icon, PanelLeftOpenIcon, Undo02Icon } from "@hugeicons/core-free-icons";
+import {
+  CheckmarkCircle02Icon,
+  ComputerIcon,
+  GitMergeIcon,
+  GitPullRequestIcon,
+  HourglassIcon,
+  Image01Icon,
+  PanelLeftOpenIcon,
+  Undo02Icon,
+} from "@hugeicons/core-free-icons";
 import { roleById, type OrchestratorRole, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import type { ModelProvider } from "../../model";
 import { sinceLabel, type TaskCard } from "../../lib/orchestrator-board";
@@ -57,6 +66,17 @@ export function StatusMark({ card }: { card: TaskCard }) {
   return (
     <span className="flex shrink-0 text-ink-3">
       <Icon icon={CheckmarkCircle02Icon} size={14} />
+    </span>
+  );
+}
+
+/** When a card was sent, or on a Done card the time left before the host archives its Chat, as the sidebar's Done list shows it. */
+export function CardTime({ card, now }: { card: TaskCard; now: number }) {
+  if (!card.countdown) return <>{sinceLabel(card.task.createdAt, now)}</>;
+  return (
+    <span data-done-countdown title="Time left before it is archived" className="flex items-center gap-1 font-medium tabular-nums">
+      <Icon icon={HourglassIcon} size={12} />
+      {card.countdown}
     </span>
   );
 }
@@ -142,7 +162,9 @@ export function ChatCard({ card, env, onOpen }: { card: TaskCard; env: CardEnv; 
             {env.computerName(task)}
           </span>
         </span>
-        <span className="text-11">{sinceLabel(task.createdAt, env.now)}</span>
+        <span className="shrink-0 text-11">
+          <CardTime card={card} now={env.now} />
+        </span>
       </div>
       <span className="absolute top-1.5 right-1.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
         <IconButton

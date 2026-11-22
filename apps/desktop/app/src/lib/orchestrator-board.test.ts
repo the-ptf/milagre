@@ -285,3 +285,26 @@ test("a task's PR reads from its Project's snapshot and meets the recorded outco
   assert.deepEqual([card("merged", prSnapshot("MERGED")).column, card("merged", prSnapshot("MERGED")).pullRequest], ["done", "merged"]);
   assert.deepEqual([card("pull-request", prSnapshot("CLOSED")).column, card("pull-request", prSnapshot("CLOSED")).pullRequest], ["needs", "closed"]);
 });
+
+test("a Done card counts down to when the host archives its Chat, as the sidebar's Done list does", () => {
+  const hour = 3_600_000;
+  const states = {
+    "/p/app": {
+      sessions: {
+        1: { id: 1, done_at: NOW - 2.5 * hour },
+        2: { id: 2, done_at: NOW - hour, archived: true },
+        3: { id: 3, summary: { lastOutcome: "completed" } },
+      },
+    },
+  };
+  const tasks = [task("t1"), task("t2", { createdAt: NOW - 1 }), task("t3", { createdAt: NOW - 2, outcome: "reply" })];
+  assert.deepEqual(
+    boardCards(tasks, states, {}, NOW, {}, 8).map((card) => [card.task.id, card.column, card.countdown]),
+    [
+      ["t1", "done", "5:30"],
+      ["t2", "done", null],
+      ["t3", "done", null],
+    ],
+  );
+  assert.equal(boardCards([task("t1")], states, {}, NOW, {}, 0)[0]!.countdown, null, "with Never, nothing counts down");
+});

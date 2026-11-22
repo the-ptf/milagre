@@ -114,3 +114,12 @@ test("a finished task is Done; one its agent marked blocked or that asks a quest
   assert.equal(boardItem(task({ outcome: "reply" }), { chat: blocked, run: run() }, null, 0).column, "running", "a new turn in a blocked task runs");
   assert.equal(boardItem(task({ outcome: "reply" }), { chat: { ...blocked, done_at: 5 } }, null, 0).column, "done", "marking the Chat Done accepts it");
 });
+
+test("a Done card counts down to when its computer archives the Chat, as the Done list does", () => {
+  const hour = 3_600_000;
+  const now = 10 * hour;
+  assert.equal(boardItem(task(), { chat: chat({ done_at: now - 2.5 * hour }) }, null, now, 8).countdown, "5:30");
+  assert.equal(boardItem(task(), { chat: chat({ done_at: now - hour, archived: true }) }, null, now, 8).countdown, null, "an archived Chat is gone already");
+  assert.equal(boardItem(task(), { chat: chat({ done_at: now }) }, null, now, 0).countdown, null, "with Never, nothing counts down");
+  assert.equal(boardItem(task(), { chat: chat() }, "open", now, 8).countdown, null, "only Done cards count down");
+});

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { chatPullRequests } from "@milagre/shared/chats";
 import { pullRequestState, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { allComputers, useComputerViews } from "./all-computers";
+import { retentionOf, useDoneRetention } from "./done-retention";
 import { taskHost } from "./orchestrator-actions";
 import type { ProjectCopy } from "./all-computers-store";
 import { boardItem, boardCounts, type BoardItem, type TaskChat } from "./orchestrator-board";
@@ -82,14 +83,16 @@ export function useOrchestratorBoard(tasks: readonly OrchestratorTask[]) {
     }));
   }, [joined, hostId, session.client]);
   const status = useComputerChatPullRequests(targets);
+  const hosts = [...new Set(joined.flatMap((entry) => (entry.chat?.chat.done_at && entry.at ? [entry.at] : [])))].sort();
+  const doneHours = useDoneRetention(hosts, (at) => (at === hostId ? session.client : allComputers.clientFor(at)), hosts.length > 0);
   const items = useMemo<BoardItem[]>(
     () =>
       joined.map((entry) => {
         const found = entry.prPath && entry.at ? status[entry.at]?.[entry.prPath] : undefined;
         const prs = found ? chatPullRequests(entry.prRefs, found.found, found.branch) : [];
-        return boardItem(entry.task, entry.chat, pullRequestState(prs.map((pr) => pr.state)), now);
+        return boardItem(entry.task, entry.chat, pullRequestState(prs.map((pr) => pr.state)), now, entry.at ? retentionOf(doneHours, entry.at) : undefined);
       }),
-    [joined, status, now],
+    [joined, status, now, doneHours],
   );
   const counts = useMemo(() => boardCounts(items), [items]);
   return { items, counts };
