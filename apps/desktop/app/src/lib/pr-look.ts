@@ -1,16 +1,26 @@
-import { CircleDotIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import {
+  CancelCircleIcon,
+  CircleDotIcon,
+  GitMergeIcon,
+  GitPullRequestClosedIcon,
+  GitPullRequestDraftIcon,
+  GitPullRequestIcon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
 import { pullRequestPresentation } from "./pr-blockers";
 
-const PR_ICONS = {
+export const PR_ICONS = {
   merged: GitMergeIcon,
   closed: GitPullRequestClosedIcon,
   draft: GitPullRequestDraftIcon,
   ready: Tick02Icon,
   checking: CircleDotIcon,
   open: GitPullRequestIcon,
+  failed: CancelCircleIcon,
+  passed: Tick02Icon,
 } as const;
 
-const PR_TONES = {
+export const PR_TONES = {
   purple: "text-purple",
   red: "text-red",
   orange: "text-orange",

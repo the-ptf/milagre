@@ -84,8 +84,8 @@ export interface PullRequest {
   isBehind?: boolean;
   /** A reviewer requested changes, so the PR can't merge until they're addressed. */
   changesRequested?: boolean;
-  /** CI on the open PR: still running, or failed. Unset once every check passed or when it has none. */
-  checks?: "running" | "failed";
+  /** CI on the open PR. Unset when it has none, or from hosts that predate "passed". */
+  checks?: "running" | "failed" | "passed";
 }
 
 /** A Project's PRs as the host's poll last found them: each Worktree's branch PR, and each Chat-named PR by folder and ref. */

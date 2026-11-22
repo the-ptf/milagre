@@ -9,6 +9,7 @@ import {
   type OrchestratorTask,
 } from "@milagre/shared/orchestrator";
 import { chatActivity } from "@milagre/shared/chat-activity";
+import type { BoardPullRequestMark } from "@milagre/shared/pr-blockers";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { AgentModels, AgentSession, ChatMessage, ModelProvider } from "@milagre/shared/model";
 import { MODEL_CATALOG } from "@milagre/shared/model-options";
@@ -34,13 +35,20 @@ export type BoardItem = {
   mark: ChatMark | null;
   detail: string;
   pullRequest: PullRequestState;
+  pullRequestMark: BoardPullRequestMark | null;
   inSidebar: boolean;
 };
 
 const NEEDS_YOU = new Set<ChatMark>(["question", "waiting", "interrupted", "failed"]);
 
-export function boardItem(task: OrchestratorTask, chat: TaskChat | undefined, pullRequest: PullRequestState, now: number): BoardItem {
-  const base = { task, pullRequest, inSidebar: false };
+export function boardItem(
+  task: OrchestratorTask,
+  chat: TaskChat | undefined,
+  pullRequest: PullRequestState,
+  now: number,
+  pullRequestMark: BoardPullRequestMark | null = null,
+): BoardItem {
+  const base = { task, pullRequest, pullRequestMark, inSidebar: false };
   if (task.state === "routing") return { ...base, column: "running", kind: "deciding", mark: null, detail: "Deciding where this goes…" };
   if (task.state === "needs-project")
     return { ...base, column: "needs", kind: "needs-project", mark: null, detail: task.reason.project ?? "No Project fits. Pick one to start." };
@@ -74,6 +82,11 @@ export function boardItem(task: OrchestratorTask, chat: TaskChat | undefined, pu
       ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
       : (blocked ?? limit ?? (!needsYou && (column === "needs" || column === "review") ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),
   };
+}
+
+/** The PR mark a card leads with: only once the task's work is in review or done. */
+export function shownPullRequestMark(item: BoardItem): BoardPullRequestMark | null {
+  return item.column === "review" || item.column === "done" ? item.pullRequestMark : null;
 }
 
 export function boardCounts(items: readonly BoardItem[]): Record<BoardColumn, number> {

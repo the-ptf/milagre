@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { AgentSession } from "@milagre/shared/model";
 import type { OrchestratorTask } from "@milagre/shared/orchestrator";
-import { boardCounts, boardItem, columnItems, modelAndEffort, projectName, relativeAge } from "./orchestrator-board.ts";
+import { boardCounts, boardItem, columnItems, modelAndEffort, projectName, relativeAge, shownPullRequestMark } from "./orchestrator-board.ts";
 
 const task = (patch: Partial<OrchestratorTask> = {}): OrchestratorTask => ({
   id: "t1",
@@ -113,4 +113,13 @@ test("a finished task is Done; one its agent marked blocked or that asks a quest
   assert.deepEqual([asking.column, asking.mark, asking.detail], ["needs", "question", "Asks: Which sender domain?"]);
   assert.equal(boardItem(task({ outcome: "reply" }), { chat: blocked, run: run() }, null, 0).column, "running", "a new turn in a blocked task runs");
   assert.equal(boardItem(task({ outcome: "reply" }), { chat: { ...blocked, done_at: 5 } }, null, 0).column, "done", "marking the Chat Done accepts it");
+});
+
+test("a done or in-review card leads with its PR mark; a running one keeps its own", () => {
+  const finished = { chat: chat({ summary: { count: 2, lastOutcome: "completed" } as AgentSession["summary"] }) };
+  const mark = { icon: "failed", tone: "red", label: "Pull request #7 open, CI failed" } as const;
+  assert.equal(shownPullRequestMark(boardItem(task(), finished, "open", 0, mark)), mark);
+  assert.equal(shownPullRequestMark(boardItem(task({ outcome: "merged" }), finished, "open", 0, mark)), mark);
+  assert.equal(shownPullRequestMark(boardItem(task(), { ...finished, run: run() }, "open", 0, mark)), null);
+  assert.equal(shownPullRequestMark(boardItem(task(), { chat: chat({ done_at: 1 }) }, null, 0)), null);
 });

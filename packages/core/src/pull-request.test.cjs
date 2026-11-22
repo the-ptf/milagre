@@ -236,8 +236,10 @@ for (const [name, rollup, expected] of [
   ["a timed out check", [checkRun("COMPLETED", "TIMED_OUT")], "failed"],
   ["a failed commit status", [commitStatus("FAILURE")], "failed"],
   ["an errored commit status", [commitStatus("ERROR")], "failed"],
-  ["all passed", [checkRun("COMPLETED", "SUCCESS"), commitStatus("SUCCESS")], undefined],
-  ["skipped and neutral checks", [checkRun("COMPLETED", "SKIPPED"), checkRun("COMPLETED", "NEUTRAL")], undefined],
+  ["all passed", [checkRun("COMPLETED", "SUCCESS"), commitStatus("SUCCESS")], "passed"],
+  ["skipped and neutral checks", [checkRun("COMPLETED", "SKIPPED"), checkRun("COMPLETED", "NEUTRAL")], "passed"],
+  ["a successful rollup", "SUCCESS", "passed"],
+  ["a pending rollup", "PENDING", "running"],
   ["no checks", [], undefined],
   ["rollup missing", undefined, undefined],
   ["malformed entries", [null, "x", {}], undefined],
@@ -246,7 +248,7 @@ for (const [name, rollup, expected] of [
     const pr = { number: 10213, url, title, state: "OPEN", mergeStateStatus: "BLOCKED", statusCheckRollup: rollup };
     const result = await readPullRequest("/project", async (command) => ({ stdout: command === "git" ? "feature/sidebar\n" : JSON.stringify([pr]) }));
     assert.equal(result.checks, expected);
-    assert.equal("checks" in result, expected !== undefined, "The field is only present while checks are running or failed");
+    assert.equal("checks" in result, expected !== undefined, "The field is only present once the PR has checks");
   });
 }
 

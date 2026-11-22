@@ -9,7 +9,7 @@ type BlockerStatus = {
   conflictStatusKnown?: boolean;
   isBehind?: boolean;
   changesRequested?: boolean;
-  checks?: "running" | "failed";
+  checks?: "running" | "failed" | "passed";
 };
 
 export type { PullRequestBlocker } from "./model.ts";
@@ -84,6 +84,26 @@ export function pullRequestStatePill(pr: { state: string; isDraft?: boolean }) {
   if (pr.state === "MERGED") return { label: "Merged", fill: "purpleTint", ink: "purpleInk" } as const;
   if (pr.state === "CLOSED") return { label: "Closed", fill: "redTint", ink: "redInk" } as const;
   return pr.isDraft ? ({ label: "Draft", fill: "hover", ink: "ink2" } as const) : null;
+}
+
+export type BoardPullRequestMark = {
+  icon: "merged" | "closed" | "draft" | "failed" | "checking" | "passed" | "open";
+  tone: PullRequestTone;
+  label: string;
+};
+
+/** The board card's mark for a task's PRs: the one its sidebar row lists first, by state and CI. */
+export function boardPullRequestMark(prs: PullRequest[]): BoardPullRequestMark | null {
+  const pr = rowPullRequests(prs)[0];
+  if (!pr) return null;
+  const name = `Pull request #${pr.number}`;
+  if (pr.state === "MERGED") return { icon: "merged", tone: "purple", label: `${name} merged` };
+  if (pr.state === "CLOSED") return { icon: "closed", tone: "ink3", label: `${name} closed without merging` };
+  if (pr.isDraft) return { icon: "draft", tone: "ink3", label: `Draft pull request #${pr.number}` };
+  if (pr.checks === "failed") return { icon: "failed", tone: "red", label: `${name} open, CI failed` };
+  if (pr.checks === "running") return { icon: "checking", tone: "orange", label: `${name} open, checks running` };
+  if (pr.checks === "passed") return { icon: "passed", tone: "green", label: `${name} open, checks passed` };
+  return { icon: "open", tone: "green", label: `${name} open` };
 }
 
 export const AUTO_MERGE_LABEL = "Merges when ready";
