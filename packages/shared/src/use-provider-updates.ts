@@ -13,7 +13,7 @@ export interface ProviderUpdateTransport {
 }
 type Run = { status: "updating" | "failed"; progress?: ProviderUpdateProgress; error?: string; log?: string };
 
-const ORDER: ModelProvider[] = ["claude", "codex", "antigravity", "kiro", "ollama"];
+const ORDER: ModelProvider[] = ["claude", "codex", "antigravity", "kiro", "pi"];
 const keyOf = (update: ProviderUpdate) => `${update.provider}:${update.version}`;
 const FAILED = "The update failed. Try again.";
 

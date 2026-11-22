@@ -12,7 +12,7 @@ import type {
 import type { ContextUsage, ModelMeta, TurnMetrics } from "./model-meta.ts";
 
 export type SessionStatus = "Created" | "Running" | "Stopped";
-export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro" | "ollama";
+export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro" | "pi";
 export type PermissionMode = "ask" | "auto" | "full";
 export type Isolation = "local" | "worktree";
 

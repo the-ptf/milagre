@@ -1,4 +1,4 @@
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import { Fragment, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { ChatGptIcon, FlashIcon, Search01Icon, SecurityCheckIcon, Shield01Icon, ShieldAlertIcon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import { permissionPresentation } from "@milagre/shared/model-copy";
 import { providerName } from "@milagre/shared/providers";
@@ -86,6 +86,7 @@ export function ModelPicker({
   const index = Math.max(0, levels.indexOf(effort ?? ""));
   const current = levels[index];
   const mixed = new Set(models.map((model) => model.provider)).size > 1;
+  const grouped = new Set(models.map((model) => model.group).filter(Boolean)).size > 1;
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.target instanceof Element && event.target.closest('[role="listbox"]')) {
@@ -159,21 +160,27 @@ export function ModelPicker({
           </div>
           {notice}
           <ScrollArea className="grid flex-1 grid-cols-1 content-start gap-0.5 pr-2 pb-2 [scrollbar-gutter:stable]">
-            {models.map((model) => (
-              <ModelTip
-                key={model.id}
-                description={[model.description, model.credits ? `Uses ${formatCredits(model.credits)} the credits Auto would` : undefined]
-                  .filter(Boolean)
-                  .join(". ")}
-              >
-                <PickerRow
-                  icon={mixed ? <ProviderLogo provider={model.provider} size={16} /> : undefined}
-                  label={model.name}
-                  meta={metaLabel(model)}
-                  selected={model.id === selectedModel.id && model.provider === selectedModel.provider}
-                  onClick={() => onModelChange(model)}
-                />
-              </ModelTip>
+            {models.map((model, index) => (
+              <Fragment key={model.id}>
+                {grouped && model.group !== models[index - 1]?.group && (
+                  <SectionLabel as="div" variant="menu" className={`px-2 pb-1 ${index > 0 ? "pt-2" : ""}`}>
+                    {model.group}
+                  </SectionLabel>
+                )}
+                <ModelTip
+                  description={[model.description, model.credits ? `Uses ${formatCredits(model.credits)} the credits Auto would` : undefined]
+                    .filter(Boolean)
+                    .join(". ")}
+                >
+                  <PickerRow
+                    icon={mixed ? <ProviderLogo provider={model.provider} size={16} /> : undefined}
+                    label={model.name}
+                    meta={metaLabel(model)}
+                    selected={model.id === selectedModel.id && model.provider === selectedModel.provider}
+                    onClick={() => onModelChange(model)}
+                  />
+                </ModelTip>
+              </Fragment>
             ))}
             {models.length === 0 && <EmptyState size="compact" title="No models found" />}
           </ScrollArea>

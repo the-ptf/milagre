@@ -14,6 +14,7 @@ const {
 const { MESSAGES_MARKER, isMarker, readRows, writeMessages } = require("./chat-db.cjs");
 const { unloadedChats, savedRows, setSavedRows, resetStore, forgetStore, unloadedDetailRefs, forgetRest, retag } = require("./message-store.cjs");
 const { withChatSummaries } = require("./chat-summaries.cjs");
+const { currentProvider } = require("@milagre/shared/providers");
 const stateFile = (projectPath) => path.join(projectPath, ".milagre", "coordination.json");
 let counter = 0;
 
@@ -21,6 +22,18 @@ const MAX_PROJECTS = 50;
 const settled = new Map();
 const SWEEP_MIN_AGE_MS = 60_000;
 const swept = new Set();
+
+// Chats saved under a provider's earlier id (Ollama's became Pi's) load under the current one.
+function withCurrentSessionProviders(state) {
+  const sessions = Object.entries(state.sessions ?? {});
+  if (!sessions.some(([, session]) => session?.provider !== currentProvider(session?.provider))) return state;
+  return {
+    ...state,
+    sessions: Object.fromEntries(
+      sessions.map(([id, session]) => [id, session?.provider ? { ...session, provider: currentProvider(session.provider) } : session]),
+    ),
+  };
+}
 
 function withoutSuggestions(state) {
   if (!Object.values(state.sessions ?? {}).some((session) => session.suggestion !== undefined || session.suggestionTurnId !== undefined)) return state;
@@ -109,7 +122,7 @@ async function readProjectState(projectPath, { unloadSubagents = false } = {}) {
     raw.messages = rows.map((row) => row.message);
     setSavedRows(projectPath, new Map(rows.map((row) => [row.message.id, row])));
   }
-  const state = await hydrateSubagents(projectPath, raw, { unloadFinished: unloadSubagents });
+  const state = await hydrateSubagents(projectPath, withCurrentSessionProviders(raw), { unloadFinished: unloadSubagents });
   return compactDetails(projectPath, state);
 }
 function unloadSavedSubagents(projectPath, state) {

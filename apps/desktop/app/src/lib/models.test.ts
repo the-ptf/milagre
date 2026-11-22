@@ -63,14 +63,14 @@ test("capabilities come from the reported models", () => {
     claude: { "claude-opus-5-5": { efforts: ["low", "xhigh"], ultracode: true, fastMode: true } },
     antigravity: {},
     kiro: {},
-    ollama: {},
+    pi: {},
   });
-  assert.deepEqual(capabilitiesFrom({ codex: null, claude: null, antigravity: null, kiro: null, ollama: null }), {
+  assert.deepEqual(capabilitiesFrom({ codex: null, claude: null, antigravity: null, kiro: null, pi: null }), {
     codex: {},
     claude: {},
     antigravity: {},
     kiro: {},
-    ollama: {},
+    pi: {},
   });
   assert.equal(capabilitiesFrom(null), null);
 });
@@ -87,6 +87,44 @@ test("a model no longer offered gives way to its provider's recommended one", ()
     ).id,
     "claude-sonnet-4-6",
   );
+});
+
+test("Pi's models keep their provider heading and local mark, and a Pi Chat keeps a model that isn't listed", () => {
+  const local = {
+    id: "pi:ollama/qwen3:8b",
+    name: "qwen3:8b",
+    description: "",
+    recommended: true,
+    group: "Ollama",
+    local: true,
+    efforts: [],
+    ultracode: false,
+    fastMode: false,
+  };
+  const hosted = {
+    id: "pi:openrouter/z-ai/glm-4.6",
+    name: "GLM 4.6",
+    description: "",
+    recommended: false,
+    group: "OpenRouter",
+    efforts: [],
+    ultracode: false,
+    fastMode: false,
+  };
+  const merged = mergeModels({ codex: null, claude: null, antigravity: null, kiro: null, pi: [local, hosted] }, []);
+  assert.deepEqual(
+    merged.map((model) => [model.id, model.group, model.local]),
+    [
+      ["pi:ollama/qwen3:8b", "Ollama", true],
+      ["pi:openrouter/z-ai/glm-4.6", "OpenRouter", undefined],
+    ],
+  );
+  assert.equal(resolveModel(merged, "ollama:qwen3:8b", "pi").id, "pi:ollama/qwen3:8b");
+  const gone = resolveModel(merged, "ollama:llama3", "pi");
+  assert.equal(gone.id, "pi:ollama/llama3");
+  assert.equal(gone.local, true);
+  assert.equal(providerForId("ollama:qwen3:8b"), "pi");
+  assert.equal(providerForId("pi:openrouter/z-ai/glm-4.6"), "pi");
 });
 
 const catalog: ModelOption[] = [

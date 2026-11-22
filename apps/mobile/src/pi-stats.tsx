@@ -1,22 +1,23 @@
 import { useState } from "react";
 import { Text } from "react-native";
-import { turnMetricsParts } from "@milagre/shared/ollama-models";
-import type { TurnMetrics } from "@milagre/shared/model";
+import { piStatsParts } from "@milagre/shared/pi-models";
+import type { ContextUsage } from "@milagre/shared/model";
 import { lineHeight, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
-/** The last turn's speed on a local model, in one faint, centred line under the composer. A tap shows it clearly, as hover does on desktop. */
-export function LocalModelStats({ metrics }: { metrics: TurnMetrics | undefined }) {
+/** One faint, centred line under a Pi Chat's composer: a local model's last turn, and what the Chat has spent on paid
+ * models. A tap shows it clearly, as hover does on desktop. */
+export function PiStats({ usage, local }: { usage: ContextUsage | undefined; local: boolean }) {
   const { colors } = useTheme();
   const [shown, setShown] = useState(false);
-  const parts = turnMetricsParts(metrics);
+  const parts = piStatsParts(usage, { local });
   if (!parts.length) return null;
   return (
     <Text
       onPress={() => setShown((value) => !value)}
       accessibilityRole="button"
       accessibilityHint="Shows the numbers clearly"
-      accessibilityLabel={`Last turn on this computer: ${parts.map((part) => `${part.label} ${part.text}`).join(", ")}`}
+      accessibilityLabel={`${local ? "Last turn on this computer" : "This Chat on Pi"}: ${parts.map((part) => `${part.label} ${part.text}`).join(", ")}`}
       style={{
         fontSize: type.caption2,
         lineHeight: lineHeight.caption2,

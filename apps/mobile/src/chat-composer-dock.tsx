@@ -17,7 +17,7 @@ import { PromptField } from "./prompt-field";
 import { useSendStayShortcut } from "./send-stay-shortcut";
 import { AgentControls } from "./agent-controls";
 import { ContextRing } from "./context-ring";
-import { LocalModelStats } from "./local-model-stats";
+import { PiStats } from "./pi-stats";
 import { Icon } from "./icons";
 import { DISABLED_OPACITY, IconButton, PageScroll, PullDown, useStyles } from "./ui";
 import { useTheme } from "./theme";
@@ -198,7 +198,7 @@ type ComposerControlsProps = {
 function ComposerControls(props: ComposerControlsProps) {
   const { colors } = useTheme();
   const { attachDisabled, compactButton, quietContext, compactionFeedback } = props;
-  const local = props.model.provider === "ollama";
+  const local = props.model.provider === "pi" && Boolean(props.model.local);
   const contextUsage = props.contextUsage ?? (local && props.model.contextWindow ? { used: 0, size: props.model.contextWindow } : undefined);
   return (
     <>
@@ -525,7 +525,7 @@ export function ChatComposerDock({ onRoom, onHeight, column, padding, ...props }
           </ComposerTray>
         )
       )}
-      {asking && props.controls.model.provider === "ollama" && <LocalModelStats metrics={props.controls.contextUsage?.metrics} />}
+      {asking && props.controls.model.provider === "pi" && <PiStats usage={props.controls.contextUsage} local={Boolean(props.controls.model.local)} />}
     </View>
   );
 }

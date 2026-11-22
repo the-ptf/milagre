@@ -176,8 +176,8 @@ async function withTimeout(task, timeoutMs) {
 
 async function generateGitText(input, { provider = "claude", models = {}, timeoutMs = TIMEOUT_MS } = {}) {
   const prompt = buildGitTextPrompt(input);
-  // A local model's Chat keeps its text local: no other provider is asked when Ollama fails.
-  const order = provider === "ollama" ? ["ollama"] : [provider, ...PROVIDERS.filter((name) => name !== provider && name !== "ollama")];
+  // A Pi Chat's text comes from Pi (a local model when Ollama has one): no other provider is asked when Pi fails.
+  const order = provider === "pi" ? ["pi"] : [provider, ...PROVIDERS.filter((name) => name !== provider && name !== "pi")];
   const ask = (call, text) => withTimeout((signal) => call({ system: SYSTEM, prompt: text, signal }), timeoutMs);
   for (const name of order) {
     const call = models[name];
@@ -251,8 +251,8 @@ const OUTPUT_SCHEMA = {
 const antigravityModel = (options) => acpModel({ outputSchema: OUTPUT_SCHEMA, ...options });
 
 /** One Claude Haiku 4.5 turn on Kiro (kiro-cli over ACP), the same way: a throwaway session, every permission turned down. */
-/** One answer from the most recently used local Ollama model, through Pi. */
-const ollamaModel = (options) => piTextModel({ outputSchema: OUTPUT_SCHEMA, ...options });
+/** One answer through Pi: the loaded local model, else the cheapest hosted one. */
+const piModel = (options) => piTextModel({ outputSchema: OUTPUT_SCHEMA, ...options });
 
 const kiroModel = (options) => acpModel({ outputSchema: OUTPUT_SCHEMA, config: kiroAcp, model: kiroModelId(KIRO_TEXT_MODEL), effort: undefined, ...options });
 
@@ -336,7 +336,7 @@ module.exports = {
   codexModel,
   antigravityModel,
   kiroModel,
-  ollamaModel,
+  piModel,
   generateGitText,
   parseGitText,
   repeatsSubject,

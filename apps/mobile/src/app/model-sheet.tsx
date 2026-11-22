@@ -1,5 +1,5 @@
 import { pickerProviders, providerName } from "@milagre/shared/providers";
-import { contextWindowFor, effortFor } from "@milagre/shared/model-options";
+import { contextWindowFor, effortFor, modelMatches } from "@milagre/shared/model-options";
 import { formatTokens } from "@milagre/shared/usage";
 import { formatCredits } from "@milagre/shared/kiro-models";
 import { effortCopy } from "@milagre/shared/model-copy";
@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
-import { Cancel01Icon, FlashIcon, Tick02Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, FlashIcon, Search01Icon, Tick02Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import type { ModelProvider } from "@milagre/shared/model";
 import { useComposer, useSession } from "../session";
 import { PermissionChip, useChatPermissionMode } from "../agent-controls";
@@ -17,9 +17,11 @@ import { EffortSlider } from "../effort-slider";
 import { UltracodeFatality } from "../ultracode-fatality";
 import { ultraRumble } from "../ultra-haptics";
 import { useUltracodeFatality } from "../ultracode-fatality-setting";
-import { CheckRow, Chip, CircleButton, InlineError, SectionLabel, SheetHeader, pressStyle, useSheetBottomInset, useStyles } from "../ui";
-import { lineHeight, radius, type } from "../design-tokens";
+import { CheckRow, Chip, CircleButton, Field, InlineError, SectionLabel, SheetHeader, pressStyle, useSheetBottomInset, useStyles } from "../ui";
+import { lineHeight, radius, space, type } from "../design-tokens";
 import { useTheme } from "../theme";
+
+const SEARCH_FROM = 12;
 
 function contextLabel(model: { provider: ModelProvider; id: string; contextWindow?: number }) {
   const size = contextWindowFor(model);
@@ -46,6 +48,11 @@ export default function ModelSheet() {
   const model = selectedModel(draft.provider, draft.model, session.models);
   const models = modelsFor(draft.provider, session.models);
   if (!models.some((item) => item.id === model.id)) models.unshift(model);
+  const [query, setQuery] = useState("");
+  // Pi can list hundreds of hosted models (OpenRouter alone), so a long list gets a search and provider headings.
+  const searchable = models.length > SEARCH_FROM;
+  const shown = searchable ? models.filter((item) => modelMatches(item, query)) : models;
+  const grouped = new Set(shown.map((item) => item.group).filter(Boolean)).size > 1;
   const effort = effortFor(model, draft.effort);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
   const [closing, setClosing] = useState(false);
@@ -112,7 +119,10 @@ export default function ModelSheet() {
                   role="tab"
                   label={providerName(provider)}
                   selected={on}
-                  onPress={() => setDraft((current) => ({ ...current, provider, model: "", fastMode: false, ultracode: false }))}
+                  onPress={() => {
+                    setQuery("");
+                    setDraft((current) => ({ ...current, provider, model: "", fastMode: false, ultracode: false }));
+                  }}
                   leading={<ProviderLogo provider={provider} size={16} inverted={on} />}
                   trailing={problem ? <View style={{ width: 6, height: 6, borderRadius: radius.full, backgroundColor: colors.orange }} /> : undefined}
                 />
@@ -125,9 +135,30 @@ export default function ModelSheet() {
           {cli && cli.state !== "ready" ? (
             <InlineError warning message={cli.message || `${providerName(draft.provider)} is ${cli.state}.`} style={{ paddingBottom: 8 }} />
           ) : null}
-          {models.map((item, index) => (
+          {searchable && (
+            <Field
+              label="Search models"
+              hideLabel
+              placeholder="Search models"
+              value={query}
+              onChangeText={setQuery}
+              returnKeyType="search"
+              autoCapitalize="none"
+              autoCorrect={false}
+              leading={<Icon icon={Search01Icon} tone="ink3" size={16} />}
+              containerStyle={{ paddingBottom: space.md }}
+            />
+          )}
+          {shown.length === 0 && <Text style={[styles.caption, { paddingVertical: 8 }]}>No models found</Text>}
+          {shown.map((item, index) => (
             <View key={item.id}>
-              {index > 0 && <View style={styles.separator} />}
+              {grouped && item.group !== shown[index - 1]?.group ? (
+                <SectionLabel flush style={{ paddingTop: index > 0 ? 16 : 0 }}>
+                  {item.group ?? ""}
+                </SectionLabel>
+              ) : (
+                index > 0 && <View style={styles.separator} />
+              )}
               <CheckRow
                 title={item.name}
                 subtitle={item.description || undefined}

@@ -1,7 +1,7 @@
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
-const { resolveOllamaModel } = require("@milagre/shared/ollama-models");
+const { LOCAL_PROVIDER, piProviderLabel, resolvePiModel } = require("@milagre/shared/pi-models");
 const { COMPACT_COMMAND } = require("@milagre/shared/compaction");
 const { readMcpExtras } = require("../mcp/extras.cjs");
 const { babysitDenial } = require("../babysit-guard.cjs");
@@ -10,12 +10,12 @@ const { commandRisk } = require("./command-risk.cjs");
 const { PiRpc } = require("./pi-rpc.cjs");
 const { asClaudeTool, assistantError, closeThinking, createTurnMetrics, mapPiEvent } = require("./pi-events.cjs");
 const { toolCallRequest, writePiExtension } = require("./pi-extension.cjs");
-const { NO_MODELS_MESSAGE, OLLAMA_DOWN_MESSAGE, syncOllamaModels } = require("./ollama.cjs");
-const { RESUME_FAILED_MESSAGE, crashMessage, failedWith, missingCliMessage, sessionInstructions } = require("./events.cjs");
+const { HIDDEN_MODEL_MESSAGE, NO_MODELS_MESSAGE, listPiModels } = require("./pi-profile.cjs");
+const { OLLAMA_DOWN_MESSAGE, RESUME_FAILED_MESSAGE, crashMessage, failedWith, missingCliMessage, sessionInstructions } = require("./events.cjs");
 const { PendingPermissions, WorkspaceAccess, claudeAccessRequest, claudeRequest, insideWorkspace, writesRemote } = require("./permissions.cjs");
 const { PendingQuestions } = require("./questions.cjs");
 
-const PROVIDER = "ollama";
+const PROVIDER = "pi";
 const START_TIMEOUT_MS = 60_000;
 const COMMAND_TIMEOUT_MS = 15_000;
 const STATS_TIMEOUT_MS = 5_000;
@@ -32,19 +32,25 @@ function piPrompt(prompt, images = []) {
   return { message: text.join(""), ...(attached.length ? { images: attached } : {}) };
 }
 
-function mcpServer(def) {
-  if (def.type === "stdio") return { name: def.name, config: { command: def.command, args: def.args ?? [], env: def.env ?? {}, exposure: "deferred" } };
-  if (def.type === "http") return { name: def.name, config: { url: def.url, headers: def.headers ?? {}, exposure: "deferred" } };
+// A local model's context is small, so its MCP tools load through Pi's tool search instead of up front.
+function mcpServer(def, deferred) {
+  const exposure = deferred ? { exposure: "deferred" } : {};
+  if (def.type === "stdio") return { name: def.name, config: { command: def.command, args: def.args ?? [], env: def.env ?? {}, ...exposure } };
+  if (def.type === "http") return { name: def.name, config: { url: def.url, headers: def.headers ?? {}, ...exposure } };
   return null;
 }
+
+const modelKey = (model) => (model ? `${model.provider}/${model.id}` : null);
 
 function workspaceNote(cwd, roots = []) {
   const others = roots.filter((root) => root !== cwd);
   return [`Your working directory is ${cwd}.`, ...(others.length ? [`You may also work in: ${others.join(", ")}.`] : [])].join(" ");
 }
 
-// Ollama models run by Pi in RPC mode, from a Milagre-owned Pi profile (PI_CODING_AGENT_DIR). Milagre's
-// extension in that profile sends every tool call that can change something here first (see pi-extension.cjs).
+// Pi in RPC mode, from a Milagre-owned Pi profile (PI_CODING_AGENT_DIR; see pi-profile.cjs), running local Ollama
+// models and every hosted provider Pi is connected to. Milagre's extension in that profile sends every tool call that
+// can change something here first (see pi-extension.cjs). A local model gets the small prompt, no skills and deferred
+// MCP tools, so a switch between a local and a hosted model restarts Pi on the same session.
 class PiSession {
   constructor({
     cwd,
@@ -65,7 +71,7 @@ class PiSession {
     mcpExtras = null,
     interruptGraceMs = 3000,
     createRpc = (options) => new PiRpc(options),
-    syncModels = syncOllamaModels,
+    syncModels = listPiModels,
   }) {
     Object.assign(this, {
       cwd,
@@ -87,6 +93,7 @@ class PiSession {
     });
     this.provider = PROVIDER;
     this.localModel = true;
+    this.runningLocal = null;
     this.state = { sessionId: resumeId ?? null, turnId: null, hasText: false, textBreak: false, calls: new Map(), outputs: new Map(), cwd };
     this.rpc = null;
     this.starting = null;
@@ -169,17 +176,18 @@ class PiSession {
     this.lastMessages = [];
     this.retryError = null;
     if (permissionMode) this.permissions.setMode(permissionMode);
-    const model = resolveOllamaModel(wanted);
+    const model = resolvePiModel(wanted);
     try {
+      if (this.ready && model && (model.provider === LOCAL_PROVIDER) !== this.runningLocal) await this.restart();
       this.starting ??= this.start(model);
       await this.starting;
       if (this.cancelRequested || this.closed) {
         await this.finishTurn([{ type: "turn-cancelled" }]);
         return { turnId: null, steered: false };
       }
-      if (model && model !== this.model) {
-        await this.rpc.request("set_model", { provider: PROVIDER, modelId: model }, { timeoutMs: COMMAND_TIMEOUT_MS });
-        this.model = model;
+      if (model && modelKey(model) !== this.model) {
+        await this.rpc.request("set_model", { provider: model.provider, modelId: model.id }, { timeoutMs: COMMAND_TIMEOUT_MS });
+        this.model = modelKey(model);
       }
       await this.applyEffort(effort);
     } catch (error) {
@@ -245,22 +253,41 @@ class PiSession {
     if (!this.ready) await this.close();
   }
 
-  async start(model) {
+  // Restarts Pi on the same session, for a switch between a local and a hosted model.
+  async restart() {
+    const rpc = this.rpc;
+    this.rpc = null;
+    this.ready = false;
+    this.starting = null;
+    rpc?.removeAllListeners();
+    await rpc?.close();
+  }
+
+  async pickModel(model) {
     const profile = this.profile;
-    if (!profile) throw new Error("Milagre has no Pi profile for Ollama on this computer.");
-    let models;
-    try {
-      models = await this.syncModels({ profile, env: this.env ?? process.env });
-    } catch {
-      throw new Error(OLLAMA_DOWN_MESSAGE);
-    }
-    if (!models.length) throw new Error(NO_MODELS_MESSAGE);
+    if (!profile) throw new Error("Milagre has no Pi profile on this computer.");
+    const { local, models, hidden } = await this.syncModels({ command: this.command, profile, env: this.env ?? process.env });
+    if (model && hidden?.has(model.provider)) throw new Error(HIDDEN_MODEL_MESSAGE);
+    if (model?.provider === LOCAL_PROVIDER && !local) throw new Error(OLLAMA_DOWN_MESSAGE);
+    if (model) return model;
+    const first = models.find((entry) => entry.recommended) ?? models[0];
+    if (!first) throw new Error(NO_MODELS_MESSAGE);
+    return resolvePiModel(first.id);
+  }
+
+  async start(wanted) {
+    const profile = this.profile;
+    const model = await this.pickModel(wanted);
+    const local = model.provider === LOCAL_PROVIDER;
+    this.localModel = local;
     const extension = await writePiExtension(profile);
     if (this.closed) throw sessionClosedError();
     const url = this.linked ? await this.linked.url().catch(() => null) : null;
     const extras = this.mcpExtras && !this.analysisOnly ? await readMcpExtras(this) : null;
-    const servers = [...(url ? [{ name: "milagre", config: { url, exposure: "deferred" } }] : []), ...(extras?.servers ?? []).map(mcpServer).filter(Boolean)];
-    const first = model ?? models.find((entry) => entry.recommended)?.name ?? models[0].name;
+    const servers = [
+      ...(url ? [{ name: "milagre", config: { url, ...(local ? { exposure: "deferred" } : {}) } }] : []),
+      ...(extras?.servers ?? []).map((def) => mcpServer(def, local)).filter(Boolean),
+    ];
     const instructions = `${sessionInstructions(this)}\n\n${workspaceNote(this.cwd, this.access.roots)}`;
     const resuming = Boolean(this.state.sessionId);
     const args = [
@@ -268,16 +295,16 @@ class PiSession {
       "--mode",
       "rpc",
       "--no-extensions",
-      "--no-skills",
+      ...(local ? ["--no-skills"] : []),
       "-e",
       extension,
       "--session-dir",
       path.join(profile, "sessions"),
       ...(resuming ? ["--session", this.state.sessionId] : []),
       "--provider",
-      PROVIDER,
+      model.provider,
       "--model",
-      first,
+      model.id,
       "--append-system-prompt",
       instructions,
     ];
@@ -303,7 +330,8 @@ class PiSession {
     }
     if (url) this.linked?.toolsAvailable(true);
     await rpc.request("set_auto_compaction", { enabled: true }, { timeoutMs: COMMAND_TIMEOUT_MS }).catch(() => {});
-    this.model = state?.model?.id ?? first;
+    this.model = state?.model?.provider && state?.model?.id ? `${state.model.provider}/${state.model.id}` : modelKey(model);
+    this.runningLocal = local;
     this.thinkingLevel = state?.thinkingLevel ?? null;
     const id = typeof state?.sessionId === "string" ? state.sessionId : null;
     if (resuming && id && id !== this.state.sessionId) throw Object.assign(new Error(RESUME_FAILED_MESSAGE), { resumeFailed: true });
@@ -341,7 +369,12 @@ class PiSession {
     const error = assistantError(this.lastMessages) ?? this.retryError;
     const metrics = this.metrics?.result();
     const completed = metrics ? { type: "turn-completed", metrics } : { type: "turn-completed" };
-    const end = aborted || this.cancelRequested ? { type: "turn-cancelled" } : error ? { type: "turn-failed", message: `Ollama: ${error}` } : completed;
+    const end =
+      aborted || this.cancelRequested
+        ? { type: "turn-cancelled" }
+        : error
+          ? { type: "turn-failed", message: `${piProviderLabel(this.model?.split("/")[0] ?? PROVIDER)}: ${error}` }
+          : completed;
     await this.finishTurn([...(usage ? [usage] : []), end]);
   }
 
@@ -349,9 +382,9 @@ class PiSession {
     try {
       const stats = await this.rpc.request("get_session_stats", {}, { timeoutMs: STATS_TIMEOUT_MS });
       const { tokens, contextWindow } = stats?.contextUsage ?? {};
-      return Number.isFinite(tokens) && Number.isFinite(contextWindow) && contextWindow > 0
-        ? { type: "context-usage", used: tokens, size: contextWindow }
-        : null;
+      if (!Number.isFinite(tokens) || !Number.isFinite(contextWindow) || contextWindow <= 0) return null;
+      const cost = Number(stats?.cost);
+      return { type: "context-usage", used: tokens, size: contextWindow, ...(cost > 0 ? { cost } : {}) };
     } catch {
       return null;
     }

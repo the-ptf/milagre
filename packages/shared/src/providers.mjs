@@ -1,12 +1,24 @@
 /** Picker order and the names used by every client and CLI notice. */
-export const PROVIDERS = Object.freeze(["codex", "claude", "antigravity", "kiro", "ollama"]);
+export const PROVIDERS = Object.freeze(["codex", "claude", "antigravity", "kiro", "pi"]);
 const names = {
   codex: { name: "Codex", cli: "Codex" },
   claude: { name: "Claude", cli: "Claude Code" },
   antigravity: { name: "Antigravity", cli: "Antigravity" },
   kiro: { name: "Kiro", cli: "Kiro CLI" },
-  ollama: { name: "Ollama", cli: "Pi" },
+  pi: { name: "Pi", cli: "Pi" },
 };
+/** The provider id for one saved before a rename: Pi's Chats were Ollama's until Pi ran hosted models too. */
+export const currentProvider = (provider) => (provider === "ollama" ? "pi" : provider);
+
+/** The model id for one saved before Pi ran hosted models: `ollama:qwen3` is `pi:ollama/qwen3`. */
+export const currentModelId = (model) => (typeof model === "string" && model.startsWith("ollama:") ? `pi:ollama/${model.slice("ollama:".length)}` : model);
+
+/** The same object with each provider key under its current id. */
+export const withCurrentProviders = (record) =>
+  record && typeof record === "object" && !Array.isArray(record)
+    ? Object.fromEntries(Object.entries(record).map(([provider, value]) => [currentProvider(provider), value]))
+    : record;
+
 export const providerName = (provider) => (names[provider] ?? names.claude).name;
 export const cliName = (provider) => (names[provider] ?? names.claude).cli;
 

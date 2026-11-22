@@ -23,7 +23,7 @@ function createUsage({ options, dataDir, emit, commands, environmentReady, accou
           : createUsageStore({ file: path.join(dataDir, `usage-${key}.json`) });
       accountUsage.set(key, {
         key,
-        accountIds: { claude, codex, antigravity, kiro: "default", ollama: "default" },
+        accountIds: { claude, codex, antigravity, kiro: "default", pi: "default" },
         store,
         read: createUsageReader({
           ready: () => environmentReady,

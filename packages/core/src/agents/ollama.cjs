@@ -1,15 +1,8 @@
-const fs = require("node:fs/promises");
-const path = require("node:path");
-const { ollamaModels } = require("@milagre/shared/ollama-models");
-const { OLLAMA_DOWN_MESSAGE } = require("./events.cjs");
-
 const DEFAULT_URL = "http://127.0.0.1:11434";
 const REQUEST_TIMEOUT_MS = 5_000;
 // Ollama runs a model without num_ctx with 4K, 32K or 256K depending on VRAM; 32K is the middle guess.
 const GUESSED_CONTEXT = 32_768;
 const MAX_OUTPUT_TOKENS = 16_384;
-
-const NO_MODELS_MESSAGE = "Ollama has no model that can call tools. Pull one with `ollama pull qwen3`, then send your message again.";
 
 function ollamaUrl(env = process.env) {
   const host = typeof env.OLLAMA_HOST === "string" ? env.OLLAMA_HOST.trim() : "";
@@ -67,38 +60,25 @@ async function readOllamaModels({ env = process.env, fetchImpl = fetch } = {}) {
   );
 }
 
-/** Pi's models.json for the Milagre-owned Pi profile: one `ollama` provider over Ollama's OpenAI-compatible API. */
-function piModelsConfig(entries, env = process.env) {
+/** Pi's `ollama` provider over Ollama's OpenAI-compatible API, with every local model that can call tools. */
+function ollamaProvider(entries, env = process.env) {
   return {
-    providers: {
-      ollama: {
-        baseUrl: `${ollamaUrl(env)}/v1`,
-        api: "openai-completions",
-        apiKey: "ollama",
-        compat: { supportsDeveloperRole: false },
-        models: entries
-          .filter((entry) => entry.capabilities.includes("tools"))
-          .map((entry) => ({
-            id: entry.name,
-            name: entry.name,
-            reasoning: entry.capabilities.includes("thinking"),
-            input: entry.capabilities.includes("vision") ? ["text", "image"] : ["text"],
-            contextWindow: entry.contextWindow,
-            maxTokens: Math.min(MAX_OUTPUT_TOKENS, Math.floor(entry.contextWindow / 4)),
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          })),
-      },
-    },
+    baseUrl: `${ollamaUrl(env)}/v1`,
+    api: "openai-completions",
+    apiKey: "ollama",
+    compat: { supportsDeveloperRole: false },
+    models: entries
+      .filter((entry) => entry.capabilities.includes("tools"))
+      .map((entry) => ({
+        id: entry.name,
+        name: entry.name,
+        reasoning: entry.capabilities.includes("thinking"),
+        input: entry.capabilities.includes("vision") ? ["text", "image"] : ["text"],
+        contextWindow: entry.contextWindow,
+        maxTokens: Math.min(MAX_OUTPUT_TOKENS, Math.floor(entry.contextWindow / 4)),
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      })),
   };
-}
-
-async function writeIfChanged(file, text) {
-  const current = await fs.readFile(file, "utf8").catch(() => null);
-  if (current === text) return;
-  await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-  const temporary = `${file}.${process.pid}.tmp`;
-  await fs.writeFile(temporary, text, { mode: 0o600 });
-  await fs.rename(temporary, file);
 }
 
 /** Whether the Ollama server answers on this computer. */
@@ -111,25 +91,4 @@ async function ollamaRunning({ env = process.env, fetchImpl = fetch } = {}) {
   }
 }
 
-/** Lists Ollama's models and writes them to the Pi profile, so the next Pi process can run any of them. */
-async function syncOllamaModels({ profile, env = process.env, fetchImpl = fetch } = {}) {
-  const entries = await readOllamaModels({ env, fetchImpl });
-  await writePiModels(profile, entries, env);
-  return ollamaModels(entries);
-}
-
-async function writePiModels(profile, entries, env = process.env) {
-  if (profile) await writeIfChanged(path.join(profile, "models.json"), `${JSON.stringify(piModelsConfig(entries, env), null, 2)}\n`);
-}
-
-module.exports = {
-  NO_MODELS_MESSAGE,
-  OLLAMA_DOWN_MESSAGE,
-  ollamaRunning,
-  ollamaUrl,
-  piModelsConfig,
-  readOllamaModels,
-  syncOllamaModels,
-  writeIfChanged,
-  writePiModels,
-};
+module.exports = { ollamaProvider, ollamaRunning, ollamaUrl, readOllamaModels };

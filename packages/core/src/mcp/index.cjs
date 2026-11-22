@@ -6,8 +6,8 @@ const { claudeConfigNames, codexConfigNames, detailOf, fromClaudeConfig, fromCod
 
 // the off list in mcp.json, Claude and Codex user servers through their CLIs, and OAuth sign-in. Grouping for the
 
-const PROVIDERS = new Set(["claude", "codex", "antigravity", "kiro", "ollama"]);
-const EVERYWHERE_ONLY = new Set(["antigravity", "kiro", "ollama"]);
+const PROVIDERS = new Set(["claude", "codex", "antigravity", "kiro", "pi"]);
+const EVERYWHERE_ONLY = new Set(["antigravity", "kiro", "pi"]);
 const TIMEOUT_PROBLEM = "Timed out after 30 s. Check the servers in a terminal.";
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const TARGETS = new Set(["everywhere", "claude", "codex"]);

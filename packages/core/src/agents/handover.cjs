@@ -187,7 +187,7 @@ function createHandoverModels({ cli, clientVersion }) {
     codex: codexModel({ getCommand: getCommand("codex"), clientVersion, outputSchema: BRIEF_SCHEMA }),
     antigravity: antigravityModel({ getCommand: getCommand("antigravity"), clientVersion, outputSchema: BRIEF_SCHEMA }),
     kiro: kiroModel({ getCommand: getCommand("kiro"), clientVersion, outputSchema: BRIEF_SCHEMA }),
-    ollama: piTextModel({ getCommand: getCommand("ollama"), outputSchema: BRIEF_SCHEMA }),
+    pi: piTextModel({ getCommand: getCommand("pi"), outputSchema: BRIEF_SCHEMA }),
   };
 }
 

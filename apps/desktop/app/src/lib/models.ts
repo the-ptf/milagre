@@ -1,12 +1,13 @@
 import { MODEL_CATALOG } from "../model.ts";
-import { PROVIDERS } from "@milagre/shared/providers";
+import { PROVIDERS, currentModelId } from "@milagre/shared/providers";
+import { unlistedPiModel } from "@milagre/shared/pi-models";
 import type { AgentModels, ModelCapabilities, ModelOption, ModelProvider } from "../model";
 
 export function mergeModels(reported: AgentModels | null, fallback: ModelOption[]): ModelOption[] {
   return PROVIDERS.flatMap((provider) => {
     const list = reported?.[provider];
     if (!list?.length) return fallback.filter((model) => model.provider === provider);
-    const options: ModelOption[] = list.map(({ id, name, description, recommended, credits, contextWindow }) => ({
+    const options: ModelOption[] = list.map(({ id, name, description, recommended, credits, contextWindow, group, local }) => ({
       id,
       name,
       provider,
@@ -14,6 +15,8 @@ export function mergeModels(reported: AgentModels | null, fallback: ModelOption[
       ...(recommended ? { recommended: true } : {}),
       ...(credits ? { credits } : {}),
       ...(contextWindow ? { contextWindow } : {}),
+      ...(group ? { group } : {}),
+      ...(local ? { local: true } : {}),
     }));
     return [...options.filter((model) => model.recommended), ...options.filter((model) => !model.recommended)];
   });
@@ -28,12 +31,14 @@ export function capabilitiesFrom(reported: AgentModels | null): ModelCapabilitie
         { efforts, ...(defaultEffort ? { defaultEffort } : {}), ultracode, fastMode },
       ]),
     );
-  return { codex: byId("codex"), claude: byId("claude"), antigravity: byId("antigravity"), kiro: byId("kiro"), ollama: byId("ollama") };
+  return { codex: byId("codex"), claude: byId("claude"), antigravity: byId("antigravity"), kiro: byId("kiro"), pi: byId("pi") };
 }
 
 export function resolveModel(models: ModelOption[], wanted: string | undefined, provider: ModelProvider): ModelOption {
+  const id = currentModelId(wanted);
   return (
-    models.find((model) => model.id === wanted) ??
+    models.find((model) => model.id === id) ??
+    (provider === "pi" && id ? unlistedPiModel(id) : undefined) ??
     models.find((model) => model.provider === provider && model.recommended) ??
     models.find((model) => model.provider === provider) ??
     models[0] ??
@@ -45,7 +50,7 @@ export function resolveModel(models: ModelOption[], wanted: string | undefined, 
 
 export function providerForId(id: string | undefined): ModelProvider {
   if (id?.startsWith("kiro:")) return "kiro";
-  if (id?.startsWith("ollama:")) return "ollama";
+  if (id?.startsWith("pi:") || id?.startsWith("ollama:")) return "pi";
   if (id?.startsWith("gemini") || id?.startsWith("antigravity:")) return "antigravity";
   return id?.startsWith("claude") ? "claude" : "codex";
 }
