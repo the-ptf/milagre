@@ -47,8 +47,20 @@ test("a paired Mac reads and manages this Mac's Routines", () => {
     assert.equal(peerPolicy.denies(method), false, method);
 });
 
-test("a paired Mac can choose a Project's saved account while sign-ins and computer defaults stay local", () => {
-  for (const method of ["usage:read", "usage:cached", "accounts:scope", "accounts:assign"]) assert.equal(peerPolicy.denies(method), false, method);
-  for (const method of ["accounts:add", "accounts:select", "accounts:login", "accounts:cancel", "accounts:remove", "chat:limit-switch"])
-    assert.equal(peerPolicy.denies(method), true, method);
+test("a paired Mac manages this Mac's accounts while switching a Chat at its limit stays local", () => {
+  for (const method of [
+    "usage:read",
+    "usage:cached",
+    "accounts:scope",
+    "accounts:assign",
+    "accounts:list",
+    "accounts:add",
+    "accounts:select",
+    "accounts:login",
+    "accounts:cancel",
+    "accounts:code",
+    "accounts:remove",
+  ])
+    assert.equal(peerPolicy.denies(method), false, method);
+  assert.equal(peerPolicy.denies("chat:limit-switch"), true);
 });

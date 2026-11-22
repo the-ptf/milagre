@@ -274,7 +274,7 @@ test("a paired desktop reads and manages this Mac's Routines, and hears them cha
   assert.equal(desktop.error, null);
 });
 
-test("a paired desktop receives live usage and assigns Project accounts while sign-in management stays local", async (t) => {
+test("a paired desktop receives live usage and manages accounts while switching a Chat at its limit stays local", async (t) => {
   const unavailable = (provider) => async () => ({ provider, status: "unavailable", windows: [] });
   const mac = await startTestMac(t, {
     runtime: {
@@ -303,8 +303,13 @@ test("a paired desktop receives live usage and assigns Project accounts while si
   const missing = await desktop.call("accounts:assign", [mac.project, "claude", "missing-account"]);
   assert.ok(missing.error, "The owner rejects an unknown Account");
   assert.notEqual(missing.error.code, "NOT_AVAILABLE_REMOTELY", "Account validation runs on the owner");
-  for (const method of ["accounts:add", "accounts:select", "accounts:login", "accounts:cancel", "accounts:remove", "chat:limit-switch"])
-    assert.equal((await desktop.call(method, [mac.project, "claude", "default"])).error?.code, "NOT_AVAILABLE_REMOTELY", method);
+  const listed = await desktop.call("accounts:list", [false]);
+  assert.equal(listed.error, undefined);
+  assert.ok(listed.result.providers.some((group) => group.provider === "claude"));
+  const unknown = await desktop.call("accounts:select", ["claude", "missing-account"]);
+  assert.ok(unknown.error, "The owner rejects an unknown Account");
+  assert.notEqual(unknown.error.code, "NOT_AVAILABLE_REMOTELY", "Account changes run on the owner");
+  assert.equal((await desktop.call("chat:limit-switch", [mac.project, "claude", "default"])).error?.code, "NOT_AVAILABLE_REMOTELY");
 });
 
 test("a paired desktop opens TCP streams from the computer, over the relay and the LAN, and reaches its localhost", async (t) => {

@@ -446,6 +446,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "concise normal length verbose",
   },
 
+  { page: "accounts", title: "Computer", keywords: "paired other remote mac machine manage accounts" },
   {
     page: "accounts",
     title: "Add account",

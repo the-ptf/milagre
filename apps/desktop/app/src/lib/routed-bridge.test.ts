@@ -106,7 +106,6 @@ const ALLOWED: Record<string, string[]> = {
   ],
   // This Mac's own paired devices and how they reach it, drawn on its computer map.
   "components/settings/ThisMacMap.tsx": ["listDevices", "getPhoneStatus", "onPhoneStatus"],
-  "components/settings/LimitAutoSwitchSetting.tsx": ["readLimitAutoSwitch", "readLimitResumeAtReset", "saveLimitResumeAtReset", "saveLimitAutoSwitch"],
   "components/settings/LinearSettings.tsx": [
     "readLinearEnabled",
     "readLinearStatus",
@@ -134,7 +133,8 @@ const ALLOWED: Record<string, string[]> = {
   "components/settings/AppIconPicker.tsx": ["getAppIcon", "setAppIcon"],
   // Onboarding's import card: what T3 Code, Paseo or Orca left on this Mac, and the Project it opens after importing.
   "components/OnboardingImport.tsx": ["scanImports", "openProjectAt"],
-  "components/AccountsSettings.tsx": ["getCliStatus", "listAccounts", "onAccountsChanged", "accountAction", "submitAccountCode", "onCliProgress", "updateCli"],
+  // Installing Antigravity runs on this Mac only; a paired computer's status comes through bridgeFor.
+  "components/AccountsSettings.tsx": ["onCliProgress", "updateCli"],
   // First launch on this Mac, before any Project or computer: its own agents, folders and agent history, and whether it
   // knows a Project (a returning user skips the intro).
   "components/Onboarding.tsx": [
@@ -151,7 +151,7 @@ const ALLOWED: Record<string, string[]> = {
     "createProject",
     "setUpGit",
   ],
-  "components/ProjectAccountsSettings.tsx": ["listAccountScopes", "onAccountsChanged", "accountAction"],
+  "components/ProjectAccountsSettings.tsx": ["listAccountScopes", "onAccountsChanged"],
   "components/CanvasView.tsx": [
     // Canvas belongs to this Mac; retry its snapshot when this Mac's host reconnects.
     "onRuntimeConnection",

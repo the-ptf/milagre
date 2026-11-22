@@ -1,12 +1,6 @@
 const DENIED_PREFIXES = Object.freeze(["phone:", "devices:", "push:", "command:", "desktop:", "computers:"]);
 const DENIED = new Set([
   "daemon:stop",
-  "accounts:add",
-  "accounts:select",
-  "accounts:login",
-  "accounts:cancel",
-  "accounts:code",
-  "accounts:remove",
   "chat:limit-switch",
   "project:set-hidden",
   "linear:connect",
