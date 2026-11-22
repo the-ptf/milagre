@@ -104,6 +104,8 @@ const ALLOWED: Record<string, string[]> = {
     "setPhoneLan",
     "resetPhoneAccess",
   ],
+  // This Mac's own paired devices and how they reach it, drawn on its computer map.
+  "components/settings/ThisMacMap.tsx": ["listDevices", "getPhoneStatus", "onPhoneStatus"],
   "components/settings/LinearSettings.tsx": [
     "readLinearEnabled",
     "readLinearStatus",
