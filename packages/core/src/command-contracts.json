@@ -4516,6 +4516,9 @@
       "properties": {
         "chatId": {
           "type": "string"
+        },
+        "attachedOnly": {
+          "enum": [false, true]
         }
       },
       "required": ["chatId"],

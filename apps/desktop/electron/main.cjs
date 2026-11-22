@@ -571,7 +571,7 @@ async function startDesktop() {
     });
     return;
   }
-  const environmentReady = loadLoginEnvironment();
+  const environmentReady = loadLoginEnvironment({ npmBin: async () => null });
   const lane = createComputersLane({
     dataDir: app.getPath("userData"),
     available: () => connectionState.connected === true,

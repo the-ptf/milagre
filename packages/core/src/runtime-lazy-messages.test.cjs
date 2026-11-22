@@ -192,6 +192,47 @@ test("a subagent update for a Chat that left memory lands in it, and its message
   ]);
 });
 
+test("a finished subagent's transcript leaves memory once saved, comes back for an update, a fork and a restart, and is never lost", async (t) => {
+  const { project, chat, send, runtime, sessions, make } = await openChat(t);
+  await send("Start a helper");
+  const rows = (from, to) => Array.from({ length: to - from }, (_, index) => ({ id: `r${from + index}`, kind: "message", text: `Row ${from + index}` }));
+  const helper = (status, transcript, updatedAt) => ({ id: "helper", title: "Helper", status, startedAt: 1, updatedAt, transcript });
+  const whole = (on = runtime) => on.invoke("chat:subagent", [project, chat.id, "helper"]);
+  const held = async (on = runtime) => (await on.invoke("project:snapshot", [project])).state.sessions[chat.id].subagents[0];
+  const save = async (title) => {
+    await runtime.invoke("chat:patch", [project, chat.id, { title }]);
+    await runtime.flush();
+    await runtime.unloadIdle();
+  };
+  sessions[0].options.emit({ type: "subagent-update", agent: helper("completed", rows(0, 10), 2) });
+  await until(async () => (await whole().catch(() => null))?.status === "completed");
+  await save("Helped");
+  assert.deepEqual([(await held()).transcript, (await held()).transcriptLength], [rows(6, 10), 10], "only the tail stays in memory");
+  assert.deepEqual((await whole()).transcript, rows(0, 10));
+
+  // It runs again and finishes with more: the saved transcript is the whole of it, and the superseded sidecar is swept.
+  sessions[0].options.emit({ type: "subagent-update", agent: helper("running", rows(10, 12), 3) });
+  sessions[0].options.emit({ type: "subagent-update", agent: helper("completed", rows(10, 13), 4) });
+  await until(async () => (await whole()).status === "completed");
+  const sidecars = path.join(project, ".milagre", "subagents");
+  for (const name of await fs.readdir(sidecars)) await fs.utimes(path.join(sidecars, name), 0, 0);
+  await save("Helped twice");
+  assert.equal((await fs.readdir(sidecars)).length, 1);
+  assert.equal((await held()).transcriptLength, 13);
+  assert.deepEqual((await whole()).transcript, rows(0, 13));
+
+  await runtime.invoke("chat:fork", [project, chat.id, {}]);
+  await save("Forked");
+  assert.deepEqual((await whole()).transcript, rows(0, 13));
+
+  await runtime.close();
+  const again = make();
+  await again.openProject(project);
+  const { transcriptLength, ...rest } = await held(again);
+  assert.equal(transcriptLength, 13);
+  assert.deepEqual(await whole(again), { ...rest, transcript: rows(0, 13) });
+});
+
 test("archiving and restoring a Chat that left memory keeps every message, and a restart reads them all", async (t) => {
   const { project, chat, chatMessages, send, unload, runtime, make } = await openChat(t);
   await send("Keep me");

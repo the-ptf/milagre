@@ -56,7 +56,7 @@ const KIND_ICONS: Record<SimulatorKind, typeof SmartphoneIcon> = {
   Android: AndroidIcon,
 };
 
-function useSimulators(client: Client | null, chatId?: string) {
+function useSimulators(client: Client | null, chatId?: string, attachedOnly = false) {
   const [list, setList] = useState<SimulatorList | null>(null);
   const revision = useRef(0);
   const updateList: typeof setList = useCallback((value) => {
@@ -74,7 +74,7 @@ function useSimulators(client: Client | null, chatId?: string) {
         busy = true;
         const started = revision.current;
         try {
-          const value = await client.call<SimulatorList>("simulator:list", [{ chatId }]);
+          const value = await client.call<SimulatorList>("simulator:list", [{ chatId, attachedOnly }]);
           if (value.chatId !== chatId) throw new Error("Update Milagre on this computer to attach simulators to Chats.");
           if (!disposed && started === revision.current) setList(value);
         } catch (error) {
@@ -95,14 +95,14 @@ function useSimulators(client: Client | null, chatId?: string) {
         clearInterval(timer);
         subscription.remove();
       };
-    }, [client, chatId]),
+    }, [client, chatId, attachedOnly]),
   );
   return { list, setList: updateList };
 }
 
 export function SimulatorChip({ chatId }: { chatId: string }) {
   const { client } = useSession();
-  const { list } = useSimulators(client, chatId);
+  const { list } = useSimulators(client, chatId, true);
   const openTab = usePanelTabs();
   const attachedCount = list?.attached?.length ?? 0;
   if (!client || !chatId || list?.supported === false || !attachedCount) return null;

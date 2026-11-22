@@ -4,7 +4,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { ChatImages } = require("../chat-images.cjs");
-const { storeImages } = require("../project-content.cjs");
+const { storeImages, withLoadedSubagent } = require("../project-content.cjs");
 const { ipcErrorMessage } = require("@milagre/shared/result");
 const {
   answeredQuestions,
@@ -609,7 +609,7 @@ class ChatHost {
     return this.states
       .update(
         projectPath,
-        (state) => {
+        async (state) => {
           if (resolve) event = resolve(state.sessions[sessionId]);
           if (event.type === "step-started") {
             const startedAt = this.runs[chatId]?.steps.find((step) => step.id === event.step.id)?.startedAt ?? this.now();
@@ -631,7 +631,7 @@ class ChatHost {
           }
           const last = state.messages.findLast((item) => item.session_id === sessionId && item.role === "user");
           if (isTurnEnd(event) && last?.context?.kind === "compaction" && last.context.quiet) event = { ...event, quiet: true };
-          const result = applyAgentEvent(state, this.runs, projectPath, chatId, event);
+          const result = applyAgentEvent(await withLoadedSubagent(state, sessionId, event), this.runs, projectPath, chatId, event);
           this.runs = result.runs;
           seq = ++this.seq;
           if (!result.changed) return state;

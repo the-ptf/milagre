@@ -113,6 +113,7 @@ const kindOf = (command) => {
   if (/--type=renderer/.test(command)) return "renderer";
   if (/--type=gpu/.test(command)) return "gpu";
   if (/--type=/.test(command)) return "utility";
+  if (/trace-exec\.sh/.test(command)) return "trace";
   if (/cli\.cjs serve/.test(command)) return "host";
   return /fake-claude/.test(command) ? "stub" : "main";
 };
@@ -238,6 +239,12 @@ async function frames(page, options) {
     frameP99Ms: at(0.99),
     framesOver50Ms: sorted.filter((gap) => gap > 50).length,
   };
+}
+
+async function focusWindow(page) {
+  const shift = { key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 };
+  await page.call("Input.dispatchKeyEvent", { type: "keyDown", ...shift });
+  await page.call("Input.dispatchKeyEvent", { type: "keyUp", ...shift });
 }
 
 async function send(page, text) {
@@ -435,6 +442,7 @@ async function run(name, options) {
       await page.call("Input.dispatchKeyEvent", { type: "keyUp", ...key });
       await until(() => page.evaluate(`!!document.querySelector('.welcome-sky') || !document.querySelector('[data-message-id]')`), "a new Chat");
     }
+    await focusWindow(page);
     await delay(options.settle * 1000);
     const measured = await scenario(name, page, work, options, browser);
     page.close();

@@ -3,7 +3,7 @@ const test = require("node:test");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { resolveProjectImage, githubOwner } = require("./project-image.cjs");
+const { resolveProjectImage, githubOwner, sharedLookups } = require("./project-image.cjs");
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
 const photo = (id, type = "User") => ({ type, avatar_url: `https://avatars.githubusercontent.com/u/${id}?v=4` });
@@ -134,4 +134,37 @@ test("ignores image paths outside the project and untrusted avatar URLs", async 
     }),
     null,
   );
+});
+
+test("Projects opening together share each GitHub lookup in flight, and a later open asks again", async (t) => {
+  const roots = await Promise.all([fixture(t), fixture(t), fixture(t)]);
+  const asked = [];
+  const gates = { owners: Promise.withResolvers(), user: Promise.withResolvers() };
+  const account = sharedLookups(async (endpoint) => {
+    asked.push(endpoint);
+    await (endpoint === "user" ? gates.user : gates.owners).promise;
+    return endpoint === "user" ? photo(2) : photo(1);
+  });
+  const remotes = ["git@github.com:owner/a.git", "git@github.com:owner/b.git", "git@github.com:other/c.git"];
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+  let read = 0;
+  const allRead = Promise.withResolvers();
+  const opening = roots.map((root, index) =>
+    resolveProjectImage(root, {
+      readGit: async () => {
+        if (++read === roots.length) allRead.resolve();
+        return remotes[index];
+      },
+      account,
+    }),
+  );
+  await allRead.promise;
+  await tick();
+  gates.owners.resolve();
+  await tick();
+  gates.user.resolve();
+  assert.deepEqual(await Promise.all(opening), Array(3).fill("https://avatars.githubusercontent.com/u/2?v=4&s=80"));
+  assert.deepEqual(asked.sort(), ["user", "users/other", "users/owner"]);
+  await resolveProjectImage(roots[0], { readGit: async () => remotes[0], account });
+  assert.deepEqual(asked.sort(), ["user", "user", "users/other", "users/owner", "users/owner"]);
 });

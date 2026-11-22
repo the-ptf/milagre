@@ -98,7 +98,7 @@ export function simulatorQualityFor(chatKey: string): SimulatorFrameQuality {
   return computerOfKey(chatKey) === LOCAL_COMPUTER ? "full" : "reduced";
 }
 export interface SimulatorApi {
-  list(request: { chatId: string }): Promise<SimulatorList>;
+  list(request: { chatId: string; attachedOnly?: boolean }): Promise<SimulatorList>;
   attach(request: { chatId: string; deviceId: string }): Promise<SimulatorList>;
   detach(request: { chatId: string; deviceId: string }): Promise<SimulatorList>;
   open(request: { deviceId: string; chatId: string }): Promise<SimulatorOpen>;
