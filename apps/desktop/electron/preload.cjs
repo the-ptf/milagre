@@ -261,8 +261,7 @@ function makeBridge(invoke, listen, send) {
     onRuntimeConnection: (callback) => listen("runtime:connection", callback),
     onRuntimeSnapshot: (callback) => listen("runtime:snapshot", callback),
     getPathForFile: (file) => webUtils.getPathForFile(file),
-    readAttachment: (file) => invoke("attachment:preview", file),
-    readAttachmentChunk: (file, offset, version = "") => invoke("attachment:read", file, offset, version),
+    ...dictationAndAttachmentBridge(invoke),
     searchProjectFiles: (root, query) => invoke("project:files", root, query),
     listSkills: (projectPath) => invoke("skills:list", projectPath),
     readSkill: (projectPath, file) => invoke("skills:read", projectPath, file),
@@ -730,3 +729,16 @@ contextBridge.exposeInMainWorld("milagrePreferences", {
     ipcRenderer.on("preferences:changed", (_event, change) => listener(change));
   },
 });
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readAttachment" | "dictationCorrections" | "setDictationCorrection" | "readAttachmentChunk">}
+ */
+function dictationAndAttachmentBridge(invoke) {
+  return {
+    dictationCorrections: (cwd) => invoke("dictation:corrections", cwd),
+    setDictationCorrection: (cwd, heard, spelling) => invoke("dictation:correct", cwd, heard, spelling),
+    readAttachment: (file) => invoke("attachment:preview", file),
+    readAttachmentChunk: (file, offset, version = "") => invoke("attachment:read", file, offset, version),
+  };
+}

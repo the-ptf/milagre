@@ -7,6 +7,19 @@ const permissionMode = z.enum(["ask", "auto", "full"]);
 const callerOf = (connectionId) => (connectionId.startsWith("agent:") ? connectionId.slice(6) : undefined);
 const inProjectScope = (scope, projectPath) => scope.projectPaths === "*" || scope.projectPaths.includes(projectPath);
 
+function dictationTools(read, act, host) {
+  return [
+    read("dictation_vocabulary", "List this Project's saved dictation corrections.", projectInput, host.dictationCorrections),
+    act(
+      "dictation_correct",
+      "Save how a spoken phrase is spelled in this Project. An empty spelling removes it.",
+      "create",
+      { ...projectInput, heard: z.string().min(1).max(128), spelling: z.string().max(128) },
+      host.setDictationCorrection,
+    ),
+  ];
+}
+
 function managementToolGroups({ host, operations, grantChatProject = () => {} }) {
   return ["projects", "worktrees", "chats"].map((id) => ({
     id,
@@ -93,6 +106,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
             { ...projectInput, provider: z.enum(["claude", "codex", "antigravity", "kiro", "ollama"]), accountId: z.string().min(1).max(128).nullable() },
             (args) => host.setProjectAccount(args, assertActive),
           ),
+          ...dictationTools(read, act, host),
           ...orchestratorTools({ read, act, host, assertActive }),
           read(
             "project_list",

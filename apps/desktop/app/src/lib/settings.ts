@@ -76,6 +76,7 @@ export interface AppSettings {
   dictationModel: string;
   dictationAction: DictationActionPreference;
   dictationShortcutMode: DictationShortcutMode;
+  dictationSymbols: boolean;
   dictationFixUp: boolean;
   dictationFixModel: DictationFixModel;
 }
@@ -125,6 +126,7 @@ const DEFAULTS: AppSettings = {
   dictationModel: whisperModelFor("desktop", undefined).id,
   dictationAction: "paste",
   dictationShortcutMode: "hold",
+  dictationSymbols: false,
   dictationFixUp: true,
   dictationFixModel: "auto",
 };
@@ -182,6 +184,7 @@ function load(): AppSettings {
       dictationModel: whisperModelFor("desktop", saved.dictationModel).id,
       dictationAction: parseDictationAction(saved.dictationAction),
       dictationShortcutMode: dictationShortcutMode(saved.dictationShortcutMode),
+      dictationSymbols: saved.dictationSymbols === true,
       dictationFixUp: typeof saved.dictationFixUp === "boolean" ? saved.dictationFixUp : DEFAULTS.dictationFixUp,
       dictationFixModel: dictationFixModel(saved.dictationFixModel),
     };

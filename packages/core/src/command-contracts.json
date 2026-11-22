@@ -1101,42 +1101,6 @@
     "runtime:restart-host": {
       "parameters": []
     },
-    "attachment:preview": {
-      "parameters": [
-        {
-          "name": "file",
-          "optional": false,
-          "schema": {
-            "type": "string"
-          }
-        }
-      ]
-    },
-    "attachment:read": {
-      "parameters": [
-        {
-          "name": "file",
-          "optional": false,
-          "schema": {
-            "type": "string"
-          }
-        },
-        {
-          "name": "offset",
-          "optional": false,
-          "schema": {
-            "type": "number"
-          }
-        },
-        {
-          "name": "version",
-          "optional": true,
-          "schema": {
-            "type": "string"
-          }
-        }
-      ]
-    },
     "project:files": {
       "parameters": [
         {
@@ -4439,6 +4403,78 @@
         {
           "name": "computerId",
           "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "dictation:corrections": {
+      "parameters": [
+        {
+          "name": "cwd",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "dictation:correct": {
+      "parameters": [
+        {
+          "name": "cwd",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "heard",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "spelling",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "attachment:preview": {
+      "parameters": [
+        {
+          "name": "file",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "attachment:read": {
+      "parameters": [
+        {
+          "name": "file",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "offset",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "version",
+          "optional": true,
           "schema": {
             "type": "string"
           }

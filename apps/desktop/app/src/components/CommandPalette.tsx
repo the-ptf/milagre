@@ -24,6 +24,8 @@ import {
   KanbanIcon,
   LibraryIcon,
 } from "@hugeicons/core-free-icons";
+import { composerDictationActions } from "../lib/dictation-shortcut";
+import { lastDictation } from "../lib/last-dictation";
 import { filterCommands, type Command } from "../lib/commands";
 import { recentCommandIds, recentCommands, rememberCommand, rememberedId } from "../lib/recent-commands";
 import { useShortcutHints } from "../lib/shortcut-hints";
@@ -85,7 +87,7 @@ function Label({ command }: { command: Command }) {
 }
 
 export function CommandPalette({
-  commands,
+  commands: providedCommands,
   searchMessages,
   searchMessagesAsync,
   onStartChat,
@@ -99,6 +101,16 @@ export function CommandPalette({
   onClose: () => void;
   onError: (message: string) => void;
 }) {
+  const [dictationCommands] = useState<Command[]>(() => {
+    const target = composerDictationActions();
+    const items: Command[] = [];
+    if (target?.insertLast && lastDictation())
+      items.push({ id: "insert-last-dictation", group: "Chat", icon: "copy", label: "Insert last dictation", run: target.insertLast });
+    if (target?.vocabulary)
+      items.push({ id: "dictation-vocabulary", group: "Chat", icon: "settings", label: "Project dictation vocabulary", run: target.vocabulary });
+    return items;
+  });
+  const commands = [...providedCommands, ...dictationCommands];
   const [query, setQuery] = useState("");
   const showHints = useShortcutHints();
   const [selectedId, setSelectedId] = useState<string | null>(null);

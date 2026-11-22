@@ -1,8 +1,9 @@
+import { saveLastDictation } from "./last-dictation";
 import { useDictationShortcut } from "./dictation-shortcut";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useFocusEffect } from "expo-router";
 import * as Font from "expo-font";
-import { Linking, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import Animated, { Easing, FadeInDown, ReduceMotion } from "react-native-reanimated";
 import type { SkillCatalog } from "@milagre/shared/model";
 import { formatChatMention, formatComputerMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
@@ -43,8 +44,9 @@ import {
 } from "@milagre/shared/voice-dictation";
 import { useVoiceDictation } from "./voice-dictation-hook";
 import { useDictationAction } from "./chat-display-setting";
-import { DictationCapsule, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
-import { DictationNotice } from "./dictation-notice";
+
+import { ComposerMicrophone } from "./composer-microphone";
+import { openComposerVoiceMenu } from "./voice-menu";
 
 const NO_CHATS: readonly MentionChat[] = [];
 const micAlone = (mic: ReactNode) => mic;
@@ -101,6 +103,8 @@ export function PromptField({
   onImagePaste,
   commands,
   known,
+  attachmentNames,
+  quoteTexts,
   images = 0,
   onMention,
   onSubmit,
@@ -126,6 +130,8 @@ export function PromptField({
   onImagePaste?: (image: PastedImage) => void;
   commands?: { name: string; description: string }[];
   known?: KnownFiles;
+  attachmentNames?: string[];
+  quoteTexts?: string[];
   images?: number;
   onMention?: (path: string) => void;
   /** Return on a hardware keyboard; Shift+Return and the on-screen keyboard still add a line. */
@@ -185,23 +191,19 @@ export function PromptField({
     [draft, skills, known, projectPath, lookups, images, chats, computers],
   );
   const [requested, setRequested] = useState<{ draft: string; selection: typeof selection } | null>(null);
-  const focusDraft = useRef(draft);
+  const latestDraft = useRef(draft);
   useEffect(() => {
-    focusDraft.current = draft;
-  });
+    latestDraft.current = draft;
+  }, [draft]);
   useEffect(() => {
     if (!focusRequest) return;
-    const end = { start: focusDraft.current.length, end: focusDraft.current.length };
-    setRequested({ draft: focusDraft.current, selection: end });
+    const end = { start: latestDraft.current.length, end: latestDraft.current.length };
+    setRequested({ draft: latestDraft.current, selection: end });
     setSelection(end);
     paste.ref.current?.focus();
   }, [focusRequest, paste.ref]);
   // Until the field has reported a caret, dictation starts after the restored draft.
   const placed = useRef(false);
-  const latestDraft = useRef(draft);
-  useEffect(() => {
-    latestDraft.current = draft;
-  }, [draft]);
   useFocusEffect(
     useCallback(() => {
       const value = latestDraft.current;
@@ -221,6 +223,12 @@ export function PromptField({
   });
   const take = useRef<DictationTake | null>(null);
   const [provisional, setProvisional] = useState<TextRange | null>(null);
+  function applyEdit({ value, caret }: { value: string; caret: number }) {
+    const selection = { start: caret, end: caret };
+    setRequested({ draft: value, selection });
+    setSelection(selection);
+    onChangeText(value);
+  }
   const write = (text: string, settled: number) => {
     const current = take.current;
     if (!current) return null;
@@ -228,14 +236,13 @@ export function PromptField({
     if (!written) return null;
     take.current = written.take;
     setProvisional(provisionalRange(written.take));
-    const caret = { start: written.caret, end: written.caret };
-    setRequested({ draft: written.value, selection: caret });
-    setSelection(caret);
-    onChangeText(written.value);
+    applyEdit(written);
     return written;
   };
   const writeLatest = useRef(write);
   const discardLatest = useRef<() => void>(() => {});
+  const dictationScope = JSON.stringify([projectPath, currentId]);
+  const delivered = useRef<{ client: Client; scope: string; draft: string } | null>(null);
   const correcting = useRef<{ id: number; take: DictationTake } | null>(null);
   const corrections = useRef(0);
   useEffect(
@@ -260,9 +267,11 @@ export function PromptField({
   }, [draft, endCorrection]);
   const dictation = useVoiceDictation(
     (text, anchor, correction) => {
+      saveLastDictation(text, correction?.text);
       take.current ??= startTake(latestDraft.current, anchor.selection);
       const written = writeLatest.current(text, text.length);
       take.current = null;
+      if (written) delivered.current = { client, scope: dictationScope, draft: written.value };
       const sendAfter = dictationAction === "send";
       const sentFrom = { projectPath, currentId };
       if (!written || !correction) {
@@ -280,10 +289,8 @@ export function PromptField({
         endCorrection();
         const corrected = correctTake(pending.take, latestDraft.current, fixed);
         if (corrected) {
-          const caret = { start: corrected.caret, end: corrected.caret };
-          setRequested({ draft: corrected.value, selection: caret });
-          setSelection(caret);
-          onChangeText(corrected.value);
+          delivered.current = { client, scope: dictationScope, draft: corrected.value };
+          applyEdit(corrected);
         }
         if (sendAfter) dictatedSend.current = { value: corrected?.value ?? pending.take.produced, ...sentFrom };
       });
@@ -310,7 +317,7 @@ export function PromptField({
     const anchor = placed.current ? selection : { start: end, end };
     take.current = startTake(draft, anchor);
     setProvisional(null);
-    void dictation.start({ draft, selection: anchor });
+    void dictation.start({ draft, selection: anchor, attachments: attachmentNames, quotes: quoteTexts });
   };
   const finishWhenRecording = useRef(false);
   const { phase: dictationPhase, stop: stopDictation } = dictation;
@@ -377,11 +384,8 @@ export function PromptField({
     const gap = suffix.startsWith(" ") ? "" : " ";
     const next = `${draft.slice(0, fileToken.start)}${mention}${gap}${suffix}`;
     const caret = fileToken.start + mention.length + 1;
-    const selection = { start: caret, end: caret };
-    setRequested({ draft: next, selection });
-    setSelection(selection);
     if (path) onMention?.(path);
-    onChangeText(next);
+    applyEdit({ value: next, caret });
   };
   const choose = (name: string) => {
     if (!query) return;
@@ -391,41 +395,34 @@ export function PromptField({
     const gap = whitespace || " ";
     const next = `${draft.slice(0, query.start)}${command}${punctuation}${gap}${suffix.slice(punctuation.length + whitespace.length)}`;
     const caret = query.start + command.length + punctuation.length + gap.length;
-    const selection = { start: caret, end: caret };
-    setRequested({ draft: next, selection });
-    setSelection(selection);
-    onChangeText(next);
+    applyEdit({ value: next, caret });
   };
   // Read once as the download starts and as a skill is picked, on both platforms (a live region speaks only on Android).
   useAnnounce(dictation.download !== null ? "Downloading the speech model" : null);
   useAnnounce(skill && !query ? `/${skill.name}. ${skill.description}` : null);
 
-  const mic = dictation.available ? (
-    <View>
-      {dictationError ? (
-        <DictationNotice
-          error={dictationError}
-          micSize={MIC_SIZE}
-          onDismiss={dismissDictationError}
-          onOpenSettings={() => {
-            dismissDictationError();
-            void Linking.openSettings();
-          }}
-        />
-      ) : null}
-      {dictating ? (
-        <DictationCapsule
-          phase={dictation.phase}
-          level={dictation.level}
-          download={dictation.download}
-          onDiscard={discardDictation}
-          onStop={() => void dictation.stop()}
-        />
-      ) : (
-        <VoiceMicButton onPress={startDictation} processing={fixing} />
-      )}
-    </View>
-  ) : null;
+  const mic = (
+    <ComposerMicrophone
+      dictation={dictation}
+      fixing={fixing}
+      startDictation={startDictation}
+      discardDictation={discardDictation}
+      openMenu={() =>
+        openComposerVoiceMenu({
+          client,
+          cwd: projectPath,
+          before: delivered.current?.client === client && delivered.current.scope === dictationScope ? delivered.current.draft : "",
+          draft,
+          selection: placed.current ? selection : { start: draft.length, end: draft.length },
+          insert(edit) {
+            if (latestDraft.current !== draft) return;
+            endCorrection();
+            applyEdit(edit);
+          },
+        })
+      }
+    />
+  );
 
   return (
     <View onTouchStart={onTouchStart}>

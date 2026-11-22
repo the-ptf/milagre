@@ -1,3 +1,4 @@
+import * as SecureStore from "expo-secure-store";
 import { useSyncExternalStore } from "react";
 import type { ChatList, CompactButtonDisplay, ToolCallDisplay } from "@milagre/shared/chat-display";
 import { whisperModelFor, type DictationFixModel } from "@milagre/shared/dictation";
@@ -72,6 +73,12 @@ export const useDictationLanguage = phoneSetting<string>("auto", readDictationLa
 export const useDictationModel = phoneSetting<string>(whisperModelFor("phone", undefined).id, readDictationModel, saveDictationModel);
 
 export const useDictationAction = phoneSetting<DictationActionPreference>("paste", readDictationAction, saveDictationAction);
+
+export const useDictationSymbols = phoneSetting(
+  false,
+  async () => (await SecureStore.getItemAsync("milagre.dictation-symbols.v1").catch(() => null)) === "on",
+  (value) => SecureStore.setItemAsync("milagre.dictation-symbols.v1", value ? "on" : "off").catch(() => {}),
+);
 
 export const useDictationFixUp = phoneSetting(true, readDictationFixUp, saveDictationFixUp);
 

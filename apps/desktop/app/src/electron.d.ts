@@ -333,7 +333,14 @@ export type MilagreBridge = {
   readSkill: (projectPath: string, file: string) => Promise<string>;
   /** The words a dictated message about this folder likely holds, for the recognizer. */
   /** `scope` and `chatId` name the Chat dictated into: the names its last turns used join the words. */
-  dictationContext: (request: { cwd: string; chatTitle?: string; scope?: string; chatId?: number }) => Promise<{ terms: string[] }>;
+  dictationCorrections: (cwd: string) => Promise<import("@milagre/shared/dictation").VocabularyCorrection[]>;
+  setDictationCorrection: (cwd: string, heard: string, spelling: string) => Promise<void>;
+  dictationContext: (request: {
+    cwd: string;
+    chatTitle?: string;
+    scope?: string;
+    chatId?: number;
+  }) => Promise<{ terms: string[]; corrections?: import("@milagre/shared/dictation").VocabularyCorrection[] }>;
   /** A dictated message with misheard names fixed by a small model of the Chat's agent; as dictated when none answers. */
   /** Claude Haiku's fix-up of a finished take's misheard names (the Chat's agent's small model when Claude can't answer). */
   polishDictation: (request: {

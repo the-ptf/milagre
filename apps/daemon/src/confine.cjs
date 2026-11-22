@@ -282,6 +282,8 @@ const PATHS = Object.freeze({
   "skills:list": ([projectPath]) => [projectPath],
   "project:files": ([root]) => [root],
   "skills:read": ([projectPath, file]) => [projectPath, file],
+  "dictation:corrections": ([cwd]) => [cwd],
+  "dictation:correct": ([cwd]) => [cwd],
   "dictation:context": ([value]) => (value?.scope == null ? [value?.cwd] : [value?.cwd, value.scope]),
   "dictation:polish": ([value]) => (value?.scope == null ? [value?.cwd] : [value?.cwd, value.scope]),
   "worktree:create": ([value]) => [value?.projectPath],

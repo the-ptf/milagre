@@ -1,3 +1,4 @@
+import { ComposerMicrophone } from "./composer/ComposerMicrophone";
 import { COMMANDS, UNDO_COMMAND } from "./composer/prompt-commands";
 import { useContextSettings } from "../lib/context-settings";
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
@@ -7,7 +8,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import type { ComponentProps, KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowUp02Icon, Attachment01Icon, Cancel01Icon, FlashIcon, Mic01Icon } from "@hugeicons/core-free-icons";
+import { ArrowUp02Icon, Attachment01Icon, FlashIcon } from "@hugeicons/core-free-icons";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
 import { effortCopy, PERMISSION_MODE_LABEL } from "../model";
 import { cliNotice, messageParts } from "../lib/cli-status";
@@ -36,10 +37,7 @@ import { compactButtonState } from "@milagre/shared/chat-display";
 import { PROMPT_PLACEHOLDER, matchingMentionChats, matchingMentionComputers } from "@milagre/shared/prompt-mentions";
 import { useChatMentions, useMentionComputers } from "./ChatMentions";
 import { offlinePlaceholder, reconnectingPlaceholder } from "../lib/computers";
-import { DictationNotice } from "./DictationNotice";
-import { DownloadRing, DroppingArrow } from "./DownloadRing";
 import Tooltip from "./primitives/Tooltip";
-import { SpinnerRing } from "./primitives/SpinnerRing";
 import { useDictationTake } from "./composer/use-dictation-take";
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
@@ -96,13 +94,6 @@ interface PromptComposerProps {
 
 const NO_HISTORY: string[] = [];
 const NO_QUOTES: readonly ComposerQuote[] = [];
-
-const DICTATION_LABELS = {
-  idle: "Dictate",
-  preparing: "Cancel dictation",
-  recording: "Stop dictation",
-  transcribing: "Transcribing",
-} as const;
 
 const POPOVER_GAP = 12;
 const POPOVER_EDGE = 8;
@@ -443,21 +434,23 @@ export function PromptComposer({
     if (canSend && !sendBlocked && !imageDraft.loading && !offlineName) send();
   });
 
-  const { dictateShortcutLabel, dictating, dictation, dictationError, discardDictation, fixing, provisional, rootRef, startDictation, dictatedSend } =
-    useDictationTake({
-      projectPath,
-      imageDraft,
-      draft,
-      draftLatest,
-      onDraftChange,
-      setCaret,
-      inputRef,
-      caret,
-      dictationAction,
-      dictationShortcutMode,
-      mentions,
-      selectedModel,
-    });
+  const dictationTake = useDictationTake({
+    projectPath,
+    imageDraft,
+    draft,
+    quotes,
+    draftLatest,
+    onDraftChange,
+    setCaret,
+    inputRef,
+    caret,
+    dictationAction,
+    dictationShortcutMode,
+    mentions,
+    selectedModel,
+  });
+
+  const { dictating, dictation, fixing, provisional, rootRef, dictatedSend } = dictationTake;
 
   function insertImages(promise: Promise<number[]>, range = inputRef.current?.getSelection() ?? { start: caret, end: caret }) {
     const original = draftLatest.current;
@@ -893,87 +886,7 @@ export function PromptComposer({
                   />
                 )
               )}
-              <span className="relative flex shrink-0">
-                {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}
-                {dictation.download ? (
-                  <Tooltip
-                    label={`Downloading speech model · ${Math.round((dictation.download.received / dictation.download.total) * 100)}% of ${Math.round(dictation.download.total / 1e6)} MB`}
-                    align="end"
-                  >
-                    <button
-                      type="button"
-                      data-dictation-download
-                      aria-label={`Downloading speech model, ${Math.round((dictation.download.received / dictation.download.total) * 100)}%. Cancel`}
-                      onClick={discardDictation}
-                      className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink"
-                    >
-                      <DownloadRing size={28} progress={dictation.download.received / dictation.download.total}>
-                        <DroppingArrow size={14} well={20} />
-                      </DownloadRing>
-                    </button>
-                  </Tooltip>
-                ) : dictating ? (
-                  <span data-dictation-capsule className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-hover px-1">
-                    <button
-                      type="button"
-                      aria-label="Discard dictation"
-                      title="Discard dictation"
-                      onClick={discardDictation}
-                      className="flex size-6 shrink-0 items-center justify-center rounded-full text-ink-2 transition-colors hover:text-ink"
-                    >
-                      <Icon icon={Cancel01Icon} size={14} />
-                    </button>
-                    {dictation.phase === "recording" ? (
-                      <button
-                        ref={(node) => {
-                          dictation.meter.current = node;
-                        }}
-                        type="button"
-                        aria-label="Stop dictation"
-                        title="Stop dictation"
-                        onClick={() => void dictation.stop()}
-                        className="relative flex size-6 shrink-0 items-center justify-center rounded-full"
-                      >
-                        <span
-                          aria-hidden
-                          className="absolute inset-0.5 rounded-full bg-red/25 motion-safe:transition-transform motion-safe:duration-75"
-                          style={{
-                            transform: "scale(calc(1 + var(--level, 0) * 0.38))",
-                          }}
-                        />
-                        <span aria-hidden className="relative block size-2.5 rounded-inline bg-red" />
-                      </button>
-                    ) : (
-                      <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
-                        <span className="block size-4 rounded-full border-2 border-line border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
-                      </span>
-                    )}
-                  </span>
-                ) : (
-                  <Tooltip
-                    label={fixing !== null ? (fixing ? `Correcting names · ${fixing}` : "Correcting names…") : DICTATION_LABELS.idle}
-                    shortcut={dictateShortcutLabel}
-                    align="end"
-                  >
-                    <button
-                      type="button"
-                      data-dictation-processing={fixing !== null || undefined}
-                      aria-label={DICTATION_LABELS.idle}
-                      aria-busy={fixing !== null}
-                      aria-description={fixing !== null ? "Correcting names. Start a new dictation to replace the pending correction." : undefined}
-                      onClick={startDictation}
-                      className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors ${fixing !== null ? "bg-hover text-ink-4" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
-                    >
-                      {fixing !== null && (
-                        <span className="pointer-events-none absolute inset-0">
-                          <SpinnerRing size={28} stroke={1.5} color="var(--accent)" />
-                        </span>
-                      )}
-                      <Icon icon={Mic01Icon} size={16} />
-                    </button>
-                  </Tooltip>
-                )}
-              </span>
+              <ComposerMicrophone take={dictationTake} cwd={projectPath} />
               <button
                 type="button"
                 aria-label={canStop ? "Stop agent" : offlineName ? "Queue message" : running ? (queuesFollowUp ? "Queue message" : "Send now") : "Send"}

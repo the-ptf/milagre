@@ -10,6 +10,8 @@ export type DictationShortcutTarget = {
   dictating: () => boolean;
   mode: () => DictationShortcutMode;
   start: () => void;
+  insertLast?: () => void;
+  vocabulary?: () => void;
   finish: () => void;
 };
 
@@ -40,6 +42,11 @@ function current() {
     dictating: (entry) => entry.dictating(),
     visible: shown,
   });
+}
+
+export function composerDictationActions() {
+  const target = current();
+  return target && !target.dictating() ? target : null;
 }
 
 function onKeyDown(event: KeyboardEvent) {
@@ -87,6 +94,8 @@ export function useDictationShortcut(target: DictationShortcutTarget) {
       mode: () => latest.current.mode(),
       start: () => latest.current.start(),
       finish: () => latest.current.finish(),
+      insertLast: target.insertLast ? () => latest.current.insertLast?.() : undefined,
+      vocabulary: target.vocabulary ? () => latest.current.vocabulary?.() : undefined,
       usedAt: 0,
     };
     targets.add(entry);

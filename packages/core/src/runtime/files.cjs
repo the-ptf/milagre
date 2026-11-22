@@ -82,9 +82,24 @@ function createFiles({
     }
     return searchFiles(root, query);
   });
+  async function correctionsFor(cwd) {
+    return projectSettings().getDictationCorrections(await accountScopeForFolder(cwd));
+  }
+  commands.handle("dictation:corrections", async (_event, cwd) => {
+    await knownFolder(cwd);
+    return correctionsFor(cwd);
+  });
+  commands.handle("dictation:correct", async (_event, cwd, heard, spelling) => {
+    await knownFolder(cwd);
+    await projectSettings().setDictationCorrection(await accountScopeForFolder(cwd), heard, spelling);
+  });
   commands.handle("dictation:context", async (_event, { cwd, chatTitle, scope, chatId } = {}) => {
     await knownFolder(cwd);
-    return dictationContext({ cwd, chatTitle, listFiles: searchFiles.list, messages: await dictationMessages(scope, chatId) });
+    const [context, corrections] = await Promise.all([
+      dictationContext({ cwd, chatTitle, listFiles: searchFiles.list, messages: await dictationMessages(scope, chatId) }),
+      correctionsFor(cwd),
+    ]);
+    return { ...context, corrections };
   });
   async function dictationMessages(scope, chatId) {
     if (typeof scope !== "string" || !states.has(scope) || !Number.isSafeInteger(chatId)) return [];

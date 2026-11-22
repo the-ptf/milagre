@@ -290,6 +290,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Dictation",
     keywords: "correction automatic haiku codex gemini kiro",
   },
+  { page: "voice", title: "Spoken symbols", group: "Dictation", keywords: "dictation backticks inline code insert newline" },
   {
     page: "voice",
     title: "Fix names with AI",

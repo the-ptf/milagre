@@ -27,6 +27,7 @@ if (flag("help")) {
   --variants raw,main,new,snap     raw: no vocabulary. main: the vocabulary as main builds it. new: as this checkout
                                    builds it. snap: new + term snapping. polish: snap + the AI fix-up (Claude Haiku)
   --polish                         add the polish variant (calls Claude once per clip)
+  --variants snap,composer         compare with voice-dictation.ts attached and a saved insertDictation correction
   --chat                           add the chat variant: snap with the words of a Chat that already discussed the code
                                    (chat.json); with --polish also chat-polish
   --local                          add the local variant: snap + the fix-up on Apple's on-device model
@@ -121,6 +122,11 @@ function variantOf(name, language) {
       return { terms: baseTerms, prompt: base.whisperPrompt(baseTerms, language), post: (text) => text };
     case "new":
       return { terms: newTerms, prompt: working.whisperPrompt(newTerms, language), post: (text) => text };
+    case "composer": {
+      const corrections = [{ heard: "insert dictation", spelling: "insertDictation" }];
+      const terms = working.takeVocabulary(working.composerTerms("", "", ["voice-dictation.ts"]), corrections, newTerms);
+      return { terms, prompt: working.whisperPrompt(terms, language), post: (text) => working.formatDictation(text, corrections, false, terms) };
+    }
     case "chat":
     case "chat-polish":
       return { terms: chatVocabulary, prompt: working.whisperPrompt(chatVocabulary, language), post: (text) => snap(text, chatVocabulary) };
@@ -260,8 +266,8 @@ async function runWhisper(model, batch, prompt, language) {
       temperature: 0,
       maxThreads: Math.max(1, Math.min(8, os.availableParallelism() - 1)),
     });
-    const { result } = await promise;
-    rows.push({ text: working.whisperText(result), ms: Date.now() - started });
+    const { result, segments } = await promise;
+    rows.push({ text: working.whisperText(result, segments, prompt), ms: Date.now() - started });
   }
   return rows;
 }
