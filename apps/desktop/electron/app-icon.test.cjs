@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { test } = require("node:test");
-const { APP_ICONS, createAppIconStore, appIconFile, applyAppIcon } = require("./app-icon.cjs");
+const { APP_ICONS, createAppIconStore, appIconFile, applyAppIcon, macAppBundle, syncBundleIcon, installAppIcon } = require("./app-icon.cjs");
 
 const PUBLIC = path.join(__dirname, "../app/public");
 
@@ -79,6 +79,66 @@ test("an unreadable image changes nothing", () => {
   const mac = fakes();
   assert.equal(applyAppIcon({ ...mac.options, publicDir: path.join(os.tmpdir(), "milagre-missing-icons"), icon: "dawn", platform: "darwin" }), false);
   assert.deepEqual(mac.calls.dock, []);
+});
+
+test("finds the .app bundle around a packaged macOS executable only", () => {
+  assert.equal(macAppBundle("/Applications/Milagre.app/Contents/MacOS/Milagre"), "/Applications/Milagre.app");
+  assert.equal(macAppBundle("/usr/local/bin/electron"), null);
+});
+
+test("the macOS bundle gets the chosen icon once, again after an update drops it, and loses it for the default", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-bundle-icon-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const bundle = path.join(dir, "Milagre.app");
+  fs.mkdirSync(bundle);
+  const staging = path.join(dir, "data", "app-icon.png");
+  const customIcon = path.join(bundle, "Icon\r");
+  const runs = [];
+  const run = async (command, args) => {
+    const [bundleArg, image] = args.slice(4);
+    runs.push({ command, bundle: bundleArg, image: image ? fs.readFileSync(image) : null });
+    if (image) fs.writeFileSync(customIcon, "");
+    else fs.rmSync(customIcon, { force: true });
+  };
+  const sync = (icon) => syncBundleIcon({ icon, bundle, publicDir: PUBLIC, staging, run });
+
+  assert.equal(await sync("default"), false);
+  assert.equal(await sync("sunset"), true);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].command, "osascript");
+  assert.equal(runs[0].bundle, bundle);
+  assert.ok(runs[0].image.equals(fs.readFileSync(appIconFile(PUBLIC, "sunset"))));
+  assert.equal(await sync("sunset"), false);
+  assert.equal(await sync("dawn"), true);
+  assert.ok(runs[1].image.equals(fs.readFileSync(appIconFile(PUBLIC, "dawn"))));
+  fs.rmSync(customIcon);
+  assert.equal(await sync("dawn"), true);
+  assert.equal(await sync("default"), true);
+  assert.equal(runs[3].image, null);
+  assert.equal(fs.existsSync(customIcon), false);
+  assert.equal(await sync("default"), false);
+  assert.equal(runs.length, 4);
+});
+
+test("notifications carry the chosen icon on Windows and Linux; macOS takes it from the bundle", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-app-icon-install-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const handlers = new Map();
+  const install = (platform) =>
+    installAppIcon({
+      app: { getPath: () => dir, isPackaged: false },
+      ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+      nativeImage: { createFromPath: (file) => ({ file, isEmpty: () => false }) },
+      windows: () => [],
+      setDockIcon: () => {},
+      publicDir: PUBLIC,
+      platform,
+      run: async () => assert.fail("an unpackaged app never touches a bundle"),
+    });
+  const linux = install("linux");
+  handlers.get("app-icon:set")(null, "eight-bit");
+  assert.equal(linux.notificationOptions().icon.file, appIconFile(PUBLIC, "eight-bit"));
+  assert.deepEqual(install("darwin").notificationOptions(), {});
 });
 
 test("the renderer's type and picker list the same icons", () => {
