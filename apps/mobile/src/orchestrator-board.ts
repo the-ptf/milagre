@@ -10,7 +10,7 @@ import {
 } from "@milagre/shared/orchestrator";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import type { AgentRun } from "@milagre/shared/agent-runs";
-import type { AgentModels, AgentSession, ChatMessage, ModelProvider } from "@milagre/shared/model";
+import type { AgentModels, AgentSession, ChatMessage, ModelProvider, PullRequest } from "@milagre/shared/model";
 import { MODEL_CATALOG } from "@milagre/shared/model-options";
 import { effortCopy } from "@milagre/shared/model-copy";
 import { subchatState } from "@milagre/shared/subchat-states";
@@ -34,13 +34,21 @@ export type BoardItem = {
   mark: ChatMark | null;
   detail: string;
   pullRequest: PullRequestState;
+  /** The PR its mark shows: a blocked one first, then open, merged and closed; null until one is read. */
+  pr: PullRequest | null;
   inSidebar: boolean;
 };
 
 const NEEDS_YOU = new Set<ChatMark>(["question", "waiting", "interrupted", "failed"]);
 
-export function boardItem(task: OrchestratorTask, chat: TaskChat | undefined, pullRequest: PullRequestState, now: number): BoardItem {
-  const base = { task, pullRequest, inSidebar: false };
+export function boardItem(
+  task: OrchestratorTask,
+  chat: TaskChat | undefined,
+  pullRequest: PullRequestState,
+  now: number,
+  pr: PullRequest | null = null,
+): BoardItem {
+  const base = { task, pullRequest, pr, inSidebar: false };
   if (task.state === "routing") return { ...base, column: "running", kind: "deciding", mark: null, detail: "Deciding where this goes…" };
   if (task.state === "needs-project")
     return { ...base, column: "needs", kind: "needs-project", mark: null, detail: task.reason.project ?? "No Project fits. Pick one to start." };

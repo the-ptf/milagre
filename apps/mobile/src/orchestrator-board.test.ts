@@ -60,6 +60,16 @@ test("a started task follows its Chat: running, needing you, in review, then don
   assert.deepEqual([asking.column, asking.mark, asking.detail], ["needs", "waiting", "Asks to run: npm test"]);
   assert.equal(boardItem(task({ outcome: "merged" }), { chat: chat() }, "open", 0).column, "review");
   assert.equal(boardItem(task(), { chat: chat() }, "merged", 0).column, "done");
+  const failing = {
+    number: 7,
+    title: "Fix",
+    url: "https://github.com/o/r/pull/7",
+    state: "OPEN",
+    checks: "failed",
+    readyToMerge: false,
+    hasConflicts: false,
+  } as const;
+  assert.deepEqual(boardItem(task(), { chat: chat() }, "open", 0, failing).pr?.checks, "failed");
   assert.equal(boardItem(task(), { chat: chat({ done_at: 5 }) }, null, 0).column, "done");
   assert.equal(boardItem(task(), { chat: chat({ orchestrator: { taskId: "t1", hidden: false } }) }, null, 0).inSidebar, true);
 });

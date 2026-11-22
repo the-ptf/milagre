@@ -285,3 +285,13 @@ test("a task's PR reads from its Project's snapshot and meets the recorded outco
   assert.deepEqual([card("merged", prSnapshot("MERGED")).column, card("merged", prSnapshot("MERGED")).pullRequest], ["done", "merged"]);
   assert.deepEqual([card("pull-request", prSnapshot("CLOSED")).column, card("pull-request", prSnapshot("CLOSED")).pullRequest], ["needs", "closed"]);
 });
+
+test("a Done task carries the PR its mark shows, with CI and merge state", () => {
+  const card = (snapshots?: object) => boardCards([task("t1", { outcome: "pull-request" } as never)], withPr as never, {}, NOW, snapshots as never)[0]!;
+  assert.equal(card().pr, null, "unread yet: no PR to show");
+  const failing = {
+    "/p/app": { worktrees: {}, chats: { "/w/four": { [PR_URL]: { number: 7, url: PR_URL, state: "OPEN", checks: "failed" } } }, pending: false },
+  };
+  assert.deepEqual([card(failing).column, card(failing).pr?.checks], ["done", "failed"]);
+  assert.equal(card(prSnapshot("MERGED")).pr?.state, "MERGED");
+});

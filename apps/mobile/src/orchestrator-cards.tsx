@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { Alert02Icon, CheckmarkCircle02Icon, GitMergeIcon, GitPullRequestIcon, Image01Icon } from "@hugeicons/core-free-icons";
+import { Alert02Icon, CheckmarkCircle02Icon, GitPullRequestIcon, Image01Icon } from "@hugeicons/core-free-icons";
 import { roleById, type OrchestratorRole, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import type { AgentModels } from "@milagre/shared/model";
+import { PR_TONE, pullRequestPresentation } from "@milagre/shared/pr-blockers";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { Icon, ProviderLogo, SpinnerRing } from "./icons";
 import { modelAndEffort, projectName, relativeAge, type BoardItem } from "./orchestrator-board";
+import { PR_ICONS } from "./pr-look";
 import { SplitPicker } from "./orchestrator-split-picker";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
@@ -23,10 +25,21 @@ export function TaskMark({ item }: { item: BoardItem }) {
         <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.orange }} />
       </View>
     );
-  if (item.column === "review" && item.pullRequest === "open") return <Icon icon={GitPullRequestIcon} tone="green" size={16} />;
-  if (item.column === "review") return <Icon icon={CheckmarkCircle02Icon} tone="ink3" size={16} />;
-  if (item.column === "done")
-    return item.pullRequest === "merged" ? <Icon icon={GitMergeIcon} tone="purple" size={16} /> : <Icon icon={CheckmarkCircle02Icon} tone="ink3" size={16} />;
+  if (item.column === "review" || item.column === "done") {
+    if (item.pr) {
+      const { icon, tone, description } = pullRequestPresentation(item.pr);
+      return (
+        <View accessible accessibilityRole="image" accessibilityLabel={description}>
+          <Icon icon={PR_ICONS[icon]} tone={PR_TONE[tone].icon} size={16} />
+        </View>
+      );
+    }
+    return item.pullRequest === "open" ? (
+      <Icon icon={GitPullRequestIcon} tone="green" size={16} />
+    ) : (
+      <Icon icon={CheckmarkCircle02Icon} tone="ink3" size={16} />
+    );
+  }
   if (item.mark === "running" || item.mark === "background") return <SpinnerRing size={16} />;
   if (item.mark === "unread")
     return (

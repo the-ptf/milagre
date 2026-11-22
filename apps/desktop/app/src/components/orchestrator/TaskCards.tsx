@@ -1,11 +1,12 @@
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { CheckmarkCircle02Icon, ComputerIcon, GitMergeIcon, GitPullRequestIcon, Image01Icon, PanelLeftOpenIcon, Undo02Icon } from "@hugeicons/core-free-icons";
+import { CheckmarkCircle02Icon, ComputerIcon, GitPullRequestIcon, Image01Icon, PanelLeftOpenIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { roleById, type OrchestratorRole, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import type { ModelProvider } from "../../model";
 import { sinceLabel, type TaskCard } from "../../lib/orchestrator-board";
 import { routeLabel } from "../../lib/orchestrator-names";
 import { dismissTask, pickTaskProject, rerouteTask, showTaskInSidebar } from "../../lib/orchestrator-store";
 import { useMotionScale } from "../../lib/ease";
+import { prLook } from "../../lib/pr-look";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
@@ -42,16 +43,18 @@ export function StatusMark({ card }: { card: TaskCard }) {
         <span className={`size-2 rounded-full ${failed(card) ? "bg-red" : "bg-orange"}`} />
       </span>
     );
-  if (card.column === "review" && card.pullRequest === "open")
+  if ((card.column === "review" || card.column === "done") && card.pr) {
+    const look = prLook(card.pr);
+    return (
+      <span className={`flex shrink-0 ${look.toneClass}`} role="img" aria-label={look.description} title={look.description}>
+        <Icon icon={look.glyph} size={14} />
+      </span>
+    );
+  }
+  if ((card.column === "review" || card.column === "done") && card.pullRequest === "open")
     return (
       <span className="flex shrink-0 text-green" role="img" aria-label="Pull request open">
         <Icon icon={GitPullRequestIcon} size={14} />
-      </span>
-    );
-  if (card.pullRequest === "merged")
-    return (
-      <span className="flex shrink-0 text-purple-ink" role="img" aria-label="Pull request merged">
-        <Icon icon={GitMergeIcon} size={14} />
       </span>
     );
   return (
