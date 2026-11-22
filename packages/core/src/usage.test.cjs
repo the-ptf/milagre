@@ -362,9 +362,9 @@ test("shares one in-flight read between concurrent callers", async () => {
   const snapshot = await first;
   assert.deepEqual(
     snapshot.providers.map((item) => item.provider),
-    ["claude", "codex", "antigravity", "kiro", "ollama"],
+    ["claude", "codex", "antigravity", "kiro", "pi"],
   );
-  // Kiro's credits aren't read here and Ollama has no limits: their rows are unavailable and the sidebar leaves them out.
+  // Kiro's credits aren't read here and Pi has no limits: their rows are unavailable and the sidebar leaves them out.
   assert.deepEqual(
     snapshot.providers.slice(-2).map((item) => item.status),
     ["unavailable", "unavailable"],

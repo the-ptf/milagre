@@ -1,3 +1,5 @@
+import { INSTALL_OFFERS } from "@milagre/shared/providers";
+import { InstallOffer } from "./InstallOffer";
 import { useCallback, useEffect, useState } from "react";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { AccountsSnapshot, CliStatus, ModelProvider } from "@milagre/shared/model";
@@ -225,6 +227,11 @@ export function AccountsSettings() {
             )}
           </div>
           {group.provider === "antigravity" && <AntigravityRow onInstalled={() => void load(true)} />}
+          {group.installed === false && INSTALL_OFFERS[group.provider] && (
+            <div className="px-3 pt-3">
+              <InstallOffer provider={group.provider} />
+            </div>
+          )}
           {group.installed !== false && (
             <div className="grid gap-2 p-3" role="group" aria-label={`${providerName(group.provider)} accounts`}>
               {group.accounts.map((account) => {

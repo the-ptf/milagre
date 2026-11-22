@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { writeIfChanged } = require("./ollama.cjs");
+const { writeIfChanged } = require("./pi-profile.cjs");
 
 const TOOL_CALL_MARKER = "milagre:tool_call";
 const READ_ONLY_TOOLS = ["read", "grep", "find", "ls", "tool_search"];

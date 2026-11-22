@@ -274,9 +274,9 @@
       "types": "./src/kiro-models.d.mts",
       "default": "./src/kiro-models.mjs"
     },
-    "./ollama-models": {
-      "types": "./src/ollama-models.d.mts",
-      "default": "./src/ollama-models.mjs"
+    "./pi-models": {
+      "types": "./src/pi-models.d.mts",
+      "default": "./src/pi-models.mjs"
     },
     "./host-computer": {
       "types": "./src/host-computer.d.mts",

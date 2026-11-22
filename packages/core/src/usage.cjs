@@ -262,7 +262,7 @@ function createUsageReader(deps = {}) {
     readAntigravity = () => readAntigravityUsage({ now }),
     // The runtime reads Kiro's credits from kiro-cli (kiro-usage.cjs); without that reader the sidebar leaves Kiro out.
     readKiro = () => providerResult("kiro", now, "unavailable", [], "Kiro credits aren't read here."),
-    readOllama = () => providerResult("ollama", now, "unavailable", [], "Ollama runs on this computer and has no usage limits."),
+    readPi = () => providerResult("pi", now, "unavailable", [], "Pi has no usage limits: local models are free, and hosted ones bill to their own provider."),
     now = Date.now,
     store = createUsageStore(),
     ready = () => undefined,
@@ -284,7 +284,7 @@ function createUsageReader(deps = {}) {
   const pending = new Map();
   const latest = new Map();
   const checked = new Map();
-  const readers = { claude: readClaude, codex: readCodex, antigravity: readAntigravity, kiro: readKiro, ollama: readOllama };
+  const readers = { claude: readClaude, codex: readCodex, antigravity: readAntigravity, kiro: readKiro, pi: readPi };
   let environment;
   const waitReady = () =>
     (environment ??= Promise.resolve()
@@ -310,7 +310,7 @@ function createUsageReader(deps = {}) {
   let inFlight = null;
   function readUsage() {
     inFlight ??= Promise.resolve()
-      .then(() => Promise.all([providerUsage("claude"), providerUsage("codex"), providerUsage("antigravity"), providerUsage("kiro"), providerUsage("ollama")]))
+      .then(() => Promise.all([providerUsage("claude"), providerUsage("codex"), providerUsage("antigravity"), providerUsage("kiro"), providerUsage("pi")]))
       .then((providers) => ({ providers }))
       .finally(() => {
         inFlight = null;

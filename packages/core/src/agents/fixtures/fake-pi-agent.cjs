@@ -97,7 +97,13 @@ process.stdin.on("data", (chunk) => {
       continue;
     }
     const { id, type } = command;
-    if (type === "get_state") respond(id, type, { sessionId, model: { id: args[args.indexOf("--model") + 1] }, thinkingLevel: "off", isStreaming: streaming });
+    if (type === "get_state")
+      respond(id, type, {
+        sessionId,
+        model: { provider: args[args.indexOf("--provider") + 1], id: args[args.indexOf("--model") + 1] },
+        thinkingLevel: "off",
+        isStreaming: streaming,
+      });
     else if (type === "prompt") {
       respond(id, type, { disposition: "started" });
       void play();
@@ -124,7 +130,8 @@ process.stdin.on("data", (chunk) => {
         });
       }
       respond(id, type, {});
-    } else if (type === "get_session_stats") respond(id, type, { contextUsage: { tokens: 1200, contextWindow: 65536, percent: 1.8 } });
+    } else if (type === "get_session_stats")
+      respond(id, type, { cost: Number(process.env.FAKE_COST) || 0, contextUsage: { tokens: 1200, contextWindow: 65536, percent: 1.8 } });
     else if (type === "set_model") respond(id, type, { id: command.modelId });
     else respond(id, type, type === "clear_queue" ? { steering: [], followUp: [] } : undefined);
   }

@@ -4,9 +4,11 @@ import type { ComponentProps } from "react";
 import type { ContextUsage, ModelOption } from "../../model";
 import { ContextRing } from "../ContextRing";
 
+export const isLocalModel = (model: ModelOption) => model.provider === "pi" && Boolean(model.local);
+
 /** A local model's window is small and fills fast, so its Chats always show how much is used: none before the first turn. */
 export function shownContextUsage(contextUsage: ContextUsage | undefined, model: ModelOption): ContextUsage | undefined {
-  if (contextUsage || model.provider !== "ollama" || !model.contextWindow) return contextUsage;
+  if (contextUsage || !isLocalModel(model) || !model.contextWindow) return contextUsage;
   return { used: 0, size: model.contextWindow };
 }
 

@@ -1,5 +1,6 @@
 import { doneDueAt } from "./done.mjs";
 import { limitHeadline } from "./usage-limit.mjs";
+import { currentModelId, currentProvider } from "./providers.mjs";
 
 export const ORCHESTRATOR_MASCOT = Object.freeze({
   version: 1,
@@ -23,7 +24,7 @@ export const TASK_OUTCOME_DESCRIPTION =
   "Applies to new tasks. PR created needs a verified PR; PR merged waits for merge. Choose Agent finished for work that needs no PR.";
 export const MEMORY_GROUPS = Object.freeze(["work", "projects", "tools", "other"]);
 
-const PROVIDER_IDS = new Set(["claude", "codex", "antigravity", "kiro", "ollama"]);
+const PROVIDER_IDS = new Set(["claude", "codex", "antigravity", "kiro", "pi"]);
 const HINTS_MAX = 600;
 const INSTRUCTIONS_MAX = 4000;
 const NOTE_MAX = 300;
@@ -105,8 +106,9 @@ const oneOf = (value, options, fallback) => (options.includes(value) ? value : f
 function normalizeRole(raw, fallback) {
   const base = fallback ?? { id: "", name: "", description: "", provider: null, model: null, effort: null, instructions: null };
   if (!isObject(raw)) return base;
-  const provider = PROVIDER_IDS.has(raw.provider) ? raw.provider : raw.provider === null ? null : base.provider;
-  const model = provider === null ? null : (text(raw.model, 120) ?? (provider === base.provider ? base.model : null));
+  const saved = currentProvider(raw.provider);
+  const provider = PROVIDER_IDS.has(saved) ? saved : raw.provider === null ? null : base.provider;
+  const model = provider === null ? null : (currentModelId(text(raw.model, 120)) ?? (provider === base.provider ? base.model : null));
   return {
     id: text(raw.id, 40) ?? base.id,
     name: text(raw.name, 40) ?? base.name,
@@ -144,8 +146,8 @@ export function normalizeOrchestratorSettings(raw) {
     for (const [projectPath, entry] of Object.entries(value.projects))
       if (isObject(entry)) projects[projectPath] = { included: entry.included !== false, hints: text(entry.hints, HINTS_MAX) };
   const router =
-    isObject(value.router) && PROVIDER_IDS.has(value.router.provider) && text(value.router.model, 120)
-      ? { provider: value.router.provider, model: text(value.router.model, 120) }
+    isObject(value.router) && PROVIDER_IDS.has(currentProvider(value.router.provider)) && text(value.router.model, 120)
+      ? { provider: currentProvider(value.router.provider), model: currentModelId(text(value.router.model, 120)) }
       : { ...ORCHESTRATOR_DEFAULTS.router };
   return {
     enabled: value.enabled === true,
@@ -184,7 +186,7 @@ export function normalizeOrchestratorTask(raw) {
     remoteComputerId: typeof raw.remoteComputerId === "string" ? raw.remoteComputerId : null,
     remoteTaskId: typeof raw.remoteTaskId === "string" ? raw.remoteTaskId : null,
     role: typeof raw.role === "string" ? raw.role : "build",
-    provider: PROVIDER_IDS.has(raw.provider) ? raw.provider : null,
+    provider: PROVIDER_IDS.has(currentProvider(raw.provider)) ? currentProvider(raw.provider) : null,
     model: typeof raw.model === "string" ? raw.model : null,
     effort: typeof raw.effort === "string" ? raw.effort : null,
     accountId: typeof raw.accountId === "string" ? raw.accountId : null,

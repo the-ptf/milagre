@@ -403,7 +403,7 @@
             "skipComments": true
           }
         ],
-        "complexity": ["error", 145]
+        "complexity": ["error", 144]
       }
     },
     {

@@ -100,7 +100,7 @@ async function polishDictation({ text, terms = [], chatTitle = "", provider = "c
   const original = typeof text === "string" ? text.trim() : "";
   if (!original || original.length > TEXT_LIMIT) return { text: original, polished: false };
   // A local model's Chat keeps dictation local: there is no cleanup model to send it to.
-  if (provider === "ollama") return { text: original, polished: false };
+  if (provider === "pi") return { text: original, polished: false };
   const { prompt } = polishRequest({ text: original, terms, chatTitle });
   const first = PROVIDERS.includes(provider) ? provider : "claude";
   const order = only ? [first] : [first, ...PROVIDERS.filter((name) => name !== first)];
