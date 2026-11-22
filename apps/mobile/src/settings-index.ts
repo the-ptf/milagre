@@ -222,6 +222,11 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
 
   {
     page: "computers",
+    title: "Show computers as",
+    keywords: "map list routes lan tailscale network",
+  },
+  {
+    page: "computers",
     title: "Name on computers",
     group: "This iPhone",
     keywords: "device phone name",
