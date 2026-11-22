@@ -1,11 +1,11 @@
 ---
 name: simulator
-description: Attach or detach an iOS simulator or Android emulator to the current Milagre Chat so the user can view it on desktop or phone, or lease one of the Chat's own from a Simlock pool. Use when choosing a device for mobile app work or changing which device the Chat uses.
+description: Attach or detach an iOS simulator, Android emulator or iPhone on a cable to the current Milagre Chat so the user can view it on desktop or phone, or lease one of the Chat's own from a Simlock pool. Use when choosing a device for mobile app work or changing which device the Chat uses.
 ---
 
 # Chat simulators
 
-1. Call Milagre's `simulator_list`. `devices` contains running devices attached to this Chat, `attached` also includes stopped attachments, and `available` contains other running devices on this Mac.
+1. Call Milagre's `simulator_list`. `devices` contains running devices attached to this Chat, `attached` also includes stopped attachments, and `available` contains other running devices on this Mac. Each device carries `deviceType`, `productFamily` (iPhone, iPad, Watch, TV, Vision), `runtimeIdentifier`, `runtimeVersion` and, for emulators, `apiLevel`, null when unknown: pick by these, not by the name, which the user can edit.
 2. Choose the exact device you will use. Call `simulator_attach` with its `deviceId` before interacting with it. The tool supplies the current Chat identity; do not pass a Chat id or edit association files.
 3. Use your existing device automation tools with that same device id. Attaching makes the device available in this Chat's Simulators pill on desktop and phone. It does not boot, stream, install or launch an app.
 4. Keep the device attached when finishing work so the user can inspect it. Call `simulator_detach` with its `deviceId` when the user asks to remove it or you replace it. Detach closes this Chat's viewers, preserves other Chats' attachments and leaves the device running.
@@ -22,3 +22,7 @@ When the user turned on Simlock devices, you also have `simulator_lease`, `simul
 2. Drive it only with the `launcher` the tool returns: the agent-device CLI already bound to the lease. Run `<launcher> --help` for its commands. simctl, adb, argent and Xcode cannot reach it, because it may run on another computer. Install apps only from the returned `installDirectory` or below, and point the app at addresses its machine can reach, not this Mac's localhost.
 3. Call `simulator_release` with the `deviceId` when you are done, or when you replace it. The launcher refuses `close`; releasing is what returns it.
 
+
+## iPhones on a cable (when Baguette is installed)
+
+When this computer has [Baguette](https://github.com/tddworks/baguette), `simulator_list` also lists the paired iPhones on its cable, with ids `baguette:<UDID>`. Attach one the same way when the task needs real hardware, and only when the user asked for it or no simulator can do the job. Drive it with `baguette` (`tap`, `swipe`, `screenshot`, `describe-ui`, with `--udid <UDID>`) or `xcrun devicectl`; it takes touches only, so there are no buttons, keys, rotation or input repair. The phone must be unlocked and awake. Detaching leaves it as it is.

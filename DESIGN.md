@@ -30,7 +30,7 @@ Milagre is a calm, dense workbench for people who run coding agents all day.
 
 Every theme comes from one builder, `packages/shared/src/themes/build.ts`: a theme names a few official colours (page,
 surface, ink, accent, the status colours) and the builder derives every other token, solving the contrast floors below
-for that theme. Twelve themes ship (Milagre Blue, the default, plus Gray, three Catppuccins and seven popular editor
+for that theme. Thirteen themes ship (Milagre Blue, the default, plus Gray, Black (a true `#000` page for OLED, with lifted cards and lines), three Catppuccins and seven popular editor
 themes), and a custom theme is built the same way. The tables list Milagre Blue.
 
 Desktop reads each token as a CSS variable and a Tailwind colour (`bg-surface`, `text-ink-2`). The phone reads the same

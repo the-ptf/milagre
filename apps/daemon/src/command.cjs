@@ -116,6 +116,7 @@ async function main(args = process.argv.slice(2)) {
     process.once("SIGTERM", onSignal);
     try {
       client = await connect({ dataDir });
+      await client.call("daemon:state-patches", [{ messages: false, transcripts: false, archivedSubagents: false }]);
       client.on("event", ({ channel, payload }) => {
         if (channel === "devices:pending")
           for (const device of payload.requests) {

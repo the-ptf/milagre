@@ -177,6 +177,13 @@ async function check() {
     );
     await run('document.querySelector("[data-live-activity]").click()');
     await wait('document.querySelectorAll("[data-slot=activity-body] [data-slot=step]").length === 2');
+    assert.equal(
+      await run(
+        'Boolean(document.querySelector("[data-live-activity]").compareDocumentPosition(document.querySelector("[data-slot=activity-body]")) & Node.DOCUMENT_POSITION_FOLLOWING)',
+      ),
+      true,
+      "the running calls open below the loader row",
+    );
     await run('document.querySelector("[data-slot=step] button[aria-expanded]").click()');
     await wait('document.querySelector("[data-slot=step]").textContent.includes("npm test")');
     if (process.env.MILAGRE_SCREENSHOT_DIR) {

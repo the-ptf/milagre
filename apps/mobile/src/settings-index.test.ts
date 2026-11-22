@@ -45,7 +45,7 @@ const SOURCES: Record<keyof typeof SETTINGS_PAGES, string[]> = {
     "orchestrator-projects-section.tsx",
   ],
   "orchestrator-memory": ["app/(settings)/orchestrator-memory.tsx", "orchestrator-memory-section.tsx"],
-  "phone-sharing": ["app/(settings)/phone-sharing.tsx", "published-pages-section.tsx"],
+  "phone-sharing": ["app/(settings)/phone-sharing.tsx", "published-pages-section.tsx", "baguette-row.tsx"],
   simlock: ["app/(settings)/simlock.tsx", "simlock-section.tsx"],
   "this-mac": ["app/(settings)/this-mac.tsx", "mac-settings-sections.tsx", shared("auto-update.ts")],
   "computer-use": ["app/(settings)/computer-use.tsx", "computer-use-section.tsx"],

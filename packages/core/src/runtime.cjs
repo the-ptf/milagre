@@ -210,7 +210,7 @@ function createRuntime(options) {
   async function readStoredState(projectPath) {
     await ownProject(projectPath);
     try {
-      return await readProjectState(projectPath);
+      return await readProjectState(projectPath, { unloadSubagents: lazy });
     } catch (error) {
       if (error.code === "ENOENT") return null;
       throw error;
@@ -258,9 +258,7 @@ function createRuntime(options) {
     dataDir,
     persistenceChanged: (linkId, state) => broadcastProjectState(scopeKey({ kind: "link", linkId }), state),
     active: (linkId, chat) => busyChat(chatKey(scopeKey({ kind: "link", linkId }), chat)),
-    lazyMessages: lazy
-      ? { ...lazyMessages, unloaded: (linkId, state) => broadcastProjectState(scopeKey({ kind: "link", linkId }), state) }
-      : { idleMs: Infinity, sweepMs: 0 },
+    lazyMessages: lazy ? { ...lazyMessages, unloaded: (linkId, state) => broadcastProjectState(scopeKey({ kind: "link", linkId }), state) } : null,
   });
   const states = new ProjectStates({
     read: async (projectPath) => {

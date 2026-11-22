@@ -14,7 +14,7 @@ function createLinkStore({ dataDir, active = () => true, lazyMessages = {}, pers
     persistenceChanged,
     read: async (id) => {
       try {
-        return await readProjectState(directory(id));
+        return await readProjectState(directory(id), { unloadSubagents: Boolean(lazyMessages) });
       } catch (error) {
         if (error.code !== "ENOENT") throw error;
         return { next_id: 1, sessions: {}, messages: [], preparations: {} };
@@ -22,7 +22,7 @@ function createLinkStore({ dataDir, active = () => true, lazyMessages = {}, pers
     },
     save: (id, state) => saveProjectState(directory(id), state, { durable: true }),
     compact: (id, next, previous) => compactProjectState(directory(id), next, previous),
-    messages: { directory, active, ...lazyMessages },
+    messages: { directory, active, ...(lazyMessages ?? { idleMs: Infinity, sweepMs: 0 }) },
   });
   const checked =
     (read) =>

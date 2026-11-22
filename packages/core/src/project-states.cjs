@@ -1,4 +1,6 @@
 const messageStore = require("./message-store.cjs");
+const { unloadSavedSubagents } = require("./project-store.cjs");
+const { forgetWholeTranscripts } = require("./project-content.cjs");
 
 const IDLE_MS = 10 * 60 * 1000;
 const SWEEP_MS = 60 * 1000;
@@ -174,6 +176,7 @@ class ProjectStates {
 
   async unloadIdle() {
     if (!this.messages || this.closed) return;
+    forgetWholeTranscripts();
     await Promise.all(
       this.projects().map((projectPath) =>
         this.enqueue(projectPath, () => {
@@ -193,8 +196,7 @@ class ProjectStates {
             checked.add(chat);
             if (now - (touched?.get(chat) ?? since) >= this.messages.idleMs && !this.messages.active(projectPath, chat)) idle.add(chat);
           }
-          if (!idle.size) return;
-          const next = messageStore.unloadChats(directory, state, idle);
+          const next = unloadSavedSubagents(directory, idle.size ? messageStore.unloadChats(directory, state, idle) : state);
           if (next === state) return;
           this.states.set(projectPath, next);
           this.messages.unloaded?.(projectPath, next);

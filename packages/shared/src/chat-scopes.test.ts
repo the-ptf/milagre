@@ -53,3 +53,11 @@ test("an invalid computer id throws instead of collapsing onto this Mac's key, a
   assert.equal(s.unqualifyKey("local|/x"), "local|/x");
   assert.equal(s.isLinkScopeKey("milagre-link:local|f1713d69-569d-405b-a0b2-19bfdf565a76"), false);
 });
+
+test("a simulator viewer asks for full quality only on the computer that runs the device", async () => {
+  const { simulatorQualityFor } = await import("./simulator.ts");
+  assert.equal(simulatorQualityFor("/code/app#3"), "full");
+  assert.equal(simulatorQualityFor("milagre-link:f1713d69-569d-405b-a0b2-19bfdf565a76#3"), "full");
+  assert.equal(simulatorQualityFor("studio-mac|/code/app#3"), "reduced", "a paired computer's Project goes over the Link or relay");
+  assert.equal(simulatorQualityFor("milagre-link:studio-mac|f1713d69-569d-405b-a0b2-19bfdf565a76#3"), "reduced");
+});

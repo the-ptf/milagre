@@ -491,6 +491,25 @@ async function browserChecks() {
     );
     console.log("PASS: an @ pick of a computer makes a computer chip and sends @computer:Name");
 
+    // A recalled prompt that starts with a chip and wraps: Down from before the chip moves to the next row.
+    await evaluate(`${editor}.value = ${JSON.stringify(`@src/model.ts ${"wrapped words ".repeat(60).trim()}`)}`);
+    await waitFor(`!!${editor}.querySelector('[data-chip="file"]')`, "the wrapped draft's chip");
+    const sentWrapped = await sendNow();
+    await keydown("ArrowUp");
+    await draftIs(sentWrapped.body);
+    await waitFor(`!!${editor}.querySelector('[data-chip="file"]') && ${editor}.getBoundingClientRect().height > 60`, "the recalled wrapped prompt");
+    await evaluate(
+      `(() => { const field = ${editor}; const host = field.querySelector('[data-chip="file"]').closest('[data-text]'); getSelection().collapse(field, [...field.childNodes].indexOf(host)); })()`,
+    );
+    await delay(60);
+    await keydown("ArrowDown");
+    await delay(150);
+    assert.equal(await draft(), sentWrapped.body, "Down before a chip on the top row stays in the prompt");
+    await caretTo("end");
+    await keydown("ArrowDown");
+    await draftIs("");
+    console.log("PASS: Down from before a chip in a wrapped recalled prompt moves the caret, and recalls only from the bottom row");
+
     assert.deepEqual(errors, []);
     app.exit(0);
   } catch (error) {
