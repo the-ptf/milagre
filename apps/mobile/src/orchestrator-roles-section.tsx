@@ -40,7 +40,7 @@ function RoleRow({ role, models, onChange }: { role: OrchestratorRole; models: A
               title: model.name,
               checked: role.provider === provider && role.model === model.id,
             })),
-          })),
+          })).filter((section) => section.items.length > 0),
         ]}
         onSelect={(id) => {
           if (id === "none") return onChange({ ...role, provider: null, model: null, effort: null });

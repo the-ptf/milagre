@@ -7,3 +7,6 @@ export function accountType(plan?: string | null): "Business" | "Team" | "Person
 export function currentProvider<T>(provider: T): T | "pi";
 export function withCurrentProviders<T>(record: T): T;
 export function currentModelId<T>(model: T): T;
+export function installableProviders(status: AgentCliStatus | null | undefined): ModelProvider[];
+export const INSTALL_OFFERS: Readonly<Partial<Record<ModelProvider, { title: string; detail: string; command: string; after: string }>>>;
+export function startingProvider(saved: ModelProvider, status: AgentCliStatus | null | undefined): ModelProvider;

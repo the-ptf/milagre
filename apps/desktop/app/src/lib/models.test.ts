@@ -123,6 +123,8 @@ test("Pi's models keep their provider heading and local mark, and a Pi Chat keep
   const gone = resolveModel(merged, "ollama:llama3", "pi");
   assert.equal(gone.id, "pi:ollama/llama3");
   assert.equal(gone.local, true);
+  const withoutPi = mergeModels({ codex: null, claude: null, antigravity: null, kiro: null, pi: null }, catalog);
+  assert.notEqual(resolveModel(withoutPi, "pi:ollama/qwen3:8b", "pi").provider, "pi", "a computer without Pi starts on another provider");
   assert.equal(providerForId("ollama:qwen3:8b"), "pi");
   assert.equal(providerForId("pi:openrouter/z-ai/glm-4.6"), "pi");
 });

@@ -848,7 +848,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   return (
     <SessionContext.Provider value={session}>
       <PendingChatsProvider snapshot={session.snapshot} hostId={session.client?.url}>
-        <ComposerProvider>{children}</ComposerProvider>
+        <ComposerProvider cliStatus={session.cliStatus}>{children}</ComposerProvider>
       </PendingChatsProvider>
     </SessionContext.Provider>
   );

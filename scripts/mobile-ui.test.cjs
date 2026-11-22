@@ -589,6 +589,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "orchestrator-church-row" && !(id in modules)) return { OrchestratorChurchRow: () => null };
       if (id === "@milagre/shared/orchestrator" && !(id in modules)) return require("@milagre/shared/orchestrator");
       if (id === "@milagre/shared/provider-capabilities" && !(id in modules)) return require("@milagre/shared/provider-capabilities");
+      if (id === "@milagre/shared/providers" && !(id in modules)) return require("@milagre/shared/providers");
       // The local-model speed line under the composer renders nothing without a Pi turn.
       if (base === "pi-stats" && !(id in modules)) return { PiStats: () => null };
       if (base === "orchestrator-answer-line" && !(id in modules)) return { OrchestratorAnswerLine: () => null };

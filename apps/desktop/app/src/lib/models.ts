@@ -38,7 +38,7 @@ export function resolveModel(models: ModelOption[], wanted: string | undefined, 
   const id = currentModelId(wanted);
   return (
     models.find((model) => model.id === id) ??
-    (provider === "pi" && id ? unlistedPiModel(id) : undefined) ??
+    (provider === "pi" && id && models.some((model) => model.provider === "pi") ? unlistedPiModel(id) : undefined) ??
     models.find((model) => model.provider === provider && model.recommended) ??
     models.find((model) => model.provider === provider) ??
     models[0] ??
