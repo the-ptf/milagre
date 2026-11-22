@@ -1,3 +1,4 @@
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { ModelProvider, ProjectAccountScope, ProjectAccountsSnapshot } from "@milagre/shared/model";
@@ -172,7 +173,7 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
                 ? "The assigned account is unavailable. Choose another saved account."
                 : `${effective!.email || effective!.label} · ${statusLabel(effective!.state)}`}
             </p>
-            {needsSignIn && (effective!.id !== "default" || group.provider !== "kiro") && (
+            {needsSignIn && (effective!.id !== "default" || providerCapabilities(group.provider).addAccounts) && (
               <Button
                 variant="link"
                 size={24}

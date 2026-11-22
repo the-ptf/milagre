@@ -17,6 +17,7 @@ import { PromptField } from "./prompt-field";
 import { useSendStayShortcut } from "./send-stay-shortcut";
 import { AgentControls } from "./agent-controls";
 import { ContextRing } from "./context-ring";
+import { LocalModelStats } from "./local-model-stats";
 import { Icon } from "./icons";
 import { DISABLED_OPACITY, IconButton, PageScroll, PullDown, useStyles } from "./ui";
 import { useTheme } from "./theme";
@@ -196,7 +197,9 @@ type ComposerControlsProps = {
 
 function ComposerControls(props: ComposerControlsProps) {
   const { colors } = useTheme();
-  const { attachDisabled, compactButton, contextUsage, quietContext, compactionFeedback } = props;
+  const { attachDisabled, compactButton, quietContext, compactionFeedback } = props;
+  const local = props.model.provider === "ollama";
+  const contextUsage = props.contextUsage ?? (local && props.model.contextWindow ? { used: 0, size: props.model.contextWindow } : undefined);
   return (
     <>
       <PullDown
@@ -237,7 +240,7 @@ function ComposerControls(props: ComposerControlsProps) {
         </Text>
       ) : (
         !quietContext &&
-        (compactButton || (props.showContextSize && contextUsage && contextUsage.size > 0)) && (
+        (compactButton || ((props.showContextSize || local) && contextUsage && contextUsage.size > 0)) && (
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             {props.compactWarning && (
               <View
@@ -260,7 +263,7 @@ function ComposerControls(props: ComposerControlsProps) {
                 {...contextUsage}
                 canCompact={props.canCompact}
                 threshold={props.threshold}
-                showSize={props.showContextSize}
+                showSize={props.showContextSize || local}
                 onPress={props.onContext}
               />
             )}
@@ -522,6 +525,7 @@ export function ChatComposerDock({ onRoom, onHeight, column, padding, ...props }
           </ComposerTray>
         )
       )}
+      {asking && props.controls.model.provider === "ollama" && <LocalModelStats metrics={props.controls.contextUsage?.metrics} />}
     </View>
   );
 }

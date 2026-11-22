@@ -4,6 +4,7 @@ const { CodexRpc } = require("./agents/codex-rpc.cjs");
 const { advisorCodexConfig } = require("./agents/advisor-policy.cjs");
 const { antigravityModel: acpModel } = require("./agents/antigravity-text.cjs");
 const { kiroAcp } = require("./agents/kiro-acp.cjs");
+const { piTextModel } = require("./agents/pi-text.cjs");
 const { KIRO_TEXT_MODEL, kiroModelId } = require("@milagre/shared/kiro-models");
 const { agentEnvironment } = require("./agents/command.cjs");
 
@@ -175,7 +176,8 @@ async function withTimeout(task, timeoutMs) {
 
 async function generateGitText(input, { provider = "claude", models = {}, timeoutMs = TIMEOUT_MS } = {}) {
   const prompt = buildGitTextPrompt(input);
-  const order = [provider, ...PROVIDERS.filter((name) => name !== provider)];
+  // A local model's Chat keeps its text local: no other provider is asked when Ollama fails.
+  const order = provider === "ollama" ? ["ollama"] : [provider, ...PROVIDERS.filter((name) => name !== provider && name !== "ollama")];
   const ask = (call, text) => withTimeout((signal) => call({ system: SYSTEM, prompt: text, signal }), timeoutMs);
   for (const name of order) {
     const call = models[name];
@@ -249,6 +251,9 @@ const OUTPUT_SCHEMA = {
 const antigravityModel = (options) => acpModel({ outputSchema: OUTPUT_SCHEMA, ...options });
 
 /** One Claude Haiku 4.5 turn on Kiro (kiro-cli over ACP), the same way: a throwaway session, every permission turned down. */
+/** One answer from the most recently used local Ollama model, through Pi. */
+const ollamaModel = (options) => piTextModel({ outputSchema: OUTPUT_SCHEMA, ...options });
+
 const kiroModel = (options) => acpModel({ outputSchema: OUTPUT_SCHEMA, config: kiroAcp, model: kiroModelId(KIRO_TEXT_MODEL), effort: undefined, ...options });
 
 function codexModel({
@@ -331,6 +336,7 @@ module.exports = {
   codexModel,
   antigravityModel,
   kiroModel,
+  ollamaModel,
   generateGitText,
   parseGitText,
   repeatsSubject,

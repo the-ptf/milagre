@@ -7,6 +7,7 @@ const reported: AgentModels = {
   claude: null,
   antigravity: null,
   kiro: null,
+  ollama: null,
   codex: [
     {
       id: "reported-model",
@@ -175,4 +176,10 @@ test("a pick made here shows until the Mac's copy moves on", () => {
   assert.equal(chatPreferences(picked, defaultPreferences, "ask").permissionMode, "full", "not saved on the Mac yet");
   assert.equal(chatPreferences(picked, defaultPreferences, "full").permissionMode, "full", "saved");
   assert.equal(chatPreferences(picked, defaultPreferences, "auto").permissionMode, "auto", "changed on desktop since");
+});
+
+test("a local model that was removed falls back to the first one Ollama still has", () => {
+  const local = { id: "ollama:qwen3:8b", name: "qwen3:8b", description: "", recommended: true, efforts: [], ultracode: false, fastMode: false };
+  const models: AgentModels = { ...reported, ollama: [local] };
+  assert.equal(selectedModel("ollama", "ollama:llama3:gone", models).id, "ollama:qwen3:8b");
 });

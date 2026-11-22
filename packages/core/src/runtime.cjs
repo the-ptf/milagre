@@ -18,11 +18,8 @@ const { migrateImages } = require("./project-content.cjs");
 const { ensureProjectIgnore } = require("./project-ignore.cjs");
 const { decodeImages } = require("./image-input.cjs");
 const { KeepAwake } = require("./keep-awake.cjs");
-const { ClaudeSession } = require("./agents/claude-provider.cjs");
-const { CodexSession, recoverCodexSubagents } = require("./agents/codex-provider.cjs");
-const { AcpSession } = require("./agents/acp-session.cjs");
-const { antigravityAcp } = require("./agents/antigravity-acp.cjs");
-const { kiroAcp } = require("./agents/kiro-acp.cjs");
+const { recoverCodexSubagents } = require("./agents/codex-provider.cjs");
+const { createProviderSession } = require("./runtime/provider-sessions.cjs");
 const { recoverAntigravitySubagents } = require("./agents/antigravity-subagents.cjs");
 const { loadLoginEnvironment } = require("./agents/environment.cjs");
 const { failedWith, hostNetworkInstructions, loginMessage } = require("./agents/events.cjs");
@@ -480,13 +477,7 @@ function createRuntime(options) {
       options.createSession ??
       ((provider, options) => {
         const withMcp = { ...options, mcpExtras: () => mcp.forSession(provider, options.accountId ?? "default") };
-        return provider === "codex"
-          ? new CodexSession({ ...withMcp, clientVersion: version })
-          : provider === "antigravity"
-            ? new AcpSession({ ...withMcp, clientVersion: version, config: antigravityAcp })
-            : provider === "kiro"
-              ? new AcpSession({ ...withMcp, clientVersion: version, config: kiroAcp })
-              : new ClaudeSession({ ...withMcp, defaultConfigDir: accounts.directory("claude", "default") });
+        return createProviderSession(provider, withMcp, { version, claudeConfigDir: () => accounts.directory("claude", "default") });
       }),
     linkedFor: (chatId) => linked.forChat(chatId),
     onTurnStarted: () => ports.wake(),

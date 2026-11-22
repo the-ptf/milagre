@@ -1,3 +1,4 @@
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Briefcase01Icon, UserIcon, UserMultipleIcon, CheckmarkCircle02Icon, CircleIcon, MoreVerticalIcon, RefreshIcon } from "@hugeicons/core-free-icons";
@@ -184,7 +185,7 @@ export function AccountsForComputer() {
                     </Pressable>
                     {(account.id !== "default" ||
                       group.provider === "antigravity" ||
-                      (group.provider !== "kiro" && (account.state === "signed-out" || account.state === "signing-in"))) && (
+                      (providerCapabilities(group.provider).addAccounts && (account.state === "signed-out" || account.state === "signing-in"))) && (
                       <PullDown
                         label={`Actions for ${name}`}
                         title={name}

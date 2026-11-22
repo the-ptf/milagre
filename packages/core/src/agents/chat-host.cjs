@@ -78,7 +78,7 @@ function revertSwitch(session, from, to) {
 
 function compactionProvider(session) {
   const provider = session.provider ?? "claude";
-  if (!providerCapabilities(provider).compact) throw new Error("Only Claude chats can be compacted from here.");
+  if (!providerCapabilities(provider).compact) throw new Error("This Chat's agent can't be compacted from here.");
   return provider;
 }
 

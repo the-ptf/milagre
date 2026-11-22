@@ -4,7 +4,7 @@ export type TaskOutcome = "pull-request" | "merged" | "reply";
 export type BoardPullRequest = "open" | "merged" | "closed" | null;
 export type BoardColumn = "running" | "needs" | "review" | "done";
 export type MemoryGroup = "work" | "projects" | "tools" | "other";
-export type OrchestratorProvider = "claude" | "codex" | "antigravity" | "kiro";
+export type OrchestratorProvider = "claude" | "codex" | "antigravity" | "kiro" | "ollama";
 
 export interface OrchestratorRole {
   id: string;

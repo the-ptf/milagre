@@ -10,6 +10,8 @@ const { inheritMcp } = require("./account-mcp.cjs");
 const { AMBIENT_ENV } = require("./agents/antigravity-install.cjs");
 const { SUBSCRIPTION_MESSAGE, inspectAntigravityAccount, prepareAntigravityProfile, signInAntigravity } = require("./antigravity-account.cjs");
 const { inspectKiroAccount } = require("./kiro-account.cjs");
+const { ollamaRunning } = require("./agents/ollama.cjs");
+const { OLLAMA_DOWN_MESSAGE } = require("./agents/events.cjs");
 const { PROVIDERS } = require("@milagre/shared/providers");
 
 const { scopeKey, scopeFromKey } = require("@milagre/shared/chat-scopes");
@@ -20,8 +22,10 @@ const validScope = (key) => {
 
 // Antigravity has no terminal login to inherit (Milagre installs it itself, and its ACP server keeps its
 const ANTIGRAVITY_DEFAULT = "antigravity-default";
+const OLLAMA_PROFILE = "ollama-pi";
 // Kiro has one Account, the one kiro-cli is signed in to. Signing in to Identity Center takes the organization's start
 // URL and region, so it happens in a terminal; Milagre neither adds Kiro Accounts nor signs them in.
+const OLLAMA_ACCOUNT_MESSAGE = "Ollama runs the models on this computer, so it needs no account.";
 const KIRO_SIGN_IN_MESSAGE = "Kiro uses the account kiro-cli is signed in to. Run `kiro-cli login` in a terminal to sign in or switch, then refresh.";
 const text = (value) => (typeof value === "string" ? value.slice(0, 200) : undefined);
 const BROWSER_SIGN_IN_MESSAGE = "Finish signing in in the browser on your computer.";
@@ -33,8 +37,20 @@ const signingIn = (entry) =>
   entry.url ? { state: "signing-in", message: CODE_SIGN_IN_MESSAGE, signInUrl: entry.url } : { state: "signing-in", message: BROWSER_SIGN_IN_MESSAGE };
 const validCode = (value) => typeof value === "string" && /^[\x21-\x7e]{1,2000}$/.test(value.trim());
 
+const SIGN_IN_ELSEWHERE = { kiro: KIRO_SIGN_IN_MESSAGE, ollama: OLLAMA_ACCOUNT_MESSAGE };
+const DEFAULT_LABELS = { antigravity: "Default account", ollama: "This computer" };
+
+// Pi runs Ollama's models from a profile Milagre owns, never ~/.pi, offline and without install telemetry.
+function ollamaEnvironment(env, dir) {
+  preparePrivateDirectory(path.dirname(dir));
+  preparePrivateDirectory(dir);
+  return { ...env, PI_CODING_AGENT_DIR: dir, PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+}
+
 async function inspectAccount(provider, { command, env }) {
   if (provider === "antigravity") return inspectAntigravityAccount({ env });
+  if (provider === "ollama")
+    return (await ollamaRunning({ env })) ? { state: "ready", email: "", plan: "Local" } : { state: "error", message: OLLAMA_DOWN_MESSAGE };
   if (provider === "kiro") {
     const identity = await inspectKiroAccount({ command, env });
     return { state: identity.state, email: text(identity.email), plan: text(identity.plan), message: identity.message };
@@ -165,7 +181,7 @@ function createAccounts({
   }
   function account(provider, id) {
     providerCheck(provider);
-    if (id === "default") return { id, provider, label: provider === "antigravity" ? "Default account" : "Connected CLI account" };
+    if (id === "default") return { id, provider, label: DEFAULT_LABELS[provider] ?? "Connected CLI account" };
     const found = saved.accounts.find((a) => a.provider === provider && a.id === id);
     if (!found) throw new Error("Account not found. Refresh and try again.");
     return found;
@@ -197,7 +213,7 @@ function createAccounts({
       next.AGY_ACP_FORCE_FILE_STORAGE = "1";
       return next;
     }
-    if (id === "default") return { ...env };
+    if (id === "default") return provider === "ollama" ? ollamaEnvironment(env, path.join(root, OLLAMA_PROFILE)) : { ...env };
     const next = { ...env };
     const names =
       provider === "codex"
@@ -340,7 +356,7 @@ function createAccounts({
   }
   async function add(provider, label) {
     providerCheck(provider);
-    if (provider === "kiro") throw new Error(KIRO_SIGN_IN_MESSAGE);
+    if (SIGN_IN_ELSEWHERE[provider]) throw new Error(SIGN_IN_ELSEWHERE[provider]);
     if (typeof label !== "string" || !label.trim() || label.length > 80) throw new Error("Enter an account name of 1 to 80 characters.");
     if (logins.size) throw new Error("Finish or cancel the current sign-in first.");
     if (saved.accounts.length >= 20) throw new Error("You can save up to 20 accounts.");
@@ -411,7 +427,7 @@ function createAccounts({
   }
   async function login(provider, id) {
     account(provider, id);
-    if (provider === "kiro") throw new Error(KIRO_SIGN_IN_MESSAGE);
+    if (SIGN_IN_ELSEWHERE[provider]) throw new Error(SIGN_IN_ELSEWHERE[provider]);
     if (closed) throw new Error("Account manager is closing.");
     if (logins.size) throw new Error("Finish or cancel the current sign-in first.");
     // Antigravity's default profile belongs to Milagre, so it signs in here. Other defaults belong to the terminal:

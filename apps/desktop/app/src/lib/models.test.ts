@@ -63,8 +63,15 @@ test("capabilities come from the reported models", () => {
     claude: { "claude-opus-5-5": { efforts: ["low", "xhigh"], ultracode: true, fastMode: true } },
     antigravity: {},
     kiro: {},
+    ollama: {},
   });
-  assert.deepEqual(capabilitiesFrom({ codex: null, claude: null, antigravity: null, kiro: null }), { codex: {}, claude: {}, antigravity: {}, kiro: {} });
+  assert.deepEqual(capabilitiesFrom({ codex: null, claude: null, antigravity: null, kiro: null, ollama: null }), {
+    codex: {},
+    claude: {},
+    antigravity: {},
+    kiro: {},
+    ollama: {},
+  });
   assert.equal(capabilitiesFrom(null), null);
 });
 

@@ -143,6 +143,7 @@ function demoRuntimeOptions({ cwd, worktreeRoot, copy } = {}) {
       claude: { state: "missing", message: DEMO_ONLY },
       antigravity: { state: "missing", message: DEMO_ONLY },
       kiro: { state: "missing", message: DEMO_ONLY },
+      ollama: { state: "missing", message: DEMO_ONLY },
     }),
     { invalidate() {} },
   );
@@ -153,7 +154,7 @@ function demoRuntimeOptions({ cwd, worktreeRoot, copy } = {}) {
     titleModels: {},
     createSession: copy ? createDemoSession(copy) : demoSession,
     agentCli: Object.assign(async () => ({ command: "/nonexistent/milagre-demo-agent" }), { invalidate() {} }),
-    agentModels: async () => ({ codex: [{ ...DEMO_MODEL }], claude: null, antigravity: null, kiro: null }),
+    agentModels: async () => ({ codex: [{ ...DEMO_MODEL }], claude: null, antigravity: null, kiro: null, ollama: null }),
     agentCliStatus,
     readUsage: async () => ({ providers: [] }),
     expandSkills: false,

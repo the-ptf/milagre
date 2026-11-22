@@ -954,8 +954,8 @@ test("Compact now is refused on unsupported and archived chats", async (t) => {
   const sessionId = await chatWithReply(host, session, saved);
   const { compactionMessage } = require("@milagre/shared/compaction");
   for (const [patch, error] of [
-    [{ provider: "codex" }, /Only Claude chats/],
-    [{ provider: "antigravity" }, /Only Claude chats/],
+    [{ provider: "codex" }, /can.t be compacted from here/],
+    [{ provider: "antigravity" }, /can.t be compacted from here/],
     [{ provider: "claude", archived: true }, /Unarchive/],
   ]) {
     await states.update(ALPHA, (state) => ({ ...state, sessions: { ...state.sessions, [sessionId]: { ...state.sessions[sessionId], ...patch } } }));

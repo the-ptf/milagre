@@ -42,7 +42,7 @@ export function selectedModel(provider: ModelProvider, wanted: string, reported?
   const known = models.find((model) => model.id === wanted);
   if (known) return known;
   const available = models.find((model) => model.recommended) ?? models[0];
-  if ((provider === "antigravity" || provider === "kiro") && available) return available;
+  if ((provider === "antigravity" || provider === "kiro" || provider === "ollama") && available) return available;
   const saved = { provider, id: wanted, name: wanted, description: "Previously used in this Chat" };
   return { ...saved, ...capabilityFor(saved, null) };
 }

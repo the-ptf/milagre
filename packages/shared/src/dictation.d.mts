@@ -40,5 +40,5 @@ export function dictationShortcutMode(value: unknown): DictationShortcutMode;
 export type DictationFixModel = "auto" | "claude" | "codex" | "antigravity" | "kiro";
 export const DICTATION_FIX_MODELS: readonly { value: DictationFixModel; label: string; name: string; description: string }[];
 export function dictationFixModel(value: unknown): DictationFixModel;
-export function fixUpProvider(model: unknown, chatProvider?: string): Exclude<DictationFixModel, "auto">;
+export function fixUpProvider(model: unknown, chatProvider?: string): Exclude<DictationFixModel, "auto"> | "ollama";
 export function fixUpModelName(model: unknown, chatProvider?: string): string;
