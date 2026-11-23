@@ -18,7 +18,14 @@ import { askForMicrophone, newVoiceTake, type VoiceTake } from "./voice-recorder
 import { createMicrophone } from "./voice-take";
 import { getTranscriber } from "./voice-transcription";
 import { cancelWhisperModel, downloadWhisperModel, useWhisperModels } from "./voice-transcription-whisper";
-import { useDictationSymbols, useDictationFixModel, useDictationFixUp, useDictationLanguage, useDictationModel } from "./chat-display-setting";
+import {
+  useDictationEnabled,
+  useDictationSymbols,
+  useDictationFixModel,
+  useDictationFixUp,
+  useDictationLanguage,
+  useDictationModel,
+} from "./chat-display-setting";
 import type { Client } from "./client";
 
 /** Where the transcript goes: the draft and caret as they were when the mic was tapped. */
@@ -43,7 +50,9 @@ const microphone = createMicrophone();
  * yet downloads it first (`downloading`) and records once it lands; `download` is how far that download is, 0..1, or null.
  */
 export function useVoiceDictation(onTranscript: (text: string, anchor: DictationAnchor, correction: DictationCorrection | null) => void, chat?: DictationChat) {
-  const [transcriber] = useState(getTranscriber);
+  const [enabled] = useDictationEnabled();
+  const [engine] = useState(getTranscriber);
+  const transcriber = enabled ? engine : null;
   const [owner] = useState(Symbol);
   const [state, setState] = useState<Dictation>(IDLE);
   const [downloading, setDownloading] = useState<string | null>(null);
@@ -120,6 +129,10 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
     move({ type: "done" });
     return gone;
   }, [abandon, move, release]);
+
+  useEffect(() => {
+    if (!enabled) void cancel();
+  }, [enabled, cancel]);
 
   const fail = useCallback(
     (error: (typeof ERRORS)[keyof typeof ERRORS]) => {

@@ -14,6 +14,7 @@ import { PromptText } from '/src/components/PromptText';
 import { MODEL_CATALOG, capabilityFor } from '/src/model';
 import '/src/styles.css';
 import { updateSettings } from '/src/lib/settings';
+import { defaultKeybindings } from '@milagre/shared/keybindings';
 window.updateSettings = updateSettings;
 const noop = () => {};
 window.sent = [];
@@ -27,6 +28,7 @@ window.milagre = { readContextSettings: async () => window.contextSettings, onCo
   ...['milagre','milagre-advisor','milagre-committee','milagre-help'].map(name => ({ name, description: 'Milagre orchestration and help', scope: 'bundled', provider: 'milagre', path: '/skills/' + name + '/SKILL.md' })),
   { name: 'plugin:review-code', description: 'Review code', scope: 'user', provider: 'codex', path: '/skills/review/SKILL.md' },
 ], warnings: [] }) };
+window.milagre.readKeybindings = async () => ({ path: '', issues: [], rules: [...defaultKeybindings(), { key: 'd', command: 'dictation.toggle' }] });
 function Fixture() {
   const [draft, setDraft] = useState('');
   const [root, setRoot] = useState('/fixture');
@@ -337,6 +339,16 @@ async function browserChecks() {
     await delay(100);
     const keyDown = "window.dispatchEvent(new KeyboardEvent('keydown',{key:' ',code:'Space',altKey:true,bubbles:true,cancelable:true}))";
     const keyUp = "window.dispatchEvent(new KeyboardEvent('keyup',{key:' ',code:'Space',altKey:true,bubbles:true,cancelable:true}))";
+    await evaluate("window.updateSettings({dictationEnabled:false})");
+    await waitFor("!document.querySelector('[aria-label=Dictate]')");
+    await evaluate(keyDown);
+    await evaluate(keyUp);
+    assert.equal(await evaluate("window.micStarts || 0"), 0, "disabling the microphone also disables the shortcut");
+    await evaluate("window.updateSettings({dictationEnabled:true})");
+    await waitFor("!!document.querySelector('[aria-label=Dictate]')");
+    await evaluate(`${editor}.focus()`);
+    await evaluate(`${editor}.dispatchEvent(new KeyboardEvent('keydown',{key:'d',code:'KeyD',bubbles:true,cancelable:true}))`);
+    assert.equal(await evaluate("window.micStarts || 0"), 0, "a plain dictation binding still types in the composer");
     await evaluate(keyDown);
     await waitFor("window.micStarts === 1");
     await evaluate(keyUp);

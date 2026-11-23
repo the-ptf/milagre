@@ -74,6 +74,12 @@ export const useDictationModel = phoneSetting<string>(whisperModelFor("phone", u
 
 export const useDictationAction = phoneSetting<DictationActionPreference>("paste", readDictationAction, saveDictationAction);
 
+export const useDictationEnabled = phoneSetting(
+  true,
+  async () => (await SecureStore.getItemAsync("milagre.dictation-enabled.v1").catch(() => null)) !== "off",
+  (value) => SecureStore.setItemAsync("milagre.dictation-enabled.v1", value ? "on" : "off").catch(() => {}),
+);
+
 export const useDictationSymbols = phoneSetting(
   false,
   async () => (await SecureStore.getItemAsync("milagre.dictation-symbols.v1").catch(() => null)) === "on",

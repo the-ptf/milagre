@@ -1,3 +1,4 @@
+import { useSettings } from "../../lib/settings";
 import { Cancel01Icon, Mic01Icon } from "@hugeicons/core-free-icons";
 import { DictationNotice } from "../DictationNotice";
 import { DownloadRing, DroppingArrow } from "../DownloadRing";
@@ -7,6 +8,7 @@ import type { useDictationTake } from "./use-dictation-take";
 import { DictationVocabulary } from "./DictationVocabulary";
 
 export function ComposerMicrophone({ take, cwd }: { take: ReturnType<typeof useDictationTake>; cwd: string }) {
+  if (!useSettings().dictationEnabled) return null;
   const { dictationError, dictation, dictateShortcutLabel, discardDictation, dictating, fixing, startDictation, openVocabulary } = take;
   return (
     <>

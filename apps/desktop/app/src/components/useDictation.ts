@@ -55,7 +55,7 @@ export function useDictation(
   const bridge = useBridge();
   const chatRef = useRef(chat);
   chatRef.current = chat;
-  const { dictationSymbols: symbols, dictationLanguage, dictationModel, dictationFixUp, dictationFixModel } = useSettings();
+  const { dictationEnabled, dictationSymbols: symbols, dictationLanguage, dictationModel, dictationFixUp, dictationFixModel } = useSettings();
   const model = whisperModelFor("desktop", dictationModel);
   const models = useDictationModels();
   const [state, setState] = useState<Dictation>(IDLE);
@@ -95,6 +95,10 @@ export function useDictation(
     move({ type: "done" });
   }, [abandon, model.id, move]);
 
+  useEffect(() => {
+    if (!dictationEnabled && phase.current.phase !== "idle") cancel();
+  }, [dictationEnabled, cancel]);
+
   const fail = useCallback(
     (error: DictationError) => {
       abandon();
@@ -132,8 +136,8 @@ export function useDictation(
   }, [fail, move]);
 
   const start = useCallback(
-    async (anchor: DictationAnchor) => {
-      if (phase.current.phase !== "idle") return;
+    async (anchor: DictationAnchor, releasedBeforeDownloadFinished?: () => boolean) => {
+      if (!dictationEnabled || phase.current.phase !== "idle") return;
       move({ type: "start" });
       setPartial(NO_PARTIAL);
       const id = (counter.current += 1);
@@ -153,6 +157,7 @@ export function useDictation(
             return;
           }
           if (!live()) return;
+          if (releasedBeforeDownloadFinished?.()) return move({ type: "done" });
           move({ type: "downloaded" });
         }
         stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
@@ -258,7 +263,7 @@ export function useDictation(
         if (live()) fail(error instanceof DOMException && error.name === "NotAllowedError" ? ERRORS.permission : ERRORS.failed);
       }
     },
-    [bridge, cwd, dictationFixModel, dictationFixUp, dictationLanguage, fail, model, move, stop, symbols],
+    [bridge, cwd, dictationEnabled, dictationFixModel, dictationFixUp, dictationLanguage, fail, model, move, stop, symbols],
   );
 
   useEffect(
@@ -273,16 +278,7 @@ export function useDictation(
     setPartial(NO_PARTIAL);
   }, [cwd, scope]);
 
-  useEffect(() => {
-    if (state.phase !== "preparing" && state.phase !== "downloading") return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      cancel();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [state.phase, cancel]);
+  useEscapeToCancel(state.phase, cancel);
 
   const downloading = models[model.id]?.received;
   return {
@@ -315,4 +311,17 @@ function showMeter(analyser: AnalyserNode, meter: { current: HTMLElement | null 
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
+}
+
+function useEscapeToCancel(phase: Dictation["phase"], cancel: () => void) {
+  useEffect(() => {
+    if (phase !== "preparing" && phase !== "downloading") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      cancel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [phase, cancel]);
 }

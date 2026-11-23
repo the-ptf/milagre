@@ -12,6 +12,8 @@ Paste an image with Cmd+V (Ctrl+V on other platforms) to send image content with
 
 Type `@` to find tracked and untracked, non-ignored files in the chat's worktree. Search by filename or path and select with Enter or Tab. Images and videos appear as previews in the composer; other files appear as removable chips. The selected path is sent to the agent without inserting it into your message text. Results are limited and cached for five seconds. Switching chats clears attachment drafts.
 
+In **Settings › Voice**, turn off **Enable dictation** to hide the microphone and disable its shortcut on this device. Turn it back on in the same place.
+
 Dictation uses attached filenames and code names in the draft, selection and quotes as recognition hints. To remember a misheard name, edit the draft, then open **Project dictation vocabulary** in the command palette or right-click the microphone. On the phone, touch and hold the microphone. Review the heard phrase and spelling before saving. The Project's computer stores these corrections for both clients.
 
 **Insert last dictation** uses the same palette or phone menu and always inserts at the caret. Each device keeps its own last completed composer transcript. In **Settings › Voice**, turn on **Spoken symbols** to wrap inline code with paired “backtick” commands or start a line with “insert newline”.

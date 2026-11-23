@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { type DictationShortcutMode } from "@milagre/shared/dictation";
+import { getSettings } from "./settings";
 import { isModalOpen } from "./modal";
 import { shortcutCommand } from "./keybindings";
 
@@ -36,6 +37,7 @@ function pickTarget<T extends { usedAt: number }>(
 }
 
 function current() {
+  if (!getSettings().dictationEnabled) return null;
   const active = document.activeElement;
   return pickTarget([...targets], {
     focused: (entry) => Boolean(active && entry.root()?.contains(active)),

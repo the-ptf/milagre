@@ -155,7 +155,9 @@ export function useDictationTake({
   };
   const dictateShortcutLabel = useShortcutLabel("dictation.toggle");
   const dictating = dictation.phase !== "idle";
+  const finishWhenRecording = useRef(false);
   const startDictation = () => {
+    finishWhenRecording.current = false;
     endCorrection();
     const selection = inputRef.current?.getSelection() ?? {
       start: caret,
@@ -163,14 +165,16 @@ export function useDictationTake({
     };
     take.current = startTake(draftLatest.current, selection);
     setProvisional(null);
-    void dictation.start({
-      selection,
-      draft: draftLatest.current,
-      quotes: quotes.map((quote) => quote.text),
-      attachments: [...imageDraft.files.map((path) => imageDraft.localFiles.get(path)?.name ?? path), ...imageDraft.images.map((image) => image.name ?? "")],
-    });
+    void dictation.start(
+      {
+        selection,
+        draft: draftLatest.current,
+        quotes: quotes.map((quote) => quote.text),
+        attachments: [...imageDraft.files.map((path) => imageDraft.localFiles.get(path)?.name ?? path), ...imageDraft.images.map((image) => image.name ?? "")],
+      },
+      () => finishWhenRecording.current,
+    );
   };
-  const finishWhenRecording = useRef(false);
   const { phase: dictationPhase, stop: stopDictation } = dictation;
   useEffect(() => {
     if (dictationPhase === "idle") finishWhenRecording.current = false;
@@ -209,9 +213,7 @@ export function useDictationTake({
     start: startDictation,
     finish: () => {
       if (dictationPhase === "recording") void stopDictation();
-      else if (dictationPhase === "preparing") finishWhenRecording.current = true;
-      // Let go while the model was still downloading: there is nothing to finish yet.
-      else if (dictationPhase === "downloading") discardDictation();
+      else finishWhenRecording.current = true;
     },
   });
   const discardLatest = useRef(discardDictation);

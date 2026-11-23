@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import { DICTATION_FIX_MODELS, DICTATION_LANGUAGES, whisperModelFor, type DictationFixModel } from "@milagre/shared/dictation";
 import { DICTATION_ACTION_OPTIONS } from "@milagre/shared/voice-dictation";
 import {
+  useDictationEnabled,
   useDictationSymbols,
   useDictationAction,
   useDictationFixModel,
@@ -19,11 +20,16 @@ export function VoiceSection() {
   const [dictation] = useDictationLanguage();
   const speechModel = whisperModelFor("phone", useDictationModel()[0]);
   const [dictationAction, setDictationAction] = useDictationAction();
+  const [enabled, setEnabled] = useDictationEnabled();
   const [symbols, setSymbols] = useDictationSymbols();
   const [fixUp, setFixUp] = useDictationFixUp();
   const [fixModel, setFixModel] = useDictationFixModel();
   return (
     <View style={{ gap: space.md }}>
+      <View style={styles.card}>
+        <Toggle title="Enable dictation" selected={enabled} onPress={() => setEnabled(!enabled)} />
+        <Text style={styles.caption}>Show the microphone and enable dictation on this device.</Text>
+      </View>
       <Text style={styles.section}>When dictation finishes</Text>
       <ChoiceCards
         compact

@@ -18,6 +18,13 @@ export function VoiceSettings({ onOpenKeybindings }: { onOpenKeybindings?: () =>
     <>
       <ChoiceGroup title="Dictation">
         <div className="mb-4 overflow-hidden rounded-card border border-line bg-surface">
+          <Row label="Enable dictation" description="Show the microphone and enable the dictation shortcut on this device.">
+            <SettingCheckbox
+              label="Enable dictation"
+              checked={settings.dictationEnabled}
+              onChange={(dictationEnabled) => updateSettings({ dictationEnabled })}
+            />
+          </Row>
           <Row label="Shortcut" description="Starts dictation in the composer from anywhere in the Chat. Change the keys in Keybindings.">
             <span className="flex items-center gap-2">
               <kbd data-dictation-shortcut className="rounded-control border border-line-strong bg-surface px-2 py-1 font-sans text-13 font-semibold text-ink">
