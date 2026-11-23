@@ -155,11 +155,17 @@ export function gazeToward(from: { left: number; top: number; width: number; hei
   return reach < 1 ? { x: 0, y: 0 } : { x: dx / reach, y: dy / reach };
 }
 
-export function routeReason(task: Pick<OrchestratorTask, "reason" | "computer">, here: string): string {
+function accountReason(why: string | null, account?: string): string | null {
+  if (!account) return why;
+  if (!why) return `Uses ${account}`;
+  return `Uses ${account}: ${why.charAt(0).toLowerCase()}${why.slice(1)}`;
+}
+
+export function routeReason(task: Pick<OrchestratorTask, "reason" | "computer">, here: string, account?: string): string {
   const parts = [
     task.reason.project,
     task.reason.role,
-    task.reason.account,
+    accountReason(task.reason.account, account),
     task.reason.computer ?? (task.computer ? `Runs on ${task.computer}` : `Runs on ${here}`),
   ];
   return `${parts
