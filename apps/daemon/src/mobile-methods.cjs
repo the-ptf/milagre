@@ -67,6 +67,8 @@ const METHODS = new Set([
   "orchestrator:task:project",
   "orchestrator:task:sidebar",
   "orchestrator:task:undo",
+  "orchestrator:task:move",
+  "orchestrator:task:delete",
   "orchestrator:task:reroute",
   "orchestrator:task:dismiss",
   "orchestrator:memory:import",

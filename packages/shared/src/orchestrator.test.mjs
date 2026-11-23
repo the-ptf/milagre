@@ -7,6 +7,7 @@ import {
   foldOrchestratorAnswers,
   isMemoryImporting,
   boardColumn,
+  placedColumn,
   pullRequestState,
   isIrreversible,
   keywordRoute,
@@ -92,6 +93,18 @@ test("a finished reply cannot bypass the required PR, but marking the Chat Done 
   assert.equal(boardColumn({ ...base, outcome: "merged", pullRequest: "closed", done: true }), "done");
   assert.equal(boardColumn({ ...base, outcome: "merged", pullRequest: "closed" }), "needs");
   assert.equal(boardColumn({ done: false, needsYou: false, finished: true }), "done", "no recorded outcome finishes with its agent");
+});
+
+test("a column the owner moved a task to wins over its derived one and keeps it on the board", () => {
+  const moved = (column) => ({ summary: { lastOutcome: "completed", lastAt: 1 }, orchestrator: { column } });
+  assert.equal(placedColumn(moved("review")), "review");
+  assert.equal(placedColumn(moved("done")), null, "Done is the Chat's Done mark");
+  assert.equal(placedColumn(moved("sideways")), null);
+  assert.equal(placedColumn({ ...moved("needs"), archived: true }), null);
+  assert.equal(boardColumn({ done: false, needsYou: true, active: true, placed: "review" }), "review");
+  assert.equal(boardColumn({ done: false, needsYou: false, finished: true, placed: null }), "done");
+  assert.equal(taskSwept(moved("needs"), { retentionHours: 1, now: 1e10 }), false);
+  assert.equal(taskSwept(moved(null), { retentionHours: 1, now: 1e10 }), true);
 });
 
 test("outcomes persist; unknown settings require a PR and tasks saved without one finish with their agent", () => {

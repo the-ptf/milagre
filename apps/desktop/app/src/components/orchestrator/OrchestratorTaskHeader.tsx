@@ -1,11 +1,11 @@
 import { useRef, useState } from "react";
-import { ArrowDown01Icon, ArrowUp01Icon, Cancel01Icon, PanelLeftOpenIcon, ShuffleIcon, Undo02Icon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, ArrowUp01Icon, Cancel01Icon, Delete02Icon, PanelLeftOpenIcon, ShuffleIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { activeRoles, roleById, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { routeReason, taskChatKey, taskScope, taskSession } from "../../lib/orchestrator-board";
 import { useScopeStates } from "../../lib/sidebar-scopes";
 import { useOrchestratorNames } from "../../lib/orchestrator-names";
-import { followTask, rerouteTask, showTaskInSidebar, useOrchestrator } from "../../lib/orchestrator-store";
+import { deleteTask, followTask, rerouteTask, showTaskInSidebar, useOrchestrator } from "../../lib/orchestrator-store";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { MenuLabel, MenuRow, MenuSeparator, Popover } from "../primitives/Popover";
@@ -110,6 +110,15 @@ export function OrchestratorTaskHeader({
             Stop
           </Button>
         )}
+        <IconButton
+          label="Delete task"
+          icon={Delete02Icon}
+          side="bottom"
+          onClick={() => {
+            onClose();
+            void deleteTask(task.id);
+          }}
+        />
         <span aria-hidden className="mx-1 h-4 w-px bg-line-strong" />
         <IconButton label="Close" shortcut="Esc" icon={Cancel01Icon} side="bottom" onClick={onClose} />
       </div>

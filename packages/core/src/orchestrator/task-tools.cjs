@@ -1,8 +1,8 @@
 const { z } = require("zod");
 const { TASK_BLOCKED_MAX, TASK_BLOCKED_TOOL, taskBlockedReason } = require("@milagre/shared/orchestrator");
 
-/** The milagre tools only an Orchestrator task Chat's agent gets, and the block they leave until its next turn starts. */
-function createTaskTools({ taskOf, setBlocked, now = Date.now }) {
+/** The milagre tools only an Orchestrator task Chat's agent gets; the block they leave and a column the owner moved it to last until its next turn starts. */
+function createTaskTools({ taskOf, mark, now = Date.now }) {
   return {
     definitions(chatId) {
       if (!taskOf(chatId)) return [];
@@ -22,15 +22,18 @@ function createTaskTools({ taskOf, setBlocked, now = Date.now }) {
           run: async ({ reason }) => {
             const line = taskBlockedReason(reason);
             if (!line) throw new Error("Say what the owner must do.");
-            await setBlocked(chatId, { reason: line, at: now() });
+            await mark(chatId, { blocked: { reason: line, at: now() } });
             return "The task waits in Needs you with this reason. End your turn now and tell the owner the same in your reply.";
           },
         },
       ];
     },
     observe(chatId, event) {
-      if (event.type !== "turn-started" || !taskOf(chatId)?.blocked) return;
-      void Promise.resolve(setBlocked(chatId, null)).catch((error) => console.warn("[orchestrator] couldn't clear a task's block:", error.message));
+      const task = event.type === "turn-started" ? taskOf(chatId) : null;
+      if (!task?.blocked && !task?.column) return;
+      void Promise.resolve(mark(chatId, { blocked: undefined, column: undefined })).catch((error) =>
+        console.warn("[orchestrator] couldn't clear a task's block or column:", error.message),
+      );
     },
   };
 }

@@ -20,7 +20,7 @@ function setup(t, { reply = null, enabled = true, remote = undefined } = {}) {
   const events = [];
   const store = createOrchestratorStore({ file: path.join(dir, "orchestrator.json"), emit: (channel) => events.push(channel) });
   store.update((current) => ({ ...current, settings: normalizeOrchestratorSettings({ ...current.settings, enabled }) }));
-  const calls = { sent: [], emptyChats: [], hidden: [], archived: [], stopped: [] };
+  const calls = { sent: [], emptyChats: [], hidden: [], archived: [], stopped: [], placed: [], deleted: [] };
   let nextSession = 7;
   const ports = {
     images: createTaskImages({ dir: path.join(dir, "orchestrator-images") }),
@@ -41,6 +41,8 @@ function setup(t, { reply = null, enabled = true, remote = undefined } = {}) {
     chatKey: (projectPath, sessionId) => `${projectPath}#${sessionId}`,
     stop: async (key) => calls.stopped.push(key),
     archive: async (projectPath, sessionId) => calls.archived.push({ projectPath, sessionId }),
+    placeChat: async (projectPath, sessionId, column) => calls.placed.push({ projectPath, sessionId, column }),
+    deleteChat: async (projectPath, sessionId) => calls.deleted.push({ projectPath, sessionId }),
     routerCall: () => (reply === null ? null : async () => JSON.stringify(reply)),
     remote,
     originOf: async (projectPath) => `git@github.com:me/${projectPath.split("/").pop()}`,
@@ -181,6 +183,35 @@ test("moving to the sidebar clears the hidden flag; undo stops and archives the 
   assert.equal(store.task(task.id), null);
 });
 
+test("the owner moves a task between columns and deletes it with its Chat", async (t) => {
+  const { orchestrator, store, calls, ports } = setup(t, {
+    reply: { project: "/p/rdfood", role: "build", title: "Fix login", reason: "rdfood auth", confidence: 0.9 },
+  });
+  const task = await orchestrator.send("fix rdfood login");
+  await settled(orchestrator, task.id);
+  await orchestrator.move(task.id, "review");
+  await orchestrator.move(task.id, "done");
+  assert.deepEqual(
+    calls.placed.map((entry) => entry.column),
+    ["review", "done"],
+  );
+  assert.deepEqual(calls.placed[0], { projectPath: "/p/rdfood", sessionId: 7, column: "review" });
+  await assert.rejects(() => orchestrator.move(task.id, "sideways"), /Running, Needs you, In review or Done/);
+  await orchestrator.remove(task.id);
+  assert.deepEqual(calls.deleted, [{ projectPath: "/p/rdfood", sessionId: 7 }]);
+  assert.deepEqual(calls.archived, [], "a deleted Chat isn't archived too");
+  assert.equal(store.task(task.id), null);
+
+  const kept = await orchestrator.send("fix rdfood signup");
+  await settled(orchestrator, kept.id);
+  ports.deleteChat = async () => {
+    throw new Error("disk full");
+  };
+  await orchestrator.remove(kept.id);
+  assert.deepEqual(calls.archived, [{ projectPath: "/p/rdfood", sessionId: 8 }], "a Chat that can't be deleted is archived instead of left hidden");
+  assert.equal(store.task(kept.id), null);
+});
+
 test("the router falls back to keywords when the model is unavailable or vague", async () => {
   const projects = [
     { path: "/p/happiergym", name: "happiergym", hints: "gym app with a rest timer" },
@@ -247,6 +278,8 @@ test("a task goes to the paired computer with the most room when its Project is 
   assert.match(saved.reason.computer, /Studio has the most room/);
   assert.equal(calls.sent.length, 0, "nothing started on this computer");
   assert.equal(invoked.find(([, method]) => method === "orchestrator:start-here")[2][0].outcome, "pull-request");
+  await orchestrator.move(task.id, "needs");
+  assert.deepEqual(invoked.at(-1), ["studio-id", "orchestrator:task:move", ["remote-task", "needs"]]);
   await orchestrator.undo(task.id);
   assert.deepEqual(invoked.at(-1), ["studio-id", "orchestrator:task:undo", ["remote-task"]]);
 });

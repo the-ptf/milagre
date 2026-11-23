@@ -182,6 +182,8 @@ const PATHS = Object.freeze({
   "orchestrator:task:project": denied,
   "orchestrator:task:sidebar": denied,
   "orchestrator:task:undo": denied,
+  "orchestrator:task:move": denied,
+  "orchestrator:task:delete": denied,
   "orchestrator:task:reroute": denied,
   "orchestrator:task:dismiss": denied,
   "orchestrator:memory:import": denied,
