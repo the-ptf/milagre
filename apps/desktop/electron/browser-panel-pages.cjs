@@ -1,6 +1,7 @@
 // @ts-check
 const { randomBytes } = require("node:crypto");
 const { createCdpProxy } = require("@milagre/core/cdp-proxy");
+const { pageInput } = require("./browser-panel-input.cjs");
 
 /**
  * @param {{
@@ -50,6 +51,10 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
             else guest.reload();
             return Promise.resolve({});
           }
+          // Text and keys sent through a webview's debugger go to what has the focus in Milagre's window, often the
+          // Chat composer, so they go to the page itself (browser-panel-input.cjs).
+          const typed = sessionId ? null : pageInput(guest, debug, method, params);
+          if (typed) return typed;
           return debug.sendCommand(method, params, sessionId);
         },
         onEvent(listener) {
