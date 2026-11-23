@@ -7,8 +7,12 @@ const { scheduled } = require("./process-lanes.cjs");
 const execFileAsync = promisify(execFile);
 
 const FIELDS = "number,url,state,title,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup";
-// What a chat's commands can name: a PR URL or a number in the chat's repository. Nothing gh reads as a flag.
-const PR_REF = /^(?:\d+|https?:\/\/[^\s/]+\/[\w.-]+\/[\w.-]+\/pull\/\d+)$/;
+// What a chat's commands can name: a PR URL or a number in the chat's repository, or a branch its `git push` updated
+// (`push:<branch>`, read as that branch's newest PR). Nothing gh reads as a flag.
+const PUSH_REF = /^push:((?!-)(?!.*\.\.)(?!.*\/\/)[\w./-]{1,200})$/;
+const PR_REF = /^(?:\d+|https?:\/\/[^\s/]+\/[\w.-]+\/[\w.-]+\/pull\/\d+|push:(?!-)(?!.*\.\.)(?!.*\/\/)[\w./-]{1,200})$/;
+/** The branch a `push:<branch>` ref names, or null for any other ref. */
+const pushedBranch = (ref) => (typeof ref === "string" ? (PUSH_REF.exec(ref)?.[1] ?? null) : null);
 // A chat that ran a long loop of `gh pr create` still makes a bounded number of lookups.
 const MAX_REFS = 20;
 
@@ -111,6 +115,8 @@ async function readPullRequests(cwd, refs, exec = execFileAsync) {
     refs.slice(0, MAX_REFS).map(async (ref) => {
       if (typeof ref !== "string" || !PR_REF.test(ref)) return null;
       try {
+        const branch = pushedBranch(ref);
+        if (branch) return await readBranchPullRequest(cwd, branch, exec);
         const { stdout } = await scheduled(exec)("gh", ["pr", "view", ref, "--json", FIELDS], execOptions(cwd));
         return toPullRequest(JSON.parse(stdout));
       } catch {
@@ -198,5 +204,6 @@ module.exports = {
   fromGraphql,
   PULL_REQUEST_FIELDS,
   PR_REF,
+  pushedBranch,
   MAX_REFS,
 };

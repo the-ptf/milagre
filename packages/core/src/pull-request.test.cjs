@@ -427,3 +427,16 @@ test("readPullRequestState reports a CLOSED PR as known, and a failed lookup as 
   const none = async (command) => (command === "git" ? { stdout: "milagre/login\n" } : { stdout: "[]" });
   assert.deepEqual(await readPullRequestState("/project/worktree", none), { known: true, pr: null });
 });
+
+test("a pushed branch reads as its newest PR through gh pr list, and a ref that isn't a branch never reaches gh", async () => {
+  const calls = [];
+  const exec = async (command, args) => {
+    calls.push(args);
+    return { stdout: JSON.stringify([{ number: 12, url: "https://github.com/example/project/pull/12", state: "OPEN", title }]) };
+  };
+  const [pr, flag, escape] = await readPullRequests("/project", ["push:fix/login", "push:--web", "push:a..b"], exec);
+  assert.equal(pr.number, 12);
+  assert.equal(flag, null);
+  assert.equal(escape, null);
+  assert.deepEqual(calls, [["pr", "list", "--head", "fix/login", "--state", "all", "--limit", "1", "--json", calls[0][9]]]);
+});

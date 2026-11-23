@@ -358,3 +358,20 @@ test("a Worktree nobody asked about for FORGET_MS is dropped", async () => {
   assert.equal(gitCalls.length, reads);
   watch.close();
 });
+
+test("a branch a Chat pushed to reads as that branch's newest PR, in the same query", async () => {
+  const { watch, hub, time } = setup({
+    heads: { "/repo": "fix/other" },
+    branches: { "fix/login": node(12), "fix/other": node(13) },
+  });
+  const read = watch.refs("/repo", ["push:fix/login", "push:fix/none", "push:-x", "push:../up"]);
+  await time.advance(100);
+  assert.deepEqual(
+    (await read).map((pr) => pr?.number ?? null),
+    [12, null, null, null],
+  );
+  assert.equal(hub.calls.length, 1);
+  assert.match(hub.calls[0].query, /headRefName: "fix\/login"/);
+  assert.doesNotMatch(hub.calls[0].query, /\.\.\/up|"-x"/);
+  watch.close();
+});

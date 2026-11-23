@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chatPullRequests, pullRequestRefs, pullRequestRefsCache, rowPullRequests } from "./chat-pull-requests.ts";
+import { chatPullRequests, ownsWorktree, pullRequestRefs, pullRequestRefsCache, rowPullRequests } from "./chat-pull-requests.ts";
 import type { ChatStep } from "../model.ts";
 
 const url = (n: number) => `https://github.com/example/repo/pull/${n}`;
@@ -119,4 +119,56 @@ test("the refs cache rescans a chat only when one of its messages is a different
   assert.notEqual(read("a#1", [first, reply()]), refs);
   assert.deepEqual(read("a#1", [reply(shell(`$ gh pr create --fill\n${url(89)}`))]), [url(89)]);
   assert.deepEqual(read("a#2", [first]), [url(88)]);
+});
+
+test("a push links the branches git reports, or the refspecs when it printed none", () => {
+  assert.deepEqual(
+    pullRequestRefs([
+      reply(
+        shell(
+          "$ git push -u origin HEAD\nTo github.com:example/repo.git\n * [new branch]      HEAD -> fix/login\nbranch 'fix/login' set up to track 'origin/fix/login'.",
+        ),
+        shell("$ cd app && git push 2>&1 | tail -3\nTo github.com:example/repo.git\n   861d7fc7..1034ef67  fix/login -> fix/login"),
+        shell("$ git push --force-with-lease origin feat/chips\nTo github.com:example/repo.git\n + 1a2b3c4...5d6e7f8 feat/chips -> feat/chips (forced update)"),
+        shell("$ git push -q -u origin fix/quiet && gh pr view --web"),
+        shell("$ git push origin HEAD:refs/heads/fix/renamed"),
+      ),
+    ]),
+    ["push:fix/login", "push:feat/chips", "push:fix/quiet", "push:fix/renamed"],
+  );
+});
+
+test("a failed push, a deletion, tags and a bare HEAD link nothing", () => {
+  assert.deepEqual(
+    pullRequestRefs([
+      reply(
+        shell("$ git push origin fix/failed\n ! [rejected]        fix/failed -> fix/failed (fetch first)", "failed"),
+        shell("$ git push origin --delete old/branch\nTo github.com:example/repo.git\n - [deleted]         old/branch"),
+        shell("$ git push --tags\nTo github.com:example/repo.git\n * [new tag]         v1.0 -> v1.0"),
+        shell("$ git push -q origin HEAD"),
+        shell("$ git push origin -- --upload-pack=x ../escape"),
+      ),
+    ]),
+    [],
+  );
+});
+
+test("a Chat owns its Worktree only outside the Project folder and with no other open Chat in it", () => {
+  const state = {
+    sessions: {
+      1: { id: 1, worktree_id: 1 },
+      2: { id: 2, worktree_id: 1 },
+      3: { id: 3, worktree_id: 2 },
+      4: { id: 4, worktree_id: 3 },
+      5: { id: 5, worktree_id: 3, archived: true },
+    },
+    worktrees: { 1: { path: "/repo" }, 2: { path: "/repo-chips" }, 3: { path: "/repo-login" } },
+  };
+  assert.equal(ownsWorktree(state, 1, "/repo"), false, "the Project folder is shared by every Local Chat");
+  assert.equal(ownsWorktree({ ...state, sessions: { 1: state.sessions[1] } }, 1, "/repo"), false, "even with one Chat in it");
+  assert.equal(ownsWorktree(state, 3, "/repo"), true);
+  assert.equal(ownsWorktree(state, 4, "/repo"), true, "an archived Chat doesn't share the Worktree");
+  assert.equal(ownsWorktree({ ...state, sessions: { ...state.sessions, 6: { id: 6, worktree_id: 2 } } }, 3, "/repo"), false);
+  assert.equal(ownsWorktree(state, 99, "/repo"), false);
+  assert.equal(ownsWorktree(null, 1, "/repo"), false);
 });

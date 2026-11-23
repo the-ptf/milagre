@@ -3685,6 +3685,8 @@ function chatHost({
   // "secondary" renders the pane as the Chat beside the routed one, with these params as its own.
   pane: asPane,
   platform = "ios",
+  // Worktree 1's folder: the Project folder, or a Worktree of its own, where the Chat shows the branch's PR.
+  worktreePath = "/p",
 } = {}) {
   const sending = deferred();
   const calls = [];
@@ -3735,7 +3737,14 @@ function chatHost({
       project: {
         path: "/p",
         name: "P",
-        state: { next_id: 4, projects: {}, sessions: {}, messages: [], tasks: {}, worktrees: { 1: { id: 1, name: "main", path: "/p", project_id: 1 } } },
+        state: {
+          next_id: 4,
+          projects: {},
+          sessions: {},
+          messages: [],
+          tasks: {},
+          worktrees: { 1: { id: 1, name: "main", path: worktreePath, project_id: 1 } },
+        },
       },
       runs: { runs: {} },
     },
@@ -7064,7 +7073,7 @@ test("the PR pill sends a PR action whose preview is already a card", async () =
     checks: "failed",
   };
   try {
-    const screen = chatHost();
+    const screen = chatHost({ worktreePath: "/p-fix" });
     screen.params.id = "42";
     screen.session.snapshot.project.state.sessions[42] = {
       id: 42,
@@ -7098,7 +7107,7 @@ test("a PR ready to merge shows Merge #n, which opens the PR sheet, and the shee
   globalThis.chatPullRequest = { number: 90, title: "Fix it", url, state: "OPEN", readyToMerge: true };
   globalThis.openedPullRequests = [];
   try {
-    const screen = chatHost({ effects: true, call: async () => ({ sessionId: 42 }) });
+    const screen = chatHost({ worktreePath: "/p-fix", effects: true, call: async () => ({ sessionId: 42 }) });
     screen.params.id = "42";
     screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
     const tree = screen.render();
@@ -7133,7 +7142,7 @@ test("a new Chat whose Worktree has a PR opens it from the header, and the sheet
   globalThis.chatPullRequest = { number: 91, title: "Fix it", url: "https://github.com/o/r/pull/91", state: "OPEN", readyToMerge: true };
   globalThis.openedPullRequests = [];
   try {
-    const screen = chatHost({ effects: true });
+    const screen = chatHost({ worktreePath: "/p-fix", effects: true });
     const tree = screen.render();
     const key = `${screen.session.snapshot.project.path}#new:1`;
     find(tree, (node) => node.type?.name === "HeaderAction" && node.props.label === "Pull request #91").props.onPress();
@@ -7144,6 +7153,29 @@ test("a new Chat whose Worktree has a PR opens it from the header, and the sheet
   } finally {
     delete globalThis.chatPullRequest;
     delete globalThis.openedPullRequests;
+  }
+});
+
+test("a Chat in the Project folder doesn't show the folder branch's PR, which another Chat may have opened (#876)", () => {
+  globalThis.chatPullRequest = { number: 91, title: "Fix it", url: "https://github.com/o/r/pull/91", state: "OPEN", readyToMerge: true };
+  try {
+    const fresh = chatHost();
+    assert.equal(
+      find(fresh.render(), (node) => node.type?.name === "HeaderAction" && node.props.label === "Pull request #91"),
+      undefined,
+      "a new Chat in the Project folder",
+    );
+    const saved = chatHost({ worktreePath: "/p-fix" });
+    saved.params.id = "42";
+    saved.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
+    saved.session.snapshot.project.state.sessions[43] = { id: 43, provider: "codex", worktree_id: 1 };
+    assert.equal(
+      find(saved.render(), (node) => node.type === "PullRequestMerge"),
+      undefined,
+      "a Chat sharing its Worktree with another open Chat",
+    );
+  } finally {
+    delete globalThis.chatPullRequest;
   }
 });
 
@@ -7162,7 +7194,7 @@ test("open review threads show a Review pill beside Merge, which opens the PR's 
   globalThis.prDetail = { number: 92, state: "OPEN", threads: [thread("1", false), thread("2", true), thread("3", false, true)] };
   globalThis.openedPrPages = [];
   try {
-    const screen = chatHost();
+    const screen = chatHost({ worktreePath: "/p-fix" });
     screen.params.id = "42";
     screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
     const tree = screen.render();
@@ -7192,7 +7224,7 @@ test("on an iPad the PR opens in the right panel, beside Changes", () => {
   globalThis.chatPullRequest = { number: 91, title: "Fix it", url: "https://github.com/o/r/pull/91", state: "OPEN", readyToMerge: true };
   globalThis.openedPullRequests = [];
   try {
-    const screen = chatHost({ screenWidth: 1194 });
+    const screen = chatHost({ worktreePath: "/p-fix", screenWidth: 1194 });
     screen.params.id = "42";
     screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
     find(screen.render(), (node) => node.type === "PullRequestMerge").props.onOpen();
@@ -19152,7 +19184,7 @@ test("a phone Run Chat, hidden or kept, shows a Routine header button that opens
 test("the phone Chat header keeps its title on one line with an ellipsis, clear of the toolbar group, as Browser and PR shortcuts appear", () => {
   const title = "Rotate staging API key before Friday";
   const header = (screenWidth, { routines = [], routine, browserShortcut = null } = {}) => {
-    const chat = chatHost({ routines, screenWidth, browserShortcut });
+    const chat = chatHost({ worktreePath: "/p-fix", routines, screenWidth, browserShortcut });
     chat.params.id = "9";
     chat.session.snapshot.project.state.sessions[9] = { id: 9, worktree_id: 1, title, ...(routine ? { routine } : {}) };
     const tree = chat.render();
@@ -20885,6 +20917,7 @@ test("Chat header promotes only Browser and PR, with working actions and no dupl
   let shortcutOptions;
   const shortcut = { accessibilityLabel: "Browser, 1 page in this Chat", onPress: () => opened++ };
   const screen = chatHost({
+    worktreePath: "/p-fix",
     browserShortcut: (options) => {
       shortcutOptions = options;
       return shortcut;

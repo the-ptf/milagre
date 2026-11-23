@@ -2,7 +2,7 @@ import { isSnoozed } from "@milagre/shared/snooze";
 import { withSnoozeMark, type SnoozeMark } from "./snooze-actions";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import type { Href } from "expo-router";
-import { chatTitle, comparePins, pendingChatSessionId, pullRequestRefs, withPendingChat } from "@milagre/shared/chats";
+import { chatTitle, comparePins, ownsWorktree, pendingChatSessionId, pullRequestRefs, withPendingChat } from "@milagre/shared/chats";
 import { type SettingsRoute } from "./settings-index";
 import type { AgentSession, PullRequest } from "@milagre/shared/model";
 import type { LinearIssue } from "@milagre/shared/linear";
@@ -62,6 +62,8 @@ export type Row = { key: string; path: string } & (
       pending?: MobilePendingChat;
       prPath?: string;
       prRefs?: string[];
+      /** The Chat has its Worktree to itself, so the Worktree branch's PR is its own (ownsWorktree). */
+      ownsWorktree?: boolean;
       pullRequests?: PullRequest[];
       linearIssue?: LinearIssue;
       linked?: string[];
@@ -122,6 +124,7 @@ export type ChatEntry = {
   worktreePath?: string;
   prPath?: string;
   prRefs: string[];
+  ownsWorktree?: boolean;
 };
 export type ProjectBuild = {
   path: string;
@@ -227,6 +230,7 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
     worktreePath: pending?.newWorktree ? undefined : copy?.project.state.worktrees[chat.worktree_id]?.path,
     prPath: !pending && !copy?.project.link && !home ? copy?.project.state.worktrees[chat.worktree_id]?.path : undefined,
     prRefs: chat.summary?.pullRequests ?? copy?.project.pullRequestRefs?.[chat.id] ?? pullRequestRefs(byChat.get(chat.id) || []),
+    ownsWorktree: copy ? ownsWorktree(copy.project.state, chat.id, copy.project.path) : false,
   });
   const done =
     ctx.show === "all"

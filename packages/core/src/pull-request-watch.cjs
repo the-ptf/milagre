@@ -2,7 +2,7 @@ const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const { createGit } = require("./git/client.cjs");
 const { background, scheduled } = require("./process-lanes.cjs");
-const { fromGraphql, readPullRequests, PULL_REQUEST_FIELDS, PR_REF, MAX_REFS } = require("./pull-request.cjs");
+const { fromGraphql, readPullRequests, PULL_REQUEST_FIELDS, PR_REF, MAX_REFS, pushedBranch } = require("./pull-request.cjs");
 
 const ALIASES = 25;
 const RUNNING_MS = 20_000;
@@ -45,6 +45,15 @@ function queries(items) {
     });
   }
   return documents;
+}
+
+/** How the repository's query reads a Chat's ref (a pushed branch as that branch's newest PR), or null for gh alone. */
+function refItem(ref) {
+  const pushed = pushedBranch(ref);
+  if (pushed) return { kind: "branch", branch: pushed };
+  if (/^\d+$/.test(ref)) return { kind: "number", number: Number(ref) };
+  const url = GITHUB_PR.exec(ref);
+  return url ? { kind: "url", owner: url[1], name: url[2], number: Number(url[3]) } : null;
 }
 
 function createPullRequestWatch({
@@ -196,9 +205,8 @@ function createPullRequestWatch({
       if (target.head) add(`branch:${target.head}`, { kind: "branch", branch: target.head });
       for (const [ref, entry] of target.refs) {
         if (entry.value?.state === "MERGED") continue;
-        const url = GITHUB_PR.exec(ref);
-        if (/^\d+$/.test(ref)) add(`ref:${ref}`, { kind: "number", number: Number(ref) });
-        else if (url) add(`ref:${ref}`, { kind: "url", owner: url[1], name: url[2], number: Number(url[3]) });
+        const item = refItem(ref);
+        if (item) add(`ref:${ref}`, item);
         else others.push([target, ref]);
       }
     }

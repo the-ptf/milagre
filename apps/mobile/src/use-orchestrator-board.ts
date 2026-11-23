@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { chatPullRequests } from "@milagre/shared/chats";
+import { chatPullRequests, ownsWorktree } from "@milagre/shared/chats";
 import { pullRequestState, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { allComputers, useComputerViews } from "./all-computers";
 import { taskHost } from "./orchestrator-actions";
@@ -8,7 +8,7 @@ import { boardItem, boardCounts, type BoardItem, type TaskChat } from "./orchest
 import { useListSnapshot, useSession } from "./session";
 import { useComputerChatPullRequests, type ComputerPullRequestTargets } from "./use-chat-pull-requests";
 
-type Joined = { task: OrchestratorTask; chat?: TaskChat; prPath?: string; prRefs: string[] };
+type Joined = { task: OrchestratorTask; chat?: TaskChat; prPath?: string; prRefs: string[]; owned?: boolean };
 
 function join(task: OrchestratorTask, copy: ProjectCopy | undefined): Joined {
   if (!copy || task.sessionId === null) return { task, prRefs: [] };
@@ -21,6 +21,7 @@ function join(task: OrchestratorTask, copy: ProjectCopy | undefined): Joined {
     chat: { chat, run, messages },
     prPath: copy.project.state.worktrees[chat.worktree_id]?.path,
     prRefs: chat.summary?.pullRequests ?? copy.project.pullRequestRefs?.[chat.id] ?? [],
+    owned: ownsWorktree(copy.project.state, chat.id, copy.project.path),
   };
 }
 
@@ -86,7 +87,7 @@ export function useOrchestratorBoard(tasks: readonly OrchestratorTask[]) {
     () =>
       joined.map((entry) => {
         const found = entry.prPath && entry.at ? status[entry.at]?.[entry.prPath] : undefined;
-        const prs = found ? chatPullRequests(entry.prRefs, found.found, found.branch) : [];
+        const prs = found ? chatPullRequests(entry.prRefs, found.found, entry.owned ? found.branch : undefined) : [];
         return boardItem(entry.task, entry.chat, pullRequestState(prs.map((pr) => pr.state)), now);
       }),
     [joined, status, now],
