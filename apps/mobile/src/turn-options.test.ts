@@ -7,7 +7,7 @@ const reported: AgentModels = {
   claude: null,
   antigravity: null,
   kiro: null,
-  ollama: null,
+  pi: null,
   codex: [
     {
       id: "reported-model",
@@ -178,8 +178,12 @@ test("a pick made here shows until the Mac's copy moves on", () => {
   assert.equal(chatPreferences(picked, defaultPreferences, "auto").permissionMode, "auto", "changed on desktop since");
 });
 
-test("a local model that was removed falls back to the first one Ollama still has", () => {
-  const local = { id: "ollama:qwen3:8b", name: "qwen3:8b", description: "", recommended: true, efforts: [], ultracode: false, fastMode: false };
-  const models: AgentModels = { ...reported, ollama: [local] };
-  assert.equal(selectedModel("ollama", "ollama:llama3:gone", models).id, "ollama:qwen3:8b");
+test("a Pi model that isn't listed stays the Chat's model instead of switching to another one", () => {
+  const local = { id: "pi:ollama/qwen3:8b", name: "qwen3:8b", description: "", recommended: true, efforts: [], ultracode: false, fastMode: false };
+  const hosted = { id: "pi:openrouter/z-ai/glm-4.6", name: "GLM 4.6", description: "", recommended: false, efforts: [], ultracode: false, fastMode: false };
+  const models: AgentModels = { ...reported, pi: [local, hosted] };
+  assert.equal(selectedModel("pi", "pi:openrouter/z-ai/glm-4.6", models).id, "pi:openrouter/z-ai/glm-4.6");
+  const gone = selectedModel("pi", "ollama:llama3:gone", models);
+  assert.equal(gone.id, "pi:ollama/llama3:gone");
+  assert.equal(gone.local, true);
 });

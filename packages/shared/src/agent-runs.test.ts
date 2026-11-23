@@ -755,10 +755,10 @@ test("context-usage follows the run and is saved on the chat when the turn ends"
 
 test("a local model's turn metrics are saved with its context use, and only when the turn completes", () => {
   const metrics = { ttftMs: 4200, outputTps: 31.5, outputTokens: 87, calls: 2 };
-  let { state, runs } = applyAgentEvent(base(), startRun({}, key(1), "ollama:qwen3:8b"), PROJECT, key(1), { type: "context-usage", used: 1000, size: 4000 });
+  let { state, runs } = applyAgentEvent(base(), startRun({}, key(1), "pi:ollama/qwen3:8b"), PROJECT, key(1), { type: "context-usage", used: 1000, size: 4000 });
   ({ state, runs } = applyAgentEvent(state, runs, PROJECT, key(1), { type: "turn-completed", metrics }));
   assert.deepEqual(state.sessions[1].contextUsage, { used: 1000, size: 4000, metrics });
-  runs = startRun(runs, key(1), "ollama:qwen3:8b");
+  runs = startRun(runs, key(1), "pi:ollama/qwen3:8b");
   ({ state } = applyAgentEvent(state, runs, PROJECT, key(1), { type: "turn-cancelled" }));
   assert.deepEqual(state.sessions[1].contextUsage, { used: 1000, size: 4000, metrics });
 });

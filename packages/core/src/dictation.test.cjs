@@ -64,7 +64,7 @@ test("a local model's Chat keeps dictation local: no cloud model cleans it up", 
     asked += 1;
     return JSON.stringify({ text: "run npm test" });
   };
-  const result = await polishDictation({ text: "run npm test", provider: "ollama" }, { models: { claude: cloud, codex: cloud } });
+  const result = await polishDictation({ text: "run npm test", provider: "pi" }, { models: { claude: cloud, codex: cloud } });
   assert.deepEqual(result, { text: "run npm test", polished: false });
   assert.equal(asked, 0);
 });

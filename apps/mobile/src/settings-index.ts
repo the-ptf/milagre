@@ -224,6 +224,11 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
 
   {
     page: "computers",
+    title: "Show computers as",
+    keywords: "map list routes lan tailscale network",
+  },
+  {
+    page: "computers",
     title: "Name on computers",
     group: "This iPhone",
     keywords: "device phone name",
@@ -417,6 +422,7 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   { page: "token-usage", title: "Period", keywords: "range days week month" },
   { page: "token-usage", title: "Show", keywords: "cost tokens metric" },
 
+  { page: "accounts", title: "Computer", keywords: "paired other remote mac machine manage accounts" },
   {
     page: "accounts",
     title: "Switch accounts at usage limits",

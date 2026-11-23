@@ -238,10 +238,10 @@ test("Claude's model list comes from an idle query that is closed afterwards", a
 });
 
 test("each agent is asked once per run; a missing CLI or a failed lookup is asked again", async () => {
-  const asked = { claude: 0, codex: 0, kiro: 0, ollama: 0 };
+  const asked = { claude: 0, codex: 0, kiro: 0, pi: 0 };
   const statuses = {
     claude: [{ command: "/c", version: "2.1.287" }],
-    ollama: [{ command: "/pi", version: "1.5.2" }],
+    pi: [{ command: "/pi", version: "1.5.2" }],
     kiro: [{ command: "/k", version: "2.34.2" }],
     codex: [
       { command: null, version: null, problem: "missing" },
@@ -271,24 +271,24 @@ test("each agent is asked once per run; a missing CLI or a failed lookup is aske
     assert.equal(command, "/k");
     return [{ id: "kiro:auto", credits: 1 }];
   };
-  list.ollama = async () => {
-    asked.ollama += 1;
-    return [{ id: `ollama:pulled-${asked.ollama}` }];
+  list.pi = async () => {
+    asked.pi += 1;
+    return [{ id: `pi:ollama/pulled-${asked.pi}` }];
   };
   const models = createModelCache({ cli, cwd: "/tmp", clientVersion: "1.0.0", list });
   const antigravity = [{ id: "gemini-3.8-flash-high" }];
   const kiro = [{ id: "kiro:auto", credits: 1 }];
-  assert.deepEqual(await models(), { claude: [{ id: "claude-opus-5-5" }], codex: null, antigravity, kiro, ollama: [{ id: "ollama:pulled-1" }] });
-  assert.deepEqual(await models(), { claude: [{ id: "claude-opus-5-5" }], codex: null, antigravity, kiro, ollama: [{ id: "ollama:pulled-2" }] });
+  assert.deepEqual(await models(), { claude: [{ id: "claude-opus-5-5" }], codex: null, antigravity, kiro, pi: [{ id: "pi:ollama/pulled-1" }] });
+  assert.deepEqual(await models(), { claude: [{ id: "claude-opus-5-5" }], codex: null, antigravity, kiro, pi: [{ id: "pi:ollama/pulled-2" }] });
   assert.deepEqual(await models(), {
     claude: [{ id: "claude-opus-5-5" }],
     codex: [{ id: "gpt-6-astra" }],
     antigravity,
     kiro,
-    ollama: [{ id: "ollama:pulled-3" }],
+    pi: [{ id: "pi:ollama/pulled-3" }],
   });
-  // Ollama is read every time, so a model pulled a moment ago shows at once.
-  assert.deepEqual(asked, { claude: 1, codex: 2, kiro: 1, ollama: 3 });
+  // Pi's list is read every time, so a model pulled a moment ago shows at once.
+  assert.deepEqual(asked, { claude: 1, codex: 2, kiro: 1, pi: 3 });
 });
 
 test("Antigravity lists the catalog's families until a session reports models, then that account's grouped list", async () => {

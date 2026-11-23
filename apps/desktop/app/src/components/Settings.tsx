@@ -1,5 +1,4 @@
-import { ProjectAccountsSettings } from "./ProjectAccountsSettings";
-import { AccountsSettings } from "./AccountsSettings";
+import { AccountsPage } from "./AccountsPage";
 import { SkillsSettings } from "./SkillsSettings";
 import { McpSettings } from "./McpSettings";
 import { LocalMcpSettings } from "./LocalMcpSettings";
@@ -47,7 +46,7 @@ import { projectRows } from "../lib/project-list";
 import type { RecentProject } from "../lib/project-list";
 import { useProjectImages } from "../lib/project-images";
 import { computerNoun } from "../lib/shortcut-hints";
-import { Icon, ChoiceGroup, SECONDARY_BUTTON } from "./settings/settings-parts";
+import { Icon, SECONDARY_BUTTON } from "./settings/settings-parts";
 import { AboutSettings } from "./settings/AboutSettings";
 import { PhoneSharingPage, ThisMacPage } from "./settings/DevicesSettings";
 import { ComputerSettings } from "./settings/ComputerSettings";
@@ -55,7 +54,6 @@ import { AppearanceSettings } from "./settings/AppearanceSettings";
 import { MainSyncDefaultSetting, DetectRepositoriesSetting } from "./settings/MainSyncSettings";
 import { ProjectSettings } from "./settings/ProjectSettings";
 import { LinearSettings } from "./settings/LinearSettings";
-import { LimitAutoSwitchSetting } from "./settings/LimitAutoSwitchSetting";
 import { ChatSettings } from "./settings/ChatSettings";
 import { ExperimentalSettings } from "./settings/ExperimentalSettings";
 import { NotificationsSettings } from "./settings/NotificationsSettings";
@@ -119,7 +117,7 @@ const DEVICES_SECTION = { key: "devices" as const, label: SECTION_TITLES.devices
 const THIS_MAC_SECTION = { key: "this-mac" as const, label: SECTION_TITLES["this-mac"], icon: <Icon icon={LaptopIcon} /> };
 
 const ALL_SECTIONS = [...SECTIONS, DEVICES_SECTION, THIS_MAC_SECTION];
-const SELF_TITLED = new Set<SettingsSection>(["mcp", "connections", "devices", "this-mac", "experimental"]);
+const SELF_TITLED = new Set<SettingsSection>(["accounts", "mcp", "connections", "devices", "this-mac", "experimental"]);
 const sectionTitle = (page: string) => ALL_SECTIONS.find((item) => item.key === page)?.label ?? page;
 
 export type SettingsProject = { path: string; name: string };
@@ -427,15 +425,7 @@ export function SettingsPanel({
         {section === "notifications" && <NotificationsSettings />}
         {section === "keybindings" && <KeybindingsSettings />}
         {section === "models" && <ModelsSettings models={models} />}
-        {section === "accounts" && (
-          <>
-            <AccountsSettings />
-            <LimitAutoSwitchSetting />
-            <ChoiceGroup title="Per Project">
-              <ProjectAccountsSettings projectPath={accountScope ?? project?.path} />
-            </ChoiceGroup>
-          </>
-        )}
+        {section === "accounts" && <AccountsPage title={title ?? ""} projectPath={accountScope ?? project?.path} />}
         {section === "skills" &&
           (project ? (
             <SkillsSettings key={project.path} projectPath={project.path} />

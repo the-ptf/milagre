@@ -1,3 +1,4 @@
+import { modelMatches } from "../../lib/model-options";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
@@ -53,7 +54,7 @@ export function RoleModelPicker({ role, models, onChange }: { role: Orchestrator
   const capability = model ? { ...capabilityFor(model, null), ultracode: false, fastMode: false } : NO_SETTINGS;
   const width = widthFor(capability);
   const effort = role.effort && capability.efforts.includes(role.effort) ? role.effort : undefined;
-  const rows = models.filter((entry) => entry.provider === provider && `${entry.name} ${entry.id}`.toLowerCase().includes(query.toLowerCase()));
+  const rows = models.filter((entry) => entry.provider === provider && modelMatches(entry, query));
   const follow = (to = width) => trigger.current && setStyle(place(trigger.current, to));
   const close = () => setHost(null);
 

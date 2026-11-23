@@ -1,7 +1,16 @@
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
-import { ChatGptIcon, FlashIcon, Search01Icon, SecurityCheckIcon, Shield01Icon, ShieldAlertIcon, UserMultipleIcon } from "@hugeicons/core-free-icons";
+import { Fragment, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import {
+  Add01Icon,
+  ChatGptIcon,
+  FlashIcon,
+  Search01Icon,
+  SecurityCheckIcon,
+  Shield01Icon,
+  ShieldAlertIcon,
+  UserMultipleIcon,
+} from "@hugeicons/core-free-icons";
 import { permissionPresentation } from "@milagre/shared/model-copy";
-import { providerName } from "@milagre/shared/providers";
+import { installableProviders, providerName } from "@milagre/shared/providers";
 import { formatCredits } from "@milagre/shared/kiro-models";
 import type { AgentCliStatus, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
 import { effortCopy, PERMISSION_MODES } from "../model";
@@ -9,6 +18,7 @@ import { cliMessage, cliTabLabel } from "../lib/cli-status";
 import { contextWindowFor } from "../lib/model-options";
 import { formatTokens } from "./usage/format";
 import { ProviderLogo } from "./ProviderLogo";
+import { InstallOffer } from "./InstallOffer";
 import { EmptyState } from "./primitives/EmptyState";
 import { PickerRow } from "./primitives/Picker";
 import { ScrollArea } from "./primitives/ScrollArea";
@@ -82,10 +92,13 @@ export function ModelPicker({
   const highest = levels.at(-1);
   const showFast = capability.fastMode && Boolean(onFastModeChange);
   const showUltracode = capability.ultracode && Boolean(onUltracodeChange);
-  const hasSettings = levels.length > 0 || showFast || showUltracode;
+  const installable = installableProviders(cliStatus);
+  const [adding, setAdding] = useState(false);
+  const hasSettings = !adding && (levels.length > 0 || showFast || showUltracode);
   const index = Math.max(0, levels.indexOf(effort ?? ""));
   const current = levels[index];
   const mixed = new Set(models.map((model) => model.provider)).size > 1;
+  const grouped = new Set(models.map((model) => model.group).filter(Boolean)).size > 1;
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.target instanceof Element && event.target.closest('[role="listbox"]')) {
@@ -113,71 +126,71 @@ export function ModelPicker({
     <div
       data-picker-panel
       data-model-picker
-      className={`absolute z-20 flex h-[380px] flex-col overflow-hidden rounded-card bg-surface shadow-raised ${hasSettings ? "w-[580px]" : "w-[300px]"}`}
+      className={`absolute z-20 flex h-[380px] flex-col overflow-hidden rounded-card bg-surface shadow-raised ${hasSettings || adding ? "w-[580px]" : "w-[300px]"}`}
       style={{ animation: "pop-in var(--duration-base) var(--ease-enter) backwards", ...style }}
     >
       <div className="flex min-h-0 flex-1">
-        <ScrollArea data-provider-tabs aria-label="Providers" className="flex w-[45px] shrink-0 flex-col items-center gap-1 border-r border-line bg-inset py-2">
-          {providers.map((item) => {
-            const warning = cliTabLabel(cliStatus?.[item]);
-            const on = item === provider;
-            return (
-              <Tooltip key={item} label={cliMessage(cliStatus?.[item]) ?? providerName(item)} wrap asChild>
-                <button
-                  type="button"
-                  aria-label={providerName(item)}
-                  aria-pressed={on}
-                  onClick={() => onProviderChange(item)}
-                  className={`group/tile relative flex size-8 shrink-0 items-center justify-center rounded-control transition-colors ${on ? "bg-hover-2" : "hover:bg-hover"}`}
-                >
-                  {item === "codex" ? (
-                    <span className={`flex ${on ? "text-ink" : "text-ink-3 transition-colors group-hover/tile:text-ink-2"}`}>
-                      <Icon icon={ChatGptIcon} size={18} />
-                    </span>
-                  ) : (
-                    <ProviderLogo provider={item} size={18} mono className={on ? "text-ink" : "text-ink-3 transition-colors group-hover/tile:text-ink-2"} />
-                  )}
-                  {warning && <span aria-hidden className="absolute top-1 right-1 size-1.5 rounded-full bg-orange" />}
-                </button>
-              </Tooltip>
-            );
-          })}
-        </ScrollArea>
+        <ProviderTabs
+          providers={providers}
+          provider={adding ? null : provider}
+          cliStatus={cliStatus}
+          canAdd={installable.length > 0}
+          adding={adding}
+          onProviderChange={(item) => {
+            setAdding(false);
+            onProviderChange(item);
+          }}
+          onAdd={() => setAdding(true)}
+        />
 
-        <div onKeyDown={handleKeyDown} className={`flex min-w-0 flex-col pt-2 pl-2 ${hasSettings ? "w-[240px] shrink-0 border-r border-line" : "flex-1"}`}>
-          {scope && <ModelAccountPicker key={scope} scope={scope} provider={provider} />}
-          <div className="mr-4.5 mb-1 shrink-0">
-            <FieldGroup
-              fill="bare"
-              className="pl-[7px]"
-              leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
-              value={query}
-              onChange={(event) => onQueryChange(event.target.value)}
-              placeholder="Search models…"
-              autoFocus
-            />
-          </div>
-          {notice}
-          <ScrollArea className="grid flex-1 grid-cols-1 content-start gap-0.5 pr-2 pb-2 [scrollbar-gutter:stable]">
-            {models.map((model) => (
-              <ModelTip
-                key={model.id}
-                description={[model.description, model.credits ? `Uses ${formatCredits(model.credits)} the credits Auto would` : undefined]
-                  .filter(Boolean)
-                  .join(". ")}
-              >
-                <PickerRow
-                  icon={mixed ? <ProviderLogo provider={model.provider} size={16} /> : undefined}
-                  label={model.name}
-                  meta={metaLabel(model)}
-                  selected={model.id === selectedModel.id && model.provider === selectedModel.provider}
-                  onClick={() => onModelChange(model)}
-                />
-              </ModelTip>
+        {adding ? (
+          <ScrollArea data-install-offers className="flex min-w-0 flex-1 flex-col gap-2 p-2">
+            {installable.map((item) => (
+              <InstallOffer key={item} provider={item} />
             ))}
-            {models.length === 0 && <EmptyState size="compact" title="No models found" />}
           </ScrollArea>
-        </div>
+        ) : (
+          <div onKeyDown={handleKeyDown} className={`flex min-w-0 flex-col pt-2 pl-2 ${hasSettings ? "w-[240px] shrink-0 border-r border-line" : "flex-1"}`}>
+            {scope && <ModelAccountPicker key={scope} scope={scope} provider={provider} />}
+            <div className="mr-4.5 mb-1 shrink-0">
+              <FieldGroup
+                fill="bare"
+                className="pl-[7px]"
+                leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
+                value={query}
+                onChange={(event) => onQueryChange(event.target.value)}
+                placeholder="Search models…"
+                autoFocus
+              />
+            </div>
+            {notice}
+            <ScrollArea className="grid flex-1 grid-cols-1 content-start gap-0.5 pr-2 pb-2 [scrollbar-gutter:stable]">
+              {models.map((model, index) => (
+                <Fragment key={model.id}>
+                  {grouped && model.group !== models[index - 1]?.group && (
+                    <SectionLabel as="div" variant="menu" className={`px-2 pb-1 ${index > 0 ? "pt-2" : ""}`}>
+                      {model.group}
+                    </SectionLabel>
+                  )}
+                  <ModelTip
+                    description={[model.description, model.credits ? `Uses ${formatCredits(model.credits)} the credits Auto would` : undefined]
+                      .filter(Boolean)
+                      .join(". ")}
+                  >
+                    <PickerRow
+                      icon={mixed ? <ProviderLogo provider={model.provider} size={16} /> : undefined}
+                      label={model.name}
+                      meta={metaLabel(model)}
+                      selected={model.id === selectedModel.id && model.provider === selectedModel.provider}
+                      onClick={() => onModelChange(model)}
+                    />
+                  </ModelTip>
+                </Fragment>
+              ))}
+              {models.length === 0 && <EmptyState size="compact" title="No models found" />}
+            </ScrollArea>
+          </div>
+        )}
 
         {hasSettings && (
           <div data-model-settings className="flex min-w-0 flex-1 flex-col gap-3 px-3 pt-2.5 pb-3">
@@ -354,5 +367,67 @@ function ModelTip({ description, children }: { description?: string; children: R
     </Tooltip>
   ) : (
     children
+  );
+}
+
+/** The provider tiles down the picker's left edge, and a "+" that offers an opt-in agent that isn't installed. */
+function ProviderTabs({
+  providers,
+  provider,
+  cliStatus,
+  canAdd,
+  adding,
+  onProviderChange,
+  onAdd,
+}: {
+  providers: ModelProvider[];
+  provider: ModelProvider | null;
+  cliStatus: AgentCliStatus | null;
+  canAdd: boolean;
+  adding: boolean;
+  onProviderChange: (provider: ModelProvider) => void;
+  onAdd: () => void;
+}) {
+  return (
+    <ScrollArea data-provider-tabs aria-label="Providers" className="flex w-[45px] shrink-0 flex-col items-center gap-1 border-r border-line bg-inset py-2">
+      {providers.map((item) => {
+        const warning = cliTabLabel(cliStatus?.[item]);
+        const on = item === provider;
+        return (
+          <Tooltip key={item} label={cliMessage(cliStatus?.[item]) ?? providerName(item)} wrap asChild>
+            <button
+              type="button"
+              aria-label={providerName(item)}
+              aria-pressed={on}
+              onClick={() => onProviderChange(item)}
+              className={`group/tile relative flex size-8 shrink-0 items-center justify-center rounded-control transition-colors ${on ? "bg-hover-2" : "hover:bg-hover"}`}
+            >
+              {item === "codex" ? (
+                <span className={`flex ${on ? "text-ink" : "text-ink-3 transition-colors group-hover/tile:text-ink-2"}`}>
+                  <Icon icon={ChatGptIcon} size={18} />
+                </span>
+              ) : (
+                <ProviderLogo provider={item} size={18} mono className={on ? "text-ink" : "text-ink-3 transition-colors group-hover/tile:text-ink-2"} />
+              )}
+              {warning && <span aria-hidden className="absolute top-1 right-1 size-1.5 rounded-full bg-orange" />}
+            </button>
+          </Tooltip>
+        );
+      })}
+      {canAdd && (
+        <Tooltip label="Add a provider" wrap asChild>
+          <button
+            type="button"
+            aria-label="Add a provider"
+            aria-pressed={adding}
+            data-add-provider
+            onClick={onAdd}
+            className={`group/tile flex size-8 shrink-0 items-center justify-center rounded-control transition-colors ${adding ? "bg-hover-2 text-ink" : "text-ink-3 hover:bg-hover hover:text-ink-2"}`}
+          >
+            <Icon icon={Add01Icon} size={16} />
+          </button>
+        </Tooltip>
+      )}
+    </ScrollArea>
   );
 }

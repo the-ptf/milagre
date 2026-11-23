@@ -13,7 +13,7 @@ import { modelsFor } from "./turn-options";
 import { Field, Toggle, useStyles } from "./ui";
 
 type Save = (patch: Partial<OrchestratorSettings>) => void;
-const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro", "ollama"];
+const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro", "pi"];
 
 function RoleRow({ role, models, onChange }: { role: OrchestratorRole; models: AgentModels | null; onChange: (role: OrchestratorRole) => void }) {
   const styles = useStyles();
@@ -40,7 +40,7 @@ function RoleRow({ role, models, onChange }: { role: OrchestratorRole; models: A
               title: model.name,
               checked: role.provider === provider && role.model === model.id,
             })),
-          })),
+          })).filter((section) => section.items.length > 0),
         ]}
         onSelect={(id) => {
           if (id === "none") return onChange({ ...role, provider: null, model: null, effort: null });

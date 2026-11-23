@@ -2,18 +2,24 @@
 export interface ModelMeta {
   /** Kiro only: the model's credit multiplier, relative to Auto (2 means a turn costs twice what Auto would). */
   credits?: number;
-  /** Ollama only: the context window the local server runs the model with, in tokens. */
+  /** Pi only: the model's context window, in tokens (for Ollama, the one the local server runs it with). */
   contextWindow?: number;
+  /** Pi only: the provider behind the model (Ollama, OpenRouter, Groq), shown as a heading in the picker. */
+  group?: string;
+  /** Pi only: the model runs on this computer, through Ollama. */
+  local?: boolean;
 }
 
 export interface ContextUsage {
   used: number;
   size: number;
-  /** Ollama only, after a turn: how fast that turn ran on the local model. */
+  /** Pi only, after a local model's turn: how fast that turn ran. */
   metrics?: TurnMetrics;
+  /** Pi only: what the Chat's Pi session has cost so far on paid models, in US dollars. */
+  cost?: number;
 }
 
-/** Ollama only: how the last turn ran on the local model, measured by the host. */
+/** Pi's local models only: how the last turn ran, measured by the host. */
 export interface TurnMetrics {
   /** From sending the message to the model's first streamed token, in ms. */
   ttftMs?: number;

@@ -10,7 +10,7 @@ import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowUp02Icon, Attachment01Icon, FlashIcon } from "@hugeicons/core-free-icons";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
-import { effortCopy, PERMISSION_MODE_LABEL } from "../model";
+import { effortCopy, modelMatches, PERMISSION_MODE_LABEL } from "../model";
 import { cliNotice, messageParts } from "../lib/cli-status";
 import type { ImageDraft } from "./usePastedImages";
 import { ModelPicker } from "./ModelPicker";
@@ -31,8 +31,8 @@ import { useSkills } from "./useSkills";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { useKnownFiles } from "./useKnownFiles";
-import { ContextCapsule, shownContextUsage } from "./composer/ContextCapsule";
-import { LocalModelStats } from "./composer/LocalModelStats";
+import { ContextCapsule, isLocalModel, shownContextUsage } from "./composer/ContextCapsule";
+import { PiStats } from "./composer/PiStats";
 import { compactButtonState } from "@milagre/shared/chat-display";
 import { PROMPT_PLACEHOLDER, matchingMentionChats, matchingMentionComputers } from "@milagre/shared/prompt-mentions";
 import { useChatMentions, useMentionComputers } from "./ChatMentions";
@@ -319,7 +319,7 @@ export function PromptComposer({
         : [];
   const providerNotice = cliNotice(cliStatus?.[provider]);
   const providerTabs = pickerProviders(cliStatus, selectedModel.provider, provider);
-  const modelRows = models.filter((model) => model.provider === provider && `${model.name} ${model.id}`.toLowerCase().includes(query.toLowerCase()));
+  const modelRows = models.filter((model) => model.provider === provider && modelMatches(model, query));
   const canSend = draft.trim().length > 0 || quotes.length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
   const canStop = !offlineName && running && Boolean(onStop) && !canSend;
   const visibleSuggestion =
@@ -881,7 +881,7 @@ export function PromptComposer({
                   <ContextCapsule
                     {...{ compactButton, compactQueued, compacting, compactLabel, compactBlocked, running, showContextSize, onCompact, onCancelCompact }}
                     contextUsage={shownContextUsage(contextUsage, selectedModel)}
-                    alwaysShown={selectedModel.provider === "ollama"}
+                    alwaysShown={isLocalModel(selectedModel)}
                     settings={contextSettings}
                   />
                 )
@@ -907,7 +907,7 @@ export function PromptComposer({
           </div>
         </div>
       </div>
-      {selectedModel.provider === "ollama" && <LocalModelStats metrics={contextUsage?.metrics} />}
+      {selectedModel.provider === "pi" && <PiStats usage={contextUsage} local={isLocalModel(selectedModel)} />}
     </div>
   );
 }

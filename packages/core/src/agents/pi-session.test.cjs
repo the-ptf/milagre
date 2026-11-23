@@ -10,7 +10,12 @@ const { isTerminal } = require("./events.cjs");
 const { waitUntil } = require("./test-helpers.cjs");
 
 const FAKE = path.join(__dirname, "fixtures", "fake-pi-agent.cjs");
-const MODELS = [{ id: "ollama:qwen3:8b", name: "qwen3:8b", recommended: true, efforts: ["low", "medium", "high"] }];
+const LOCAL = [{ name: "qwen3:8b", capabilities: ["tools", "thinking"], contextWindow: 65536 }];
+const MODELS = [
+  { id: "pi:ollama/qwen3:8b", name: "qwen3:8b", recommended: true, efforts: ["low", "medium", "high"], local: true },
+  { id: "pi:openrouter/z-ai/glm-4.6", name: "GLM 4.6", recommended: false, efforts: [] },
+];
+const listed = async () => ({ local: LOCAL, models: MODELS, hidden: new Set(["openai-codex"]) });
 
 function pi(t, { scenario = "chat", env = {}, ...options } = {}) {
   const events = [];
@@ -22,7 +27,7 @@ function pi(t, { scenario = "chat", env = {}, ...options } = {}) {
     command: "/usr/local/bin/pi",
     env: { ...process.env, PI_CODING_AGENT_DIR: profile },
     emit: (event) => events.push(event),
-    syncModels: async () => MODELS,
+    syncModels: listed,
     createRpc: (rpcOptions) => {
       spawned.push(rpcOptions);
       return new PiRpc({
@@ -84,7 +89,7 @@ test("a turn starts Pi in RPC mode from the Milagre profile and maps thinking, t
 
 test("Compact runs Pi's own compaction, and automatic compaction is switched on", async (t) => {
   const { session, events } = pi(t, { scenario: "compact" });
-  await session.startTurn({ prompt: "/compact", model: "ollama:qwen3:8b" });
+  await session.startTurn({ prompt: "/compact", model: "pi:ollama/qwen3:8b" });
   await waitUntil(() => ended(events));
   assert.deepEqual(
     events.filter((event) => event.type.startsWith("context-compact")),
@@ -96,7 +101,7 @@ test("Compact runs Pi's own compaction, and automatic compaction is switched on"
 
 test("a saved session resumes by id, and a missing one resets the Chat", async (t) => {
   const { session, events, spawned } = pi(t, { resumeId: "old-session", env: { FAKE_MISSING_SESSION: "1" } });
-  await session.startTurn({ prompt: "again", model: "ollama:qwen3:8b" });
+  await session.startTurn({ prompt: "again", model: "pi:ollama/qwen3:8b" });
   await waitUntil(() => ended(events));
   assert.equal(spawned[0].args[spawned[0].args.indexOf("--session") + 1], "old-session");
   assert.ok(events.some((event) => event.type === "session-reset"));
@@ -105,7 +110,7 @@ test("a saved session resumes by id, and a missing one resets the Chat", async (
 
 test("Ask shows a command as a card and runs it once allowed", async (t) => {
   const { session, events } = pi(t, { scenario: "tool" });
-  await session.startTurn({ prompt: "list", model: "ollama:qwen3:8b", permissionMode: "ask" });
+  await session.startTurn({ prompt: "list", model: "pi:ollama/qwen3:8b", permissionMode: "ask" });
   await waitUntil(() => events.some((event) => event.type === "permission-request"));
   const card = events.find((event) => event.type === "permission-request");
   assert.equal(card.kind, "command");
@@ -121,13 +126,13 @@ test("Ask shows a command as a card and runs it once allowed", async (t) => {
 
 test("Auto runs a command that stays in the folder and asks, with the reason, for a risky one", async (t) => {
   const safe = pi(t, { scenario: "tool" });
-  await safe.session.startTurn({ prompt: "list", model: "ollama:qwen3:8b", permissionMode: "auto" });
+  await safe.session.startTurn({ prompt: "list", model: "pi:ollama/qwen3:8b", permissionMode: "auto" });
   await waitUntil(() => ended(safe.events));
   assert.ok(!safe.events.some((event) => event.type === "permission-request"));
   assert.equal(reply(safe.events), "answer:allow");
 
   const risky = pi(t, { scenario: "tool", env: { FAKE_TOOL: JSON.stringify({ toolName: "bash", input: { command: "git push --force origin main" } }) } });
-  await risky.session.startTurn({ prompt: "push", model: "ollama:qwen3:8b", permissionMode: "auto" });
+  await risky.session.startTurn({ prompt: "push", model: "pi:ollama/qwen3:8b", permissionMode: "auto" });
   await waitUntil(() => risky.events.some((event) => event.type === "permission-request"));
   const card = risky.events.find((event) => event.type === "permission-request");
   assert.ok(card.reason);
@@ -147,7 +152,7 @@ test("Auto edits files inside the Chat's folder without asking", async (t) => {
     workspaceRoots: [cwd],
     env: { FAKE_TOOL: JSON.stringify({ toolName: "edit", input: { path: "notes.md", edits: [{ oldText: "a", newText: "b" }] } }) },
   });
-  await session.startTurn({ prompt: "edit", model: "ollama:qwen3:8b", permissionMode: "auto" });
+  await session.startTurn({ prompt: "edit", model: "pi:ollama/qwen3:8b", permissionMode: "auto" });
   await waitUntil(() => ended(events));
   assert.ok(!events.some((event) => event.type === "permission-request"));
   assert.equal(events.find((event) => event.type === "step-started").step.title, "Edited `notes.md`");
@@ -155,7 +160,7 @@ test("Auto edits files inside the Chat's folder without asking", async (t) => {
 
 test("a read-only Chat turns down changes without a card", async (t) => {
   const { session, events } = pi(t, { scenario: "tool", analysisOnly: true });
-  await session.startTurn({ prompt: "list", model: "ollama:qwen3:8b", permissionMode: "full" });
+  await session.startTurn({ prompt: "list", model: "pi:ollama/qwen3:8b", permissionMode: "full" });
   await waitUntil(() => ended(events));
   assert.ok(!events.some((event) => event.type === "permission-request"));
   assert.equal(reply(events), "answer:deny:This Chat can only read.");
@@ -163,9 +168,9 @@ test("a read-only Chat turns down changes without a card", async (t) => {
 
 test("a message sent mid-turn steers it, and Stop aborts the run", async (t) => {
   const { session, events } = pi(t, { scenario: "hang" });
-  const first = await session.startTurn({ prompt: "work", model: "ollama:qwen3:8b" });
+  const first = await session.startTurn({ prompt: "work", model: "pi:ollama/qwen3:8b" });
   await waitUntil(() => events.some((event) => event.type === "turn-started"));
-  const steered = await session.startTurn({ prompt: "also this", model: "ollama:qwen3:8b" });
+  const steered = await session.startTurn({ prompt: "also this", model: "pi:ollama/qwen3:8b" });
   assert.deepEqual(steered, { turnId: first.turnId, steered: true });
   await waitUntil(() => reply(events) === "steered:also this");
   await session.interrupt();
@@ -175,21 +180,54 @@ test("a message sent mid-turn steers it, and Stop aborts the run", async (t) => 
 
 test("a model error ends the turn with Ollama's message", async (t) => {
   const { session, events } = pi(t, { scenario: "error" });
-  await session.startTurn({ prompt: "hi", model: "ollama:qwen3:8b" });
+  await session.startTurn({ prompt: "hi", model: "pi:ollama/qwen3:8b" });
   await waitUntil(() => ended(events));
   assert.deepEqual(events.at(-1), { type: "turn-failed", message: "Ollama: model not found" });
 });
 
-test("no Ollama means a turn that says how to start it", async (t) => {
-  const { session, events, spawned } = pi(t, {
-    syncModels: async () => {
-      throw new Error("ECONNREFUSED");
-    },
-  });
-  await session.startTurn({ prompt: "hi", model: "ollama:qwen3:8b" });
+test("a local model with Ollama stopped means a turn that says how to start it", async (t) => {
+  const { session, events, spawned } = pi(t, { syncModels: async () => ({ local: null, models: MODELS.slice(1), hidden: new Set() }) });
+  await session.startTurn({ prompt: "hi", model: "pi:ollama/qwen3:8b" });
   await waitUntil(() => ended(events));
   assert.equal(spawned.length, 0);
   assert.match(events.at(-1).message, /Ollama isn't running/);
+});
+
+test("a hosted model gets skills and Pi's own provider, and its turn reports what the Chat has spent", async (t) => {
+  const { session, events, spawned } = pi(t, { env: { FAKE_COST: "0.0312" } });
+  await session.startTurn({ prompt: "hi", model: "pi:openrouter/z-ai/glm-4.6" });
+  await waitUntil(() => ended(events));
+  const { args } = spawned[0];
+  assert.equal(args.includes("--no-skills"), false);
+  assert.equal(args[args.indexOf("--provider") + 1], "openrouter");
+  assert.equal(args[args.indexOf("--model") + 1], "z-ai/glm-4.6");
+  assert.equal(session.localModel, false);
+  assert.deepEqual(
+    events.find((event) => event.type === "context-usage"),
+    { type: "context-usage", used: 1200, size: 65536, cost: 0.0312 },
+  );
+});
+
+test("switching between a local and a hosted model restarts Pi on the same session", async (t) => {
+  const { session, events, spawned } = pi(t);
+  await session.startTurn({ prompt: "hi", model: "pi:ollama/qwen3:8b" });
+  await waitUntil(() => ended(events));
+  const before = events.length;
+  await session.startTurn({ prompt: "again", model: "pi:openrouter/z-ai/glm-4.6" });
+  await waitUntil(() => events.slice(before).some(isTerminal));
+  assert.equal(spawned.length, 2);
+  assert.equal(spawned[0].args.includes("--no-skills"), true);
+  assert.equal(spawned[1].args.includes("--no-skills"), false);
+  assert.equal(spawned[1].args[spawned[1].args.indexOf("--session") + 1], "pi-session-1");
+  assert.equal(events.slice(before).at(-1).type, "turn-completed");
+});
+
+test("a subscription sign-in's model is refused instead of run through Pi", async (t) => {
+  const { session, events, spawned } = pi(t);
+  await session.startTurn({ prompt: "hi", model: "pi:openai-codex/gpt-5.6-codex" });
+  await waitUntil(() => ended(events));
+  assert.equal(spawned.length, 0);
+  assert.match(events.at(-1).message, /subscription sign-ins/);
 });
 
 test("only Milagre's own tool-call dialogs count as permission requests", () => {

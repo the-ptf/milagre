@@ -47,7 +47,7 @@ export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle repositories folder import migrate t3 paseo orca",
   "this-mac": "computer resources memory disk drive other computers add computer computer use",
   usage: "token tokens cost spend dollars analytics estimated",
-  accounts: "sign in login claude codex antigravity kiro ollama pi local models profile per project link usage limits",
+  accounts: "sign in login claude codex antigravity kiro pi ollama openrouter local models profile per project link usage limits",
   appearance: "theme dark light mode font size colors look",
   chat: "messages transcript reasoning tool calls follow-up queue steer",
   voice: "dictation speech whisper microphone language transcribe",
@@ -448,6 +448,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "concise normal length verbose",
   },
 
+  { page: "accounts", title: "Computer", keywords: "paired other remote mac machine manage accounts" },
   {
     page: "accounts",
     title: "Add account",
@@ -645,6 +646,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "share public links revoke",
   },
 
+  {
+    page: "this-mac",
+    title: "Show computers as",
+    description:
+      "A map of the phones and computers around this one and the route each uses (LAN, Tailscale or the relay), or a list with their memory and disk.",
+    keywords: "map list routes relay lan tailscale network devices",
+  },
   {
     page: "this-mac",
     title: "Drive other computers",

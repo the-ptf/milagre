@@ -139,7 +139,9 @@ export function applyRunEvent(runs, chatId, event, model = "") {
     case "subagents-waiting":
       return run ? { ...runs, [chatId]: { ...run, waitingForSubagents: event.waiting } } : runs;
     case "context-usage":
-      return run ? { ...runs, [chatId]: { ...run, contextUsage: { used: event.used, size: event.size } } } : runs;
+      return run
+        ? { ...runs, [chatId]: { ...run, contextUsage: { used: event.used, size: event.size, ...(event.cost > 0 ? { cost: event.cost } : {}) } } }
+        : runs;
     case "answers-sent":
       return run ? { ...runs, [chatId]: splitRun(run) ?? { ...run, split: true } } : runs;
     case "text-delta":
@@ -184,13 +186,19 @@ export function applyRunEvent(runs, chatId, event, model = "") {
 }
 
 /** `changed` is true when `state` must be saved; streamed text lives only in `runs` until the turn ends. */
-// What a finished turn leaves on its session: the context it used and, on Ollama, how fast the model ran.
+// What a finished turn leaves on its session: the context it used, what a Pi Chat has spent, and how fast a local model ran.
 function withTurnTotals(state, sessionId, session, run, event) {
   const metrics = event.type === "turn-completed" ? event.metrics : undefined;
   const usage = run.contextUsage ?? (metrics ? session.contextUsage : undefined);
   if (!usage) return state;
   const contextUsage = metrics ? { ...usage, metrics } : usage;
   return { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, contextUsage } } };
+}
+
+// Compaction shrinks the context, not what a Pi Chat has spent.
+function compactedUsage(used, size, run, session) {
+  const cost = run?.contextUsage?.cost ?? session.contextUsage?.cost;
+  return { used, size, ...(cost ? { cost } : {}) };
 }
 
 export function applyAgentEvent(state, runs, projectPath, chatId, event) {
@@ -292,7 +300,7 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
     case "context-compacted": {
       const size = run?.contextUsage?.size ?? session.contextUsage?.size;
       if (Number.isFinite(event.after) && event.after >= 0 && size > 0) {
-        const contextUsage = { used: event.after, size };
+        const contextUsage = compactedUsage(event.after, size, run, session);
         session = { ...session, contextUsage };
         state = { ...state, sessions: { ...state.sessions, [sessionId]: session } };
         if (run) runs = { ...runs, [chatId]: { ...run, contextUsage } };

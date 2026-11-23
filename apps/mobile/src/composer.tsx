@@ -1,3 +1,5 @@
+import { startingProvider } from "@milagre/shared/providers";
+import type { AgentCliStatus } from "@milagre/shared/model";
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PermissionMode } from "@milagre/shared/model";
 import type { ComposerQuote } from "@milagre/shared/prompt-parts";
@@ -10,7 +12,7 @@ import { defaultPreferences, type TurnPreferences } from "./turn-options";
  * Drafts, attachments and quotes change on every keystroke, so they live in a context of their own that only the
  * composer reads: typing re-renders the composer, not the Chat around it, which reads them through `readDrafts`.
  */
-export function ComposerProvider({ children }: { children: React.ReactNode }) {
+export function ComposerProvider({ children, cliStatus }: { children: React.ReactNode; cliStatus?: AgentCliStatus | null }) {
   const [linkOperations] = useState(createLinkOperations);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [attachments, setAttachments] = useState<Record<string, Attachment[]>>({});
@@ -25,7 +27,12 @@ export function ComposerProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
   const [modelDefaults, setModelDefaults] = useState(() => savedChatDefaults.readModel());
-  const defaults = useMemo(() => ({ ...defaultPreferences, ...modelDefaults, permissionMode: permission }), [modelDefaults, permission]);
+  // A saved default on an agent this computer doesn't have (Pi, picked on another computer) starts new Chats elsewhere.
+  const defaults = useMemo(() => {
+    const saved = { ...defaultPreferences, ...modelDefaults, permissionMode: permission };
+    const provider = startingProvider(saved.provider, cliStatus);
+    return provider === saved.provider ? saved : { ...saved, provider, model: "", fastMode: false, ultracode: false };
+  }, [modelDefaults, permission, cliStatus]);
   const setDefaultModel = useCallback((choice: TurnPreferences) => {
     const { provider, model, effort, fastMode, ultracode } = choice;
     setModelDefaults({ provider, model, effort, fastMode, ultracode });

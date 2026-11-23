@@ -453,7 +453,7 @@ export function dictationFixModel(value) {
 export function fixUpProvider(model, chatProvider) {
   const picked = dictationFixModel(model);
   if (picked !== "auto") return picked;
-  if (chatProvider === "ollama") return "ollama";
+  if (chatProvider === "pi") return "pi";
   return DICTATION_FIX_MODELS.some((item) => item.value === chatProvider && item.value !== "auto") ? chatProvider : "claude";
 }
 

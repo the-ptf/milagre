@@ -240,7 +240,7 @@ async function upgradeWithHomebrew(name, channel, deps, satisfied) {
 
 async function runCliUpdate(name, deps = {}) {
   if (name === "antigravity") return updateAntigravity(deps);
-  if (name === "ollama")
+  if (name === "pi")
     return {
       ok: false,
       error: "Pi is installed and updated outside Milagre: `npm install -g @earendil-works/pi-coding-agent` installs it, `pi update self` updates it.",

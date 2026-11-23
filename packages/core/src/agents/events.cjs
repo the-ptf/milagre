@@ -138,11 +138,13 @@ const INSTALL_COMMANDS =
     ? { claude: "irm https://claude.ai/install.ps1 | iex", codex: "irm https://chatgpt.com/codex/install.ps1 | iex" }
     : { claude: "curl -fsSL https://claude.ai/install.sh | bash", codex: "curl -fsSL https://chatgpt.com/codex/install.sh | sh" };
 if (process.platform === "darwin") INSTALL_COMMANDS.kiro = "brew install --cask kiro-cli";
-INSTALL_COMMANDS.ollama = "npm install -g @earendil-works/pi-coding-agent";
-const UPDATE_COMMANDS = { claude: "claude update", codex: "codex update", kiro: "kiro-cli update", ollama: "pi update self" };
+INSTALL_COMMANDS.pi = "npm install -g @earendil-works/pi-coding-agent";
+const UPDATE_COMMANDS = { claude: "claude update", codex: "codex update", kiro: "kiro-cli update", pi: "pi update self" };
 const LOGIN_COMMANDS = { claude: "claude auth login", codex: "codex login", kiro: "kiro-cli login" };
 const SETTINGS_ACCOUNTS = "Milagre Settings \u2192 Accounts";
 const OLLAMA_DOWN_MESSAGE = "Ollama isn't running on this computer. Open the Ollama app or run `ollama serve`, then send your message again.";
+const PI_SIGNED_OUT_MESSAGE =
+  "Pi has no model to run. Start Ollama, or connect a provider with `pi auth login <provider>` in a terminal (or set its API key, like OPENROUTER_API_KEY), then send your message again.";
 
 const LOG_PREFIX = /^(?:\d{4}-\d\d-\d\dT[\d:.]+Z?\s+)?(?:TRACE|DEBUG|INFO|WARN|ERROR)(?:\s+|$)(?:[\w.-]+(?:::[\w.-]+)*:(?:\s+|$))?/;
 
@@ -183,7 +185,7 @@ function cliBrokenMessage(name, command, detail) {
 }
 
 function loginMessage(name) {
-  if (name === "ollama") return OLLAMA_DOWN_MESSAGE;
+  if (name === "pi") return PI_SIGNED_OUT_MESSAGE;
   if (name === "antigravity") return `${cliName(name)} isn't signed in. Sign in to Antigravity from ${SETTINGS_ACCOUNTS}, then send your message again.`;
   return `${cliName(name)} isn't logged in. Run \`${LOGIN_COMMANDS[name]}\` in a terminal, then send your message again.`;
 }
@@ -570,6 +572,7 @@ function codexReasoning(method, item, state) {
 
 module.exports = {
   OLLAMA_DOWN_MESSAGE,
+  PI_SIGNED_OUT_MESSAGE,
   AUTH_RETRY_MESSAGE,
   MILAGRE_INSTRUCTIONS,
   SUBAGENT_DESIGN_INSTRUCTIONS,

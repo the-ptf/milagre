@@ -103,7 +103,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
             "project_set_account",
             "Choose a saved provider Account for all Chats in a Project, as its model picker does. accountId null follows the computer default; use an ID from project_accounts to pin an Account. Running turns and background tasks keep their existing Account. This does not restart or send a message to any Chat, or change a named Link's independent Accounts.",
             "create",
-            { ...projectInput, provider: z.enum(["claude", "codex", "antigravity", "kiro", "ollama"]), accountId: z.string().min(1).max(128).nullable() },
+            { ...projectInput, provider: z.enum(["claude", "codex", "antigravity", "kiro", "pi"]), accountId: z.string().min(1).max(128).nullable() },
             (args) => host.setProjectAccount(args, assertActive),
           ),
           ...dictationTools(read, act, host),
@@ -222,7 +222,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
           {
             ...chatInput,
             prompt: z.string().trim().min(1).max(100000),
-            provider: z.enum(["claude", "codex", "antigravity", "kiro", "ollama"]).optional(),
+            provider: z.enum(["claude", "codex", "antigravity", "kiro", "pi"]).optional(),
             model: z.string().min(1).max(300).optional(),
             effort: z.enum(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]).optional(),
             permissionMode: permissionMode.optional(),

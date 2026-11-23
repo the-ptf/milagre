@@ -2,20 +2,24 @@ import { useState } from "react";
 import { Linking, View } from "react-native";
 import type { AccountsSnapshot, ModelProvider } from "@milagre/shared/model";
 import { useSession } from "./session";
+import type { Client } from "./client";
 import { Field, InlineError, PillButton } from "./ui";
 
 export function AccountSignInCode({
+  client: chosen,
   provider,
   accountId,
   url,
   onDone,
 }: {
+  client?: Client | null;
   provider: ModelProvider;
   accountId: string;
   url: string;
   onDone: (next: AccountsSnapshot) => void;
 }) {
-  const client = useSession().client;
+  const sessionClient = useSession().client;
+  const client = chosen ?? sessionClient;
   const [code, setCode] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");

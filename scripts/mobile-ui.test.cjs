@@ -592,8 +592,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "orchestrator-church-row" && !(id in modules)) return { OrchestratorChurchRow: () => null };
       if (id === "@milagre/shared/orchestrator" && !(id in modules)) return require("@milagre/shared/orchestrator");
       if (id === "@milagre/shared/provider-capabilities" && !(id in modules)) return require("@milagre/shared/provider-capabilities");
-      // The local-model speed line under the composer renders nothing without an Ollama turn.
-      if (base === "local-model-stats" && !(id in modules)) return { LocalModelStats: () => null };
+      if (id === "@milagre/shared/providers" && !(id in modules)) return require("@milagre/shared/providers");
+      // The local-model speed line under the composer renders nothing without a Pi turn.
+      if (base === "pi-stats" && !(id in modules)) return { PiStats: () => null };
       if (base === "orchestrator-answer-line" && !(id in modules)) return { OrchestratorAnswerLine: () => null };
       if (base === "orchestrator-mention-row" && !(id in modules)) return { OrchestratorMentionRow: () => null };
       if (base === "use-orchestrator" && !(id in modules)) return { useTaskEffort: () => null };
@@ -11877,19 +11878,48 @@ test("mobile Accounts lists each Project's accounts under its saved accounts, wi
   const { SettingsView } = loadSettings({ client: { url: "http://mac", call: async () => null } });
   find(SettingsView({ onOpen: (page) => opened.push(page) }), (n) => n.props.title === "Accounts").props.onPress();
   assert.deepEqual(opened, ["accounts"]);
+  const state = { chosen: null, views: [] };
+  const studio = { url: "http://studio", call: async () => null };
   const { default: Screen } = load("app/(settings)/accounts.tsx", {
     "react/jsx-runtime": { jsx, jsxs: jsx },
+    react: { useState: () => [state.chosen, (value) => (state.chosen = value)] },
     "expo-router": { Stack: { Screen: "Screen" } },
-    "react-native": { View: "View" },
-    "../ui": { PageScroll: "PageScroll", SectionLabel: "SectionLabel" },
+    "react-native": { Text: "Text", View: "View" },
+    "../settings-find": { Findable: "Findable", SettingsScroll: "SettingsScroll" },
+    "../ui": { PullDown: "PullDown", SectionLabel: "SectionLabel", useStyles: () => ({ card: {}, text: {} }) },
+    "../session": { useSession: () => ({ client: { url: "http://mac" }, hostName: "Mac mini" }) },
+    "../all-computers": {
+      useComputerViews: () => state.views,
+      allComputers: { clientFor: (hostId) => (hostId === studio.url ? studio : null) },
+    },
     "../accounts-section": { AccountsSection: "AccountsSection" },
     "../limit-switch-section": { LimitAutoSwitchSection: "LimitAutoSwitchSection" },
     "../project-accounts-section": { ProjectAccountsSection: "ProjectAccountsSection" },
   });
-  const rendered = Screen();
-  assert.equal(find(rendered, (n) => n.type === "Screen").props.options.title, "Accounts");
-  assert.ok(find(rendered, (n) => n.type === "SectionLabel" && n.props.children === "Per Project"));
-  assert.equal(find(rendered, (n) => n.type === "ProjectAccountsSection").props.onAccountsPage, true);
+  const alone = Screen();
+  assert.equal(find(alone, (n) => n.type === "Screen").props.options.title, "Accounts");
+  assert.equal(
+    find(alone, (n) => n.type === "PullDown"),
+    undefined,
+    "One computer needs no Computer menu",
+  );
+  assert.ok(find(alone, (n) => n.type === "SectionLabel" && n.props.children === "Per Project"));
+  assert.equal(find(alone, (n) => n.type === "ProjectAccountsSection").props.onAccountsPage, true);
+
+  state.views = [
+    { hostId: "http://mac", name: "Mac mini", state: "online" },
+    { hostId: studio.url, name: "Studio", state: "online" },
+  ];
+  const menu = find(Screen(), (n) => n.type === "PullDown");
+  assert.equal(menu.props.sections[0].items.map((item) => `${item.title}:${item.checked}`).join(", "), "Mac mini:true, Studio:false");
+  assert.equal(find(Screen(), (n) => n.type === "AccountsSection").props.client, undefined, "This computer uses the session's client");
+  menu.props.onSelect(studio.url);
+  const remote = Screen();
+  assert.equal(find(remote, (n) => n.type === "AccountsSection").props.client, studio);
+  assert.equal(find(remote, (n) => n.type === "AccountsSection").props.hostName, "Studio");
+  assert.equal(find(remote, (n) => n.type === "LimitAutoSwitchSection").props.client, studio);
+  find(remote, (n) => n.type === "PullDown").props.onSelect("http://mac");
+  assert.equal(state.chosen, null);
 });
 
 test("new mobile Chat has no simulator pill; an existing Chat carries its identity", () => {
