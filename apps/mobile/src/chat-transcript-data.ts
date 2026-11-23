@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import type { ChatMessage, WorktreeBinding } from "@milagre/shared/model";
-import { chatPullRequests, pullRequestRefs, withPreview } from "@milagre/shared/chats";
+import { chatPullRequests, ownsWorktree, pullRequestRefs, withPreview, worktreeFree } from "@milagre/shared/chats";
 import type { Client } from "./client";
 import { pullRequestPresentation, rowPullRequests } from "@milagre/shared/pr-blockers";
 import { usePrDetail } from "./pr-store";
@@ -90,7 +90,10 @@ export function useChatPrs({
     session.client,
     prPath ? [{ path: prPath, refs: prRefs }] : linkMembers.map((member) => ({ path: member.worktreePath, refs: NO_REFS })),
   );
-  const chatPrs = prPath ? chatPullRequests(prRefs, prStatus[prPath]?.found ?? {}, prStatus[prPath]?.branch) : [];
+  // The Worktree branch's PR is the Chat's own only in a Worktree it has to itself; a new Chat, in one no open Chat uses.
+  const project = session.snapshot?.project;
+  const owned = project ? (openChat ? ownsWorktree(project.state, openChat.id, project.path) : worktreeFree(project.state, prPath, project.path)) : false;
+  const chatPrs = prPath ? chatPullRequests(prRefs, prStatus[prPath]?.found ?? {}, owned ? prStatus[prPath]?.branch : undefined) : [];
   const linkPrs = linkMembers.flatMap((member) => {
     const branch = prStatus[member.worktreePath]?.branch;
     return branch

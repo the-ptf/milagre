@@ -5,6 +5,10 @@ export {
   chatPullRequests,
   createdPullRequestUrl,
   associatedPullRequest,
+  ownsWorktree,
+  worktreeFree,
+  pushedBranches,
+  mergesCheckedOutBranch,
   type PullRequestRef,
 } from "./chat-pull-requests.mjs";
 

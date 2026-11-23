@@ -1,7 +1,7 @@
 import { chatKey } from "@milagre/shared/agent-runs";
 import { qualifyKey } from "@milagre/shared/chat-scopes";
 import type { AgentRun, AgentRuns } from "@milagre/shared/agent-runs";
-import { chatPullRequests } from "@milagre/shared/chats";
+import { chatPullRequests, ownsWorktree } from "@milagre/shared/chats";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import {
   autopilotPending,
@@ -62,7 +62,8 @@ function taskPullRequest(task: OrchestratorTask, session: AgentSession | undefin
   const scope = taskScope(task);
   const path = session && scope ? states[scope]?.worktrees?.[String(session.worktree_id)]?.path : undefined;
   const snapshot = scope ? snapshots[scope] : undefined;
-  const prs = path && snapshot ? chatPullRequests(refs, snapshot.chats[path] ?? {}, snapshot.worktrees[path] ?? undefined) : [];
+  const owned = session ? ownsWorktree(scope ? states[scope] : undefined, session.id, task.projectPath) : false;
+  const prs = path && snapshot ? chatPullRequests(refs, snapshot.chats[path] ?? {}, owned ? (snapshot.worktrees[path] ?? undefined) : undefined) : [];
   return prs.length ? pullRequestState(prs.map((pr) => pr.state)) : refs.length ? "open" : null;
 }
 
