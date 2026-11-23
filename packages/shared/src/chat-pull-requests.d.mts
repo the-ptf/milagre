@@ -5,7 +5,8 @@ export function associatedPullRequest<T extends { url: string }>(url: string, ch
 type Messages = Array<{ steps?: ChatStep[] }>;
 export function pullRequestRefs(messages: Messages): PullRequestRef[];
 export function createdPullRequestUrl(detail: string): string | null;
-export function pushedBranches(detail: string): string[];
+export function mergesCheckedOutBranch(command: string): boolean;
+export function pushedBranches(detail: string): { repo: string; branch: string }[];
 export function worktreeFree(
   state: { sessions?: Record<string, unknown>; worktrees?: Record<string, { id: number | string; path: string } | undefined> } | null | undefined,
   worktreePath: string | null | undefined,

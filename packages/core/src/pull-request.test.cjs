@@ -428,15 +428,35 @@ test("readPullRequestState reports a CLOSED PR as known, and a failed lookup as 
   assert.deepEqual(await readPullRequestState("/project/worktree", none), { known: true, pr: null });
 });
 
-test("a pushed branch reads as its newest PR through gh pr list, and a ref that isn't a branch never reaches gh", async () => {
+test("a pushed branch reads as the newest PR from that repository's branch, never a fork's namesake", async () => {
   const calls = [];
   const exec = async (command, args) => {
     calls.push(args);
-    return { stdout: JSON.stringify([{ number: 12, url: "https://github.com/example/project/pull/12", state: "OPEN", title }]) };
+    const pr = (number, owner) => ({
+      number,
+      url: `https://github.com/example/project/pull/${number}`,
+      state: "OPEN",
+      title,
+      headRepository: { name: "project" },
+      headRepositoryOwner: { login: owner },
+    });
+    return { stdout: JSON.stringify([pr(14, "someone"), pr(12, "Example")]) };
   };
-  const [pr, flag, escape] = await readPullRequests("/project", ["push:fix/login", "push:--web", "push:a..b"], exec);
-  assert.equal(pr.number, 12);
+  const [pushed, merged, flag, escape, bare] = await readPullRequests(
+    "/project",
+    ["push:example/project:fix/login", "branch:fix/login", "push:example/project:--web", "push:example/project:a..b", "push:fix/login"],
+    exec,
+  );
+  assert.equal(pushed.number, 12, "the PR from the pushed repository, not the newer one from a fork");
+  assert.equal(merged.number, 14, "a merged branch reads as its newest PR");
   assert.equal(flag, null);
   assert.equal(escape, null);
-  assert.deepEqual(calls, [["pr", "list", "--head", "fix/login", "--state", "all", "--limit", "1", "--json", calls[0][9]]]);
+  assert.equal(bare, null, "a push without its repository isn't read");
+  assert.deepEqual(
+    calls.map((args) => args.slice(0, 8)),
+    [
+      ["pr", "list", "--head", "fix/login", "--state", "all", "--limit", "10"],
+      ["pr", "list", "--head", "fix/login", "--state", "all", "--limit", "1"],
+    ],
+  );
 });

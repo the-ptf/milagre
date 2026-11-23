@@ -2,7 +2,7 @@ const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const { createGit } = require("./git/client.cjs");
 const { background, scheduled } = require("./process-lanes.cjs");
-const { fromGraphql, readPullRequests, PULL_REQUEST_FIELDS, PR_REF, MAX_REFS, pushedBranch } = require("./pull-request.cjs");
+const { fromGraphql, readPullRequests, PULL_REQUEST_FIELDS, PR_REF, MAX_REFS, namedBranch, followsBranch } = require("./pull-request.cjs");
 
 const ALIASES = 25;
 const RUNNING_MS = 20_000;
@@ -29,8 +29,8 @@ function queries(items) {
     const local = chunk
       .filter((item) => item.kind !== "url")
       .map((item) =>
-        item.kind === "branch"
-          ? `${item.alias}: pullRequests(headRefName: ${JSON.stringify(item.branch)}, first: 1, orderBy: {field: CREATED_AT, direction: DESC}) { nodes { ...F } }`
+        item.kind === "branch" || item.kind === "push"
+          ? `${item.alias}: pullRequests(headRefName: ${JSON.stringify(item.branch)}, first: ${item.kind === "push" ? 10 : 1}, orderBy: {field: CREATED_AT, direction: DESC}) { nodes { ...F${item.kind === "push" ? " headRepository { nameWithOwner }" : ""} } }`
           : `${item.alias}: pullRequest(number: ${item.number}) { ...F }`,
       );
     const remote = chunk
@@ -47,13 +47,24 @@ function queries(items) {
   return documents;
 }
 
-/** How the repository's query reads a Chat's ref (a pushed branch as that branch's newest PR), or null for gh alone. */
+/**
+ * How the repository's query reads a Chat's ref (a pushed branch as the newest PR from that repository's branch, a merged
+ * one as the branch's newest PR), or null for gh alone.
+ */
 function refItem(ref) {
-  const pushed = pushedBranch(ref);
-  if (pushed) return { kind: "branch", branch: pushed };
+  const named = namedBranch(ref);
+  if (named) return named.repo ? { kind: "push", branch: named.branch, repo: named.repo } : { kind: "branch", branch: named.branch };
   if (/^\d+$/.test(ref)) return { kind: "number", number: Number(ref) };
   const url = GITHUB_PR.exec(ref);
   return url ? { kind: "url", owner: url[1], name: url[2], number: Number(url[3]) } : null;
+}
+
+/** An item's answer in a query's data: a pushed branch's PR from its repository, a branch's newest, or one PR. */
+function nodeOf(data, item) {
+  const nodes = data.repository?.[item.alias]?.nodes;
+  if (item.kind === "push") return nodes?.find((pr) => pr?.headRepository?.nameWithOwner?.toLowerCase() === item.repo.toLowerCase());
+  if (item.kind === "branch") return nodes?.[0];
+  return item.kind === "number" ? data.repository?.[item.alias] : data[item.alias]?.pullRequest;
 }
 
 function createPullRequestWatch({
@@ -204,7 +215,7 @@ function createPullRequestWatch({
     for (const target of live) {
       if (target.head) add(`branch:${target.head}`, { kind: "branch", branch: target.head });
       for (const [ref, entry] of target.refs) {
-        if (entry.value?.state === "MERGED") continue;
+        if (entry.value?.state === "MERGED" && !followsBranch(ref)) continue;
         const item = refItem(ref);
         if (item) add(`ref:${ref}`, item);
         else others.push([target, ref]);
@@ -219,12 +230,7 @@ function createPullRequestWatch({
         try {
           const data = await graphql(cwd, query);
           for (const item of chunk) {
-            const node =
-              item.kind === "branch"
-                ? data.repository?.[item.alias]?.nodes?.[0]
-                : item.kind === "number"
-                  ? data.repository?.[item.alias]
-                  : data[item.alias]?.pullRequest;
+            const node = nodeOf(data, item);
             found.set(item.key, fromGraphql(node));
           }
           const quota = data.rateLimit;
@@ -264,7 +270,7 @@ function createPullRequestWatch({
       changed.add(target.path);
     }
     for (const [ref, entry] of target.refs) {
-      if (entry.value?.state === "MERGED") continue;
+      if (entry.value?.state === "MERGED" && !followsBranch(ref)) continue;
       const value = take(entry.value, `ref:${ref}`);
       if (!("value" in entry) || !same(entry.value, value)) {
         entry.value = value;

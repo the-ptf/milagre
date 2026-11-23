@@ -64,7 +64,7 @@ test("merged PRs come from the merge command's argument", () => {
   );
 });
 
-test("merging the current branch adds nothing: the branch PR already shows", () => {
+test("merging the current branch on a step without its branch adds nothing", () => {
   assert.deepEqual(pullRequestRefs([reply(shell("$ gh pr merge --squash --auto"))]), []);
 });
 
@@ -121,35 +121,55 @@ test("the refs cache rescans a chat only when one of its messages is a different
   assert.deepEqual(read("a#2", [first]), [url(88)]);
 });
 
-test("a push links the branches git reports, or the refspecs when it printed none", () => {
+test("a push links each branch git reports with the repository it went to", () => {
   assert.deepEqual(
     pullRequestRefs([
       reply(
         shell(
           "$ git push -u origin HEAD\nTo github.com:example/repo.git\n * [new branch]      HEAD -> fix/login\nbranch 'fix/login' set up to track 'origin/fix/login'.",
         ),
-        shell("$ cd app && git push 2>&1 | tail -3\nTo github.com:example/repo.git\n   861d7fc7..1034ef67  fix/login -> fix/login"),
-        shell("$ git push --force-with-lease origin feat/chips\nTo github.com:example/repo.git\n + 1a2b3c4...5d6e7f8 feat/chips -> feat/chips (forced update)"),
-        shell("$ git push -q -u origin fix/quiet && gh pr view --web"),
-        shell("$ git push origin HEAD:refs/heads/fix/renamed"),
+        shell("$ cd app && git push 2>&1 | tail -3\nTo https://github.com/example/repo\n   861d7fc7..1034ef67  fix/login -> fix/login"),
+        shell(
+          "$ git push --force-with-lease fork feat/chips\nTo ssh://git@github.com/someone/repo.git\n + 1a2b3c4...5d6e7f8 feat/chips -> feat/chips (forced update)",
+        ),
+        shell("$ git push --porcelain origin fix/plain\nTo github.com:example/repo.git\n*\trefs/heads/fix/plain:refs/heads/fix/plain\t[new branch]\nDone"),
       ),
     ]),
-    ["push:fix/login", "push:feat/chips", "push:fix/quiet", "push:fix/renamed"],
+    ["push:example/repo:fix/login", "push:someone/repo:feat/chips", "push:example/repo:fix/plain"],
   );
 });
 
-test("a failed push, a deletion, tags and a bare HEAD link nothing", () => {
+test("a push that wrote nothing, or whose repository git didn't name, links nothing", () => {
   assert.deepEqual(
     pullRequestRefs([
       reply(
-        shell("$ git push origin fix/failed\n ! [rejected]        fix/failed -> fix/failed (fetch first)", "failed"),
+        shell("$ git push origin fix/failed\nTo github.com:example/repo.git\n ! [rejected]        fix/failed -> fix/failed (fetch first)", "failed"),
+        shell("$ git push --dry-run origin fix/dry\nTo github.com:example/repo.git\n * [new branch]      fix/dry -> fix/dry"),
+        shell("$ git push -n origin fix/dry\nTo github.com:example/repo.git\n * [new branch]      fix/dry -> fix/dry"),
         shell("$ git push origin --delete old/branch\nTo github.com:example/repo.git\n - [deleted]         old/branch"),
         shell("$ git push --tags\nTo github.com:example/repo.git\n * [new tag]         v1.0 -> v1.0"),
-        shell("$ git push -q origin HEAD"),
-        shell("$ git push origin -- --upload-pack=x ../escape"),
+        shell("$ git push -q -u origin fix/quiet"),
+        shell("$ git push ../mirror fix/local\nTo ../mirror\n * [new branch]      fix/local -> fix/local"),
+        shell("$ git push origin fix/x\nTo github.com:example/repo.git\n * [new branch]      fix/x -> ../escape"),
       ),
     ]),
     [],
+  );
+});
+
+test("a merge of the checked-out branch links the branch the host saw when it started", () => {
+  // The host keeps the branch on the step (step-start.cjs); the saved step carries it as an extra field.
+  const merge = (detail: string, branch?: string) => ({ ...shell(detail), ...(branch ? { branch } : {}) }) as ChatStep;
+  assert.deepEqual(
+    pullRequestRefs([
+      reply(
+        merge("$ gh pr merge --squash --delete-branch", "fix/login"),
+        merge("$ gh pr merge 42 --squash", "fix/other"),
+        merge("$ gh pr merge --auto", "HEAD"),
+        merge("$ gh pr merge --merge"),
+      ),
+    ]),
+    ["branch:fix/login", "42"],
   );
 });
 

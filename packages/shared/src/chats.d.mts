@@ -8,6 +8,7 @@ export {
   ownsWorktree,
   worktreeFree,
   pushedBranches,
+  mergesCheckedOutBranch,
   type PullRequestRef,
 } from "./chat-pull-requests.mjs";
 

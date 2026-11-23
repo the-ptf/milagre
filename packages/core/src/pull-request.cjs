@@ -7,12 +7,19 @@ const { scheduled } = require("./process-lanes.cjs");
 const execFileAsync = promisify(execFile);
 
 const FIELDS = "number,url,state,title,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup";
-// What a chat's commands can name: a PR URL or a number in the chat's repository, or a branch its `git push` updated
-// (`push:<branch>`, read as that branch's newest PR). Nothing gh reads as a flag.
-const PUSH_REF = /^push:((?!-)(?!.*\.\.)(?!.*\/\/)[\w./-]{1,200})$/;
-const PR_REF = /^(?:\d+|https?:\/\/[^\s/]+\/[\w.-]+\/[\w.-]+\/pull\/\d+|push:(?!-)(?!.*\.\.)(?!.*\/\/)[\w./-]{1,200})$/;
-/** The branch a `push:<branch>` ref names, or null for any other ref. */
-const pushedBranch = (ref) => (typeof ref === "string" ? (PUSH_REF.exec(ref)?.[1] ?? null) : null);
+// What a chat's commands can name: a PR URL or a number in the chat's repository, a branch its `git push` updated in a
+// repository (`push:<owner>/<repo>:<branch>`, that branch's newest PR from that repository), or the branch a
+// `gh pr merge` of the checked-out branch merged (`branch:<branch>`). Nothing gh reads as a flag.
+const BRANCH_NAME = String.raw`(?!-)(?!.*\.\.)(?!.*//)[\w./-]{1,200}`;
+const NAMED_BRANCH = new RegExp(String.raw`^(?:push:([\w.-]+/[\w.-]+):|branch:)(${BRANCH_NAME})$`);
+const PR_REF = new RegExp(String.raw`^(?:\d+|https?://[^\s/]+/[\w.-]+/[\w.-]+/pull/\d+|push:[\w.-]+/[\w.-]+:${BRANCH_NAME}|branch:${BRANCH_NAME})$`);
+/** The branch a `push:` or `branch:` ref names, with the repository a push went to; null for any other ref. */
+function namedBranch(ref) {
+  const match = typeof ref === "string" ? NAMED_BRANCH.exec(ref) : null;
+  return match ? { branch: match[2], repo: match[1] ?? null } : null;
+}
+/** Whether a ref keeps being read after its PR merged: a pushed branch may get a new PR. */
+const followsBranch = (ref) => typeof ref === "string" && ref.startsWith("push:");
 // A chat that ran a long loop of `gh pr create` still makes a bounded number of lookups.
 const MAX_REFS = 20;
 
@@ -46,9 +53,14 @@ async function readPullRequest(cwd, exec = execFileAsync) {
   return toPullRequest((await readPullRequestState(cwd, exec)).pr);
 }
 
-async function readBranchPullRequest(cwd, branch, exec) {
-  const { stdout } = await scheduled(exec)("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", FIELDS], execOptions(cwd));
-  return toPullRequest(JSON.parse(stdout)[0]);
+/** The branch's newest PR; with `repo`, the newest one whose head is that repository's branch, not a fork's namesake. */
+async function readBranchPullRequest(cwd, branch, exec, repo = null) {
+  const fields = repo ? `${FIELDS},headRepository,headRepositoryOwner` : FIELDS;
+  const args = ["pr", "list", "--head", branch, "--state", "all", "--limit", repo ? "10" : "1", "--json", fields];
+  const { stdout } = await scheduled(exec)("gh", args, execOptions(cwd));
+  const prs = JSON.parse(stdout);
+  const head = (pr) => `${pr?.headRepositoryOwner?.login}/${pr?.headRepository?.name}`.toLowerCase();
+  return toPullRequest(repo ? prs.find((pr) => head(pr) === repo.toLowerCase()) : prs[0]);
 }
 
 // Two `gh pr list` per repository answer every worktree's branch, instead of one query per worktree
@@ -115,8 +127,8 @@ async function readPullRequests(cwd, refs, exec = execFileAsync) {
     refs.slice(0, MAX_REFS).map(async (ref) => {
       if (typeof ref !== "string" || !PR_REF.test(ref)) return null;
       try {
-        const branch = pushedBranch(ref);
-        if (branch) return await readBranchPullRequest(cwd, branch, exec);
+        const named = namedBranch(ref);
+        if (named) return await readBranchPullRequest(cwd, named.branch, exec, named.repo);
         const { stdout } = await scheduled(exec)("gh", ["pr", "view", ref, "--json", FIELDS], execOptions(cwd));
         return toPullRequest(JSON.parse(stdout));
       } catch {
@@ -204,6 +216,7 @@ module.exports = {
   fromGraphql,
   PULL_REQUEST_FIELDS,
   PR_REF,
-  pushedBranch,
+  namedBranch,
+  followsBranch,
   MAX_REFS,
 };

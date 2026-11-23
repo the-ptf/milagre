@@ -7,6 +7,7 @@ export {
   ownsWorktree,
   worktreeFree,
   pushedBranches,
+  mergesCheckedOutBranch,
 } from "./chat-pull-requests.mjs";
 import { chatSummary, summarizeChat } from "./chat-summary.mjs";
 import { promptTitle } from "./prompt-parts.mjs";

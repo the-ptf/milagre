@@ -23,6 +23,7 @@ const { framedBrief, renderTranscript } = require("./handover.cjs");
 const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
 const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
 const { summarizeStep } = require("@milagre/shared/tool-activity");
+const { startedStep, checkedOutBranch: readCheckedOutBranch } = require("./step-start.cjs");
 const { providerName } = require("@milagre/shared/providers");
 const { accountSwitchText, limitResetText } = require("@milagre/shared/usage-limit");
 const { eligibleLimitTurn, DAY_MS, RESET_ALLOWANCE_MS, RESET_PROMPT } = require("../limit-resume.cjs");
@@ -161,6 +162,7 @@ class ChatHost {
     onQueuedStart = () => {},
     onQueuedRemoved = () => {},
     now = Date.now,
+    checkedOutBranch = readCheckedOutBranch,
   }) {
     Object.assign(this, {
       states,
@@ -181,6 +183,7 @@ class ChatHost {
       onQueuedStart,
       onQueuedRemoved,
       now,
+      checkedOutBranch,
     });
     this.preparing = new Map();
     this.pendingSends = new Map();
@@ -613,12 +616,8 @@ class ChatHost {
           if (resolve) event = resolve(state.sessions[sessionId]);
           if (event.type === "step-started") {
             const startedAt = this.runs[chatId]?.steps.find((step) => step.id === event.step.id)?.startedAt ?? this.now();
-            const command =
-              ["shell", "setup"].includes(event.step.kind) && event.step.detail?.startsWith("$ ") && event.step.detail.endsWith("\n")
-                ? event.step.detail.slice(2, -1)
-                : undefined;
-            const input = command && command.length <= 4000 ? command : event.step.input;
-            event = { ...event, step: { ...event.step, ...(input ? { input } : {}), startedAt } };
+            const folder = state.worktrees?.[state.sessions[sessionId]?.worktree_id]?.path;
+            event = { ...event, step: await startedStep(event.step, { startedAt, folder, readBranch: this.checkedOutBranch }) };
           }
           if (event.type === "step-completed") {
             const step = this.runs[chatId]?.steps.find((item) => item.id === event.id);

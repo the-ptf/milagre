@@ -2912,3 +2912,33 @@ test("a note posted in an idle Chat tells the windows, and can edit the Chat in 
   assert.deepEqual(h.broadcasts.at(-1).state.sessions[sessionId].openSuggestions, [{ id: "s1", fromTitle: "T" }]);
   assert.equal(await h.host.postNow(`${ALPHA}#404`, { body: "line", context: null }), false);
 });
+
+test("a `gh pr merge` of the checked-out branch keeps the branch its folder had when it started, through the saved message", async (t) => {
+  const asked = [];
+  const { host, manager, session, states } = harness({
+    hooks: {
+      checkedOutBranch: async (cwd) => {
+        asked.push(cwd);
+        return "fix/login";
+      },
+    },
+  });
+  t.after(() => manager.closeAll());
+  const chat = await host.send(message(ALPHA, "merge it"));
+  const chatId = `${ALPHA}#${chat.sessionId}`;
+  await waitUntil(() => session(ALPHA));
+  session(ALPHA).emit({ type: "step-started", step: { id: "merge", kind: "shell", title: "Ran merge", detail: "$ gh pr merge --squash --delete-branch\n" } });
+  session(ALPHA).emit({ type: "step-started", step: { id: "named", kind: "shell", title: "Ran merge", detail: "$ gh pr merge 42\n" } });
+  session(ALPHA).emit({ type: "step-started", step: { id: "other", kind: "shell", title: "Ran ls", detail: "$ ls\n" } });
+  await waitUntil(() => host.runs[chatId]?.steps.length === 3);
+  const [merge, named, other] = host.runs[chatId].steps;
+  assert.equal(merge.branch, "fix/login");
+  assert.equal(named.branch, undefined, "a merge that names its PR needs no branch");
+  assert.equal(other.branch, undefined);
+  assert.deepEqual(asked, [ALPHA], "only the merge of the checked-out branch reads Git, in the Chat's folder");
+  session(ALPHA).emit({ type: "step-completed", id: "merge", status: "done", detail: "$ gh pr merge --squash --delete-branch\n" });
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => !host.runs[chatId]);
+  const saved = (await states.get(ALPHA)).messages.at(-1).steps.find((step) => step.id === "merge");
+  assert.equal(saved.branch, "fix/login");
+});
