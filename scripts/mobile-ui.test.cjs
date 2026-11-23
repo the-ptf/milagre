@@ -389,6 +389,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
             dismiss() {},
           }),
         };
+      if (base === "last-dictation" && !(id in modules)) return { saveLastDictation() {} };
+      if (base === "composer-microphone") return load("composer-microphone.tsx", modules, "", cache);
+      if (base === "voice-menu" && !(id in modules)) return { openComposerVoiceMenu() {} };
       if (base === "voice-mic-button" && !(id in modules))
         return {
           VoiceMicButton: "VoiceMicButton",
@@ -704,6 +707,7 @@ const primitive = (name, file) => {
   return fn;
 };
 const jsx = (type, props, key) => {
+  if (typeof type === "function" && type.name === "ComposerMicrophone") return type(props);
   if (type === messageActionsStub) return messageActionsStub(props);
   // A primitive drawing a sibling (Group's SectionLabel, CheckRow's CheckboxBox) reads as that sibling's name.
   type = realPrimitives.get(type) ?? type;
@@ -21124,12 +21128,11 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
   idle.props.onPress();
   assert.equal(starts, 1);
   const processing = VoiceMicButton({ onPress: () => starts++, processing: "GPT-6 Luna" });
-  assert.equal(processing.props.accessibilityState.busy, true);
+  assert.ok(!processing.props.accessibilityState?.busy);
   assert.equal(processing.props.accessibilityValue.text, "Correcting names · GPT-6 Luna");
   assert.equal(processing.props.style({ pressed: false }).width, 44, "processing keeps the mic's touch target");
-  assert.equal(find(processing, (node) => node.type === "Icon").props.tone, "ink4", "the busy mic is gray");
-  const border = find(processing, (node) => typeof node.type === "function" && node.type.name === "MicLoadingRing");
-  assert.equal(border.props.size, 36, "the loading arc is on the visual button's border");
+  assert.equal(find(processing, (node) => node.type === "Icon").props.tone, "ink2");
+  assert.ok(!find(processing, (node) => typeof node.type === "function" && node.type.name === "MicLoadingRing"));
   processing.props.onPress();
   assert.equal(starts, 2, "starting a new take stays available while the previous correction is pending");
 
@@ -23883,4 +23886,54 @@ test("a library design opened from the Design library page reads and removes it 
   await settle();
   assert.deepEqual(calls.findLast(([method]) => method === "artifact:delete")[1], { projectPath: "/p", id: "library:home" });
   assert.equal(backs, 1);
+});
+
+test("the phone mic menu replays at the selection and saves the user's last edit as a Project correction", async () => {
+  let sheet;
+  const calls = [];
+  const prompts = [];
+  const writes = [];
+  const { openComposerVoiceMenu } = load("voice-menu.ts", {
+    "react-native": { Alert: { alert: assert.fail } },
+    "@milagre/shared/dictation": require("@milagre/shared/dictation"),
+    "./last-dictation": { lastDictation: () => "Recovered words." },
+    "./ui": {
+      showActions: (options) => {
+        sheet = options;
+      },
+    },
+    "./text-prompt": {
+      promptText: async (title, options) => {
+        prompts.push(title);
+        return options.value;
+      },
+    },
+  });
+  const open = () =>
+    openComposerVoiceMenu({
+      client: {
+        call: async (method, args) => {
+          calls.push([method, [...args]]);
+          return [];
+        },
+      },
+      cwd: "/Project",
+      before: "fix insert dictation",
+      draft: "fix insertDictation",
+      selection: { start: 4, end: 19 },
+      insert: (edit) => writes.push(edit.value),
+    });
+  open();
+  sheet.onSelect("last");
+  assert.deepEqual(writes, ["fix Recovered words."]);
+  open();
+  sheet.onSelect("vocabulary");
+  await new Promise(setImmediate);
+  sheet.onSelect("add");
+  await new Promise(setImmediate);
+  assert.deepEqual(prompts, ["Heard as", "Write as"]);
+  assert.deepEqual(calls, [
+    ["dictation:corrections", ["/Project"]],
+    ["dictation:correct", ["/Project", "insert dictation", "insertDictation"]],
+  ]);
 });

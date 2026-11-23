@@ -377,6 +377,8 @@ function DraftComposer(props: DraftComposerProps) {
         onAcceptSuggestion={(text) => composer.setDrafts((current) => (current[chatId] ? current : { ...current, [chatId]: text }))}
         chatTitle={props.chatTitle}
         provider={props.provider}
+        attachmentNames={attachments.map((item) => item.name)}
+        quoteTexts={quotes.map((quote) => quote.text)}
         images={attachments.filter((item) => item.image).length}
         onImagePaste={props.onImagePaste}
         known={props.known}

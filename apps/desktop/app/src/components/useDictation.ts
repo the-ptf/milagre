@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import captureWorklet from "../lib/dictation-worklet.js?url&no-inline";
-import { VOCABULARY_WAIT_MS, fixUpModelName, snapTerms, whisperLanguage, whisperModelFor, whisperPrompt } from "@milagre/shared/dictation";
+import { recognitionVocabulary, fixUpModelName, whisperLanguage, whisperModelFor, whisperPrompt } from "@milagre/shared/dictation";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import {
   ERRORS,
@@ -21,7 +21,7 @@ import { useBridge } from "../lib/computer-bridge";
 import { useSettings } from "../lib/settings";
 import { useDictationModels } from "./useDictationModels";
 
-export type DictationAnchor = { selection: Selection };
+export type DictationAnchor = { selection: Selection; draft?: string; attachments?: string[]; quotes?: string[] };
 
 export type DictationCorrection = { model: string; text: Promise<string> };
 
@@ -36,6 +36,7 @@ type Take = {
   audio: AudioContext;
   processor: AudioWorkletNode;
   transcript: StreamingDictation;
+  format: (text: string) => string;
   fixUp: ((text: string) => DictationCorrection) | null;
   finishCapture: () => Promise<void>;
   limit: ReturnType<typeof setTimeout> | null;
@@ -54,7 +55,7 @@ export function useDictation(
   const bridge = useBridge();
   const chatRef = useRef(chat);
   chatRef.current = chat;
-  const { dictationLanguage, dictationModel, dictationFixUp, dictationFixModel } = useSettings();
+  const { dictationEnabled, dictationSymbols: symbols, dictationLanguage, dictationModel, dictationFixUp, dictationFixModel } = useSettings();
   const model = whisperModelFor("desktop", dictationModel);
   const models = useDictationModels();
   const [state, setState] = useState<Dictation>(IDLE);
@@ -94,6 +95,10 @@ export function useDictation(
     move({ type: "done" });
   }, [abandon, model.id, move]);
 
+  useEffect(() => {
+    if (!dictationEnabled && phase.current.phase !== "idle") cancel();
+  }, [dictationEnabled, cancel]);
+
   const fail = useCallback(
     (error: DictationError) => {
       abandon();
@@ -122,15 +127,17 @@ export function useDictation(
       setPartial(NO_PARTIAL);
       if (!text) return move({ type: "fail", error: ERRORS["no-speech"] });
       move({ type: "done" });
-      deliver.current(text, current.anchor, current.fixUp?.(text) ?? null);
+      const formatted = current.format(text);
+      const correction = current.fixUp?.(text) ?? null;
+      deliver.current(formatted, current.anchor, correction);
     } catch (error) {
       if (live()) fail({ kind: "failed", message: ipcErrorMessage(error) || ERRORS.failed.message });
     }
   }, [fail, move]);
 
   const start = useCallback(
-    async (anchor: DictationAnchor) => {
-      if (phase.current.phase !== "idle") return;
+    async (anchor: DictationAnchor, releasedBeforeDownloadFinished?: () => boolean) => {
+      if (!dictationEnabled || phase.current.phase !== "idle") return;
       move({ type: "start" });
       setPartial(NO_PARTIAL);
       const id = (counter.current += 1);
@@ -150,18 +157,16 @@ export function useDictation(
             return;
           }
           if (!live()) return;
+          if (releasedBeforeDownloadFinished?.()) return move({ type: "done" });
           move({ type: "downloaded" });
         }
         stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
         if (!live()) return void stream.getTracks().forEach((track) => track.stop());
-        let vocabulary: string[] = [];
-        const terms = bridge
-          .dictationContext({ cwd, scope: chatRef.current.scope || undefined, chatId: chatRef.current.chatId })
-          .then((context) => {
-            vocabulary = context.terms;
-          })
-          .catch(() => {});
-        const vocabularyReady = Promise.race([terms, new Promise((resolve) => setTimeout(resolve, VOCABULARY_WAIT_MS))]);
+        const vocabulary = recognitionVocabulary(
+          anchor,
+          bridge.dictationContext({ cwd, scope: chatRef.current.scope || undefined, chatId: chatRef.current.chatId }),
+          symbols,
+        );
         const prepared = window.milagre.dictation.prepare(model.id);
         prepared.catch(() => {});
         // Chromium's silent sink renders the capture graph without opening the speakers or depending on an output device.
@@ -182,15 +187,15 @@ export function useDictation(
         const resample = createDictationResampler();
         const transcript = createStreamingDictation({
           transcribe: async (pcm) => {
-            await Promise.all([prepared, vocabularyReady]);
+            await prepared;
             if (!live()) return "";
             const result = await window.milagre.dictation.transcribe({
               audio: pcm,
               language,
-              prompt: whisperPrompt(vocabulary, language),
+              prompt: whisperPrompt(vocabulary.terms, language),
               model: model.id,
             });
-            return snapTerms(result.text, vocabulary);
+            return vocabulary.preview(result.text);
           },
           onPartial: (text, settled) => {
             if (live()) setPartial({ text, settled });
@@ -209,6 +214,7 @@ export function useDictation(
           audio,
           processor,
           transcript,
+          format: vocabulary.format,
           fixUp: dictationFixUp
             ? (text) => ({
                 model: fixUpModelName(dictationFixModel, chatRef.current.provider),
@@ -224,8 +230,8 @@ export function useDictation(
                     }),
                   )
                   .then(
-                    (result) => snapTerms(result?.text || text, vocabulary),
-                    () => text,
+                    (result) => vocabulary.format(result?.text || text),
+                    () => vocabulary.format(text),
                   ),
               })
             : null,
@@ -247,15 +253,7 @@ export function useDictation(
           if (live()) fail(ERRORS.failed);
         });
         move({ type: "recording" });
-        const samples = new Float32Array(analyser.fftSize);
-        const frame = () => {
-          if (take.current !== current || phase.current.phase !== "recording") return meter.current?.style.setProperty("--level", "0");
-          analyser.getFloatTimeDomainData(samples);
-          const rms = Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
-          meter.current?.style.setProperty("--level", meterLevel(20 * Math.log10(rms || 1e-9)).toFixed(3));
-          requestAnimationFrame(frame);
-        };
-        requestAnimationFrame(frame);
+        showMeter(analyser, meter, () => take.current === current && phase.current.phase === "recording");
         current.limit = setTimeout(() => {
           if (take.current === current) void stop();
         }, RECORDING_LIMIT_SECONDS * 1000);
@@ -265,7 +263,7 @@ export function useDictation(
         if (live()) fail(error instanceof DOMException && error.name === "NotAllowedError" ? ERRORS.permission : ERRORS.failed);
       }
     },
-    [bridge, cwd, dictationFixModel, dictationFixUp, dictationLanguage, fail, model, move, stop],
+    [bridge, cwd, dictationEnabled, dictationFixModel, dictationFixUp, dictationLanguage, fail, model, move, stop, symbols],
   );
 
   useEffect(
@@ -280,16 +278,7 @@ export function useDictation(
     setPartial(NO_PARTIAL);
   }, [cwd, scope]);
 
-  useEffect(() => {
-    if (state.phase !== "preparing" && state.phase !== "downloading") return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      cancel();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [state.phase, cancel]);
+  useEscapeToCancel(state.phase, cancel);
 
   const downloading = models[model.id]?.received;
   return {
@@ -297,6 +286,9 @@ export function useDictation(
     error: state.error,
     download: state.phase === "downloading" ? { received: downloading ?? 0, total: model.size } : null,
     partial,
+    setMeter: useCallback((node: HTMLElement | null) => {
+      meter.current = node;
+    }, []),
     meter,
     start,
     stop,
@@ -307,4 +299,29 @@ export function useDictation(
       void window.milagre.dictation.openSettings();
     }, [move]),
   };
+}
+
+function showMeter(analyser: AnalyserNode, meter: { current: HTMLElement | null }, recording: () => boolean) {
+  const samples = new Float32Array(analyser.fftSize);
+  const frame = () => {
+    if (!recording()) return meter.current?.style.setProperty("--level", "0");
+    analyser.getFloatTimeDomainData(samples);
+    const rms = Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
+    meter.current?.style.setProperty("--level", meterLevel(20 * Math.log10(rms || 1e-9)).toFixed(3));
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+
+function useEscapeToCancel(phase: Dictation["phase"], cancel: () => void) {
+  useEffect(() => {
+    if (phase !== "preparing" && phase !== "downloading") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      cancel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [phase, cancel]);
 }

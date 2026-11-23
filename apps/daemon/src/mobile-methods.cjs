@@ -240,6 +240,8 @@ const METHODS = new Set([
   "skills:list",
   "project:files",
   "skills:read",
+  "dictation:corrections",
+  "dictation:correct",
   "dictation:context",
   "dictation:polish",
   "worktree:create",

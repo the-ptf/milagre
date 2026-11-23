@@ -144,3 +144,14 @@ test("damaged defaults read as off and keep Project entries", async (t) => {
   assert.deepEqual(await settings.get("/work/shop"), { filesToCopy: [], setupCommand: "npm i", icon: null });
   assert.deepEqual(await settings.getMainSyncDefault(), { syncMain: true });
 });
+
+test("dictation corrections survive a restart, stay in their Project, and can be replaced or removed", async (t) => {
+  const { file, settings } = await store(t);
+  await Promise.all([settings.setDictationCorrection("/one", "use queue", "useQueue"), settings.setDictationCorrection("/one", "open kit", "OpenKit")]);
+  const saved = createProjectSettings(file);
+  assert.equal((await saved.getDictationCorrections("/one")).length, 2);
+  assert.deepEqual(await saved.getDictationCorrections("/two"), []);
+  await saved.setDictationCorrection("/one", "Use Queue", "UseQueue");
+  await saved.setDictationCorrection("/one", "Open Kit", "");
+  assert.deepEqual(await saved.getDictationCorrections("/one"), [{ heard: "Use Queue", spelling: "UseQueue" }]);
+});
