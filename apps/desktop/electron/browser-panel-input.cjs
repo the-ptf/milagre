@@ -29,11 +29,12 @@ const COMMANDS = {
 };
 
 /**
- * Runs in the page: the focused element's document, past same-origin frames and shadow roots, does `commands`, then
- * inserts `text` as typing would (one input event of type insertText, so React and other frameworks see it). False when
- * the text couldn't go in there (a cross-origin frame has the focus, or nothing editable does).
+ * Runs in a frame of the page: the focused element's document, past same-origin frames and shadow roots, does
+ * `commands`, then inserts `text` as typing would (one input event of type insertText, so React and other frameworks see
+ * it). "frame" when the focus is in a cross-origin frame this document can't reach, "none" when nothing editable took
+ * the text. A read-only or disabled field takes nothing, as it wouldn't from a person.
  */
-const IN_PAGE = `function (text, commands) {
+const IN_FRAME = `function (text, commands) {
   let doc = document;
   let element = doc.activeElement;
   for (;;) {
@@ -41,21 +42,44 @@ const IN_PAGE = `function (text, commands) {
     else if (element && (element.tagName === "IFRAME" || element.tagName === "FRAME")) {
       let inner = null;
       try { inner = element.contentDocument; } catch {}
-      if (!inner) return false;
+      if (!inner) return "frame";
       doc = inner;
       element = doc.activeElement;
     } else break;
   }
   for (const command of commands) doc.execCommand(command);
-  if (!text) return true;
-  if (doc.execCommand("insertText", false, text)) return true;
+  if (!text) return "done";
+  if (element && (element.readOnly || element.disabled) && !element.isContentEditable) return "done";
+  if (doc.execCommand("insertText", false, text)) return "done";
   if (element && typeof element.setRangeText === "function" && element.selectionStart !== null) {
     element.setRangeText(text, element.selectionStart, element.selectionEnd, "end");
     element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
-    return true;
+    return "done";
   }
-  return false;
+  return "none";
 }`;
+// Whether a frame's own document has a field focused (not its body, not a frame inside it): the frame the focus is in.
+const FOCUSED_HERE = `(() => { const element = document.activeElement; return !!element && element !== document.body && element.tagName !== "IFRAME" && element.tagName !== "FRAME"; })()`;
+
+/**
+ * Runs IN_FRAME where the page's focus is: from the top frame, or in the one cross-origin frame that holds the focus
+ * (webContents.focusedFrame can't tell while Milagre's window has the focus).
+ * @param {Pick<Electron.WebContents, "mainFrame">} guest
+ * @param {string} text
+ * @param {string[]} commands
+ * @returns {Promise<"done" | "frame" | "none">}
+ */
+async function inFocusedFrame(guest, text, commands) {
+  const script = `(${IN_FRAME})(${JSON.stringify(text)}, ${JSON.stringify(commands)})`;
+  const top = guest.mainFrame;
+  const outcome = /** @type {"done" | "frame" | "none"} */ (await top.executeJavaScript(script));
+  if (outcome !== "frame") return outcome;
+  const frames = top.framesInSubtree.filter((frame) => frame !== top);
+  const focused = await Promise.all(frames.map((frame) => frame.executeJavaScript(FOCUSED_HERE).catch(() => false)));
+  const holders = frames.filter((_, index) => focused[index] === true);
+  const [holder] = holders;
+  return holders.length === 1 && holder ? /** @type {"done" | "frame" | "none"} */ (await holder.executeJavaScript(script)) : "frame";
+}
 
 /** @param {unknown} bits */
 function modifiers(bits) {
@@ -94,27 +118,18 @@ function keyEvents(params) {
 
 /**
  * Handles a page's Input.insertText and Input.dispatchKeyEvent, or answers null for any other command.
- * @param {Pick<Electron.WebContents, "isDestroyed" | "sendInputEvent">} guest
- * @param {{ sendCommand(method: string, params?: object): Promise<any> }} debug
+ * @param {Pick<Electron.WebContents, "isDestroyed" | "sendInputEvent" | "mainFrame">} guest
  * @param {string} method
  * @param {any} params
  */
-function pageInput(guest, debug, method, params) {
+function pageInput(guest, method, params) {
   if (method !== "Input.insertText" && method !== "Input.dispatchKeyEvent") return null;
   return (async () => {
     if (guest.isDestroyed()) throw new Error("The page is gone.");
-    const inPage = async (/** @type {string} */ text, /** @type {string[]} */ commands) => {
-      const { result, exceptionDetails } = await debug.sendCommand("Runtime.evaluate", {
-        expression: `(${IN_PAGE})(${JSON.stringify(text)}, ${JSON.stringify(commands)})`,
-        returnByValue: true,
-      });
-      return !exceptionDetails && result?.value === true;
-    };
     if (method === "Input.insertText") {
       const text = typeof params?.text === "string" ? params.text : "";
-      if (!text || (await inPage(text, []))) return {};
-      // A cross-origin frame has the focus: its own document can't be reached from here, but the page's widget sends
-      // characters to whatever is focused inside it.
+      if (!text || (await inFocusedFrame(guest, text, [])) === "done") return {};
+      // No document took it: the page's widget sends characters to whatever is focused inside it, as typing would.
       for (const character of text) guest.sendInputEvent({ type: "char", keyCode: character });
       return {};
     }
@@ -126,7 +141,8 @@ function pageInput(guest, debug, method, params) {
         // A key Electron has no code for: dropped, as a key the page doesn't know would be.
       }
     }
-    if (commands.length) await inPage("", commands);
+    if (commands.length && (await inFocusedFrame(guest, "", commands)) !== "done")
+      throw new Error(`The page's focused field couldn't be reached to run ${commands.join(", ")}.`);
     return {};
   })();
 }

@@ -20,42 +20,71 @@ test("a DevTools key becomes the guest's own key events, with the editing comman
   assert.deepEqual(keyEvents({ type: "keyUp", key: "a", modifiers: 6, commands: ["selectAll"] }).commands, []);
 });
 
-function fakes({ inserted = true } = {}) {
-  const guest = { inputs: [], isDestroyed: () => false, sendInputEvent: (event) => guest.inputs.push(event) };
-  const debug = {
-    commands: [],
-    sendCommand: async (method, params) => {
-      debug.commands.push([method, params]);
-      return { result: { value: inserted } };
+/** A frame that runs scripts in a fake document: `outcome` answers the insert, `focusedHere` the focus probe. */
+function fakeFrame({ outcome = "done", focusedHere = false } = {}) {
+  const frame = {
+    scripts: [],
+    executeJavaScript: async (script) => {
+      frame.scripts.push(script);
+      return script.startsWith("(() =>") ? focusedHere : outcome;
     },
   };
-  return { guest, debug };
+  return frame;
 }
 
-test("text goes in through the page's own editing, and only other commands reach the debugger", async () => {
-  const { guest, debug } = fakes();
-  assert.equal(pageInput(guest, debug, "Runtime.evaluate", {}), null);
-  assert.deepEqual(await pageInput(guest, debug, "Input.insertText", { text: 'say "hi"' }), {});
-  assert.equal(debug.commands.length, 1);
-  assert.equal(debug.commands[0][0], "Runtime.evaluate");
-  assert.match(debug.commands[0][1].expression, /\("say \\"hi\\"", \[\]\)$/);
+function fakes(top = fakeFrame(), children = []) {
+  top.framesInSubtree = [top, ...children];
+  const guest = { inputs: [], mainFrame: top, isDestroyed: () => false, sendInputEvent: (event) => guest.inputs.push(event) };
+  return guest;
+}
+
+test("text goes in through the page's own editing, and other commands are left to the debugger", async () => {
+  const guest = fakes();
+  assert.equal(pageInput(guest, "Runtime.evaluate", {}), null);
+  assert.deepEqual(await pageInput(guest, "Input.insertText", { text: 'say "hi"' }), {});
+  assert.equal(guest.mainFrame.scripts.length, 1);
+  assert.match(guest.mainFrame.scripts[0], /\("say \\"hi\\"", \[\]\)$/);
   assert.deepEqual(guest.inputs, []);
 });
 
-test("text the page's document can't take (a cross-origin frame has the focus) goes as characters to the guest", async () => {
-  const { guest, debug } = fakes({ inserted: false });
-  await pageInput(guest, debug, "Input.insertText", { text: "ok😀" });
+test("a read-only or disabled field takes no text, and its value is never written directly", () => {
+  // The script the page runs: it stops before execCommand and setRangeText for such a field.
+  const guest = fakes();
+  void pageInput(guest, "Input.insertText", { text: "x" });
+  const script = guest.mainFrame.scripts[0];
+  const readOnly = script.indexOf("element.readOnly || element.disabled");
+  assert.ok(readOnly > 0 && readOnly < script.indexOf('execCommand("insertText"') && readOnly < script.indexOf("setRangeText("));
+});
+
+test("with the focus in a cross-origin frame, the text and the commands run in that frame", async () => {
+  const holder = fakeFrame({ focusedHere: true });
+  const idle = fakeFrame();
+  const guest = fakes(fakeFrame({ outcome: "frame" }), [idle, holder]);
+  await pageInput(guest, "Input.insertText", { text: "novo" });
+  assert.match(holder.scripts.at(-1), /\("novo", \[\]\)$/);
+  assert.equal(idle.scripts.filter((script) => !script.startsWith("(() =>")).length, 0);
+  await pageInput(guest, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "a", modifiers: 4, commands: ["selectAll"] });
+  assert.match(holder.scripts.at(-1), /\("", \["selectAll"\]\)$/);
+  assert.deepEqual(guest.inputs, [{ type: "keyDown", keyCode: "a", modifiers: ["meta"] }]);
+});
+
+test("a command the page's focused field can't be reached for is reported, not claimed done", async () => {
+  // Two frames claim the focus: neither is picked.
+  const guest = fakes(fakeFrame({ outcome: "frame" }), [fakeFrame({ focusedHere: true }), fakeFrame({ focusedHere: true })]);
+  await assert.rejects(
+    pageInput(guest, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "a", modifiers: 4, commands: ["selectAll"] }),
+    /couldn't be reached to run selectAll/,
+  );
+  // Text no document took goes as characters to the guest's widget, which types into whatever it has focused.
+  await pageInput(guest, "Input.insertText", { text: "ok😀" });
   assert.deepEqual(
-    guest.inputs.map((event) => event.keyCode),
+    guest.inputs.slice(1).map((event) => event.keyCode),
     ["o", "k", "😀"],
   );
 });
 
-test("keys go to the guest's widget, and a page that is gone refuses them", async () => {
-  const { guest, debug } = fakes();
-  await pageInput(guest, debug, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "a", modifiers: 4, commands: ["selectAll"] });
-  assert.deepEqual(guest.inputs, [{ type: "keyDown", keyCode: "a", modifiers: ["meta"] }]);
-  assert.match(debug.commands[0][1].expression, /\("", \["selectAll"\]\)$/);
+test("a page that is gone refuses text and keys", async () => {
+  const guest = fakes();
   guest.isDestroyed = () => true;
-  await assert.rejects(pageInput(guest, debug, "Input.insertText", { text: "x" }), /The page is gone/);
+  await assert.rejects(pageInput(guest, "Input.insertText", { text: "x" }), /The page is gone/);
 });

@@ -53,7 +53,7 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
           }
           // Text and keys sent through a webview's debugger go to what has the focus in Milagre's window, often the
           // Chat composer, so they go to the page itself (browser-panel-input.cjs).
-          const typed = sessionId ? null : pageInput(guest, debug, method, params);
+          const typed = sessionId ? null : pageInput(guest, method, params);
           if (typed) return typed;
           return debug.sendCommand(method, params, sessionId);
         },

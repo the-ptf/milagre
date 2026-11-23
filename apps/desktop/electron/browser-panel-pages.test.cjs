@@ -14,7 +14,6 @@ function fakeGuest(id, host, { title = "Checkout", url = "http://localhost:5173/
     detach: () => (debug.attached = false),
     sendCommand: async (method, params) => {
       debug.commands.push([method, params]);
-      if (method === "Runtime.evaluate") return { result: { value: true } };
       return { ok: method };
     },
   });
@@ -30,11 +29,20 @@ function fakeGuest(id, host, { title = "Checkout", url = "http://localhost:5173/
     getTitle: () => guest.title,
     getURL: () => guest.url,
     inputs: [],
+    scripts: [],
     sendInputEvent: (event) => guest.inputs.push(event),
     reloads: [],
     reload: () => guest.reloads.push("reload"),
     reloadIgnoringCache: () => guest.reloads.push("ignoring cache"),
   });
+  const mainFrame = {
+    executeJavaScript: async (script) => {
+      guest.scripts.push(script);
+      return "done";
+    },
+  };
+  mainFrame.framesInSubtree = [mainFrame];
+  guest.mainFrame = mainFrame;
   return guest;
 }
 
@@ -191,9 +199,8 @@ test("text and keys sent to a page go to the page, never to what has the focus i
     id: 2,
     result: {},
   });
-  const methods = guest.debugger.commands.map(([method]) => method);
-  assert.ok(!methods.some((method) => method.startsWith("Input.")), "no Input command reaches the webview's debugger");
-  assert.match(guest.debugger.commands[0][1].expression, /"4000 0566"/);
+  assert.deepEqual(guest.debugger.commands, [], "no Input command reaches the webview's debugger");
+  assert.match(guest.scripts[0], /"4000 0566"/);
   assert.deepEqual(guest.inputs, [
     { type: "keyDown", keyCode: "Enter", modifiers: [] },
     { type: "char", keyCode: "\r", modifiers: [] },
