@@ -9,6 +9,12 @@ const DENIED = new Set([
   "mcp:save",
   "mcp:signIn",
   "mcp:cancelSignIn",
+  "connectors:add",
+  "connectors:update",
+  "connectors:sign-in",
+  "connectors:cancel-sign-in",
+  "connectors:call",
+  "connectors:move",
 ]);
 
 const peerPolicy = Object.freeze({

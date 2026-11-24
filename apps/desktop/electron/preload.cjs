@@ -41,6 +41,12 @@ const LOCAL_ONLY = new Set([
   "mcp:save",
   "mcp:signIn",
   "mcp:cancelSignIn",
+  "connectors:add",
+  "connectors:update",
+  "connectors:sign-in",
+  "connectors:cancel-sign-in",
+  "connectors:call",
+  "connectors:move",
 ]);
 const LOCAL_ONLY_PREFIXES = [
   "app:",
@@ -120,7 +126,7 @@ function backgroundAgentBridge(invoke) {
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
- * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "listAccounts" | "accountAction" | "submitAccountCode" | "onAccountsChanged">}
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "listAccounts" | "accountAction" | "submitAccountCode" | "onAccountsChanged" | "connectors">}
  */
 function accountsBridge(invoke, listen) {
   return {
@@ -128,6 +134,7 @@ function accountsBridge(invoke, listen) {
     accountAction: (action, provider, value) => invoke(`accounts:${action}`, provider, value),
     submitAccountCode: (provider, accountId, code) => invoke("accounts:code", provider, accountId, code),
     onAccountsChanged: (callback) => listen("accounts:changed", () => callback()),
+    connectors: connectorsBridge(invoke, listen),
   };
 }
 
@@ -188,6 +195,29 @@ function artifactBridge(invoke, listen) {
     updateLibraryDesign: (request) => invoke("design-library:update", request),
     renameLibraryPage: (request) => invoke("design-library:rename-page", request),
     onLibraryChanged: (callback) => listen("design-library:changed", callback),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
+ * @returns {import("../app/src/electron.d.ts").MilagreBridge["connectors"]}
+ */
+function connectorsBridge(invoke, listen) {
+  return {
+    list: () => invoke("connectors:list"),
+    check: (id) => invoke("connectors:check", id),
+    add: (input) => invoke("connectors:add", input),
+    update: (id, patch) => invoke("connectors:update", id, patch),
+    remove: (id) => invoke("connectors:remove", id),
+    signIn: (id) => invoke("connectors:sign-in", id),
+    cancelSignIn: () => invoke("connectors:cancel-sign-in"),
+    signOut: (id) => invoke("connectors:sign-out", id),
+    setAccess: (id, provider, accountId, on) => invoke("connectors:access", id, provider, accountId, on),
+    tools: (id) => invoke("connectors:tools", id),
+    movable: () => invoke("connectors:movable"),
+    move: (name) => invoke("connectors:move", name),
+    onChanged: (callback) => listen("connectors:changed", callback),
   };
 }
 

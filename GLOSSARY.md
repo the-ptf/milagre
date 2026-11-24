@@ -68,6 +68,10 @@ A **Chat**'s tree of tasks, at most three levels deep, written by the agent with
 **Phase**:
 Where a **Chat**'s work is (Start, Plan, Build, Test, Review, Merge, Release, Done), set by the agent with `phase_set` and drawn on the Tasks pill's phase graph.
 
+**Connector**:
+A remote MCP server Milagre signed in to once on a computer, such as one Slack workspace. Several can reach the same service (Slack company A and Slack company B). Every Account's **Chats** can use its tools unless the user turned it off for that Account. The sign-in never leaves the computer. See [connectors](docs/connectors.md).
+_Avoid_: Connection (spec 001), integration (the Linear section in Settings), MCP server (an Account's own configuration)
+
 ### Linking
 
 **Named Link**:

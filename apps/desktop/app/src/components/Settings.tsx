@@ -1,7 +1,6 @@
 import { AccountsPage } from "./AccountsPage";
 import { SkillsSettings } from "./SkillsSettings";
-import { McpSettings } from "./McpSettings";
-import { LocalMcpSettings } from "./LocalMcpSettings";
+import { ConnectorsSettings } from "./settings/ConnectorsSettings";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -432,13 +431,7 @@ export function SettingsPanel({
           ) : (
             <p className="mt-6 text-13 text-ink-3">Open a project to see its skills.</p>
           ))}
-        {section === "mcp" && (
-          <>
-            <McpSettings title={title} />
-            <h2 className="mt-8 px-1 text-12 font-medium text-ink-3">Milagre MCP</h2>
-            <LocalMcpSettings bridge={window.milagre} />
-          </>
-        )}
+        {section === "mcp" && <ConnectorsSettings title={title} />}
         {section === "browser" && <BrowserSettings />}
         {section === "connections" && <IntegrationsSettings title={title} />}
         {section === "worktrees" && <WorktreesSettings />}

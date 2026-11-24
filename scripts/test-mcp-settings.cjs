@@ -51,6 +51,7 @@ const definitions = {
 // The real bridge announces every write on mcp:changed; toggles name the account.
 const announce = (event) => setTimeout(() => window.mcpChanged && window.mcpChanged(event), 10);
 window.milagre = {
+  connectors: { list: async () => [], movable: async () => [], onChanged: () => () => {} },
   listAccounts: async () => ({ providers: [] }),
   listRecentProjects: async () => [],
   onAccountsChanged: () => () => {},
@@ -121,6 +122,8 @@ async function browserChecks() {
   };
   try {
     await win.loadURL(process.argv[2]);
+    await waitFor(`!!document.querySelector('[data-connectors-view="mcp"]')`);
+    await click('[data-connectors-view="mcp"]');
     await waitFor(`!!window.releaseAccounts`);
     await evaluate("window.releaseAccounts()");
     await waitFor(`!!document.querySelector('[data-mcp-attention="linear"]')`);

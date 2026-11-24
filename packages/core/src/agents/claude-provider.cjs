@@ -89,27 +89,34 @@ function userMessage(prompt, images = []) {
   return { type: "user", uuid: randomUUID(), message: { role: "user", content }, parent_tool_use_id: null };
 }
 
+function sdkTool(sdk, definition, name) {
+  return sdk.tool(
+    name,
+    definition.description,
+    definition.input,
+    async (args) => {
+      const result = await runTool(definition, args);
+      return { content: mcpContent(result), isError: result.isError };
+    },
+    { annotations: { readOnlyHint: definition.readOnly } },
+  );
+}
+
 // permission mode, as on Codex and Antigravity (isUngatedMilagreTool).
 function linkedOptions(tools, sdk) {
-  const server = sdk.createSdkMcpServer({
-    name: "milagre",
-    alwaysLoad: true,
-    tools: tools.map((definition) =>
-      sdk.tool(
-        definition.name,
-        definition.description,
-        definition.input,
-        async (args) => {
-          const result = await runTool(definition, args);
-          return { content: mcpContent(result), isError: result.isError };
-        },
-        { annotations: { readOnlyHint: definition.readOnly } },
-      ),
-    ),
-  });
+  const own = tools.filter((definition) => !definition.connector);
+  const connectors = tools.filter((definition) => definition.connector);
+  const mcpServers = {
+    milagre: sdk.createSdkMcpServer({ name: "milagre", alwaysLoad: true, tools: own.map((definition) => sdkTool(sdk, definition, definition.name)) }),
+  };
+  for (const [id, group] of Map.groupBy(connectors, (definition) => definition.connector))
+    mcpServers[id] = sdk.createSdkMcpServer({ name: id, tools: group.map((definition) => sdkTool(sdk, definition, definition.serverToolName)) });
   return {
-    mcpServers: { milagre: server },
-    allowedTools: tools.filter(isUngatedMilagreTool).map((definition) => `mcp__milagre__${definition.name}`),
+    mcpServers,
+    allowedTools: [
+      ...own.filter(isUngatedMilagreTool).map((definition) => `mcp__milagre__${definition.name}`),
+      ...connectors.filter((definition) => definition.readOnly === true).map((definition) => `mcp__${definition.connector}__${definition.serverToolName}`),
+    ],
   };
 }
 

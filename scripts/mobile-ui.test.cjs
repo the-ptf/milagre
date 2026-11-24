@@ -14795,7 +14795,7 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
           ["Accounts", ""],
           ["Usage", ""],
           ["Skills", ""],
-          ["MCP servers", ""],
+          ["Connectors", ""],
         ],
       ],
       [

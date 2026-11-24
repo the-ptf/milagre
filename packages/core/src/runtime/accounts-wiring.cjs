@@ -14,7 +14,9 @@ const { createAntigravity } = require("../agents/antigravity-install.cjs");
 const { refreshInstallPath } = require("../agents/environment.cjs");
 const { createLinear } = require("../linear/index.cjs");
 const { createLinearIssues } = require("../linear/issues.cjs");
-const { createLinearTools } = require("../linear/tools.cjs");
+const { createLinearTools, linearToolDefinitions } = require("../linear/tools.cjs");
+const { createConnectorsWiring } = require("./connectors-wiring.cjs");
+const { connectorToolDefinitions } = require("../connectors/tools.cjs");
 const { chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { resolveProject } = require("../project-identity.cjs");
 
@@ -47,12 +49,13 @@ function createAccountsWiring({ options, dataDir, emit, commands, version, envir
   for (const method of ["add", "select", "login", "cancel", "remove"])
     commands.handle(`accounts:${method}`, (_event, provider, value) => queueAccountMutation(() => accounts[method](provider, value)));
   commands.handle("accounts:code", (_event, provider, id, entered) => queueAccountMutation(() => accounts.code(provider, id, entered)));
+  const mcpStore = createMcpStore(path.join(dataDir, "mcp.json"));
   const mcp = createMcp({
     accounts,
     routing,
     cwd: require("node:os").homedir(),
     clientVersion: version,
-    store: createMcpStore(path.join(dataDir, "mcp.json")),
+    store: mcpStore,
     openUrl: (url) => openInBrowser(url),
     emit,
     ...options.mcp,
@@ -104,7 +107,14 @@ function createAccountsWiring({ options, dataDir, emit, commands, version, envir
       return {};
     }
   });
-  return { antigravity, baseCli, accounts, routing, agentCli, mcp, linear, linearIssues, linearTools, queueAccountMutation };
+  const connectors = createConnectorsWiring({ options, dataDir, emit, commands, version, mcp, mcpStore });
+  const integrations = {
+    linearTools,
+    /** Linear's tools and the Connectors this provider Account may use, for a Chat's `milagre` tools. */
+    tools: (context) => [...(linear.enabled() ? linearToolDefinitions(linearTools) : []), ...connectorToolDefinitions(connectors, context)],
+    dispose: () => Promise.all([linear.dispose(), connectors.dispose()]),
+  };
+  return { antigravity, baseCli, accounts, routing, agentCli, mcp, linear, linearIssues, integrations, queueAccountMutation };
 }
 
 function registerAccountScopes({

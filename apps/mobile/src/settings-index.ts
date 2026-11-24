@@ -29,7 +29,7 @@ export const SETTINGS_PAGES = {
   usage: { title: "Plan usage", needs: "computer" },
   "token-usage": { title: "Token usage", needs: "computer" },
   skills: { title: "Skills", needs: "computer" },
-  mcp: { title: "MCP servers", needs: "computer" },
+  mcp: { title: "Connectors", needs: "computer" },
   worktrees: { title: "Worktrees", needs: "computer" },
   connections: { title: "Integrations", needs: "computer" },
   "babysit-prs": { title: "Babysit PRs", needs: "computer" },

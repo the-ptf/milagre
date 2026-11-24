@@ -335,7 +335,7 @@ export function SettingsView({
             <Row title="Accounts" icon={UserCircleIcon} selected={selected === "accounts"} onPress={() => onOpen("accounts")} />
             <Row title="Usage" icon={ChartColumnIcon} selected={selected === "usage"} onPress={() => onOpen("usage")} />
             <Row title="Skills" icon={BookOpen01Icon} selected={selected === "skills"} onPress={() => onOpen("skills")} />
-            <Row title="MCP servers" icon={Plug01Icon} selected={selected === "mcp"} onPress={() => onOpen("mcp")} />
+            <Row title="Connectors" icon={Plug01Icon} selected={selected === "mcp"} onPress={() => onOpen("mcp")} />
           </Group>
           <Group title={`Code on ${macName}`}>
             <Row title="Worktrees" icon={FolderTreeIcon} selected={selected === "worktrees"} onPress={() => onOpen("worktrees")} />

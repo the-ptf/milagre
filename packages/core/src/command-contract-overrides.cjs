@@ -26,6 +26,7 @@ module.exports = {
   "chat:send-status": [p("projectPath"), p("clientMessageId")],
   "attachment:upload": request({ projectPath: s, name: s, base64: s, reuse: s, quota: n, transferId: s, offset: n, totalBytes: n }, ["projectPath"]),
   "chat:inbox": [],
+  "connectors:call": [p("id"), p("name"), p("args", object({}, [], true), true)],
   // Designs are always on; older apps still save the old switch, which changes nothing.
   "designs:enabled:save": [p("value", b)],
   // Every computer runs Routines; older apps still save the old switch, which changes nothing.

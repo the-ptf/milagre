@@ -21,7 +21,7 @@ const localMcp = {
  revoke: async id=>{window.records=window.records.map(c=>c.id===id?{...c,revokedAt:'2026-10-13T00:00:00Z'}:c);},
 };
 document.documentElement.classList.add('dark');
-window.milagre={localMcp,mcp:{accounts:async()=>[],check:async()=>({servers:[]}),onChanged:()=>()=>{}},listAccounts:async()=>({providers:[]}),listRecentProjects:async()=>[],onAccountsChanged:()=>()=>{}};
+window.milagre={localMcp,connectors:{list:async()=>[],movable:async()=>[],onChanged:()=>()=>{}},mcp:{accounts:async()=>[],check:async()=>({servers:[]}),onChanged:()=>()=>{}},listAccounts:async()=>({providers:[]}),listRecentProjects:async()=>[],onAccountsChanged:()=>()=>{}};
 createRoot(document.getElementById('root')).render(<div style={{display:'flex',height:'100vh',padding:16,gap:16}}><SettingsNav section="mcp" onSelect={()=>{}} /><main className="bg-page rounded-2xl" style={{flex:1}}><SettingsPanel section="mcp" models={[]} /></main></div>);
 `;
 async function browserChecks() {
@@ -56,8 +56,9 @@ async function browserChecks() {
     await waitFor(`document.hasFocus()`);
     assert.equal(win.isVisible(), false);
     assert.equal(win.isFocused(), false);
+    await click("MCP servers");
     await waitFor(`document.querySelectorAll('[data-local-mcp] [role=checkbox]').length===8`);
-    assert.equal(await evaluate(`document.querySelector('h1').textContent`), "MCP servers");
+    assert.equal(await evaluate(`document.querySelector('h1').textContent`), "Connectors");
     assert.equal(await evaluate(`!!document.querySelector('form')`), false);
     assert.equal(await evaluate(`!!document.querySelector('#custom-mcp-settings')`), false);
     assert.equal(await evaluate(`document.body.textContent.includes('Create MCP config')`), false);

@@ -21,6 +21,7 @@ import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync
 import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider, McpServerDefinition, McpTarget } from "@milagre/shared/mcp";
 import type { LocalMcpApi } from "@milagre/shared/local-mcp";
 import type { LinearIssue, LinearIssuesResult, LinearStatus } from "@milagre/shared/linear";
+import type { ConnectorInput, ConnectorMovable, ConnectorSummary, ConnectorTool, ConnectorUpdate } from "@milagre/shared/connectors";
 import type {
   BackgroundTaskOutput,
   ProjectAccountScope,
@@ -526,6 +527,21 @@ export type MilagreBridge = {
     signIn: (name: string, accounts: { provider: McpProvider; accountId: string }[]) => Promise<{ started: true }>;
     cancelSignIn: (name: string) => Promise<void>;
     onChanged: (callback: (event: McpChangedEvent) => void) => () => void;
+  };
+  connectors: {
+    list: () => Promise<ConnectorSummary[]>;
+    check: (id: string) => Promise<ConnectorSummary>;
+    add: (input: ConnectorInput) => Promise<ConnectorSummary>;
+    update: (id: string, patch: ConnectorUpdate) => Promise<ConnectorSummary>;
+    remove: (id: string) => Promise<void>;
+    signIn: (id: string) => Promise<ConnectorSummary>;
+    cancelSignIn: () => Promise<void>;
+    signOut: (id: string) => Promise<ConnectorSummary>;
+    setAccess: (id: string, provider: McpProvider, accountId: string, on: boolean) => Promise<ConnectorSummary>;
+    tools: (id: string) => Promise<ConnectorTool[]>;
+    movable: () => Promise<ConnectorMovable[]>;
+    move: (name: string) => Promise<ConnectorSummary>;
+    onChanged: (callback: (event: { connectors: ConnectorSummary[] }) => void) => () => void;
   };
   localMcp: LocalMcpApi;
   /** The Linear switch (Settings › Integrations › Linear) changed, on this Mac or from a phone. */

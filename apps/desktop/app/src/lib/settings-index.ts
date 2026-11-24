@@ -32,7 +32,7 @@ export const SECTION_TITLES: Record<Exclude<SettingsSection, "project" | "comput
   accounts: "Accounts",
   usage: "Usage",
   skills: "Skills",
-  mcp: "MCP servers",
+  mcp: "Connectors",
   browser: "Browser",
   worktrees: "Worktrees",
   connections: "Integrations",
@@ -56,7 +56,7 @@ export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   browser: "links web sign-ins cookies",
   notifications: "alerts sounds chimes push routines unread runs",
   connections: "linear issues integrations babysit pull requests",
-  mcp: "servers tools model context protocol milagre mcp",
+  mcp: "connectors connections integrations slack sign in servers tools model context protocol milagre mcp",
   devices: "phone pairing computers remote qr published pages share simlock baguette iphone simulators reset access",
   experimental: "church experimental beta labs orchestrator",
   about: "version update privacy support",
@@ -485,7 +485,9 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   { page: "usage", title: "Models", keywords: "cost tokens spend" },
   { page: "usage", title: "Token mix", keywords: "input output cache tokens" },
 
-  { page: "mcp", title: "Add server", keywords: "tool server install connect" },
+  { page: "mcp", title: "Add connector", keywords: "slack linear notion sign in connect once every account" },
+  { page: "mcp", title: "MCP servers", keywords: "account servers tools stdio command model context protocol" },
+  { page: "mcp", title: "Add server", group: "MCP servers", keywords: "tool server install connect command stdio" },
   {
     page: "mcp",
     title: "Milagre MCP",

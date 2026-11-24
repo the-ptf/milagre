@@ -106,7 +106,7 @@ export default function ComputerScreen() {
           <Row title="Accounts" icon={UserCircleIcon} disabled={connecting} onPress={() => void open("accounts")} />
           <Row title="Usage" icon={ChartColumnIcon} disabled={connecting} onPress={() => void open("usage")} />
           <Row title="Skills" icon={BookOpen01Icon} disabled={connecting} onPress={() => void open("skills")} />
-          <Row title="MCP servers" icon={Plug01Icon} disabled={connecting} onPress={() => void open("mcp")} />
+          <Row title="Connectors" icon={Plug01Icon} disabled={connecting} onPress={() => void open("mcp")} />
           <Row title="Worktrees" icon={FolderTreeIcon} disabled={connecting} onPress={() => void open("worktrees")} />
           <Row title="Integrations" icon={ConnectIcon} disabled={connecting} onPress={() => void open("connections")} />
           <Row title="Phone & sharing" icon={SmartphoneIcon} disabled={connecting} onPress={() => void open("phone-sharing")} />
