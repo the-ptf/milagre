@@ -23,7 +23,7 @@ import { GitForkIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import type { RoutineRunContext } from "@milagre/shared/model";
 import type { AgentCliStatus, ChatMessage as AppChatMessage, ChatStep, ModelOption, ModelProvider } from "../../model";
 import { Attachments } from "../Attachments";
-import { MessageDoneButton } from "./MessageDoneButton";
+import { MessageSettleButtons } from "./MessageSettleButtons";
 import { lazyView } from "../../lib/lazy-view";
 import { PromptText } from "../PromptText";
 import { onlyImageMentions } from "@milagre/shared/prompt-parts";
@@ -199,7 +199,7 @@ function ReplyContent({
   credits,
   copyable = true,
   onFork,
-  onDone,
+  onSettle,
 }: {
   body: string;
   copyable?: boolean;
@@ -210,7 +210,7 @@ function ReplyContent({
   waitingStepIds: string[];
   credits?: number;
   onFork?: () => void;
-  onDone?: () => void;
+  onSettle?: (snoozeUntil?: number) => void;
 }) {
   const { setup, activity, images, viewedImages, artifacts, heartbeats, desktop, answer, answerAt } = replyActivity(body, steps);
   const thought = !streaming || asking ? unspokenThought(body, steps) : "";
@@ -246,7 +246,7 @@ function ReplyContent({
         </div>
       )}
       {after.length > 0 && !loaderHolds && <ActivityBlock entries={after} streaming={streaming} waitingStepIds={waitingStepIds} credits={credits} />}
-      {copyable && (answer.trim() || onFork || onDone) && (
+      {copyable && (answer.trim() || onFork || onSettle) && (
         <div className="h-7" data-message-copy-footer>
           {!streaming && (
             <div className="flex w-fit items-center gap-0.5 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
@@ -264,7 +264,7 @@ function ReplyContent({
                   </button>
                 </Tooltip>
               )}
-              {onDone && <MessageDoneButton onDone={onDone} />}
+              {onSettle && <MessageSettleButtons onSettle={onSettle} />}
             </div>
           )}
         </div>
@@ -289,7 +289,7 @@ type MessageSectionProps = {
   undoDisabled?: boolean;
   onUndo?: (checkpointId: string) => void;
   onFork?: (messageId: number) => void;
-  onDone?: () => void;
+  onSettle?: (snoozeUntil?: number) => void;
   highlighted?: boolean;
   onCheckpointPreview?: (recoveryId: string, action: UndoIntent) => void;
   onRecommendationSelect: (option: string) => void;
@@ -466,7 +466,7 @@ function MessageBody({
   waitingStepIds,
   onRecommendationSelect,
   onFork,
-  onDone,
+  onSettle,
 }: {
   message: AppChatMessage;
   isUser: boolean;
@@ -477,7 +477,7 @@ function MessageBody({
   waitingStepIds: string[];
   onRecommendationSelect: (option: string) => void;
   onFork?: () => void;
-  onDone?: () => void;
+  onSettle?: (snoozeUntil?: number) => void;
 }) {
   const { advisor, prAction, issue, feedback, pageFeedback, answered } = cards;
   const recommendation = !isUser && !streaming ? parseRecommendation(message.body) : null;
@@ -546,7 +546,7 @@ function MessageBody({
         waitingStepIds={waitingStepIds}
         credits={message.credits}
         onFork={onFork}
-        onDone={onDone}
+        onSettle={onSettle}
       />
     </StepDetailsMessage>
   );
@@ -630,7 +630,7 @@ export const MessageSection = memo(function MessageSection({
   undoDisabled = false,
   onUndo,
   onFork,
-  onDone,
+  onSettle,
   highlighted = false,
   onCheckpointPreview,
 }: MessageSectionProps) {
@@ -697,7 +697,7 @@ export const MessageSection = memo(function MessageSection({
           waitingStepIds={waitingStepIds}
           onRecommendationSelect={onRecommendationSelect}
           onFork={forkThis}
-          onDone={streaming ? undefined : onDone}
+          onSettle={streaming ? undefined : onSettle}
         />
         <ReplyFooter
           message={message}

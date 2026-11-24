@@ -1,4 +1,5 @@
 import { useRef, type ReactNode } from "react";
+import { SettleDrag, type SettleActions } from "./settle-drag";
 import { Image, Pressable, ScrollView, Text, View, type ViewInstance, type ViewStyle } from "react-native";
 import { router } from "expo-router";
 import { ArrowUp01Icon, Attachment01Icon, Cancel01Icon, File01Icon, StopIcon, Video01Icon } from "@hugeicons/core-free-icons";
@@ -464,6 +465,7 @@ type ChatComposerDockProps = {
   tray: ReactNode;
   composer: Omit<DraftComposerProps, "chatId" | "start" | "controls">;
   controls: ComposerControlsProps;
+  settle?: SettleActions;
 };
 
 export function ChatComposerDock({ onRoom, onHeight, column, padding, ...props }: ChatComposerDockProps) {
@@ -520,11 +522,13 @@ export function ChatComposerDock({ onRoom, onHeight, column, padding, ...props }
         <UndoPanel readOnly={!!chat.readOnlyReason} review={props.undo} intent={props.undoIntent} onOpenFile={props.onOpenUndoFile} />
       ) : (
         asking && (
-          <ComposerTray start={props.start} target={props.trayTarget}>
-            {props.tray}
-            <OfflineTray target={props.trayTarget} chip={!props.start} />
-            <DraftComposer {...props.composer} chatId={chatId} start={props.start} controls={<ComposerControls {...props.controls} />} />
-          </ComposerTray>
+          <SettleDrag actions={props.settle}>
+            <ComposerTray start={props.start} target={props.trayTarget}>
+              {props.tray}
+              <OfflineTray target={props.trayTarget} chip={!props.start} />
+              <DraftComposer {...props.composer} chatId={chatId} start={props.start} controls={<ComposerControls {...props.controls} />} />
+            </ComposerTray>
+          </SettleDrag>
         )
       )}
       {asking && props.controls.model.provider === "pi" && <PiStats usage={props.controls.contextUsage} local={Boolean(props.controls.model.local)} />}

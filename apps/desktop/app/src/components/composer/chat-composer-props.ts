@@ -56,7 +56,7 @@ export interface ChatComposerProps {
   store: DraftStore;
   onSend: (delivery?: MessageDelivery, background?: boolean) => void;
   onStop?: () => void;
-  onMarkDone?: (sessionId: number) => void;
+  onSettle?: (sessionId: number, snoozeUntil?: number) => void;
   onCompact?: () => void;
   pullRequestAction?: { label: string; tone: "red" | "orange" | "green"; onRun: () => void };
   pullRequestReview?: { count: number; onOpen: () => void };

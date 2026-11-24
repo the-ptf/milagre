@@ -82,7 +82,7 @@ export const MessageTranscript = memo(function MessageTranscript({
   undoBlocked = false,
   onUndo,
   onFork,
-  onDone,
+  onSettle,
   highlightId = null,
   onCheckpointPreview,
 }: {
@@ -90,7 +90,7 @@ export const MessageTranscript = memo(function MessageTranscript({
   undoBlocked?: boolean;
   onUndo?: (checkpointId: string) => void;
   onFork?: (messageId: number) => void;
-  onDone?: () => void;
+  onSettle?: (snoozeUntil?: number) => void;
   limitPending?: LimitResume;
   limitSourceMessageId?: number;
   limitResumeBlocked?: boolean;
@@ -291,7 +291,7 @@ export const MessageTranscript = memo(function MessageTranscript({
               undoDisabled={message.role === "user" && undoable?.has(message.id) && undoBlocked}
               onUndo={message.role === "user" && undoable?.has(message.id) ? onUndo : undefined}
               onFork={message.id > 0 && message !== streamingMessage ? onFork : undefined}
-              onDone={message === transcript.at(-1)?.message && message.role === "assistant" ? onDone : undefined}
+              onSettle={message === transcript.at(-1)?.message && message.role === "assistant" ? onSettle : undefined}
               highlighted={message.id === highlightId}
               onCheckpointPreview={isCheckpointRestore(message) && !undoBlocked ? onCheckpointPreview : undefined}
             />

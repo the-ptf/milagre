@@ -56,7 +56,7 @@ import { useComposerLayout, useNewChatSetup, useUndoFlow } from "./composer/comp
 import { ReplyProviders, TranscriptContexts, TranscriptSlots } from "./transcript/ChatTranscript";
 import { NO_WORKTREES, NO_BRANCHES, NewChatHeader } from "./NewChatHeader";
 import type { ChatComposerProps } from "./composer/chat-composer-props";
-import { limitProps, replyDoneAction } from "../lib/composer-session";
+import { useTranscriptSession } from "../lib/composer-session";
 import { useRunSteps } from "../lib/agent-runs-store";
 import { sideQuestionsBlocked, useSideQuestions } from "./composer/use-side-questions";
 
@@ -90,7 +90,7 @@ export function ChatComposer({
   store,
   onSend,
   onStop,
-  onMarkDone,
+  onSettle,
   onCompact,
   pullRequestAction,
   pullRequestReview,
@@ -198,6 +198,7 @@ export function ChatComposer({
   const { steps: streamingSteps, phase } = useLiveSteps(givenSteps, streamingKey, statusLabel);
   const [jumpToBottom, setJumpToBottom] = useState<{ key: string | null | undefined; jump: () => void } | null>(null);
   const [transcriptAtEnd, setTranscriptAtEnd] = useState(true);
+  const transcriptSession = useTranscriptSession(session, isSending, onSettle);
   const runtimeChat = typeof chatId === "number" && chatId > 0 && projectPath ? (agentChatId ?? `${messageScope ?? projectPath}#${chatId}`) : null;
   const draftKey = scrollKey === undefined ? null : `view:${scrollKey}`;
   const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat ?? draftKey);
@@ -388,7 +389,6 @@ export function ChatComposer({
                             undoBlocked={isSending || Boolean(offlineName)}
                             onUndo={runtimeChat && !readOnlyHistory ? undoTask : undefined}
                             onFork={sideQuestions.fork}
-                            onDone={replyDoneAction(session, isSending, onMarkDone)}
                             highlightId={highlightId}
                             onCheckpointPreview={runtimeChat && !readOnlyHistory ? previewRecovery : undefined}
                             waitingStepIds={waitingStepIds}
@@ -398,7 +398,7 @@ export function ChatComposer({
                             cliStatus={cliStatus}
                             onOpenLinkedChat={onOpenLinkedChat}
                             onOpenAccounts={onOpenAccounts}
-                            {...limitProps(session)}
+                            {...transcriptSession}
                             offlineName={offlineName}
                             models={models}
                           />

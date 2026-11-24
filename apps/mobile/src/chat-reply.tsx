@@ -343,7 +343,6 @@ type ChatReplyProps = {
   message?: ChatMessage;
   onOpenChat?: (chatKey: string) => void;
   onFork?: (messageId: number) => void;
-  onDone?: () => void;
   highlighted?: boolean;
   run?: AgentRun;
   onActivity: (message: string, stepId?: string) => void;
@@ -375,7 +374,6 @@ export const ChatReply = memo(function ChatReply({
   highlighted = false,
   onOpenChat,
   onFork,
-  onDone,
 }: ChatReplyProps) {
   const { colors, textPx } = useTheme();
   const styles = useStyles();
@@ -566,7 +564,7 @@ export const ChatReply = memo(function ChatReply({
           }
         </MessageActions>
       )}
-      <MessageToolbar text={reply.answer} message={message} run={run} onFork={onFork} onDone={onDone} />
+      <MessageToolbar text={reply.answer} message={message} run={run} onFork={onFork} />
       {heartbeats.map((step) => (
         <HeartbeatCard key={step.id} step={step} />
       ))}

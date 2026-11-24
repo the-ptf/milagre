@@ -574,6 +574,23 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         };
       // The composer's glass is a native blur behind its children; tests render none.
       if (base === "composer-glass" && !(id in modules)) return { ComposerGlass: () => null };
+      // The composer's pull-up to settle is a native pan; tests render the composer inside it unchanged.
+      if (base === "settle-drag" && !(id in modules)) return { SettleDrag: ({ children }) => children };
+      if (base === "settled-marks" && !(id in modules)) return load("settled-marks.ts", modules, "", cache);
+      // The settle flight animates the pane with Reanimated; tests render the pane as is and keep the Done logic real.
+      if (base === "settle-flight" && !(id in modules))
+        return {
+          ...require("../apps/mobile/src/chat-done.ts"),
+          SettleFlight: ({ children }) => children,
+          SettledCount: ({ count }) => String(count),
+          useSettleFlight: () => null,
+          leaveToList(dockable, showList) {
+            modules["expo-router"]?.router?.setParams?.({ id: undefined, worktreeId: undefined, draft: undefined, prefill: undefined });
+            if (!dockable) showList();
+          },
+        };
+      // Which reply can be settled, and the Done and Snooze patches it sends: plain logic.
+      if (base === "chat-done" && !(id in modules)) return require("../apps/mobile/src/chat-done.ts");
       // The runs reply merge is plain logic; which Chats are on screen only narrows the host's runs reads, so UI tests
       // register nothing.
       if (base === "runs-reply" && !(id in modules)) return load("runs-reply.ts", modules, "", cache);

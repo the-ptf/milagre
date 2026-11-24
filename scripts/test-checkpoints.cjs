@@ -87,7 +87,7 @@ function Fixture() {
       imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
       projectPath="/Projects/storefront" store={draftStore} onSend={() => { window.sent = draft; }} isSending={sending} streamingText={stream} sendBlocked={readOnly} readOnlyHistory={readOnly}
       onOpenDiff={(file, root) => window.calls.diffs.push([file, root])}
-      session={{ id: 1, readOnlyReason: readOnly ? "Worktree removed" : undefined }} onMarkDone={(id) => window.calls.done.push(id)}
+      session={{ id: 1, readOnlyReason: readOnly ? "Worktree removed" : undefined }} onSettle={(id, until) => window.calls.done.push(until ? [id, "snooze"] : id)}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={false} onFastModeChange={noop} permissionMode="ask" onPermissionModeChange={noop}
@@ -185,6 +185,8 @@ async function browserChecks() {
     );
     await evaluate('document.querySelector("[data-message-done]").click()');
     assert.deepEqual(await evaluate("window.calls.done"), [1], "Done marks the open Chat");
+    await evaluate('document.querySelector("[data-message-snooze]").click()');
+    assert.deepEqual(await evaluate("window.calls.done"), [1, [1, "snooze"]], "Snooze snoozes the open Chat");
     await evaluate("window.setSending(true)");
     await wait('!document.querySelector("[data-message-done]")');
     await evaluate("window.setSending(false)");
