@@ -157,8 +157,8 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   {
     page: "appearance",
     title: "App icon",
-    description: "Shown in the Dock or taskbar on this computer. Finder and Launchpad keep the Milagre icon.",
-    keywords: "dock taskbar logo dawn black white sunset aurora glass 8-bit pixel",
+    description: "Shown in the Dock, Finder and notifications on a Mac, and in the taskbar and notifications on Windows and Linux.",
+    keywords: "dock taskbar finder notifications logo dawn black white sunset aurora glass 8-bit pixel",
   },
   { page: "appearance", title: "Typography", keywords: "font text" },
   {
