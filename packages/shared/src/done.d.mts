@@ -10,6 +10,7 @@ export const DONE_DEFAULTS: Readonly<DoneSettings>;
 export function normalizeDoneSettings(value: unknown): DoneSettings;
 export function retentionLabel(hours: number): string;
 export function isDone(session: DoneSession | undefined | null): boolean;
+export function doneFromReply(session: (DoneSession & { readOnlyReason?: string; queued?: readonly unknown[] }) | undefined | null): boolean;
 export function doneDueAt(session: DoneSession, retentionHours: number): number | null;
 export function doneDue(session: DoneSession, retentionHours: number, now?: number): boolean;
 export function doneCountdown(session: DoneSession, retentionHours: number, now?: number): string | null;

@@ -56,6 +56,7 @@ import { useComposerLayout, useNewChatSetup, useUndoFlow } from "./composer/comp
 import { ReplyProviders, TranscriptContexts, TranscriptSlots } from "./transcript/ChatTranscript";
 import { NO_WORKTREES, NO_BRANCHES, NewChatHeader } from "./NewChatHeader";
 import type { ChatComposerProps } from "./composer/chat-composer-props";
+import { limitProps, replyDoneAction } from "../lib/composer-session";
 import { useRunSteps } from "../lib/agent-runs-store";
 import { sideQuestionsBlocked, useSideQuestions } from "./composer/use-side-questions";
 
@@ -89,6 +90,7 @@ export function ChatComposer({
   store,
   onSend,
   onStop,
+  onMarkDone,
   onCompact,
   pullRequestAction,
   pullRequestReview,
@@ -120,9 +122,7 @@ export function ChatComposer({
   statusLabel,
   onOpenLinkedChat,
   onOpenAccounts,
-  limitPending,
-  limitSourceMessageId,
-  limitResumeBlocked,
+  session,
   resume,
   queue,
   models,
@@ -388,6 +388,7 @@ export function ChatComposer({
                             undoBlocked={isSending || Boolean(offlineName)}
                             onUndo={runtimeChat && !readOnlyHistory ? undoTask : undefined}
                             onFork={sideQuestions.fork}
+                            onDone={replyDoneAction(session, isSending, onMarkDone)}
                             highlightId={highlightId}
                             onCheckpointPreview={runtimeChat && !readOnlyHistory ? previewRecovery : undefined}
                             waitingStepIds={waitingStepIds}
@@ -397,9 +398,7 @@ export function ChatComposer({
                             cliStatus={cliStatus}
                             onOpenLinkedChat={onOpenLinkedChat}
                             onOpenAccounts={onOpenAccounts}
-                            limitPending={limitPending}
-                            limitSourceMessageId={limitSourceMessageId}
-                            limitResumeBlocked={limitResumeBlocked}
+                            {...limitProps(session)}
                             offlineName={offlineName}
                             models={models}
                           />

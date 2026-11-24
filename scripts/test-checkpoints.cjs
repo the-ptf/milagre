@@ -26,7 +26,7 @@ const files = [
   { key: "0:src/auth/redirect.ts", path: "src/auth/redirect.ts", worktree, action: "delete", conflict: false },
   { key: "0:src/auth/login.test.ts", path: "src/auth/login.test.ts", worktree, action: "replace", conflict: false },
 ];
-window.calls = { list: 0, preview: [], restore: [], diffs: [] };
+window.calls = { list: 0, preview: [], restore: [], diffs: [], done: [] };
 window.failStale = true;
 window.restored = false;
 window.milagre = {
@@ -87,6 +87,7 @@ function Fixture() {
       imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
       projectPath="/Projects/storefront" store={draftStore} onSend={() => { window.sent = draft; }} isSending={sending} streamingText={stream} sendBlocked={readOnly} readOnlyHistory={readOnly}
       onOpenDiff={(file, root) => window.calls.diffs.push([file, root])}
+      session={{ id: 1, readOnlyReason: readOnly ? "Worktree removed" : undefined }} onMarkDone={(id) => window.calls.done.push(id)}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={false} onFastModeChange={noop} permissionMode="ask" onPermissionModeChange={noop}
@@ -177,6 +178,17 @@ async function browserChecks() {
       true,
       "persisted user messages with send receipts can be forked",
     );
+    assert.deepEqual(
+      await evaluate('[...document.querySelectorAll("[data-message-done]")].map((button) => button.closest("[id^=message-]").id)'),
+      ["message-14"],
+      "only the last reply offers Done",
+    );
+    await evaluate('document.querySelector("[data-message-done]").click()');
+    assert.deepEqual(await evaluate("window.calls.done"), [1], "Done marks the open Chat");
+    await evaluate("window.setSending(true)");
+    await wait('!document.querySelector("[data-message-done]")');
+    await evaluate("window.setSending(false)");
+    await wait('!!document.querySelector("[data-message-done]")');
     await evaluate(
       'window.setBtw({requestId:"side",chatId:"/Projects/storefront#1",question:"Why?",text:"A side answer",steps:[],status:"completed",provider:"codex",model:"m",startedAt:1})',
     );

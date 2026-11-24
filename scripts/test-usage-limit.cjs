@@ -100,8 +100,12 @@ function Fixture() {
   return <div style={{ height: "100%", padding: 12 }}>
     <BridgeContext.Provider value={bridge}><ScopeContext.Provider value={scenario === "remote-resume" ? "peer|/fixture" : "/fixture"}>
       <ChatComposer messages={messages}
-        limitSourceMessageId={["resume", "queued", "unknown-reset", "remote-resume"].includes(scenario) ? 2 : undefined}
-        limitPending={pending} limitResumeBlocked={scenario === "queued"}
+        session={{
+          id: 7,
+          limitTurn: ["resume", "queued", "unknown-reset", "remote-resume"].includes(scenario) ? { sourceMessageId: 2 } : undefined,
+          limitResume: pending,
+          queued: scenario === "queued" ? [{}] : undefined,
+        }}
         imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
         projectPath="/fixture" store={draftStore} onSend={noop} isSending={scenario === "running"} sendBlocked={false}
         onOpenAccounts={() => { window.accountsOpened++; }}

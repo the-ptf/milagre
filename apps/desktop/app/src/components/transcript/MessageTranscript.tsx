@@ -4,7 +4,7 @@ import { suggestionOutcomes } from "@milagre/shared/subchat-escalation";
 import { useEvent } from "../../lib/stable";
 import { useRunText } from "../../lib/agent-runs-store";
 import { type ContextType, Fragment, memo, startTransition, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ChatMessage as AppChatMessage } from "../../model";
+import type { ChatMessage as AppChatMessage, LimitResume } from "../../model";
 import { Button } from "../primitives/Button";
 import { InlineError } from "../primitives/InlineError";
 import { groupQuietRuns, isRoutineRun, routineRunOf } from "@milagre/shared/routines";
@@ -82,6 +82,7 @@ export const MessageTranscript = memo(function MessageTranscript({
   undoBlocked = false,
   onUndo,
   onFork,
+  onDone,
   highlightId = null,
   onCheckpointPreview,
 }: {
@@ -89,6 +90,10 @@ export const MessageTranscript = memo(function MessageTranscript({
   undoBlocked?: boolean;
   onUndo?: (checkpointId: string) => void;
   onFork?: (messageId: number) => void;
+  onDone?: () => void;
+  limitPending?: LimitResume;
+  limitSourceMessageId?: number;
+  limitResumeBlocked?: boolean;
   highlightId?: number | null;
   onCheckpointPreview?: (recoveryId: string, action: UndoIntent) => void;
 } & Pick<
@@ -109,9 +114,6 @@ export const MessageTranscript = memo(function MessageTranscript({
   | "cliStatus"
   | "onOpenLinkedChat"
   | "onOpenAccounts"
-  | "limitPending"
-  | "limitSourceMessageId"
-  | "limitResumeBlocked"
   | "offlineName"
   | "reconnectingName"
   | "findOpen"
@@ -289,6 +291,7 @@ export const MessageTranscript = memo(function MessageTranscript({
               undoDisabled={message.role === "user" && undoable?.has(message.id) && undoBlocked}
               onUndo={message.role === "user" && undoable?.has(message.id) ? onUndo : undefined}
               onFork={message.id > 0 && message !== streamingMessage ? onFork : undefined}
+              onDone={message === transcript.at(-1)?.message && message.role === "assistant" ? onDone : undefined}
               highlighted={message.id === highlightId}
               onCheckpointPreview={isCheckpointRestore(message) && !undoBlocked ? onCheckpointPreview : undefined}
             />

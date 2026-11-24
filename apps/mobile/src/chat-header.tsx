@@ -167,7 +167,7 @@ export function chatPaneMenu({
 }: {
   chatsHomeOpen: boolean;
   diff: { added: number; removed: number } | null | undefined;
-  chat: { readOnlyReason?: unknown; archived?: unknown } | null | undefined;
+  chat: { readOnlyReason?: unknown; archived?: unknown; done_at?: unknown } | null | undefined;
   run: unknown;
   ownRoutine: unknown;
   ownHeartbeat: unknown;
@@ -220,6 +220,13 @@ export function chatPaneMenu({
                     },
                   ]
                 : []),
+              ...(chat.archived
+                ? []
+                : [
+                    chat.done_at
+                      ? { id: "reopen", title: "Reopen", systemImage: "arrow.uturn.backward" }
+                      : { id: "done", title: "Mark Done", systemImage: "checkmark.circle" },
+                  ]),
               {
                 id: "archive",
                 title: chat.archived ? "Restore" : "Delete",

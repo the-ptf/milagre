@@ -2633,9 +2633,7 @@ function App() {
                         offScreen={!(view === "chat" || runPaneOpen)}
                         mentionContext={mentionContext}
                         messages={displayedMessages}
-                        limitPending={selectedSession?.limitResume}
-                        limitSourceMessageId={selectedSession?.limitTurn?.sourceMessageId}
-                        limitResumeBlocked={!!selectedSession?.queued?.length}
+                        session={selectedSession}
                         loading={messagesLoading}
                         loadError={lean ? (pendingHere && pendingCanonicalId !== null ? canonicalWindow : chatWindow).error : undefined}
                         onRetryLoad={() => void (pendingHere && pendingCanonicalId !== null ? canonicalWindow : chatWindow).retry()}
@@ -2657,6 +2655,7 @@ function App() {
                         linearActive={linear.active}
                         onStartFromIssue={surfaces.git ? startFromIssue : undefined}
                         onStop={run && selectedSession ? () => void agentRuns.interrupt(chatKey(project.path, selectedSession.id)) : undefined}
+                        onMarkDone={readOnly ? undefined : (id) => markChatDone(id, project.path)}
                         pullRequestAction={
                           selectedSession && pullRequestBlockerAction && pullRequestActionRequest
                             ? {

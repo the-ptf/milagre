@@ -19,6 +19,9 @@ export function retentionLabel(hours) {
 
 export const isDone = (session) => Boolean(session?.done_at) && !session.archived;
 
+/** Whether a Chat's last reply offers Done: still open, writable, and with no message queued to run. */
+export const doneFromReply = (session) => Boolean(session) && !session.done_at && !session.archived && !session.readOnlyReason && !session.queued?.length;
+
 /** When a Done Chat is archived, in ms; null when it never is (Never, or not Done). */
 export function doneDueAt(session, retentionHours) {
   if (!isDone(session) || !retentionHours) return null;

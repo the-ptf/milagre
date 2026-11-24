@@ -145,7 +145,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2853,
+            "max": 2852,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -153,12 +153,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2641,
+            "max": 2640,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 406]
+        "complexity": ["error", 402]
       }
     },
     {
@@ -273,7 +273,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 605,
+            "max": 603,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -329,7 +329,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1047,
+            "max": 1045,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -337,12 +337,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 955,
+            "max": 953,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 155]
+        "complexity": ["error", 150]
       }
     },
     {
@@ -609,7 +609,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2451,
+            "max": 2447,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -617,7 +617,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2198,
+            "max": 2193,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -720,14 +720,6 @@
     {
       "files": ["apps/mobile/src/chat-reply.tsx"],
       "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 254,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
         "complexity": ["error", 79]
       }
     },

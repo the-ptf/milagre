@@ -5,19 +5,21 @@ import * as Clipboard from "expo-clipboard";
 import type { ChatMessage } from "@milagre/shared/model";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import { space } from "./design-tokens";
-import { IconButton } from "./ui";
+import { IconButton, PillButton } from "./ui";
 
 export function MessageToolbar({
   text,
   message,
   run,
   onFork,
+  onDone,
   align = "start",
 }: {
   text?: string;
   message?: ChatMessage;
   run?: AgentRun;
   onFork?: (messageId: number) => void;
+  onDone?: () => void;
   align?: "start" | "end";
 }) {
   const forkThis = !run && message && message.id > 0 && onFork ? () => onFork(message.id) : undefined;
@@ -29,7 +31,7 @@ export function MessageToolbar({
     },
     [],
   );
-  if (run || (!text?.trim() && !forkThis)) return null;
+  if (run || (!text?.trim() && !forkThis && !onDone)) return null;
   async function copy() {
     await Clipboard.setStringAsync(text ?? "");
     setCopied(true);
@@ -48,6 +50,7 @@ export function MessageToolbar({
         />
       )}
       {forkThis && <IconButton label="Fork Chat from here" icon={GitForkIcon} tone="ink3" size={44} onPress={forkThis} />}
+      {onDone && <PillButton title="Done" icon={Tick02Icon} variant="plain" size="small" muted accessibilityLabel="Mark Done" onPress={onDone} />}
     </View>
   );
 }

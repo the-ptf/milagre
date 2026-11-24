@@ -139,7 +139,8 @@ import { PlanPanel, usePlanPanel } from "../plan-pill";
 import { SubchatPanel, useSubchatPanel } from "../subchat-pill";
 import { useTheme } from "../theme";
 import { ToastPill } from "../primitives/toast";
-import { undoHistory, useHistoryToast } from "../undo-history";
+import { useHistoryToast } from "../undo-history";
+import { doneReplyId, markChatDone } from "../chat-done";
 import { archiveFromPhone, showArchiveNotice } from "../archive";
 import { randomUUID } from "expo-crypto";
 import { runChatAction } from "../chat-actions";
@@ -913,6 +914,7 @@ function ChatPane({
   const heldDraft = () => readComposerDraft(composer.readDrafts(), chatId, NO_QUOTES);
   const attachmentDisabled = busy || picking;
   const run = chat ? liveRun : undefined;
+  const doneReply = doneReplyId(chat, messages, { run, pending, offline });
   const phase =
     pending && !run
       ? sendStatusLabel({
@@ -1616,15 +1618,8 @@ function ChatPane({
     else if (id === "archive" && chat?.archived) void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]));
     else if (id === "archive" && chat) void archive(chat);
   }
-  async function markDone(finished: NonNullable<typeof chat>) {
-    const ok = await action(() => client.call("chat:patch", [project.path, finished.id, { done: true, unread: false }]));
-    if (!ok) return;
-    if (secondary) closeBeside();
-    else router.setParams({ id: undefined, worktreeId: undefined, draft: undefined, prefill: undefined });
-    const patch = (done: boolean) => () =>
-      void action(() => client.call("chat:patch", [project.path, finished.id, { done, ...(done ? { unread: false } : {}) }]));
-    undoHistory.record({ text: "Moved to Done", kind: "done", undoneText: "Back in Chats", place: "chat", undo: patch(false), redo: patch(true) });
-  }
+  const leaveChat = () => (secondary ? closeBeside() : router.setParams({ id: undefined, worktreeId: undefined, draft: undefined, prefill: undefined }));
+  const markDone = (finished: NonNullable<typeof chat>) => markChatDone({ client, projectPath: project.path, chat: finished, action, leave: leaveChat });
   async function archive(target: NonNullable<typeof chat>) {
     if (busy || archiveRequest.current) return;
     archiveRequest.current = true;
@@ -2258,6 +2253,7 @@ function ChatPane({
                                   <ChatRow
                                     message={message}
                                     onFork={forkFromMessage}
+                                    onDone={chat && message.id === doneReply ? () => void markDone(chat) : undefined}
                                     chats={message.role === "user" ? replyChats : undefined}
                                     media={media}
                                     basePath={worktree?.path || project.path}
