@@ -28,6 +28,7 @@ const task = (patch: Partial<OrchestratorTask> = {}): OrchestratorTask => ({
   answered: [],
   images: 0,
   limit: null,
+  outcome: "pull-request",
   ...patch,
 });
 const run = (patch: Partial<AgentRun> = {}) =>
@@ -57,7 +58,7 @@ test("a started task follows its Chat: running, needing you, in review, then don
   assert.deepEqual([working.column, working.mark, working.detail], ["running", "running", "Editing RestTimer.swift"]);
   const asking = boardItem(task(), { chat: chat(), run: run({ approvals: [{ title: "npm test" } as never] }) }, null, 0);
   assert.deepEqual([asking.column, asking.mark, asking.detail], ["needs", "waiting", "Asks to run: npm test"]);
-  assert.equal(boardItem(task(), { chat: chat() }, "open", 0).column, "review");
+  assert.equal(boardItem(task({ outcome: "merged" }), { chat: chat() }, "open", 0).column, "review");
   assert.equal(boardItem(task(), { chat: chat() }, "merged", 0).column, "done");
   assert.equal(boardItem(task(), { chat: chat({ done_at: 5 }) }, null, 0).column, "done");
   assert.equal(boardItem(task(), { chat: chat({ orchestrator: { taskId: "t1", hidden: false } }) }, null, 0).inSidebar, true);
@@ -82,4 +83,39 @@ test("labels read as on the desktop", () => {
   assert.equal(projectName("/code/gym", []), "gym");
   assert.equal(projectName("/code/gym", [{ path: "/code/gym", name: "happiergym" }]), "happiergym");
   assert.equal(relativeAge(0, 125 * 60000), "2h");
+});
+
+test("completed replies require the recorded outcome on the phone", () => {
+  const finished = { chat: chat({ summary: { count: 2, lastOutcome: "completed" } as AgentSession["summary"] }) };
+  const missing = boardItem(task(), finished, null, 0);
+  assert.equal(missing.column, "needs");
+  assert.match(missing.detail, /no PR verified/);
+  assert.equal(boardItem(task(), finished, "open", 0).column, "done");
+  assert.equal(boardItem(task(), finished, "closed", 0).column, "needs");
+  assert.equal(boardItem(task({ outcome: "reply" }), finished, null, 0).column, "done");
+  const accepted = boardItem(task(), { chat: chat({ done_at: 1, summary: finished.chat.summary }) }, null, 0);
+  assert.equal(accepted.column, "done", "marking the Chat Done accepts it without a PR");
+  assert.doesNotMatch(accepted.detail, /no PR verified/);
+  assert.equal(boardItem(task({ outcome: "merged" }), finished, "open", 0).detail, "Waiting for the PR to merge.");
+  assert.equal(boardItem(task(), { ...finished, run: run() }, "merged", 0).column, "running");
+  assert.equal(boardItem(task(), { chat: chat() }, null, 0).column, "running");
+});
+
+test("a finished task is Done; one its agent marked blocked or that asks a question waits in Needs you with why", () => {
+  const summary = { count: 2, lastOutcome: "completed" } as AgentSession["summary"];
+  const reason = "Sign in to the resend MCP server with /mcp, then reply continue.";
+  const blocked = chat({ summary, orchestrator: { taskId: "t1", hidden: true, blocked: { reason, at: 1 } } });
+  assert.equal(boardItem(task({ outcome: "reply" }), { chat: chat({ summary }) }, null, 0).column, "done");
+  const waiting = boardItem(task({ outcome: "reply" }), { chat: blocked }, null, 0);
+  assert.deepEqual([waiting.column, waiting.detail], ["needs", `Blocked: ${reason}`]);
+  const question = { requestId: "q", questions: [{ id: "0", header: "", question: "Which sender domain?", options: [], multiSelect: false }] };
+  const asking = boardItem(task({ outcome: "reply" }), { chat: chat(), run: run({ questions: [question] as never }) }, null, 0);
+  assert.deepEqual([asking.column, asking.mark, asking.detail], ["needs", "question", "Asks: Which sender domain?"]);
+  assert.equal(boardItem(task({ outcome: "reply" }), { chat: blocked, run: run() }, null, 0).column, "running", "a new turn in a blocked task runs");
+  assert.equal(boardItem(task({ outcome: "reply" }), { chat: { ...blocked, done_at: 5 } }, null, 0).column, "done", "marking the Chat Done accepts it");
+});
+
+test("a task the owner moved stays in that column on the phone too", () => {
+  const moved = chat({ summary: { count: 2, lastOutcome: "completed" } as never, orchestrator: { taskId: "t1", hidden: true, column: "running" } });
+  assert.equal(boardItem(task(), { chat: moved }, null, 0).column, "running");
 });

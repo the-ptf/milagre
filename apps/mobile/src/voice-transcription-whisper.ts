@@ -153,14 +153,15 @@ export function getTranscriber(): Transcriber {
         const model = whisperModelFor("phone", id);
         const whisper = await warm(model);
         const spoken = whisperLanguage(language, model);
+        const prompt = whisperPrompt(terms, spoken);
         const { promise } = whisper.transcribeData(audio, {
           language: spoken,
-          prompt: whisperPrompt(terms, spoken) || undefined,
+          prompt: prompt || undefined,
           temperature: 0,
           translate: false,
         });
         const { result, segments } = await promise;
-        return whisperText(result, segments);
+        return whisperText(result, segments, prompt);
       }),
   };
 }

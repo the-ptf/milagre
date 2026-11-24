@@ -28,10 +28,21 @@ function fakeGuest(id, host, { title = "Checkout", url = "http://localhost:5173/
     getType: () => "webview",
     getTitle: () => guest.title,
     getURL: () => guest.url,
+    inputs: [],
+    scripts: [],
+    sendInputEvent: (event) => guest.inputs.push(event),
     reloads: [],
     reload: () => guest.reloads.push("reload"),
     reloadIgnoringCache: () => guest.reloads.push("ignoring cache"),
   });
+  const mainFrame = {
+    executeJavaScript: async (script) => {
+      guest.scripts.push(script);
+      return "done";
+    },
+  };
+  mainFrame.framesInSubtree = [mainFrame];
+  guest.mainFrame = mainFrame;
   return guest;
 }
 
@@ -165,4 +176,34 @@ test("a DevTools connection to a page attaches its debugger for as long as it is
   for (let i = 0; i < 50 && debug.attached; i++) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(debug.attached, false, "the debugger is let go once nothing views the page");
   assert.deepEqual(f.sent.at(-1), ["browser-panel:viewed", { from: 7, viewed: false }]);
+});
+
+test("text and keys sent to a page go to the page, never to what has the focus in Milagre's window", async (t) => {
+  const f = fixture(t);
+  f.pages.setPages(f.host, [{ contentsId: 7, chatKey: "/p#1" }]);
+  await f.settle();
+  const { port, prefix, pages } = f.published.at(-1);
+  const guest = f.guests.get(7);
+  const ws = new WebSocket(`ws://127.0.0.1:${port}${prefix}/devtools/page/${pages[0].id}`);
+  await new Promise((resolve, reject) => {
+    ws.addEventListener("open", resolve);
+    ws.addEventListener("error", reject);
+  });
+  const call = (id, method, params) => {
+    const reply = new Promise((resolve) => ws.addEventListener("message", (event) => resolve(JSON.parse(event.data)), { once: true }));
+    ws.send(JSON.stringify({ id, method, params }));
+    return reply;
+  };
+  assert.deepEqual(await call(1, "Input.insertText", { text: "4000 0566" }), { id: 1, result: {} });
+  assert.deepEqual(await call(2, "Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" }), {
+    id: 2,
+    result: {},
+  });
+  assert.deepEqual(guest.debugger.commands, [], "no Input command reaches the webview's debugger");
+  assert.match(guest.scripts[0], /"4000 0566"/);
+  assert.deepEqual(guest.inputs, [
+    { type: "keyDown", keyCode: "Enter", modifiers: [] },
+    { type: "char", keyCode: "\r", modifiers: [] },
+  ]);
+  ws.close();
 });

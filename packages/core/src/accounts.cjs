@@ -10,7 +10,9 @@ const { inheritMcp } = require("./account-mcp.cjs");
 const { AMBIENT_ENV } = require("./agents/antigravity-install.cjs");
 const { SUBSCRIPTION_MESSAGE, inspectAntigravityAccount, prepareAntigravityProfile, signInAntigravity } = require("./antigravity-account.cjs");
 const { inspectKiroAccount } = require("./kiro-account.cjs");
-const { PROVIDERS } = require("@milagre/shared/providers");
+const { piEnvironment, piReady } = require("./agents/pi-profile.cjs");
+const { PI_SIGNED_OUT_MESSAGE } = require("./agents/events.cjs");
+const { PROVIDERS, currentProvider, withCurrentProviders } = require("@milagre/shared/providers");
 
 const { scopeKey, scopeFromKey } = require("@milagre/shared/chat-scopes");
 const validScope = (key) => {
@@ -20,8 +22,13 @@ const validScope = (key) => {
 
 // Antigravity has no terminal login to inherit (Milagre installs it itself, and its ACP server keeps its
 const ANTIGRAVITY_DEFAULT = "antigravity-default";
+const PI_PROFILE = "pi";
+// Where the profile lived while Pi ran only Ollama models; its sessions resume Chats from then.
+const OLLAMA_PI_PROFILE = "ollama-pi";
 // Kiro has one Account, the one kiro-cli is signed in to. Signing in to Identity Center takes the organization's start
 // URL and region, so it happens in a terminal; Milagre neither adds Kiro Accounts nor signs them in.
+const PI_ACCOUNT_MESSAGE =
+  "Pi uses the providers it is connected to on this computer. Run `pi auth login <provider>` in a terminal to connect one, then refresh.";
 const KIRO_SIGN_IN_MESSAGE = "Kiro uses the account kiro-cli is signed in to. Run `kiro-cli login` in a terminal to sign in or switch, then refresh.";
 const text = (value) => (typeof value === "string" ? value.slice(0, 200) : undefined);
 const BROWSER_SIGN_IN_MESSAGE = "Finish signing in in the browser on your computer.";
@@ -33,8 +40,33 @@ const signingIn = (entry) =>
   entry.url ? { state: "signing-in", message: CODE_SIGN_IN_MESSAGE, signInUrl: entry.url } : { state: "signing-in", message: BROWSER_SIGN_IN_MESSAGE };
 const validCode = (value) => typeof value === "string" && /^[\x21-\x7e]{1,2000}$/.test(value.trim());
 
+const SIGN_IN_ELSEWHERE = { kiro: KIRO_SIGN_IN_MESSAGE, pi: PI_ACCOUNT_MESSAGE };
+const DEFAULT_LABELS = { antigravity: "Default account", pi: "This computer" };
+
+// Accounts saved under a provider's earlier id (Ollama's became Pi's) read under the current one.
+function withCurrentAccountProviders(raw) {
+  const scopes = raw.scopes && typeof raw.scopes === "object" ? Object.entries(raw.scopes) : null;
+  return {
+    ...raw,
+    selected: withCurrentProviders(raw.selected),
+    accounts: Array.isArray(raw.accounts) ? raw.accounts.map((account) => ({ ...account, provider: currentProvider(account?.provider) })) : raw.accounts,
+    scopes: scopes ? Object.fromEntries(scopes.map(([scope, choices]) => [scope, withCurrentProviders(choices)])) : raw.scopes,
+  };
+}
+
+// Pi runs from a profile Milagre owns (see pi-profile.cjs), never ~/.pi itself.
+function piProfile(root) {
+  const dir = path.join(root, PI_PROFILE);
+  const previous = path.join(root, OLLAMA_PI_PROFILE);
+  if (!fs.existsSync(dir) && fs.existsSync(previous)) fs.renameSync(previous, dir);
+  preparePrivateDirectory(root);
+  preparePrivateDirectory(dir);
+  return dir;
+}
+
 async function inspectAccount(provider, { command, env }) {
   if (provider === "antigravity") return inspectAntigravityAccount({ env });
+  if (provider === "pi") return (await piReady({ env })) ? { state: "ready", email: "", plan: "" } : { state: "error", message: PI_SIGNED_OUT_MESSAGE };
   if (provider === "kiro") {
     const identity = await inspectKiroAccount({ command, env });
     return { state: identity.state, email: text(identity.email), plan: text(identity.plan), message: identity.message };
@@ -127,7 +159,7 @@ function createAccounts({
   const file = path.join(root, "accounts.json");
   let saved = { scopes: {}, accounts: [], selected: Object.fromEntries(PROVIDERS.map((provider) => [provider, "default"])) };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+    const parsed = withCurrentAccountProviders(JSON.parse(fs.readFileSync(file, "utf8")));
     if (
       !Array.isArray(parsed.accounts) ||
       !parsed.selected ||
@@ -165,7 +197,7 @@ function createAccounts({
   }
   function account(provider, id) {
     providerCheck(provider);
-    if (id === "default") return { id, provider, label: provider === "antigravity" ? "Default account" : "Connected CLI account" };
+    if (id === "default") return { id, provider, label: DEFAULT_LABELS[provider] ?? "Connected CLI account" };
     const found = saved.accounts.find((a) => a.provider === provider && a.id === id);
     if (!found) throw new Error("Account not found. Refresh and try again.");
     return found;
@@ -197,7 +229,7 @@ function createAccounts({
       next.AGY_ACP_FORCE_FILE_STORAGE = "1";
       return next;
     }
-    if (id === "default") return { ...env };
+    if (id === "default") return provider === "pi" ? piEnvironment(env, piProfile(root)) : { ...env };
     const next = { ...env };
     const names =
       provider === "codex"
@@ -340,7 +372,7 @@ function createAccounts({
   }
   async function add(provider, label) {
     providerCheck(provider);
-    if (provider === "kiro") throw new Error(KIRO_SIGN_IN_MESSAGE);
+    if (SIGN_IN_ELSEWHERE[provider]) throw new Error(SIGN_IN_ELSEWHERE[provider]);
     if (typeof label !== "string" || !label.trim() || label.length > 80) throw new Error("Enter an account name of 1 to 80 characters.");
     if (logins.size) throw new Error("Finish or cancel the current sign-in first.");
     if (saved.accounts.length >= 20) throw new Error("You can save up to 20 accounts.");
@@ -411,7 +443,7 @@ function createAccounts({
   }
   async function login(provider, id) {
     account(provider, id);
-    if (provider === "kiro") throw new Error(KIRO_SIGN_IN_MESSAGE);
+    if (SIGN_IN_ELSEWHERE[provider]) throw new Error(SIGN_IN_ELSEWHERE[provider]);
     if (closed) throw new Error("Account manager is closing.");
     if (logins.size) throw new Error("Finish or cancel the current sign-in first.");
     // Antigravity's default profile belongs to Milagre, so it signs in here. Other defaults belong to the terminal:

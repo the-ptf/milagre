@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_THEME_ID, getTheme, resolvePalette, resolveThemeSettings, themes, isHex, contrastRatio, onColor, over, luminance } from "./index.ts";
 
-test("registers the twelve themes in picker order", () => {
+test("registers the thirteen themes in picker order", () => {
   assert.deepEqual(
     themes.map((t) => t.id),
     [
       "milagre-blue",
       "gray",
+      "black",
       "catppuccin-mocha",
       "catppuccin-macchiato",
       "catppuccin-frappe",

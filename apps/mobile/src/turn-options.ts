@@ -1,3 +1,5 @@
+import { currentModelId } from "@milagre/shared/providers";
+import { unlistedPiModel } from "@milagre/shared/pi-models";
 import { MODEL_CATALOG, capabilityFor, effortFor } from "@milagre/shared/model-options";
 import { type AgentModels, type ModelCapability, type ModelOption, type ModelProvider, type PermissionMode } from "@milagre/shared/model";
 
@@ -39,8 +41,11 @@ export function selectedModel(provider: ModelProvider, wanted: string, reported?
     const preferred = models.find((model) => model.recommended) ?? models[0];
     if (preferred) return preferred;
   }
-  const known = models.find((model) => model.id === wanted);
+  const id = currentModelId(wanted);
+  const known = models.find((model) => model.id === id);
   if (known) return known;
+  const unlisted = provider === "pi" ? unlistedPiModel(id) : undefined;
+  if (unlisted) return unlisted;
   const available = models.find((model) => model.recommended) ?? models[0];
   if ((provider === "antigravity" || provider === "kiro") && available) return available;
   const saved = { provider, id: wanted, name: wanted, description: "Previously used in this Chat" };

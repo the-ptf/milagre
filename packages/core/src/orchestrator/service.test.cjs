@@ -20,7 +20,7 @@ function setup(t, { reply = null, enabled = true, remote = undefined } = {}) {
   const events = [];
   const store = createOrchestratorStore({ file: path.join(dir, "orchestrator.json"), emit: (channel) => events.push(channel) });
   store.update((current) => ({ ...current, settings: normalizeOrchestratorSettings({ ...current.settings, enabled }) }));
-  const calls = { sent: [], emptyChats: [], hidden: [], archived: [], stopped: [] };
+  const calls = { sent: [], emptyChats: [], hidden: [], archived: [], stopped: [], placed: [], deleted: [] };
   let nextSession = 7;
   const ports = {
     images: createTaskImages({ dir: path.join(dir, "orchestrator-images") }),
@@ -41,6 +41,8 @@ function setup(t, { reply = null, enabled = true, remote = undefined } = {}) {
     chatKey: (projectPath, sessionId) => `${projectPath}#${sessionId}`,
     stop: async (key) => calls.stopped.push(key),
     archive: async (projectPath, sessionId) => calls.archived.push({ projectPath, sessionId }),
+    placeChat: async (projectPath, sessionId, column) => calls.placed.push({ projectPath, sessionId, column }),
+    deleteChat: async (projectPath, sessionId) => calls.deleted.push({ projectPath, sessionId }),
     routerCall: () => (reply === null ? null : async () => JSON.stringify(reply)),
     remote,
     originOf: async (projectPath) => `git@github.com:me/${projectPath.split("/").pop()}`,
@@ -69,6 +71,8 @@ test("a sent prompt starts a hidden task Chat in the routed Project on the least
   await settled(orchestrator, task.id);
   const saved = store.task(task.id);
   assert.equal(saved.state, "started");
+  assert.equal(saved.outcome, "pull-request");
+  assert.match(calls.sent[0].prompt, /open a pull request/);
   assert.equal(calls.sent[0].permissionMode, "full", "the task Chat starts in the sender's default permission mode");
   assert.equal(saved.projectPath, "/p/happiergym");
   assert.equal(saved.sessionId, 7);
@@ -179,6 +183,35 @@ test("moving to the sidebar clears the hidden flag; undo stops and archives the 
   assert.equal(store.task(task.id), null);
 });
 
+test("the owner moves a task between columns and deletes it with its Chat", async (t) => {
+  const { orchestrator, store, calls, ports } = setup(t, {
+    reply: { project: "/p/rdfood", role: "build", title: "Fix login", reason: "rdfood auth", confidence: 0.9 },
+  });
+  const task = await orchestrator.send("fix rdfood login");
+  await settled(orchestrator, task.id);
+  await orchestrator.move(task.id, "review");
+  await orchestrator.move(task.id, "done");
+  assert.deepEqual(
+    calls.placed.map((entry) => entry.column),
+    ["review", "done"],
+  );
+  assert.deepEqual(calls.placed[0], { projectPath: "/p/rdfood", sessionId: 7, column: "review" });
+  await assert.rejects(() => orchestrator.move(task.id, "sideways"), /Running, Needs you, In review or Done/);
+  await orchestrator.remove(task.id);
+  assert.deepEqual(calls.deleted, [{ projectPath: "/p/rdfood", sessionId: 7 }]);
+  assert.deepEqual(calls.archived, [], "a deleted Chat isn't archived too");
+  assert.equal(store.task(task.id), null);
+
+  const kept = await orchestrator.send("fix rdfood signup");
+  await settled(orchestrator, kept.id);
+  ports.deleteChat = async () => {
+    throw new Error("disk full");
+  };
+  await orchestrator.remove(kept.id);
+  assert.deepEqual(calls.archived, [{ projectPath: "/p/rdfood", sessionId: 8 }], "a Chat that can't be deleted is archived instead of left hidden");
+  assert.equal(store.task(kept.id), null);
+});
+
 test("the router falls back to keywords when the model is unavailable or vague", async () => {
   const projects = [
     { path: "/p/happiergym", name: "happiergym", hints: "gym app with a rest timer" },
@@ -244,7 +277,9 @@ test("a task goes to the paired computer with the most room when its Project is 
   assert.equal(saved.projectPath, "/Users/s/happiergym");
   assert.match(saved.reason.computer, /Studio has the most room/);
   assert.equal(calls.sent.length, 0, "nothing started on this computer");
-  assert.ok(invoked.some(([, method]) => method === "orchestrator:start-here"));
+  assert.equal(invoked.find(([, method]) => method === "orchestrator:start-here")[2][0].outcome, "pull-request");
+  await orchestrator.move(task.id, "needs");
+  assert.deepEqual(invoked.at(-1), ["studio-id", "orchestrator:task:move", ["remote-task", "needs"]]);
   await orchestrator.undo(task.id);
   assert.deepEqual(invoked.at(-1), ["studio-id", "orchestrator:task:undo", ["remote-task"]]);
 });
@@ -278,4 +313,61 @@ test("a paired computer on an older Milagre shows online with its memory, but ca
   const [old, away] = await orchestrator.computers();
   assert.deepEqual(old, { id: "old", name: "Old Mac", online: true, cpu: null, memoryFree: 0.25, agents: null, takesTasks: false });
   assert.equal(away.online, false);
+});
+
+test("new tasks keep their outcome through settings edits, restarts and rerouting", async (t) => {
+  const { orchestrator, store, calls, ports, dir } = setup(t);
+  orchestrator.saveSettings({ outcome: "merged" });
+  const task = await orchestrator.send("fix happiergym timer");
+  orchestrator.saveSettings({ outcome: "reply" });
+  await settled(orchestrator, task.id);
+  assert.equal(store.task(task.id).outcome, "merged");
+  assert.match(calls.sent[0].prompt, /only after its pull request is merged/);
+  assert.match(calls.sent[0].prompt, /ask the owner before merging/);
+  assert.equal(calls.sent[0].body, "fix happiergym timer");
+  const reloaded = createOrchestratorStore({ file: path.join(dir, "orchestrator.json") });
+  const restarted = createOrchestrator({ store: reloaded, ports });
+  await restarted.reroute(task.id, { role: "security" });
+  await until(() => calls.sent.length === 2);
+  assert.equal(reloaded.task(task.id).outcome, "merged");
+  assert.match(calls.sent[1].prompt, /only after its pull request is merged/);
+  const next = await restarted.send("explain happiergym timer");
+  await settled(restarted, next.id);
+  assert.equal(reloaded.task(next.id).outcome, "reply");
+  assert.match(calls.sent[2].prompt, /report the result/);
+});
+
+test("a task received from another computer keeps the sender's outcome", async (t) => {
+  const { orchestrator, store, calls } = setup(t);
+  orchestrator.saveSettings({ outcome: "reply" });
+  const task = await orchestrator.startHere({
+    prompt: "fix timer",
+    title: "Fix timer",
+    origin: "git@github.com:me/happiergym",
+    role: "build",
+    outcome: "merged",
+  });
+  await until(() => calls.sent.length === 1);
+  assert.equal(store.task(task.id).outcome, "merged");
+  assert.match(calls.sent[0].prompt, /only after its pull request is merged/);
+});
+
+test("agents can set the outcome through the same settings dispatcher", async (t) => {
+  const { orchestrator } = setup(t);
+  const { orchestratorMcpMethods } = require("./mcp.cjs");
+  const { managementToolGroups } = require("../local-mcp-tools.cjs");
+  const { createLocalMcpRegistry } = require("../local-mcp-registry.cjs");
+  const host = orchestratorMcpMethods({ read: orchestrator.snapshot, saveSettings: orchestrator.saveSettings, send: orchestrator.send });
+  let revision = 1;
+  const registry = createLocalMcpRegistry({
+    connection: () => ({ revision, grants: { projects: { projectPaths: ["/p/happiergym"], capabilities: ["read", "create"] } } }),
+  });
+  for (const group of managementToolGroups({ host })) registry.registerToolGroup(group);
+  const tool = registry.toolsFor("outside").find((entry) => entry.name === "orchestrator_outcome");
+  assert.ok(tool, "the outcome tool uses a capability the projects grant supports");
+  await tool.run({ outcome: "reply" });
+  assert.equal(orchestrator.snapshot().settings.outcome, "reply");
+  revision++;
+  await assert.rejects(() => tool.run({ outcome: "merged" }), /changed or revoked/);
+  assert.equal(orchestrator.snapshot().settings.outcome, "reply");
 });

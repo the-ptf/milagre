@@ -6,18 +6,22 @@ const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const fixture = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { HostNotices } from '/src/app/StartupScreens';
+import { UpdateShell } from '/src/components/UpdateNotice';
 import { DotBackground } from '/src/components/DotBackground';
 import '/src/styles.css';
 window.release = 'unavailable'; window.available = false; window.reads = 0; window.installed = false; window.calls = []; window.fail = true;
+window.progress = new Set();
 window.milagre = {
- getProviderUpdates: async () => { window.reads++; return !window.available ? null : window.installed ? [] : [{provider:'codex',installedVersion:'0.160.0',version:window.release}]; },
- updateCli: async (...args) => { window.calls.push(args); await new Promise(resolve => window.finish = resolve); if(window.fail) return {ok:false,error:'Permission denied. Try again.'}; window.installed=true; return {ok:true}; }
+ getUpdateState: async () => ({ status: 'idle', version: null, progress: 0 }),
+ onUpdateState: () => () => {},
+ onCliProgress: (callback) => { window.progress.add(callback); return () => window.progress.delete(callback); },
+ getProviderUpdates: async () => { window.reads++; return !window.available ? null : window.installed ? [] : [{provider:'codex',installedVersion:'0.160.0',version:window.release,channel:'homebrew-cask',command:'brew upgrade --cask codex'}]; },
+ updateCli: async (...args) => { window.calls.push(args); await new Promise(resolve => window.finish = resolve); if(window.fail) return {ok:false,error:'Error: codex: Download failed',log:'curl: (28) Operation timed out'}; window.installed=true; return {ok:true}; }
 };
-window.settings = 0;
+window.emitProgress = (progress) => window.progress.forEach((callback) => callback({ provider: 'codex', ...progress }));
 document.documentElement.classList.add('dark');
 const root=createRoot(document.getElementById('root'));
-window.mount=()=>root.render(<div data-update-fixture><DotBackground><HostNotices key={window.release} scopes={[]} hostConnection={{connected:true,hostOutdated:false}} restartingHost={false} setRestartingHost={()=>{}} setNotice={()=>{}} onSettings={()=>window.settings++} onProvidersUpdated={()=>{}} /></DotBackground></div>);
+window.mount=()=>root.render(<div data-update-fixture><DotBackground><UpdateShell key={window.release}><div /></UpdateShell></DotBackground></div>);
 window.mount();
 `;
 
@@ -28,7 +32,7 @@ async function browserChecks() {
   const win = new BrowserWindow({ width: 794, height: 400, show: false, webPreferences: { backgroundThrottling: false } });
   const run = (s) => win.webContents.executeJavaScript(s);
   const wait = async (s) => {
-    for (let n = 0; n < 160; n++) {
+    for (let n = 0; n < 240; n++) {
       if (await run(s)) return;
       await delay(50);
     }
@@ -47,37 +51,43 @@ async function browserChecks() {
     await wait("window.reads > 0");
     await delay(100);
     assert.equal(await run("!!document.querySelector('[data-update-fixture]')"), true, "An unavailable optional endpoint must not unmount the app");
-    assert.equal(await run("!!document.querySelector('[data-provider-update]')"), false);
+    assert.equal(await run("!!document.querySelector('[data-update-notice]')"), false);
     await run("window.available=true;window.release='0.163.0';window.mount()");
-    await wait("document.body.textContent.includes('Codex v0.163.0')");
-    const geometry = await run(`(() => {
-      const card = document.querySelector('[data-provider-update]');
-      const rect = card.getBoundingClientRect();
-      return { top: rect.top, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight,
-        visible: document.elementFromPoint(rect.left + 20, rect.top + 20)?.closest('[data-provider-update]') === card };
-    })()`);
-    assert.ok(geometry.top >= 0, "The entire provider update card stays below the window top");
-    assert.equal(geometry.right, geometry.width - 20);
-    assert.equal(geometry.bottom, geometry.height - 20);
-    assert.equal(geometry.visible, true, "The update heading is visible and reachable");
+    await wait("document.querySelector('[data-face=pill]')?.textContent === 'Codex 0.163.0'");
+    assert.equal(
+      await run("getComputedStyle(document.querySelector('[data-face=card]')).visibility"),
+      "hidden",
+      "A CLI update shows as a pill, not an open card",
+    );
+    await shot("pill");
+    await run("document.querySelector('[data-face=pill]').click()");
+    await wait("document.body.textContent.includes('You have 0.160.0, installed with Homebrew.')");
     await shot("available");
-    await click("Settings");
-    assert.equal(await run("window.settings"), 1);
     await click("Update");
-    await wait("document.body.textContent.includes('Updating…')");
-    assert.equal(await run("document.querySelector('[aria-label=\"Dismiss Codex update\"]').disabled"), true);
     assert.deepEqual(await run("window.calls"), [["codex", "0.163.0"]]);
+    await run("window.emitProgress({ phase: 'download', received: 16_000_000, total: 40_000_000 })");
+    await wait("document.body.textContent.includes('40%') && document.body.textContent.includes('Downloading · 16.0 of 40.0 MB')");
+    assert.equal(await run("!!document.querySelector('[aria-label=\"Dismiss update\"]')"), false, "An install in progress can't be dismissed");
+    await shot("downloading");
+    await run("window.emitProgress({ phase: 'install' })");
+    await wait("document.body.textContent.includes('Installing…')");
     await run("window.finish()");
-    await wait("document.body.textContent.includes('Permission denied')");
+    await wait("document.body.textContent.includes('Error: codex: Download failed') && document.body.textContent.includes('Operation timed out')");
+    assert.equal(await run("[...document.querySelectorAll('button')].some(b => b.textContent.includes('Copy command'))"), true);
     await shot("failed");
-    await click("Retry");
+    await click("Try again");
     await run("window.fail=false;window.finish()");
-    await wait("!document.querySelector('[data-provider-update]')");
+    await wait("document.querySelector('[data-face=card] h2')?.textContent === 'Codex 0.163.0 installed'");
+    await shot("installed");
+    await wait("getComputedStyle(document.querySelector('[data-face=card]')).visibility === 'hidden'");
+    await wait("!document.querySelector('[data-update-notice]')");
     await run("window.release='0.164.0';window.installed=false;window.mount()");
-    await wait("document.body.textContent.includes('Codex v0.164.0')");
-    await run("document.querySelector('[aria-label=\"Dismiss Codex update\"]').click()");
-    await wait("!document.querySelector('[data-provider-update]')");
-    console.log("Provider update cards: settings, install target, pending, failure, retry, success and dismissal passed.");
+    await wait("document.querySelector('[data-face=pill]')?.textContent === 'Codex 0.164.0'");
+    await run("document.querySelector('[data-face=pill]').click()");
+    await wait("!!document.querySelector('[aria-label=\"Dismiss update\"]')");
+    await run("document.querySelector('[aria-label=\"Dismiss update\"]').click()");
+    await wait("!document.querySelector('[data-update-notice]')");
+    console.log("Provider update pill: pill first, card, download percent, installing, failure log, retry, installed and dismissal passed.");
     passed = true;
   } catch (error) {
     console.error(error);

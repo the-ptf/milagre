@@ -38,7 +38,7 @@ import { NewChatHeading } from "./NewChatHeading";
 import Tooltip from "./primitives/Tooltip";
 import { PillSlot, StatusPill } from "./primitives/StatusPill";
 import { AnimatePresence, LayoutGroup } from "motion/react";
-import { ThinkingIndicator } from "./ThinkingIndicator";
+import { RunIndicator } from "./ThinkingIndicator";
 import { BackgroundWork } from "./agents/BackgroundWork";
 import { backgroundItems } from "@milagre/shared/chat-activity";
 import { ChatMarkDotInline } from "./sidebar/ChatMarks";
@@ -178,7 +178,7 @@ export function ChatComposer({
   const root = useRef<HTMLDivElement>(null);
   const chatId = messages[0]?.session_id ?? "new";
   const isNewChat = messages.length === 0 && !loading && !loadError;
-  const { topBandRef, dockRef } = useComposerLayout(isNewChat, root);
+  const { topBandRef, dockRef, captureLaunch } = useComposerLayout(isNewChat, root);
   const reviewPill = !isNewChat && !!pullRequestReview && pullRequestReview.count > 0 && pullRequestReview;
   const {
     headingOpen,
@@ -216,7 +216,6 @@ export function ChatComposer({
     root.current?.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
     newChatChange?.(key, home);
   });
-  const artifactChat = runtimeChat;
   const compactionFeedback = useCompactionFeedback(
     messages.findLast((item) => compactionContext(item)),
     runtimeChat,
@@ -243,9 +242,10 @@ export function ChatComposer({
     onUndo: openUndo,
   });
 
-  const send = useEvent((delivery?: MessageDelivery) => {
+  const send = useEvent((delivery?: MessageDelivery, background?: boolean) => {
     if (sideQuestions.intercept(store.text())) return;
-    onSend(delivery);
+    if (!background) captureLaunch();
+    onSend(delivery, background);
   });
 
   function handleFileDrop(event: DragEvent<HTMLDivElement>) {
@@ -262,7 +262,7 @@ export function ChatComposer({
   return (
     <ReplyProviders
       mentionContext={mentionContext}
-      chatId={artifactChat}
+      chatId={runtimeChat}
       steps={artifactSteps}
       userMessages={userMessages}
       onSend={onSendDesignMessage}
@@ -413,13 +413,12 @@ export function ChatComposer({
                       </div>
                     )}
                     {isSending && !stepApproval && !asking && (
-                      <div className="w-full" style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" }}>
-                        <ThinkingIndicator
-                          startedAt={runStartedAt}
-                          label={phase ?? (waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`)}
-                          showLabel={Boolean(phase)}
-                        />
-                      </div>
+                      <RunIndicator
+                        run={{ key: streamingKey, text: streamingText, steps: streamingSteps, waitingStepIds, scope: messageScope }}
+                        startedAt={runStartedAt}
+                        label={phase ?? (waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`)}
+                        showLabel={Boolean(phase)}
+                      />
                     )}
                     <BackgroundWork
                       key={runtimeChat}

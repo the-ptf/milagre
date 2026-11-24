@@ -11,7 +11,7 @@ function createTaskSweep({ store, ports, now = () => Date.now() }) {
       const state = ports.heldState(task.projectPath);
       if (!state) continue;
       const session = state.sessions?.[task.sessionId];
-      if (!taskSwept(session, { busy: busy.has(ports.chatKey(task.projectPath, task.sessionId)), retentionHours, now: now() })) continue;
+      if (!taskSwept(session, { busy: busy.has(ports.chatKey(task.projectPath, task.sessionId)), retentionHours, now: now(), outcome: task.outcome })) continue;
       const hiddenIdle = session && !session.archived && !session.done_at && session.orchestrator?.hidden !== false;
       gone.push({ task, archive: hiddenIdle });
     }

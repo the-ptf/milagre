@@ -131,7 +131,8 @@ const phone = {
   schemaVersion: 1,
   width: 390,
   height: 844,
-  background: "#1f2a24",
+  tokens: { screen: { light: "#1f2a24", dark: "#050806" } },
+  background: "$screen",
   nodes: [
     {
       id: "greeting",
@@ -199,28 +200,40 @@ window.milagre = {
       if (window.holdHealth) await new Promise((resolve) => { window.finishHealth = resolve; });
       return window.sharingOffline ? { available: false, reason: "The sharing service could not be reached." } : { available: true };
     },
-    // Like the host: a page has one current link, its newest live one, and sharing again updates it.
-    pageShares: async ({ chatId, kind = "designs" }) => {
-      window.shareCalls.push(["list", chatId]);
+    // Like the host: a scope has one current link, its newest; sharing again updates a live one and replaces a snapshot
+    // with a new live link.
+    pageShares: async ({ chatId, kind = "workspace", designId }) => {
+      window.shareCalls.push(["list", chatId, kind, designId ?? null]);
       if (window.shareListError) throw new Error("Sharing is unavailable. Try again.");
-      return window.shares.filter(share => (share.kind ?? "designs") === kind && !share.revoked).slice(0, 1);
+      return window.shares.filter(share => (share.kind ?? "designs") === kind && (share.designId ?? null) === (designId ?? null) && !share.revoked).slice(0, 1);
     },
     sharePage: async (input) => {
       window.shareCalls.push(["publish", input]);
       if (window.sharePublishError) throw new Error("Publish failed. Try again.");
       if (window.holdPublish) await new Promise((resolve) => { window.finishPublish = resolve; });
-      const live = window.shares.find(share => (share.kind ?? "designs") === (input.kind ?? "designs") && !share.revoked);
-      if (live && !window.uncertainShare) {
-        const wasPublished = !live.pending;
-        delete live.pending;
-        Object.assign(live, { title: input.title }, wasPublished ? { updatedAt: 1780000600000 } : {});
-        return { ...live };
+      const same = (share) => (share.kind ?? "designs") === input.kind && (share.designId ?? null) === (input.designId ?? null) && !share.revoked;
+      const current = window.shares.find(same);
+      if (current?.live && !window.uncertainShare) {
+        const wasPublished = !current.pending;
+        delete current.pending;
+        delete current.stale;
+        delete current.lastError;
+        Object.assign(current, wasPublished ? { updatedAt: Date.now() } : {});
+        return { ...current };
       }
-      const row = { id: "snapshot-" + (window.shares.length + 1), url: "https://share.milagre.cloud/s/snapshot-" + (window.shares.length + 1), title: input.title, createdAt: 1780000000000, designCount: input.kind === "artifacts" ? 1 : 2, ...(input.kind === "artifacts" ? { kind: "artifacts" } : {}) };
+      const id = "link-" + (window.shares.length + 1);
+      const row = { id, url: "https://share.milagre.cloud/s/" + id, title: "Login screens", createdAt: Date.now(), designCount: input.kind === "artifacts" ? 1 : 2, kind: input.kind, live: true, ...(input.designId ? { designId: input.designId } : {}) };
       if (window.uncertainShare) row.pending = true;
       window.shares.unshift(row);
       if (window.uncertainShare) throw new Error("Publication could not be confirmed.");
       return row;
+    },
+    setPageSharePaused: async ({ chatId, id, paused }) => {
+      window.shareCalls.push(["pause", chatId, id, paused]);
+      const row = window.shares.find((share) => share.id === id);
+      row.paused = paused;
+      if (!paused) Object.assign(row, { updatedAt: Date.now() });
+      return { ...row };
     },
     revokePageShare: async ({ chatId, id }) => {
       window.shareCalls.push(["revoke", chatId, id]);
@@ -242,12 +255,33 @@ window.milagre = {
       return added;
     },
     comments: async () => window.kept ?? [],
+    // Like the host's Project library: its own copy of a design, on a named page, with who saved each version.
+    library: async ({ chatId }) => {
+      window.libraryCalls.push(["list", chatId]);
+      const pages = [...new Set(window.libraryDesigns.map((entry) => entry.page))];
+      return { pages: pages.map((page) => ({ id: page, name: window.libraryPages[page], designs: window.libraryDesigns.filter((entry) => entry.page === page) })) };
+    },
+    addToLibrary: async (request) => {
+      window.libraryCalls.push(["add", request]);
+      const page = request.page.toLowerCase();
+      window.libraryPages[page] = request.page;
+      const entry = { id: "library:" + request.designId, version: 1, versions: 1, title: "Home", format: "design", width: 390, height: 844, page, edits: [{ version: 1, chatId: request.chatId, chat: "Login screens", agent: "Claude", at: 1 }] };
+      window.libraryDesigns = [...window.libraryDesigns, entry];
+      window.libraryListeners.forEach((listener) => listener({ projectPath: "milagre-link:fixture" }));
+      return entry;
+    },
+    onLibraryChanged: (listener) => {
+      window.libraryListeners.add(listener);
+      return () => window.libraryListeners.delete(listener);
+    },
     get: async ({ chatId, id, version }) => {
       window.calls.push([chatId, id, version ?? null]);
       // As the daemon: a key under a Worktree's path is no open Chat.
       if (chatId !== "milagre-link:fixture#1") throw new Error("Open an existing Chat before showing a design.");
       if (window.designsEnabled === false && id !== "legacy" && id !== "current-artifact") throw new Error("Designs is disabled.");
       if (id === "home") return { id, version: 1, title: "Home", versions: 1, latest: 1, width: 390, height: 844, format: "design", document: home, html: designHtml(home) };
+      const kept = window.libraryDesigns.find((entry) => entry.id === id);
+      if (kept) return { ...kept, version: version ?? kept.version, latest: kept.version, document: home, html: designHtml(home) };
       if (id === "legacy" || id === "current-artifact") return { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, latest: window.htmlVersion ?? 1, width: 1280, height: 800, ...(window.htmlTabs ? { tabs: window.htmlTabs } : {}), html: "<!doctype html><h1>How this works " + (window.htmlVersion ?? 1) + "</h1>" };
       const latest = window.latest;
       const shown = version ?? latest;
@@ -257,6 +291,15 @@ window.milagre = {
 };
 window.latest = 2;
 window.sent = [];
+window.libraryCalls = [];
+window.libraryDesigns = [];
+window.libraryPages = {};
+window.libraryListeners = new Set();
+// An agent in another Chat of the Project saves a new version of a library design; the host says the library changed.
+window.libraryEdit = (id) => {
+  window.libraryDesigns = window.libraryDesigns.map((entry) => entry.id === id ? { ...entry, version: entry.version + 1, versions: entry.version + 1, edits: [...entry.edits, { version: entry.version + 1, chatId: "milagre-link:fixture#2", chat: "Polish", agent: "Codex", at: 2 }] } : entry);
+  window.libraryListeners.forEach((listener) => listener({ projectPath: "milagre-link:fixture" }));
+};
 const step = (version, offset) => ({ id: "s" + version, kind: "artifact", title: "Showed \`Login screen\`", status: "done", offset, artifact: { id: "login", format: "design", version, title: version === 1 ? "Login screen" : "Login screen, warmer" } });
 function Fixture() {
   const [revised, setRevised] = useState(false);
@@ -436,120 +479,248 @@ async function browserChecks() {
       "and with its bottom",
     );
     await screenshot("docked");
-    assert.equal(await evaluate(`!!${dock}.querySelector("[aria-label='Share page']")`), false, "Share stays hidden during the initial health check");
+    const shareButton = `${dock}.querySelector("[data-slot=artifact-share]")`;
+    assert.equal(await evaluate(`!!${shareButton}`), false, "Share stays hidden during the initial health check");
     await evaluate("window.holdHealth = false; window.finishHealth();");
     await delay(50);
-    assert.equal(await evaluate(`!!${dock}.querySelector("[aria-label='Share page']")`), false, "an unavailable service has no Share entry point");
+    assert.equal(await evaluate(`!!${shareButton}`), false, "an unavailable service has no Share entry point");
     await screenshot("share-hidden-unavailable");
     await evaluate('window.sharingOffline = false; window.dispatchEvent(new Event("online"))');
-    await waitFor(`!!${dock}.querySelector("[aria-label='Share page']")`);
-    // Sharing is a page-level action; merely opening its modal uploads nothing.
+    await waitFor(`!!${shareButton}`);
+    // Sharing shares the whole panel, every design and the page; merely opening its modal uploads nothing.
     const shareDialog = 'document.querySelector("[data-slot=design-page-share]")';
     const publish = `${shareDialog}.querySelector("[data-slot=design-page-publish]")`;
-    await evaluate(`window.holdHealth = true; window.sharingOffline = true; ${dock}.querySelector("[aria-label='Share page']").click()`);
+    const shareButtonIn = (text) => `[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === ${JSON.stringify(text)})`;
+    const shareStatus = `(${shareDialog}.querySelector("[data-slot=design-page-status]")?.textContent ?? "")`;
+    await evaluate(`window.holdHealth = true; window.sharingOffline = true; ${shareButton}.click()`);
     await waitFor(`${shareDialog}?.open && !!window.finishHealth`);
     assert.equal(await evaluate(`${publish}.disabled`), true, "publishing waits for the host health check");
     await evaluate("window.holdHealth = false; window.finishHealth();");
     await waitFor(`${shareDialog}.textContent.includes("Publishing is unavailable")`);
-    assert.equal(await evaluate(`!!${dock}.querySelector("[aria-label='Share page']")`), false, "a failed recheck also hides Share behind the open dialog");
+    assert.equal(await evaluate(`!!${shareButton}`), false, "a failed recheck also hides Share behind the open dialog");
     assert.equal(await evaluate(`${publish}.disabled`), true, "unreachable service cannot publish");
     assert.equal(await evaluate('window.shareCalls.some(([kind]) => kind === "publish")'), false);
     await screenshot("share-page-unavailable");
-    await evaluate(`window.sharingOffline = false; [...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Retry check").click()`);
+    await evaluate(`window.sharingOffline = false; ${shareButtonIn("Retry check")}.click()`);
     await waitFor(`!${publish}.disabled`);
-    assert.equal(await evaluate(`document.querySelectorAll("[aria-label='Share page']").length`), 1);
+    assert.equal(await evaluate(`document.querySelectorAll("[data-slot=artifact-share]").length`), 1);
     assert.equal(await evaluate('window.shareCalls.some(([kind]) => kind === "publish")'), false, "opening sharing never publishes");
+    assert.deepEqual(
+      await evaluate('window.shareCalls.findLast(([kind]) => kind === "list").slice(2)'),
+      ["workspace", null],
+      "the panel's Share reads the workspace link",
+    );
     const shareText = `${shareDialog}.textContent`;
-    const publishLabel = `${publish}.textContent`;
     assert.match(await evaluate(shareText), /^Share/, "a short title");
-    assert.match(await evaluate(shareText), /Anyone with the link can view it\./);
     assert.equal(await evaluate(`!!${shareDialog}.querySelector("input")`), false, "no title field: the host names the page after its Chat");
-    assert.equal(await evaluate(`document.getElementById(${shareDialog}.getAttribute("aria-describedby")).textContent`), "Anyone with the link can view it.");
-    assert.equal(await evaluate(publishLabel), "Publish");
+    assert.equal(
+      await evaluate(`document.getElementById(${shareDialog}.getAttribute("aria-describedby")).textContent`),
+      "Anyone with the link can see every design and the page, hidden HTML included. Apple's SF fonts, New York and SF Symbols show as Inter, Source Serif and Lucide icons on the shared page. The link keeps updating as the agent works.",
+    );
+    assert.equal(await evaluate(`${publish}.textContent`), "Publish");
     assert.doesNotMatch(await evaluate(shareText), /Published snapshots|frozen|Public access/);
     await screenshot("share-page-warning");
-    // Publishing failures retain the draft title, and retries send only whole-page scope and explicit consent.
+    // A failed publish says why; a double click sends one request, with explicit consent and the workspace scope.
     await evaluate(`window.sharePublishError = true; ${publish}.click()`);
     await waitFor(`${shareDialog}.querySelector("[role=alert]")?.textContent.includes("Publish failed")`);
     await evaluate(`window.sharePublishError = false; window.holdPublish = true; ${publish}.click(); ${publish}.click()`);
     await waitFor(`${publish}.disabled && !!window.finishPublish`);
     assert.equal(await evaluate('window.shareCalls.filter(([kind]) => kind === "publish").length'), 2, "double click sends one request");
     await evaluate("window.finishPublish(); window.holdPublish = false;");
-    await waitFor(`${shareDialog}.querySelectorAll("[data-share-id]").length === 1 && ${publishLabel} === "Update snapshot"`);
+    await waitFor(`${shareStatus} === "Live · published just now"`);
     assert.deepEqual(await evaluate('window.shareCalls.filter(([kind]) => kind === "publish").at(-1)[1]'), {
       chatId: "milagre-link:fixture#1",
-      title: "Designs",
+      title: "Artifact",
       acknowledgePublic: true,
-      kind: "designs",
+      kind: "workspace",
     });
-    assert.equal(await evaluate(`${shareDialog}.querySelector("a").getAttribute("href")`), "https://share.milagre.cloud/s/snapshot-1");
-    assert.match(await evaluate(shareText), /Published /);
+    assert.equal(await evaluate(`${shareDialog}.querySelector("a").getAttribute("href")`), "https://share.milagre.cloud/s/link-1");
+    assert.ok(
+      await evaluate(`!!${shareButtonIn("Pause")} && !!${shareButtonIn("Stop sharing")} && !${shareButtonIn("Update now")}`),
+      "a live link pauses or stops",
+    );
     // What an action did shows as a toast over the sheet, not in it; publishing copies the link right away.
     const toastText = `(document.querySelector("[data-toast]:popover-open")?.textContent ?? "")`;
     await waitFor(`${toastText}.startsWith("Published.")`);
-    assert.doesNotMatch(await evaluate(shareText), /Published\.|Link copied/);
     assert.equal(await evaluate("document.querySelector('[data-toast]').matches(':popover-open')"), true, "the toast sits in the top layer, over the modal");
-    if ((await evaluate(toastText)).includes("Link copied.")) assert.equal(clipboard.readText(), "https://share.milagre.cloud/s/snapshot-1");
-    await screenshot("share-page-published-first");
-    // Sharing again updates the same link; no history list appears.
-    await evaluate(`${publish}.click()`);
-    await waitFor(`${toastText}.startsWith("Snapshot updated.")`);
-    assert.equal(await evaluate('window.shareCalls.filter(([kind]) => kind === "publish").at(-1)[1].title'), "Designs", "only an older host needs a title");
-    assert.equal(await evaluate(`${shareDialog}.querySelectorAll("[data-share-id]").length`), 1);
-    assert.equal(
-      await evaluate(`${shareDialog}.querySelector("a").getAttribute("href")`),
-      "https://share.milagre.cloud/s/snapshot-1",
-      "the link stays the same",
-    );
-    assert.match(await evaluate(shareText), /Updated /);
-    assert.doesNotMatch(await evaluate(shareText), /Published snapshots/);
-    await screenshot("share-page-updated");
-    // Confirmation and failed revocation keep a working link. Success removes it and offers Publish again.
-    const shareRow = `${shareDialog}.querySelector('[data-share-id="snapshot-1"]')`;
-    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Revoke link").click()`);
+    if ((await evaluate(toastText)).includes("Link copied.")) assert.equal(clipboard.readText(), "https://share.milagre.cloud/s/link-1");
+    await screenshot("share-live");
+    // Paused, the link holds still until Resume; Update now publishes once without resuming.
+    await evaluate(`${shareButtonIn("Pause")}.click()`);
+    await waitFor(`${shareStatus} === "Paused" && !!${shareButtonIn("Resume")} && !!${shareButtonIn("Update now")}`);
+    assert.deepEqual(await evaluate('window.shareCalls.findLast(([kind]) => kind === "pause").slice(2)'), ["link-1", true]);
+    await screenshot("share-paused");
+    await evaluate(`${shareButtonIn("Update now")}.click()`);
+    await waitFor(`${toastText}.startsWith("Updated.")`);
+    assert.equal(await evaluate(shareStatus), "Paused", "updating once keeps it paused");
+    assert.equal(await evaluate(`${shareDialog}.querySelector("a").getAttribute("href")`), "https://share.milagre.cloud/s/link-1", "the link stays the same");
+    await evaluate(`${shareButtonIn("Resume")}.click()`);
+    await waitFor(`${shareStatus} === "Live · updated just now" && !${shareButtonIn("Update now")}`);
+    // A link that couldn't follow the last save says why, and offers to try now.
+    await evaluate('Object.assign(window.shares[0], { stale: true, lastError: "The sharing service could not be reached." })');
+    await evaluate(`${shareDialog}.querySelector("[aria-label='Close']").click()`);
+    await waitFor(`!${shareDialog}`);
+    await evaluate(`${shareButton}.click()`);
+    await waitFor(`${shareStatus} === "Couldn't update: The sharing service could not be reached. Retrying." && !!${shareButtonIn("Update now")}`);
+    await screenshot("share-stale");
+    await evaluate(`${shareButtonIn("Update now")}.click()`);
+    await waitFor(`${shareStatus}.startsWith("Live · updated")`);
+    // Stopping asks first; a failed stop keeps the working link. Success removes it and offers Publish again.
+    const shareRow = `${shareDialog}.querySelector('[data-share-id="link-1"]')`;
+    await evaluate(`${shareButtonIn("Stop sharing")}.click()`);
     assert.equal(await evaluate('window.shareCalls.some(([kind]) => kind === "revoke")'), false);
     await screenshot("share-page-revoke-confirm");
     await evaluate(`window.shareRevokeError = true; ${shareDialog}.querySelector("[data-slot=design-page-revoke-confirm]").click()`);
     await waitFor(`${shareDialog}.querySelector("[role=alert]")?.textContent.includes("Revoke failed")`);
     assert.ok(await evaluate(`${shareRow}.querySelector("a") !== null`));
     await evaluate(`window.shareRevokeError = false; ${shareDialog}.querySelector("[data-slot=design-page-revoke-confirm]").click()`);
-    await waitFor(`!${shareRow} && ${publishLabel} === "Publish"`);
-    await waitFor(`${toastText}.startsWith("Link revoked")`);
+    await waitFor(`!${shareRow} && ${publish}?.textContent === "Publish"`);
+    await waitFor(`${toastText}.startsWith("Stopped sharing")`);
     await screenshot("share-page-revoked");
-    // Native modal Escape returns to the canvas, without closing it too.
+    // Native modal Escape returns to the panel, without closing it too.
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "ESCAPE" });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "ESCAPE" });
     await waitFor(`!${shareDialog} && !!${dock}`);
-    await evaluate(`window.shareListError = true; ${dock}.querySelector("[aria-label='Share page']").click()`);
+    await evaluate(`window.shareListError = true; ${shareButton}.click()`);
     await waitFor(`${shareDialog}.querySelector("[role=alert]")?.textContent.includes("Sharing is unavailable")`);
     assert.equal(await evaluate(`${publish}.disabled`), true, "failed history read cannot accidentally publish before state is known");
-    await evaluate(`window.shareListError = false; [...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Retry").click()`);
-    await waitFor(`!${publish}.disabled && ${publishLabel} === "Publish"`);
+    await evaluate(`window.shareListError = false; ${shareButtonIn("Retry")}.click()`);
+    await waitFor(`!${publish}.disabled && ${publish}.textContent === "Publish"`);
     assert.equal(await evaluate(`${shareDialog}.querySelectorAll("[data-share-id]").length`), 0, "a revoked link is not offered again");
     await evaluate(`window.uncertainShare = true; ${publish}.click()`);
-    await waitFor(`${shareDialog}.querySelectorAll("[data-share-id]").length === 1 && !${publish}.disabled`);
+    await waitFor(`${shareDialog}.querySelectorAll("[data-share-id]").length === 1 && !!${shareButtonIn("Update now")}`);
     assert.match(await evaluate(`${shareDialog}.querySelector("[role=alert]").textContent`), /Publication could not be confirmed/);
-    const pendingShare = `${shareDialog}.querySelector('[data-share-id="snapshot-2"]')`;
+    const pendingShare = `${shareDialog}.querySelector('[data-share-id="link-2"]')`;
     assert.match(await evaluate(`${pendingShare}.textContent`), /Not confirmed yet/);
     assert.ok(await evaluate(`${pendingShare}.querySelector("a") !== null`), "an uncertain upload keeps its URL accessible and revocable");
-    assert.equal(await evaluate(publishLabel), "Update snapshot", "a retry goes to the same link");
     await screenshot("share-page-uncertain");
     await evaluate(`${shareDialog}.querySelector("[aria-label='Close']").click()`);
     await waitFor(`!${shareDialog}`);
-    await evaluate(`${dock}.querySelector("[aria-label='Share page']").click()`);
+    await evaluate(`${shareButton}.click()`);
     await waitFor(`!!${pendingShare}`);
     assert.match(await evaluate(`${pendingShare}.textContent`), /Not confirmed yet/, "reopening Share keeps an uncertain publication visible");
-    await waitFor(`!${publish}.disabled`);
-    await evaluate(`window.uncertainShare = false; ${publish}.click()`);
+    await waitFor(`!${shareButtonIn("Update now")}.disabled`);
+    await evaluate(`window.uncertainShare = false; ${shareButtonIn("Update now")}.click()`);
     await waitFor(`!!${pendingShare} && !${pendingShare}.textContent.includes("Not confirmed")`);
     assert.equal(
       await evaluate(`${shareDialog}.querySelector("a").getAttribute("href")`),
-      "https://share.milagre.cloud/s/snapshot-2",
+      "https://share.milagre.cloud/s/link-2",
       "the retry confirmed the same link",
     );
-
     await evaluate(`${shareDialog}.querySelector("[aria-label='Close']").click()`);
     await waitFor(`!${shareDialog} && !!${dock}`);
+
+    // One design shares on its own link, from its frame's menu.
+    await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-more]").click()`);
+    await waitFor('!!document.querySelector("[role=menu] [data-slot=artifact-share-design]")');
+    await evaluate('document.querySelector("[data-slot=artifact-share-design]").click()');
+    await waitFor(`${shareDialog}?.textContent.startsWith("Share this design") && !${publish}?.disabled`);
+    assert.match(await evaluate(shareText), /Anyone with the link can see this design\./);
+    await evaluate(`${publish}.click()`);
+    await waitFor(`${shareStatus}.startsWith("Live")`);
+    assert.deepEqual(await evaluate('(({ kind, designId }) => [kind, designId])(window.shareCalls.filter(([kind]) => kind === "publish").at(-1)[1])'), [
+      "design",
+      "home",
+    ]);
+    assert.equal(
+      await evaluate(`${shareDialog}.querySelector("a").getAttribute("href")`),
+      "https://share.milagre.cloud/s/link-3",
+      "a design gets its own link",
+    );
+    await screenshot("share-design");
+    await evaluate(`${shareDialog}.querySelector("[aria-label='Close']").click()`);
+    await waitFor(`!${shareDialog} && !!${dock}`);
+
+    // The title is a menu of what the panel shows: the canvas, and the HTML page. Switching swaps the body in place: the
+    // same panel, at the same width, without sliding in again.
+    const pageMenu = `${dock}.querySelector("header button[aria-haspopup=listbox]")`;
+    const chooseInMenu = async (label) => {
+      await evaluate(`${pageMenu}.click()`);
+      await waitFor(`!!document.querySelector("[role=listbox] [data-picker-row]")`);
+      await evaluate(
+        `[...document.querySelectorAll("[role=listbox] [data-picker-row]")].find((row) => row.textContent.includes(${JSON.stringify(label)})).click()`,
+      );
+    };
+    assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-dock-title]").textContent`), "Canvas");
+    await evaluate(
+      `window.dockNode = ${dock}; window.dockSlides = 0; window.dockWatch = new MutationObserver(() => { if (${dock} !== window.dockNode) window.dockSlides++; }); window.dockWatch.observe(document.body, { childList: true, subtree: true }); true`,
+    );
+    await chooseInMenu("Explanation");
+    await waitFor(`${dock}.dataset.page === "page" && !!${dock}.querySelector("[data-slot=artifact-page] iframe")`);
+    assert.equal(await evaluate(`${dock} === window.dockNode && window.dockSlides === 0`), true, "the panel stays mounted");
+    assert.equal(await evaluate(`Math.round(${dock}.getBoundingClientRect().width)`), 560, "and keeps its width");
+    assert.equal(
+      await evaluate('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock").trim()'),
+      "572px",
+    );
+    assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-dock-title]").textContent`), "Explanation");
+    assert.equal(await evaluate(`!!${dock}.querySelector("[data-slot=artifact-canvas]")`), false, "the canvas gives way to the page");
+    await screenshot("page-menu-page");
+    // The page can share alone, from the header's ⋯.
+    await evaluate(`${dock}.querySelector("[aria-label='More actions for the page']").click()`);
+    await waitFor('!!document.querySelector("[data-slot=artifact-share-page]")');
+    await evaluate(
+      'window.shares.push({ id: "old-page", url: "https://share.milagre.cloud/s/old-page", title: "Explanation", createdAt: Date.now() - 3 * 86400000, designCount: 1, kind: "artifacts" }); document.querySelector("[data-slot=artifact-share-page]").click()',
+    );
+    await waitFor(`${shareDialog}?.textContent.startsWith("Share this page") && ${shareStatus}.startsWith("Snapshot")`);
+    assert.equal(await evaluate(shareStatus), "Snapshot · published 3 d ago", "a link from before live links is a snapshot");
+    assert.match(await evaluate(shareText), /hidden HTML included/);
+    await screenshot("share-page-snapshot");
+    await waitFor(`!${shareButtonIn("Share again")}.disabled`);
+    await evaluate(`${shareButtonIn("Share again")}.click()`);
+    await waitFor(`${shareStatus} === "Live · published just now"`);
+    assert.equal(await evaluate('window.shareCalls.filter(([kind]) => kind === "publish").at(-1)[1].kind'), "artifacts");
+    assert.equal(
+      await evaluate(`${shareDialog}.querySelector("a").getAttribute("href")`),
+      "https://share.milagre.cloud/s/link-5",
+      "sharing again makes a live link",
+    );
+    await evaluate(`${shareDialog}.querySelector("[aria-label='Close']").click()`);
+    await waitFor(`!${shareDialog} && !!${dock}`);
+    await chooseInMenu("Canvas");
+    await waitFor(`${dock}.dataset.page === "canvas" && ${frames}?.length === 2`);
+    assert.equal(await evaluate(`${dock} === window.dockNode && window.dockSlides === 0`), true, "and back, still the same panel");
+    await evaluate("window.dockWatch.disconnect()");
+
+    // A design goes to the Project library from its frame's menu, onto a page named in the dialog; the panel then shows
+    // that library page, a section of the same page menu, on the same canvas with library ids.
+    const libraryFrame = `${dock}.querySelector('[data-slot=artifact-frame][data-artifact="library:home"]')`;
+    await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-more]").click()`);
+    await waitFor('!!document.querySelector("[role=menu] [data-slot=artifact-add-library]")');
+    await evaluate('document.querySelector("[data-slot=artifact-add-library]").click()');
+    await waitFor('!!document.querySelector("[data-slot=add-to-library] [data-slot=library-page-name]")');
+    assert.equal(await evaluate('document.querySelector("[data-slot=library-add]").disabled'), true, "a page needs a name");
+    await evaluate(
+      'const input = document.querySelector("[data-slot=library-page-name]"); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "iPhone"); input.dispatchEvent(new Event("input", { bubbles: true })); true',
+    );
+    await waitFor('!document.querySelector("[data-slot=library-add]").disabled');
+    await screenshot("library-add");
+    await evaluate('document.querySelector("[data-slot=library-add]").click()');
+    await waitFor(`!document.querySelector("[data-slot=add-to-library]") && ${dock}.dataset.page === "library:iphone" && !!${libraryFrame}`);
+    assert.deepEqual(await evaluate('window.libraryCalls.find(([kind]) => kind === "add")[1]'), {
+      chatId: "milagre-link:fixture#1",
+      designId: "home",
+      page: "iPhone",
+    });
+    assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-dock-title]").textContent`), "Project library · iPhone");
+    assert.equal(await evaluate(`${frames}.length`), 1, "the library page holds only its own designs");
+    assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-mode-comment]").disabled`), true, "library designs take no comments yet");
+    assert.match(await evaluate(`${libraryFrame}.textContent`), /v1 of 1.*Edited here · Claude/);
+    await screenshot("library-page");
+    // An agent in another Chat of the Project revises it: the host's change event reads the library again, and the frame
+    // follows the new version and says who saved it.
+    await evaluate('window.libraryEdit("library:home")');
+    await waitFor(`/v2 of 2.*Edited in Polish · Codex/.test(${libraryFrame}?.textContent ?? "")`);
+    assert.deepEqual(await evaluate('window.calls.filter(([, id]) => id === "library:home").map(([chatId]) => chatId).at(-1)'), "milagre-link:fixture#1");
+    await screenshot("library-edited-elsewhere");
+    // The Project library section ends with a way to the Project's whole Design library page.
+    await evaluate('window.addEventListener("milagre:design-library", (event) => { window.openedLibrary = event.detail; }, { once: true }); true');
+    await chooseInMenu("Open Design library");
+    await waitFor("!!window.openedLibrary");
+    assert.equal(await evaluate("window.openedLibrary.projectKey"), "milagre-link:fixture");
+    assert.equal(await evaluate(`${dock}.dataset.page`), "library:iphone", "the panel stays where it was");
+    await chooseInMenu("Canvas");
+    await waitFor(`${dock}.dataset.page === "canvas" && ${frames}?.length === 2`);
 
     // The group card's Open frames every design it showed.
     await evaluate(`${group}.querySelector(":scope > div:last-child button").click()`);
@@ -564,7 +735,7 @@ async function browserChecks() {
       `(() => { const c = ${dock}.querySelector("[data-slot=artifact-canvas]").getBoundingClientRect(); const b = ${zoomBar}.getBoundingClientRect(); return { left: b.left - c.left, bottom: c.bottom - b.bottom, right: c.right - b.right }; })()`,
     );
     assert.ok(barPlace.bottom > 0 && barPlace.bottom <= 24 && Math.abs(barPlace.left - barPlace.right) <= 2, "the mode and zoom bar sits at the bottom centre");
-    assert.equal(await evaluate(`${dock}.querySelector("header [aria-label='Share page']").textContent.trim()`), "", "Share is an icon button");
+    assert.equal(await evaluate(`${dock}.querySelector("header [data-slot=artifact-share]").textContent.trim()`), "", "Share is an icon button");
     const zoom = await evaluate(`${dock}.querySelector("[data-slot=artifact-zoom]").textContent`);
     await evaluate(`${zoomBar}.querySelector("[aria-label='Zoom in']").click()`);
     await waitFor(`${dock}.querySelector("[data-slot=artifact-zoom]").textContent !== ${JSON.stringify(zoom)}`);
@@ -877,7 +1048,7 @@ async function browserChecks() {
 
     // Closing the Designs keeps what waits for Send: they open again with the pin, on the version it was left on, and
     // the choice.
-    await evaluate(`${dock}.querySelector("[aria-label='Close designs']").click()`);
+    await evaluate(`${dock}.querySelector("[aria-label='Close the Artifact panel']").click()`);
     await waitFor(`!${dock}`);
     await evaluate(`${thumb("home")}.click()`);
     await waitFor(`!!${frame("login")}?.querySelector("[data-slot=artifact-pin]") && !!${frame("home")}?.querySelector("[data-slot=artifact-choice-pending]")`);
@@ -920,7 +1091,7 @@ async function browserChecks() {
     await screenshot("feedback-card");
     // The card's comment opens the canvas on it, its bubble open; the choice is only a record.
     assert.equal(await evaluate(`${card}.querySelector("[data-slot=design-feedback-choice]").matches("button, a, [role=button]")`), false);
-    await evaluate(`${dock}.querySelector("[aria-label='Close designs']").click()`);
+    await evaluate(`${dock}.querySelector("[aria-label='Close the Artifact panel']").click()`);
     await waitFor(`!${dock}`);
     await evaluate(`${card}.querySelector("[data-slot=design-feedback-comment]").click()`);
     await waitFor(`!!${dock} && /Make the button bigger/.test(${frame("login")}?.querySelector("[data-slot=artifact-comment-bubble]")?.textContent ?? "")`);
@@ -985,7 +1156,7 @@ async function browserChecks() {
 
     // ⌘Enter (Control+Enter off the Mac) in a bubble sends the comment right away, without the Send button. A canvas
     // filling the workspace steps back beside the chat to show the reply coming.
-    await evaluate(`${dock}.querySelector("[aria-label='Fill the window with the designs']").click()`);
+    await evaluate(`${dock}.querySelector("[aria-label='Fill the window with the artifact']").click()`);
     await waitFor(`${dock}.dataset.full === "true"`);
     await evaluate(`${dock}.querySelector("[aria-label='Comment on a design']").click()`);
     await waitFor(`!!${frame("login")}.querySelector("[data-slot=artifact-comment-layer]")`);
@@ -1056,7 +1227,15 @@ async function browserChecks() {
     await waitFor(`!${dock}.querySelector("[data-slot=artifact-send]")`);
 
     // The corner button shows while the Chat has designs, and closes and reopens the canvas.
-    const toggle = 'document.querySelector("[data-panel-toggle=designs]")';
+    const toggle = 'document.querySelector("[data-panel-toggle=artifacts]")';
+    assert.deepEqual(
+      await evaluate(
+        '[...document.querySelectorAll("[data-slot=panel-toggles] [data-panel-toggle]")].map((b) => b.dataset.panelToggle).filter((name) => name !== "browser")',
+      ),
+      ["artifacts"],
+      "one Artifact button for the designs and the page",
+    );
+    assert.equal(await evaluate(`${toggle}.getAttribute("aria-label")`), "Toggle artifact panel");
     assert.equal(await evaluate(`${toggle}.getAttribute("aria-pressed")`), "true");
     assert.equal(await evaluate('!!document.querySelector("[data-panel-toggle=simulator]")'), false, "no simulator button without a simulator");
     await evaluate(`${toggle}.click()`);
@@ -1069,7 +1248,7 @@ async function browserChecks() {
       keyCode: hintKey,
       modifiers: [process.platform === "darwin" ? "meta" : "control"],
     });
-    await waitFor('document.querySelectorAll("[data-shortcut-hint]").length >= 2');
+    await waitFor('document.querySelectorAll("[data-shortcut-hint]").length >= 1');
     const badges = await evaluate(
       '[...document.querySelectorAll("[data-shortcut-hint]")].map((b) => { const r = b.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, text: b.textContent }; }).sort((a, b) => a.left - b.left)',
     );
@@ -1091,22 +1270,31 @@ async function browserChecks() {
     await evaluate(`${toggle}.click()`);
     await waitFor(`!${dock}`);
 
-    // ⌘⇧E does the same as the button, also while typing in the composer.
+    // ⌘⇧A does the same as the button, also while typing in the composer.
     await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     window.webContents.sendInputEvent({
       type: "keyDown",
-      keyCode: "E",
+      keyCode: "A",
       modifiers: ["meta", "shift"],
     });
     await waitFor(`!!${dock} && ${dock}.querySelectorAll("[data-slot=artifact-frame]").length === 2`);
     window.webContents.sendInputEvent({
       type: "keyDown",
-      keyCode: "E",
+      keyCode: "A",
       modifiers: ["meta", "shift"],
     });
     await waitFor(`!${dock}`);
     await evaluate(`${toggle}.click()`);
     await waitFor(`!!${dock} && ${dock}.querySelectorAll("[data-slot=artifact-frame]").length === 2`);
+    // The button opens the panel on what it showed last in this Chat.
+    await chooseInMenu("Explanation");
+    await waitFor(`${dock}.dataset.page === "page"`);
+    await evaluate(`${toggle}.click()`);
+    await waitFor(`!${dock}`);
+    await evaluate(`${toggle}.click()`);
+    await waitFor(`${dock}?.dataset.page === "page" && !!${dock}.querySelector("[data-slot=artifact-page] iframe")`);
+    await chooseInMenu("Canvas");
+    await waitFor(`${dock}.dataset.page === "canvas" && ${dock}.querySelectorAll("[data-slot=artifact-frame]").length === 2`);
 
     // The git changes panel opens at the window's right edge: the design docks beside it instead of covering it.
     await evaluate("window.setChanges(true)");
@@ -1129,21 +1317,21 @@ async function browserChecks() {
     const pressed = (name) => evaluate(`document.querySelector("[data-panel-toggle=${name}]").getAttribute("aria-pressed")`);
     await evaluate("window.setSimulator(true)");
     await waitFor(`document.querySelector("[data-panel-toggle=simulator]")?.getAttribute("aria-pressed") === "true"`);
-    assert.equal(await pressed("designs"), "true");
+    assert.equal(await pressed("artifacts"), "true");
     await evaluate("window.setChanges(true)");
     await waitFor(`!${dock}`);
-    assert.equal(await pressed("designs"), "false", "the designs, opened first, close");
+    assert.equal(await pressed("artifacts"), "false", "the designs, opened first, close");
     assert.equal(await pressed("simulator"), "true");
     await evaluate(`${toggle}.click()`);
     await waitFor("!window.simulatorOpen");
     assert.equal(await pressed("simulator"), "false", "then the simulator, opened before the changes panel");
-    assert.equal(await pressed("designs"), "true");
+    assert.equal(await pressed("artifacts"), "true");
     await evaluate("window.setChanges(false)");
     await waitFor(`!!${dock} && Math.round(window.innerWidth - ${dock}.getBoundingClientRect().right) === 12`);
 
     // The design can fill the workspace beside the sidebar, covering the chat, and go back beside it.
-    await evaluate('window.expandedEvents = 0; window.addEventListener("milagre:designs-expanded", () => window.expandedEvents++)');
-    await evaluate(`${dock}.querySelector("[aria-label='Fill the window with the designs']").click()`);
+    await evaluate('window.expandedEvents = 0; window.addEventListener("milagre:artifact-expanded", () => window.expandedEvents++)');
+    await evaluate(`${dock}.querySelector("[aria-label='Fill the window with the artifact']").click()`);
     await waitFor(`${dock}.dataset.full === "true" && Math.round(${dock}.getBoundingClientRect().left) === 260`);
     assert.equal(
       await evaluate('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock")'),
@@ -1152,13 +1340,13 @@ async function browserChecks() {
     );
     assert.equal(await evaluate("window.expandedEvents"), 1, "expanding asks the other side panels to close");
     await screenshot("expanded");
-    await evaluate(`${dock}.querySelector("[aria-label='Show the Chat beside the designs']").click()`);
+    await evaluate(`${dock}.querySelector("[aria-label='Show the Chat beside the artifact']").click()`);
     await waitFor(`!${dock}.dataset.full`);
     // Back beside the chat, the chat makes room for the panel again.
     await waitFor('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock").trim() === "572px"');
     // Too narrow for a useful chat beside it, the design fills the workspace on its own.
     window.setContentSize(1100, 820);
-    await waitFor(`${dock}.dataset.full === "true" && !${dock}.querySelector("[aria-label='Fill the window with the designs']")`);
+    await waitFor(`${dock}.dataset.full === "true" && !${dock}.querySelector("[aria-label='Fill the window with the artifact']")`);
     await screenshot("narrow");
     window.setContentSize(1280, 820);
     await waitFor(`!${dock}.dataset.full`);
@@ -1190,7 +1378,7 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-slot=design-feedback-text]").scrollIntoView()');
     await screenshot("historical-feedback-text");
     // A design is deleted from its frame on the canvas after a second press, and leaves the canvas and the Chat's cards.
-    await evaluate('document.querySelector("[data-panel-toggle=designs]").click()');
+    await evaluate('document.querySelector("[data-panel-toggle=artifacts]").click()');
     await waitFor(`${frames}?.length === 2`);
     await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-more]").click()`);
     await waitFor('!!document.querySelector("[role=menu] [data-slot=artifact-export]")');
@@ -1201,6 +1389,20 @@ async function browserChecks() {
     await screenshot("frame-export-dialog");
     await evaluate("document.querySelector(\"[aria-label='Cancel export']\").click()");
     await waitFor('!document.querySelector("[data-slot=design-export-dialog]")');
+    // A design whose tokens have dark values switches the frame's mode from the same menu, and the choice stays.
+    await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-more]").click()`);
+    await waitFor('document.querySelectorAll("[role=menu] [data-slot=artifact-mode]").length === 2');
+    await evaluate('[...document.querySelectorAll("[data-slot=artifact-mode]")].find((row) => row.textContent === "Dark").click()');
+    await waitFor('!document.querySelector("[role=menu] [data-slot=artifact-mode]")');
+    await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-more]").click()`);
+    await waitFor('!!document.querySelector("[role=menu] [data-slot=artifact-mode]")');
+    assert.equal(
+      await evaluate('[...document.querySelectorAll("[data-slot=artifact-mode]")].find((row) => row.textContent === "Dark").getAttribute("aria-checked")'),
+      "true",
+    );
+    await screenshot("frame-mode-menu");
+    await evaluate('[...document.querySelectorAll("[data-slot=artifact-mode]")].find((row) => row.textContent === "Light").click()');
+    await waitFor('!document.querySelector("[role=menu] [data-slot=artifact-mode]")');
     await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-delete]").click()`);
     await waitFor(`!!${frame("home")}.querySelector("[data-slot=artifact-delete-confirm]")`);
     await screenshot("delete-confirm");
@@ -1218,21 +1420,25 @@ async function browserChecks() {
     await waitFor(`!${dock}`);
     // The one HTML page is independent of Designs, with no version/choice/editor controls.
     await evaluate("window.designsEnabled=false; window.designsChanged({enabled:false})");
-    await waitFor('!document.querySelector("[data-panel-toggle=designs]") && !!document.querySelector("[data-panel-toggle=artifacts]")');
+    await waitFor('!!document.querySelector("[data-panel-toggle=artifacts]")');
     await evaluate('document.querySelector("[data-panel-toggle=artifacts]").click()');
-    await waitFor(`${dock}?.getAttribute("aria-label") === "Artifacts" && !!document.querySelector("[data-slot=artifact-page] iframe")`);
+    // Its canvas gone, the panel opens on the page, with no menu to switch.
+    await waitFor(
+      `${dock}?.getAttribute("aria-label") === "Artifact" && ${dock}.dataset.page === "page" && !!document.querySelector("[data-slot=artifact-page] iframe")`,
+    );
+    assert.equal(await evaluate(`!!${dock}.querySelector("header button[aria-haspopup=listbox]")`), false);
     assert.equal(await evaluate(`${dock}.querySelectorAll('[data-slot=artifact-more], [data-slot=artifact-frame-version], [aria-label^="Choose"]').length`), 0);
     assert.equal(await evaluate(`${dock}.querySelectorAll('iframe').length`), 1, "a single HTML page is shown");
     assert.equal(await evaluate('!!document.querySelector("[data-artifact=legacy]")'), true);
     assert.equal(await evaluate('!!document.querySelector("[data-artifact=login]")'), false, "Designs OFF hides only structured designs");
     assert.equal(await evaluate('!!document.querySelector("[data-artifact=home]")'), false, "unmarked structured refs stay hidden when Designs is OFF");
-    await waitFor(`${dock}.querySelector('[aria-label="Share page"]')`);
+    await waitFor(`${dock}.querySelector("[data-slot=artifact-share]")`);
     // The page fills the dock, named in the header, with the zoom bar bottom-left.
     assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-dock-title]").textContent`), "Explanation");
     await waitFor(`${dock}.querySelector("[data-slot=artifact-zoom]")?.textContent === "100%"`);
     // Expand through the normal control: the narrow dock's resize handle overlaps its left edge on Linux.
     // Give the click and its 264px bubble room inside the page, without relying on a one-pixel edge hit.
-    await evaluate(`${dock}.querySelector('[aria-label="Fill the window with the artifacts"]').click()`);
+    await evaluate(`${dock}.querySelector('[aria-label="Fill the window with the artifact"]').click()`);
     await waitFor(`${dock}.dataset.full === "true" && ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect().width > 400`);
     // In comment mode a click on the page pins a comment there; its bubble opens in the dock, at the pin.
     await evaluate(`${dock}.querySelector('button[aria-label="Comment on the page"]').click()`);
@@ -1273,7 +1479,7 @@ async function browserChecks() {
       `!${dock}.querySelector("[data-slot=artifact-comment-bubble]") && /Send\\s*1/.test(${dock}.querySelector('[data-slot="artifact-send"]')?.textContent ?? "")`,
     );
     await screenshot("artifact-pending-designs-off");
-    await evaluate(`${dock}.querySelector('[aria-label="Show the Chat beside the artifacts"]').click()`);
+    await evaluate(`${dock}.querySelector('[aria-label="Show the Chat beside the artifact"]').click()`);
     await waitFor(`${dock}.dataset.full !== "true"`);
 
     await evaluate(`${dock}.querySelector('[data-slot="artifact-send"]').click()`);
@@ -1284,7 +1490,22 @@ async function browserChecks() {
     assert.doesNotMatch(htmlComment, /version|design_read|design_apply|I chose/);
     await waitFor('window.kept.at(-1).design.format === "html"');
     assert.match(await evaluate("window.kept.at(-1).anchor"), /^h1:1@/, "the host keeps where on the page it was left");
+    // An open Share dialog follows the Chat: when the agent saves, it reads the link again.
+    await evaluate(`${shareButton}.click()`);
+    await waitFor(`${shareStatus}.startsWith("Live")`);
+    assert.deepEqual(
+      await evaluate('window.shareCalls.findLast(([kind]) => kind === "list").slice(2)'),
+      ["workspace", null],
+      "without designs, Share is still the workspace's",
+    );
+    await evaluate('Object.assign(window.shares.find((share) => share.id === "link-2"), { stale: true, lastError: "Offline." })');
+    await delay(100);
+    assert.ok((await evaluate(shareStatus)).startsWith("Live"), "nothing re-reads it before a save");
     await evaluate("window.reviseHtml()");
+    await waitFor(`${shareStatus} === "Couldn't update: Offline. Retrying."`);
+    await screenshot("share-follows-saves");
+    await evaluate(`${shareDialog}.querySelector("[aria-label='Close']").click()`);
+    await waitFor(`!${shareDialog}`);
     // A card's preview mounts only once it nears the view, and the first reply's card sits above the fold: scroll to it
     // once the new reply has landed, or the transcript follows that reply down again.
     await waitFor('!!document.querySelector("[data-artifact=current-artifact]")');
@@ -1297,21 +1518,6 @@ async function browserChecks() {
     );
     await waitFor('document.querySelector("[data-slot=artifact-page] iframe")?.srcdoc.includes("How this works 2")');
     await screenshot("artifact-page-designs-off");
-    await evaluate(`${dock}.querySelector('[aria-label="Share page"]').click()`);
-    await waitFor(`${shareDialog}.querySelector('[data-slot="design-page-publish"]')?.disabled === false`);
-    await evaluate(`${shareDialog}.querySelector('[data-slot="design-page-publish"]').click()`);
-    await waitFor(`${shareDialog}.querySelector('[data-slot="design-page-publish"]').textContent === "Update snapshot"`);
-    assert.equal(await evaluate('window.shareCalls.filter(([kind])=>kind==="publish").at(-1)[1].kind'), "artifacts");
-    assert.match(await evaluate(`${shareDialog}.textContent`), /hidden HTML included/);
-    assert.equal(
-      await evaluate(`${shareDialog}.querySelector("a").getAttribute("href")`),
-      "https://share.milagre.cloud/s/snapshot-3",
-      "the Artifact page gets its own link, not the Designs one",
-    );
-    await screenshot("artifact-share");
-    await evaluate(
-      `[...${shareDialog}.querySelectorAll("button")].find((button) => button.textContent === "Close" || button.getAttribute("aria-label") === "Close").click()`,
-    );
     await evaluate(`(() => {
       window.htmlTabs = [
         { id: "overview", title: "Overview", html: "<h1>How this works 2</h1>" },
@@ -1331,15 +1537,14 @@ async function browserChecks() {
     assert.match(await evaluate(`${dock}.querySelector("header").textContent`), /Headers/);
     if (keepOpen) {
       await evaluate("window.designsEnabled=true; window.designsChanged({enabled:true})");
-      await waitFor('!!document.querySelector("[data-panel-toggle=designs]")');
-      await evaluate('document.querySelector("[data-panel-toggle=artifacts]")?.click()');
-      await evaluate('document.querySelector("[data-panel-toggle=designs]").click()');
-      await waitFor(`${dock}?.getAttribute("aria-label") === "Designs"`);
+      await waitFor(`!!${dock}.querySelector("header button[aria-haspopup=listbox]")`);
+      await chooseInMenu("Canvas");
+      await waitFor(`${dock}.dataset.page === "canvas"`);
       await evaluate(`${dock}.querySelector("[aria-label='Comment on a design']").click()`);
       await waitFor(`!!${frame("login")}.querySelector("[data-slot=artifact-comment-layer]")`);
     }
     console.log(
-      "PASS: a shown design is a card outside the activity with a sandboxed preview at its own screen size that can't make requests; Open docks a canvas of every design at the top right beside the chat (beside the git changes panel, away while the diff replaces the chat, filling the workspace when expanded or narrow), where frames follow revisions and step back through versions, zoom and fit work, wheel over a design pans until the design is clicked, choosing and Figma-like pinned comments wait for Send and reach the agent in one message, and Escape closes it",
+      "PASS: one Artifact button and panel, its title a menu that switches between the canvas and the page in place; live Share links pause, resume, update and stop, per workspace, design and page; a shown design is a card outside the activity with a sandboxed preview at its own screen size that can't make requests; Open docks a canvas of every design at the top right beside the chat (beside the git changes panel, away while the diff replaces the chat, filling the workspace when expanded or narrow), where frames follow revisions and step back through versions, zoom and fit work, wheel over a design pans until the design is clicked, choosing and Figma-like pinned comments wait for Send and reach the agent in one message, and Escape closes it",
     );
     if (!keepOpen) app.exit(0);
   } catch (error) {

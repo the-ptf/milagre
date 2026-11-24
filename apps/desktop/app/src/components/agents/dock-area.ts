@@ -3,11 +3,11 @@ import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing.ts";
 
 /**
  * Where the panels docked beside the chat go: the workspace between the sidebar and the git changes panel, which an
- * expanded design fills; `right`, how much of the window's right edge the changes panel takes, so the docks sit to its
+ * expanded Artifact panel fills; `right`, how much of the window's right edge the changes panel takes, so the docks sit to its
  * left and it stays the rightmost; `simulator`, what a docked simulator takes of the workspace, gap included; and `top`
  * and `bottom`, the sidebar card's, so every panel lines up with it.
- * From the right: the changes panel, a docked simulator, the Browser panel (`browser`, gap included), then the designs.
- * Each sits under the panels right of it, so one sliding in or out passes under its neighbours: designs and browser
+ * From the right: the changes panel, a docked simulator, the Browser panel (`browser`, gap included), then the Artifact
+ * panel. Each sits under the panels right of it, so one sliding in or out passes under its neighbours: Artifact and browser
  * z-[41], simulator z-[42], changes panel z-[43], all under the window's top strip (z-50).
  */
 type DockArea = { left: number; right: number; width: number; simulator: number; browser: number; top: number; bottom: number };
@@ -51,12 +51,12 @@ export function useDockArea() {
   return area;
 }
 
-export const DESIGNS_EXPANDED = "milagre:designs-expanded";
+export const ARTIFACT_EXPANDED = "milagre:artifact-expanded";
 
-export function useCloseWhenDesignsExpand(close: () => void) {
+export function useCloseWhenArtifactExpands(close: () => void) {
   useEffect(() => {
-    window.addEventListener(DESIGNS_EXPANDED, close);
-    return () => window.removeEventListener(DESIGNS_EXPANDED, close);
+    window.addEventListener(ARTIFACT_EXPANDED, close);
+    return () => window.removeEventListener(ARTIFACT_EXPANDED, close);
   }, [close]);
 }
 
@@ -70,7 +70,7 @@ export function panelsToClose(open: { name: string; width: number; openedAt: num
   return closing;
 }
 
-// The side panels open now (the designs, a docked simulator, the git changes panel), each with when it opened.
+// The side panels open now (the Artifact panel, a docked simulator, the git changes panel), each with when it opened.
 const openPanels = new Map<string, { width: number; openedAt: number; close: () => void }>();
 let opening = 0;
 function makeRoom() {

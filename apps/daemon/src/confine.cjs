@@ -20,6 +20,7 @@ const realOrNull = async (file) => {
 };
 
 const chatProject = (chatId) => (typeof chatId === "string" ? projectOfKey(chatId) : null);
+const designProject = (value) => (typeof value?.projectPath === "string" ? value.projectPath : chatProject(value?.chatId));
 const routineProject = (routine) => {
   const target = routine?.target;
   if (target?.kind === "new-chat") return target.projectPath;
@@ -54,6 +55,7 @@ const PATHS = Object.freeze({
   "computer-use:status": denied,
   "computer-use:guide": denied,
   "computer-use:frame": denied,
+  "baguette:status": denySimulator,
   "simlock:settings:read": denySimulator,
   "simlock:settings:save": denySimulator,
   "simlock:identity": denySimulator,
@@ -80,7 +82,7 @@ const PATHS = Object.freeze({
   "terminal:input": denied,
   "terminal:resize": denied,
   "terminal:close": denied,
-  "artifact:get": ([value]) => [chatProject(value?.chatId)],
+  "artifact:get": ([value]) => [designProject(value)],
   "artifact:asset": ([value]) => [chatProject(value?.chatId)],
   "artifact:delete": denied,
   "artifact:list": ([value]) => [chatProject(value?.chatId)],
@@ -89,9 +91,14 @@ const PATHS = Object.freeze({
   "artifact:all-page-shares": denied,
   "artifact:share-page": denied,
   "artifact:revoke-page-share": denied,
+  "artifact:set-page-share-paused": denied,
   "artifact:revoke-saved-page-share": denied,
   "artifact:add-comments": ([value]) => [chatProject(value?.chatId)],
   "artifact:comments": ([value]) => [chatProject(value?.chatId)],
+  "design-library:list": ([value]) => [designProject(value)],
+  "design-library:add": denied,
+  "design-library:update": denied,
+  "design-library:rename-page": denied,
   "browser-comments:list": ([value]) => [chatProject(value?.chatId)],
   "browser-comments:send-from-page": denied,
   "live-activity:state": denied,
@@ -175,6 +182,8 @@ const PATHS = Object.freeze({
   "orchestrator:task:project": denied,
   "orchestrator:task:sidebar": denied,
   "orchestrator:task:undo": denied,
+  "orchestrator:task:move": denied,
+  "orchestrator:task:delete": denied,
   "orchestrator:task:reroute": denied,
   "orchestrator:task:dismiss": denied,
   "orchestrator:memory:import": denied,
@@ -275,6 +284,8 @@ const PATHS = Object.freeze({
   "skills:list": ([projectPath]) => [projectPath],
   "project:files": ([root]) => [root],
   "skills:read": ([projectPath, file]) => [projectPath, file],
+  "dictation:corrections": ([cwd]) => [cwd],
+  "dictation:correct": ([cwd]) => [cwd],
   "dictation:context": ([value]) => (value?.scope == null ? [value?.cwd] : [value?.cwd, value.scope]),
   "dictation:polish": ([value]) => (value?.scope == null ? [value?.cwd] : [value?.cwd, value.scope]),
   "worktree:create": ([value]) => [value?.projectPath],

@@ -15,8 +15,19 @@ export interface ArtifactPageSnapshot {
   title: string;
   artifacts: { title: string; html: string; width: number; height: number; assets?: ArtifactAsset[] }[];
 }
-export function validateDesignPageSnapshot(value: unknown): DesignPageSnapshot | ArtifactPageSnapshot;
+/** The Artifact panel's Share: every design and, when the Chat has one, its HTML page, drawn first on the canvas. */
+export interface WorkspacePageSnapshot {
+  schemaVersion: 1;
+  kind: "workspace";
+  title: string;
+  designs: DesignPageSnapshot["designs"];
+  page?: ArtifactPageSnapshot["artifacts"][number];
+}
+export type PageSnapshot = DesignPageSnapshot | ArtifactPageSnapshot | WorkspacePageSnapshot;
+export function validateDesignPageSnapshot(value: unknown): PageSnapshot;
 export function isSnapshotRaster(source: string): boolean;
-export function designPageRunsCode(snapshot: DesignPageSnapshot | ArtifactPageSnapshot | null | undefined): boolean;
+export function designPageRunsCode(snapshot: PageSnapshot | null | undefined): boolean;
+/** The files a published page names, which the host uploads before the snapshot and the service serves beside it. */
+export function pageAssets(snapshot: PageSnapshot | null | undefined): ArtifactAsset[];
 /** `files` gives the public URL of an Artifact page's file, which its HTML names `assets/<name>`. */
-export function renderDesignPage(snapshot: DesignPageSnapshot | ArtifactPageSnapshot, options?: { files?: (asset: ArtifactAsset) => string }): string;
+export function renderDesignPage(snapshot: PageSnapshot, options?: { files?: (asset: ArtifactAsset) => string }): string;

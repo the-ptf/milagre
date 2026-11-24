@@ -1,7 +1,11 @@
+import { INSTALL_OFFERS } from "@milagre/shared/providers";
+import { InstallOffer } from "./InstallOffer";
 import { useCallback, useEffect, useState } from "react";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { AccountsSnapshot, CliStatus, ModelProvider } from "@milagre/shared/model";
-import type { CliProgress } from "../electron";
+import type { CliProgress, MilagreBridge } from "../electron";
+import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
+import { bridgeFor } from "../lib/computer-bridge";
 import { accountType, providerName } from "@milagre/shared/providers";
 import { ProviderLogo } from "./ProviderLogo";
 import { Briefcase01Icon, UserIcon, UserMultipleIcon, CheckmarkCircle02Icon, CircleIcon, Delete02Icon, RefreshIcon } from "@hugeicons/core-free-icons";
@@ -14,23 +18,24 @@ import Tooltip from "./primitives/Tooltip";
 
 const MB = 1024 * 1024;
 
-function AntigravityRow({ onInstalled }: { onInstalled: () => void }) {
+function AntigravityRow({ bridge, remote, onInstalled }: { bridge: MilagreBridge; remote: string | null; onInstalled: () => void }) {
   const [status, setStatus] = useState<CliStatus | null>(null);
   const [progress, setProgress] = useState<CliProgress | null>(null);
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
   const refresh = useCallback(() => {
-    window.milagre
+    bridge
       .getCliStatus()
       .then((all) => setStatus(all.antigravity ?? null))
       .catch(() => setStatus(null));
-  }, []);
+  }, [bridge]);
   useEffect(() => {
     refresh();
+    if (remote) return;
     return window.milagre.onCliProgress?.((next) => {
       if (next.provider === "antigravity") setProgress(next);
     });
-  }, [refresh]);
+  }, [refresh, remote]);
   const install = async () => {
     setWorking(true);
     setError("");
@@ -52,7 +57,9 @@ function AntigravityRow({ onInstalled }: { onInstalled: () => void }) {
   const label = working ? "Installing…" : status?.state === "broken" ? "Reinstall" : outdated ? "Update" : "Install";
   const detail = !working
     ? missing
-      ? "Not installed. Milagre downloads Antigravity for you."
+      ? remote
+        ? `Not installed on ${remote}. Install it from Milagre on that computer.`
+        : "Not installed. Milagre downloads Antigravity for you."
       : outdated
         ? "A newer Antigravity is available."
         : status
@@ -75,7 +82,7 @@ function AntigravityRow({ onInstalled }: { onInstalled: () => void }) {
             {detail}
           </span>
         </span>
-        {(missing || outdated || working) && (
+        {!remote && (missing || outdated || working) && (
           <Button variant="secondary" size={28} disabled={working} onClick={() => void install()}>
             {label}
           </Button>
@@ -88,12 +95,14 @@ function AntigravityRow({ onInstalled }: { onInstalled: () => void }) {
 }
 
 export function SignInCode({
+  bridge = window.milagre,
   provider,
   accountId,
   url,
   onDone,
   className = "px-3 pb-3 pl-[42px]",
 }: {
+  bridge?: MilagreBridge;
   className?: string;
   provider: ModelProvider;
   accountId: string;
@@ -111,7 +120,7 @@ export function SignInCode({
         event.preventDefault();
         setSending(true);
         setError("");
-        window.milagre
+        bridge
           .submitAccountCode(provider, accountId, code)
           .then(onDone)
           .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Could not send the code. Try again."))
@@ -140,24 +149,40 @@ export function SignInCode({
   );
 }
 
-export function AccountsSettings() {
+export function AccountsSettings({
+  computerId = LOCAL_COMPUTER,
+  computerName = null,
+  online = true,
+}: {
+  computerId?: string;
+  computerName?: string | null;
+  online?: boolean;
+}) {
+  const bridge = bridgeFor(computerId);
   const [snapshot, setSnapshot] = useState<AccountsSnapshot | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState<ModelProvider | null>(null);
   const [label, setLabel] = useState("");
-  const load = useCallback(async (refresh = false) => {
-    try {
-      setSnapshot(await window.milagre.listAccounts(refresh));
-      setError("");
-    } catch {
-      setError("Could not load accounts. Check the computer connection, then refresh.");
-    }
-  }, []);
+  const load = useCallback(
+    async (refresh = false) => {
+      try {
+        setSnapshot(await bridge.listAccounts(refresh));
+        setError("");
+      } catch {
+        setError(
+          computerName
+            ? `Could not load accounts on ${computerName}. Check that it is online, then refresh.`
+            : "Could not load accounts. Check the computer connection, then refresh.",
+        );
+      }
+    },
+    [bridge, computerName],
+  );
   useEffect(() => {
-    void load();
-    return window.milagre.onAccountsChanged?.(() => void load());
-  }, [load]);
+    if (online) void load();
+    return bridge.onAccountsChanged?.(() => void load());
+  }, [bridge, load, online]);
   const signingIn = snapshot?.providers.some((p) => p.accounts.some((a) => a.state === "signing-in"));
   useEffect(() => {
     if (!signingIn) return;
@@ -168,7 +193,7 @@ export function AccountsSettings() {
     setBusy(true);
     setError("");
     try {
-      setSnapshot(await window.milagre.accountAction(action, provider, value));
+      setSnapshot(await bridge.accountAction(action, provider, value));
       if (action === "add") {
         setAdding(null);
         setLabel("");
@@ -183,7 +208,8 @@ export function AccountsSettings() {
     <div className="mt-6 grid gap-5" data-accounts-settings>
       <div className="flex items-start justify-between gap-6">
         <p className="max-w-[430px] text-13 leading-5 text-ink-3">
-          Choose the computer default for each provider. Projects and Links can choose a different account under Per Project, below.
+          {computerName ? `Choose ${computerName}'s default for each provider.` : "Choose the computer default for each provider."} Projects and Links can
+          choose a different account under Per Project, below.
         </p>
         <Button
           variant="secondary"
@@ -224,7 +250,12 @@ export function AccountsSettings() {
               </Button>
             )}
           </div>
-          {group.provider === "antigravity" && <AntigravityRow onInstalled={() => void load(true)} />}
+          {group.provider === "antigravity" && <AntigravityRow bridge={bridge} remote={computerName} onInstalled={() => void load(true)} />}
+          {group.installed === false && INSTALL_OFFERS[group.provider] && (
+            <div className="px-3 pt-3">
+              <InstallOffer provider={group.provider} />
+            </div>
+          )}
           {group.installed !== false && (
             <div className="grid gap-2 p-3" role="group" aria-label={`${providerName(group.provider)} accounts`}>
               {group.accounts.map((account) => {
@@ -275,14 +306,14 @@ export function AccountsSettings() {
                       </button>
                       {(account.id !== "default" ||
                         group.provider === "antigravity" ||
-                        (group.provider !== "kiro" && (account.state === "signed-out" || account.state === "signing-in"))) && (
+                        (providerCapabilities(group.provider).addAccounts && (account.state === "signed-out" || account.state === "signing-in"))) && (
                         <div className="flex shrink-0 gap-2">
                           {account.state === "signing-in" ? (
                             <Button variant="secondary" size={28} disabled={busy} onClick={() => void act("cancel", group.provider, account.id)}>
                               Cancel
                             </Button>
                           ) : (
-                            <Tooltip label="Sign in again in this computer's browser, or with a link and code" align="end">
+                            <Tooltip label={`Sign in again in ${computerName ?? "this computer"}'s browser, or with a link and code`} align="end">
                               <Button variant="ghost" size={28} disabled={busy || signingIn} onClick={() => void act("login", group.provider, account.id)}>
                                 <Icon icon={RefreshIcon} size={14} />
                                 {account.state === "signed-out" ? "Sign in" : "Re-authenticate"}
@@ -305,7 +336,7 @@ export function AccountsSettings() {
                       )}
                     </div>
                     {account.state === "signing-in" && account.signInUrl && (
-                      <SignInCode provider={group.provider} accountId={account.id} url={account.signInUrl} onDone={setSnapshot} />
+                      <SignInCode bridge={bridge} provider={group.provider} accountId={account.id} url={account.signInUrl} onDone={setSnapshot} />
                     )}
                   </div>
                 );
@@ -332,7 +363,11 @@ export function AccountsSettings() {
                   className={FIELD}
                 />
               </label>
-              <p className="text-12 text-ink-3">Sign-in opens in your computer's browser. Choose the account you want to add.</p>
+              <p className="text-12 text-ink-3">
+                {computerName
+                  ? `Sign-in opens in ${computerName}'s browser. Claude also shows a link and code you can use here.`
+                  : "Sign-in opens in your computer's browser. Choose the account you want to add."}
+              </p>
               <div className="flex gap-2">
                 <Button type="submit" size={28} disabled={busy || !label.trim()}>
                   Continue to sign in
@@ -346,8 +381,8 @@ export function AccountsSettings() {
         </section>
       ))}
       <p className="text-12 leading-5 text-ink-3">
-        Add and sign in on this computer. Paired phones can switch accounts. Remove keeps the local profile; removing the active account selects the connected
-        CLI account.
+        Accounts belong to the computer that runs the agents. Manage another paired computer's with the Computer menu above. Remove keeps the local profile;
+        removing the active account selects the connected CLI account.
       </p>
     </div>
   );

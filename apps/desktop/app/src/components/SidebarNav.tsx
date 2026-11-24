@@ -18,7 +18,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import type { IconSvgElement } from "@hugeicons/react";
 import {
   Add01Icon,
   BubbleChatIcon,
@@ -26,7 +25,6 @@ import {
   Copy01Icon,
   Delete02Icon,
   FolderAddIcon,
-  FolderOpenIcon,
   Link04Icon,
   PencilEdit02Icon,
   TimeScheduleIcon,
@@ -42,7 +40,7 @@ import { ProjectAvatar } from "./primitives/ProjectAvatar";
 import { FiltersButton, type PickerProject } from "./sidebar/FiltersMenu";
 import { useShortcutHints } from "../lib/shortcut-hints";
 import { ScrollArea } from "./primitives/ScrollArea";
-import { projectMenuActions, type ProjectMenuKey } from "@/lib/reveal";
+import { projectMenu } from "./sidebar/project-menu";
 import { projectRows, stableOrder, type RecentProject } from "@/lib/project-list";
 import { linkOwners, nestUnder, worktreeGroups, worktreeHeading } from "@milagre/shared/project-list";
 import { WorktreeHeading } from "./sidebar/WorktreeHeading";
@@ -94,12 +92,6 @@ import { reopenFromDone, wakeFromSnoozed, withoutSetAside } from "./sidebar/chat
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 const copy = (text: string) => void navigator.clipboard.writeText(text).catch(() => {});
-const PROJECT_MENU_ICONS: Record<ProjectMenuKey, IconSvgElement> = {
-  reveal: FolderOpenIcon,
-  "copy-path": Copy01Icon,
-  "copy-name": Copy01Icon,
-  settings: Settings01Icon,
-};
 
 const WORKSPACE = { key: "creamery", name: "Creamery Ops", monogram: "C" };
 
@@ -817,16 +809,8 @@ export default memo(function SidebarNav({
           ? [{ key: "delete", label: "Delete Link…", icon: Delete02Icon, destructive: true, separatorBefore: true, run: () => onDeleteLink(link.id) }]
           : []),
       ];
-    const actions: Record<ProjectMenuKey, Pick<ScopeMenuItem, "run" | "disabled">> = {
-      reveal: { run: () => void window.milagre?.revealInFolder(scope.key).catch(() => {}) },
-      "copy-path": { run: () => copy(unqualifyKey(scope.key)) },
-      "copy-name": { run: () => copy(scope.name) },
-      settings: { run: () => onOpenProjectSettings?.(scope.key), disabled: !onOpenProjectSettings },
-    };
     return [
-      ...projectMenuActions(IS_MAC)
-        .filter((item) => item.key !== "reveal" || !isRemoteKey(scope.key))
-        .map((item) => ({ key: item.key, label: item.label, icon: PROJECT_MENU_ICONS[item.key], ...actions[item.key] })),
+      ...projectMenu(scope, onOpenProjectSettings),
       {
         key: "remove",
         label: "Remove Project",

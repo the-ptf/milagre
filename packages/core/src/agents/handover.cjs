@@ -8,6 +8,7 @@ const { routineRunText } = require("@milagre/shared/routines");
 const { neutralizeTags } = require("@milagre/shared/untrusted-text");
 const { claudeModel, codexModel, antigravityModel, kiroModel } = require("../git-text.cjs");
 const { extractJson } = require("./antigravity-text.cjs");
+const { piTextModel } = require("./pi-text.cjs");
 
 const TRANSCRIPT_LIMIT = 60_000;
 const FIRST_MESSAGE_LIMIT = 6_000;
@@ -186,6 +187,7 @@ function createHandoverModels({ cli, clientVersion }) {
     codex: codexModel({ getCommand: getCommand("codex"), clientVersion, outputSchema: BRIEF_SCHEMA }),
     antigravity: antigravityModel({ getCommand: getCommand("antigravity"), clientVersion, outputSchema: BRIEF_SCHEMA }),
     kiro: kiroModel({ getCommand: getCommand("kiro"), clientVersion, outputSchema: BRIEF_SCHEMA }),
+    pi: piTextModel({ getCommand: getCommand("pi"), outputSchema: BRIEF_SCHEMA }),
   };
 }
 

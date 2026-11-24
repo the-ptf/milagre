@@ -146,7 +146,7 @@ function createDictation({
         maxThreads: Math.max(1, Math.min(8, os.availableParallelism() - 1)),
       });
       const { result, segments } = await promise;
-      return { text: whisperText(result, segments) };
+      return { text: whisperText(result, segments, prompt) };
     } finally {
       keepWarm();
     }

@@ -9,6 +9,7 @@ const MAX_WHEN_LENGTH = 256;
 export const KEYBINDING_COMMANDS = Object.freeze([
   { id: "commandPalette.toggle", title: "Search commands, Chats and Projects", group: "General", defaults: ["mod+k"], mobile: true },
   { id: "chat.new", title: "New Chat", group: "General", defaults: ["mod+n"], mobile: true },
+  { id: "worktree.new", title: "New Chat in a new worktree, from anywhere", group: "General", defaults: ["mod+shift+n"], forward: true, mobile: true },
   { id: "project.add", title: "Add Project", group: "General", defaults: ["mod+o"] },
   { id: "settings.open", title: "Open Settings", group: "General", defaults: ["mod+,"], forward: true, mobile: true },
   { id: "theme.toggle", title: "Switch light and dark", group: "General", defaults: ["mod+shift+t"], forward: true },
@@ -27,18 +28,22 @@ export const KEYBINDING_COMMANDS = Object.freeze([
     mobile: true,
   })),
   { id: "chat.find", title: "Find in Chat", group: "Chat", defaults: ["mod+f"] },
+  { id: "chat.sendStay", title: "Start a new Chat in a new worktree and stay here", group: "Chat", defaults: ["mod+enter"], mobile: true },
   { id: "chat.quote", title: "Quote the selected text in the next message", group: "Chat", defaults: ["mod+shift+'"] },
   { id: "dictation.toggle", title: "Dictate", group: "Chat", defaults: ["alt+space"], mobile: true },
   { id: "changes.toggle", title: "Show or hide Changes", group: "Panels", defaults: ["mod+shift+d"], forward: true, mobile: true },
   { id: "terminal.toggle", title: "Show or hide Terminals", group: "Panels", defaults: ["mod+j"] },
   { id: "terminal.new", title: "New Terminal", group: "Panels", defaults: ["mod+t"] },
-  { id: "artifacts.toggle", title: "Show or hide artifacts", group: "Panels", defaults: ["mod+shift+a"], forward: true },
-  { id: "designs.toggle", title: "Show or hide designs", group: "Panels", defaults: ["mod+shift+e"], forward: true },
+  { id: "artifacts.toggle", title: "Show or hide the Artifact panel", group: "Panels", defaults: ["mod+shift+a"], forward: true },
   { id: "browser.toggle", title: "Show or hide the browser", group: "Panels", defaults: ["mod+shift+b"], forward: true },
   { id: "simulator.toggle", title: "Show or hide the simulator", group: "Panels", defaults: ["mod+shift+s"], forward: true },
+  { id: "simulator.focus", title: "Fill the window with the simulator", group: "Panels", defaults: ["mod+shift+f"], forward: true },
 ]);
 
 const COMMANDS = new Map(KEYBINDING_COMMANDS.map((command) => [command.id, command]));
+
+/** Commands a newer Milagre dropped: rules naming them are left out quietly, since the file they sit in was right then. */
+const RETIRED_COMMANDS = new Set(["designs.toggle"]);
 
 /** The context keys a `when` can name. Any other name is false. */
 export const WHEN_KEYS = Object.freeze({
@@ -350,6 +355,7 @@ export function readRules(value) {
       issues.push(`Only the first ${MAX_KEYBINDINGS} rules are read.`);
       break;
     }
+    if (RETIRED_COMMANDS.has(entry?.command)) continue;
     const result = readRule(entry);
     if (result.rule) rules.push(result.rule);
     else issues.push(`Rule ${index + 1} ${result.error}.`);

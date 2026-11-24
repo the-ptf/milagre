@@ -50,6 +50,7 @@ async function fixture(t, options = {}) {
   const dataDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-auth-")));
   const daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "test",
     requireAuthentication: true,
     runtimeOptions: { cwd: dataDir, environmentReady: Promise.resolve(), titleModels: {} },

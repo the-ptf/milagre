@@ -30,7 +30,7 @@ Milagre is a calm, dense workbench for people who run coding agents all day.
 
 Every theme comes from one builder, `packages/shared/src/themes/build.ts`: a theme names a few official colours (page,
 surface, ink, accent, the status colours) and the builder derives every other token, solving the contrast floors below
-for that theme. Twelve themes ship (Milagre Blue, the default, plus Gray, three Catppuccins and seven popular editor
+for that theme. Thirteen themes ship (Milagre Blue, the default, plus Gray, Black (a true `#000` page for OLED, with lifted cards and lines), three Catppuccins and seven popular editor
 themes), and a custom theme is built the same way. The tables list Milagre Blue.
 
 Desktop reads each token as a CSS variable and a Tailwind colour (`bg-surface`, `text-ink-2`). The phone reads the same
@@ -563,8 +563,10 @@ The owner's decisions. Don't re-propose a rejected option; changing any of these
 - Film grain (Settings › Appearance › Film grain, on by default): faint static specks over the window background, the
   Chat's top band and the side panels (sidebar, Changes) at half strength; never on the composer or the Details glass.
 - The sidebar has no dividers above Done, the usage block or its footer.
-- The window's right corner runs Details, Terminals, PR, Changes, then the other panels (Artifacts, Designs, Browser,
+- The window's right corner runs Details, Terminals, PR, Changes, then the other panels (Artifact, Browser,
   Simulators) and Canvas last.
+- One Artifact button and panel hold the Chat's designs (Canvas) and its HTML page: the panel's title is the menu
+  between them, and its Share publishes both on one live link. A design's ⋯ and the page's ⋯ share either alone.
 - The top-left bar is the sidebar toggle, Routines and Search. Canvas is the last button of the window's right corner;
   Link Projects is the third choice of the Add Project dialog (Open a folder, Clone a repository, Link Projects), whose
   computer is a menu. No grid or Subchats side-by-side buttons: a grid comes from dragging a Chat onto the open one.
@@ -577,7 +579,7 @@ The owner's decisions. Don't re-propose a rejected option; changing any of these
   is the first corner button (a card with right-aligned lines, `AlignBoxMiddleRight`) and has no shortcut: Environment, Lineage
   (the parent with `ArrowUpLeft01`, Subchats with `Redo03`, Done in `ink-3`, not green; under the pointer a muted → takes the place of the state; a right-click opens the Chat's sidebar menu without Report a bug, unread, Finder, the editor, Commit and Pin, Rename editing the title in place), Background
   tasks and Links. Rows are 32 high, inset 8 from the card's edges so the `hover` fill is a rounded block; Lineage,
-  Background tasks and Links fold. Artifacts, Designs, Browser and Simulator keep their shortcuts.
+  Background tasks and Links fold. Artifact, Browser and Simulator keep their shortcuts.
 
 ### Routines page (2026-11-10)
 

@@ -20,6 +20,8 @@ export function capabilityFor(model: ModelOption, capabilities: ModelCapabilitie
       ? { efforts: known.efforts, ...(known.defaultEffort ? { defaultEffort: known.defaultEffort } : {}), ultracode: false, fastMode: false }
       : { efforts: [], ultracode: false, fastMode: false };
   }
+  // Pi's models are whatever Ollama has pulled and Pi's providers offer; until the host lists them, none has an effort.
+  if (model.provider === "pi") return { efforts: [], ultracode: false, fastMode: false };
   const fastMode = CLAUDE_FAST_MODELS.has(model.id);
   if (model.id.includes("haiku")) return { efforts: [], ultracode: false, fastMode };
   const modern = /claude-(opus|sonnet|fable)-5/.test(model.id);
@@ -33,8 +35,14 @@ const CLAUDE_200K = /^claude-(3-|haiku-4|sonnet-4|opus-4(-[0-6])?$)/;
 const CODEX_WINDOW = 272_000;
 const GEMINI_WINDOW = 1_048_576;
 
+/** Whether a picker row matches the search: its name, id, or the provider behind it (OpenRouter, Ollama). */
+export function modelMatches(model: Pick<ModelOption, "name" | "id" | "group">, query: string): boolean {
+  return `${model.name} ${model.id} ${model.group ?? ""}`.toLowerCase().includes(query.trim().toLowerCase());
+}
+
 /** The model's context window in tokens, or undefined when it isn't known. */
-export function contextWindowFor(model: Pick<ModelOption, "provider" | "id">): number | undefined {
+export function contextWindowFor(model: Pick<ModelOption, "provider" | "id" | "contextWindow">): number | undefined {
+  if (model.provider === "pi") return model.contextWindow;
   if (model.provider === "claude") return CLAUDE_200K.test(model.id) ? 200_000 : 1_000_000;
   if (model.provider === "codex") return CODEX_WINDOW;
   return model.id.startsWith("gemini") ? GEMINI_WINDOW : undefined;

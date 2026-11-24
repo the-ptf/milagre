@@ -1,4 +1,9 @@
 import type { z } from "zod";
+import type { DesignMode } from "./design-modes.mjs";
+export type { DesignMode } from "./design-modes.mjs";
+export { DESIGN_MODES, DESIGN_MODE_LABELS, designHtmlForMode, designModesOf } from "./design-modes.mjs";
+/** A color token: one color for every mode, or one per mode (light required). */
+export type DesignColorToken = string | { light: string; dark?: string; contrast?: string };
 export const designIcons: Record<string, string>;
 export const DESIGN_INK: "#202720";
 export const DESIGN_PLACEHOLDER: "#d8ded8";
@@ -14,7 +19,7 @@ export interface DesignDocument {
     mode: "advisory" | "strict";
     exceptions?: Array<{ nodeId: string; field: string; value: string | number | Record<string, string | number>; reason: string }>;
   };
-  tokens?: Record<string, string>;
+  tokens?: Record<string, DesignColorToken>;
   nodes: DesignNode[];
 }
 
@@ -22,10 +27,12 @@ export interface DesignKit {
   id: string;
   version: number;
   title: string;
-  colors: Record<string, string>;
-  textStyles: Record<string, { fontFamily?: string; fontSize: number; fontWeight?: number; lineHeight?: number }>;
+  colors: Record<string, DesignColorToken>;
+  textStyles: Record<string, { fontFamily?: string; fontSize: number; fontWeight?: number; lineHeight?: number; letterSpacing?: number }>;
   spacing: Record<string, number>;
   radii: Record<string, number>;
+  tracking?: Record<string, number>;
+  opacity?: Record<string, number>;
   components?: Record<string, DesignNode[]>;
   references?: Array<{ title: string; source: string }>;
 }
@@ -36,7 +43,7 @@ export function validateDesignKit(value: unknown): DesignKit;
 export interface DesignNode {
   id: string;
   name?: string;
-  type: "frame" | "text" | "rectangle" | "ellipse" | "image" | "icon";
+  type: "frame" | "text" | "rectangle" | "ellipse" | "image" | "icon" | "path";
   parentId?: string;
   x?: number;
   y?: number;
@@ -56,9 +63,18 @@ export interface DesignNode {
   fontFamily?: string;
   fontWeight?: number;
   lineHeight?: number;
+  letterSpacing?: number;
   textAlign?: "left" | "center" | "right";
   src?: string;
   icon?: string;
+  /** A path layer's SVG path data, in viewBox units (the layer's pixels by default). */
+  path?: string;
+  viewBox?: [number, number, number, number];
+  /** Instead of path: a ring arc, start degrees clockwise from 12 o'clock for sweep degrees. */
+  arc?: { start?: number; sweep: number };
+  strokeCap?: "butt" | "round" | "square";
+  strokeJoin?: "miter" | "round" | "bevel";
+  strokeDash?: number[];
   layout?: "free" | "horizontal" | "vertical";
   gap?: number;
   padding?: number;
@@ -70,7 +86,7 @@ export interface DesignNode {
   componentId?: string;
   componentSourceId?: string;
   textStyle?: string;
-  bindings?: Partial<Record<"padding" | "gap" | "minWidth" | "minHeight" | "radius", string>>;
+  bindings?: Partial<Record<"padding" | "gap" | "minWidth" | "minHeight" | "radius" | "letterSpacing" | "opacity", string>>;
   componentProperties?: Record<string, { nodeId: string; field: "text" | "icon" | "hidden" | "fill" | "opacity"; options?: Array<string | boolean | number> }>;
   componentValues?: Record<string, string | boolean | number>;
 }
@@ -137,9 +153,50 @@ export function designDiagnostics(document: DesignDocument): {
 /** At most 20 warning lines plus "…and N more", or "" when there are none. */
 export function designWarningText(warnings: DesignWarning[]): string;
 export function designColor(document: DesignDocument, value?: string, fallback?: string): string;
-export function designFontFamily(value?: string): string;
-/** CSS @font-face rules (data URIs) for the Inter and loaded catalog weights a document's visible text uses, or "". */
-export function designFontFaces(document: DesignDocument): string;
+/** A color field or token value as one CSS color in a mode, or null. */
+export function resolveDesignColor(tokens: Record<string, DesignColorToken> | undefined, value: DesignColorToken | undefined, mode?: DesignMode): string | null;
+export function designColorReferences(value: DesignColorToken | undefined): string[];
+/** The document with color tokens flattened to one mode, for previews and diagnostics. */
+export function designDocumentForMode(document: DesignDocument, mode?: DesignMode): DesignDocument;
+export function designFontFamily(value?: string, fontSize?: number): string;
+/** CSS @font-face rules (data URIs) for the Inter, catalog and installed faces a document's visible text uses, or "". `localFonts: false` leaves installed faces out. */
+export function designFontFaces(document: DesignDocument, options?: { localFonts?: boolean }): string;
+export interface DesignLocalFamily {
+  family: string;
+  apple: boolean;
+  wght?: { min: number; max: number };
+  opsz?: { min: number; max: number; fixed?: number };
+  weights: number[];
+}
+export interface DesignLocalFontSource {
+  ready?: () => Promise<void>;
+  family: (name: string) => DesignLocalFamily | null;
+  load: (
+    requests: Array<{ key: string; family: string; cssFamily: string; weight: number; opsz: number | null }>,
+  ) => Promise<Array<{ key: string; data: string; advances: number[] } | null>>;
+}
+/** An SF Symbol's closest Lucide icon, used where SF Symbols can't render. */
+export const DESIGN_SF_SYMBOL_LUCIDE: Record<string, string>;
+export function designSymbolName(icon?: string): string | null;
+export function designSymbolLucide(name: string): { icon: string; filled: boolean; exact: boolean };
+export function designSymbolStroke(fontWeight?: number): number;
+export function designSymbolImage(node: DesignNode): { key: string; png: string; width: number; height: number } | null;
+export function designSymbolsAvailable(): boolean;
+export function loadDesignSymbols(document: DesignDocument): Promise<void>;
+/** The host's SF Symbols (a Mac), as white mask PNGs; null draws every SF Symbol as Lucide. */
+export function setDesignSymbols(
+  source: {
+    load: (
+      requests: Array<{ key: string; name: string; weight: number }>,
+    ) => Promise<Array<{ key: string; png: string; width: number; height: number } | null>>;
+  } | null,
+): void;
+/** The host's installed fonts, for local previews only. */
+export function setDesignLocalFonts(source: DesignLocalFontSource | null): void;
+export function designLocalFamily(fontFamily?: string): DesignLocalFamily | null;
+export function designAppleFamily(fontFamily: string): boolean;
+export function designFontSubstitute(fontFamily: string): string | null;
+export function designBundledFont(fontFamily?: string): Promise<{ family: string; weights: number[]; faces: Record<number, string> } | null>;
 export const DESIGN_CATALOG_FAMILIES: string[];
 export function designCatalogFont(fontFamily?: string): { family: string; weights: number[]; advances: Record<string, number[]> } | undefined;
 export function loadDesignFonts(document: DesignDocument): Promise<void>;
@@ -162,7 +219,10 @@ export function designLiveParts(document: DesignDocument): {
   bounds: Map<string, DesignBounds>;
 };
 /** A portable SVG with native shapes, text and image elements. Inter and loaded catalog faces are embedded unless `embedFonts` is false. JSON is the lossless design export. */
-export function designSvg(document: DesignDocument, options?: { embedFonts?: boolean; onCanvasOnly?: boolean; renderByteLimit?: number }): string;
+export function designSvg(
+  document: DesignDocument,
+  options?: { embedFonts?: boolean; onCanvasOnly?: boolean; renderByteLimit?: number; mode?: DesignMode },
+): string;
 export function createExampleDesign(): DesignDocument;
 
 export function designErrorIssues(error: unknown): Array<{ path: Array<string | number>; message: string }>;

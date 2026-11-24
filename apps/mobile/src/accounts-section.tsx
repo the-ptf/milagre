@@ -1,25 +1,29 @@
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Briefcase01Icon, UserIcon, UserMultipleIcon, CheckmarkCircle02Icon, CircleIcon, MoreVerticalIcon, RefreshIcon } from "@hugeicons/core-free-icons";
 import type { AccountsSnapshot, ModelProvider } from "@milagre/shared/model";
 import { accountType, providerName } from "@milagre/shared/providers";
 import { useSession } from "./session";
+import type { Client } from "./client";
 import { Icon, ProviderLogo } from "./icons";
 import { lineHeight, radius, type as typeScale } from "./design-tokens";
 import { IconButton, InlineError, pressStyle, PullDown, useStyles } from "./ui";
 import { AccountSignInCode } from "./account-sign-in-code";
 import { useTheme } from "./theme";
 
-export function AccountsSection() {
+export function AccountsSection({ client, hostName }: { client?: Client | null; hostName?: string } = {}) {
   const session = useSession();
-  return <AccountsForComputer key={session.client?.url || "disconnected"} />;
+  return <AccountsForComputer key={(client ?? session.client)?.url || "disconnected"} client={client} hostName={hostName} />;
 }
 
-export function AccountsForComputer() {
+export function AccountsForComputer({ client: chosen, hostName }: { client?: Client | null; hostName?: string } = {}) {
   const { colors } = useTheme();
   const styles = useStyles();
   const session = useSession();
-  const client = session.client;
+  const client = chosen ?? session.client;
+  const current = client === session.client;
+  const computerName = (current ? session.hostName : hostName) || "your computer";
   const [snapshot, setSnapshot] = useState<AccountsSnapshot | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -51,7 +55,7 @@ export function AccountsForComputer() {
     setError("");
     try {
       setSnapshot(await client.call<AccountsSnapshot>(`accounts:${action}`, [provider, value]));
-      if (action === "select" || action === "remove") void session.refreshProviders();
+      if (current && (action === "select" || action === "remove")) void session.refreshProviders();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not update this account. Try again.");
     } finally {
@@ -127,7 +131,7 @@ export function AccountsForComputer() {
                     <Pressable
                       accessibilityRole="radio"
                       accessibilityLabel={name}
-                      accessibilityHint={`${type ? `${type} account. ` : ""}Switches this provider across Projects on your computer`}
+                      accessibilityHint={`${type ? `${type} account. ` : ""}Switches this provider across Projects on ${computerName}`}
                       accessibilityState={{
                         checked: selected,
                         disabled: busy || account.state !== "ready",
@@ -184,7 +188,7 @@ export function AccountsForComputer() {
                     </Pressable>
                     {(account.id !== "default" ||
                       group.provider === "antigravity" ||
-                      (group.provider !== "kiro" && (account.state === "signed-out" || account.state === "signing-in"))) && (
+                      (providerCapabilities(group.provider).addAccounts && (account.state === "signed-out" || account.state === "signing-in"))) && (
                       <PullDown
                         label={`Actions for ${name}`}
                         title={name}
@@ -209,7 +213,7 @@ export function AccountsForComputer() {
                                 : {
                                     id: "login",
                                     title: account.state === "signed-out" ? "Sign in" : "Re-authenticate",
-                                    subtitle: group.provider === "claude" ? "On your computer or this phone" : "Finish on your computer",
+                                    subtitle: group.provider === "claude" ? `On ${computerName} or this phone` : `Finish on ${computerName}`,
                                     systemImage: "arrow.clockwise",
                                     disabled: busy || signingIn,
                                   },
@@ -244,7 +248,7 @@ export function AccountsForComputer() {
                     )}
                   </View>
                   {account.state === "signing-in" && account.signInUrl ? (
-                    <AccountSignInCode provider={group.provider} accountId={account.id} url={account.signInUrl} onDone={setSnapshot} />
+                    <AccountSignInCode client={client} provider={group.provider} accountId={account.id} url={account.signInUrl} onDone={setSnapshot} />
                   ) : null}
                   {account.message && account.state === "error" ? (
                     <InlineError message={account.message} style={{ paddingHorizontal: 12, paddingBottom: 12 }} />
@@ -257,7 +261,7 @@ export function AccountsForComputer() {
           </View>
         </View>
       ))}
-      <Text style={styles.caption}>Add accounts on {session.hostName || "your computer"}. Running replies keep their current account.</Text>
+      <Text style={styles.caption}>Add accounts on {computerName}. Running replies keep their current account.</Text>
       <Text style={styles.caption}>Remove keeps the local profile. Removing the active account switches to the connected CLI account.</Text>
     </View>
   );

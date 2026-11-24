@@ -1,4 +1,4 @@
-// H.264 helpers for serve-sim's AVCC streams (Simlock leases). The receiver page gets these functions serialized, so
+// H.264 helpers for serve-sim's AVCC streams (local helpers and Simlock leases). The receiver page gets these functions serialized, so
 // each one must be self-contained: no imports, no module state, helpers declared inside.
 //
 // `simulatorAvcConfig` is ported from T3 Code, packages/client-runtime/src/device/avcConfig.ts,
@@ -157,4 +157,96 @@ export function avccEnvelopes(base64) {
     offset += 4 + length;
   }
   return envelopes;
+}
+
+/** The frame request fields for a host that listed `formats`: H.264 when `tryVideo` and this WebView decodes it, else images. */
+export async function simulatorFrameRequest(listed, quality, tryVideo) {
+  const formats = Array.isArray(listed) ? listed : [];
+  const decodes = async () => {
+    if (typeof VideoDecoder !== "function" || typeof EncodedVideoChunk !== "function") return false;
+    for (const codec of ["avc1.640028", "avc1.4D0028", "avc1.42E01F"]) {
+      const support = await VideoDecoder.isConfigSupported({ codec, optimizeForLatency: true }).catch(() => null);
+      if (support?.supported) return true;
+    }
+    return false;
+  };
+  const video = formats.includes("video/avcc") && tryVideo && (await decodes());
+  const format = video ? "video/avcc" : formats.includes("image") ? "image" : null;
+  return format ? { format, quality: quality === "reduced" ? "reduced" : "full" } : {};
+}
+
+/** The receiver's H.264 decoder: serve-sim envelopes (1 configuration, 2 keyframe, 3 delta) painted onto `canvas`. */
+export function simulatorVideo(canvas, { painted, failed }, codecFor, avcConfigFor, envelopesFor) {
+  let decoder = null,
+    needKeyframe = true,
+    time = 0,
+    closed = false;
+  return {
+    async decode(data) {
+      if (typeof VideoDecoder !== "function" || typeof EncodedVideoChunk !== "function")
+        throw new Error("This viewer cannot decode simulator video. Update the app, or watch from the Milagre desktop app.");
+      for (const { tag, payload } of envelopesFor(data)) {
+        if (closed) return;
+        if (tag === 1) {
+          const settings = { codec: codecFor(payload), description: avcConfigFor(payload), optimizeForLatency: true };
+          const support = await VideoDecoder.isConfigSupported(settings).catch(() => null);
+          if (closed) return;
+          if (!support?.supported) throw new Error("This viewer cannot decode the simulator's " + settings.codec + " video.");
+          if (decoder && decoder.state !== "closed") decoder.close();
+          const context = canvas.getContext("2d");
+          const current = (decoder = new VideoDecoder({
+            output: (picture) => {
+              try {
+                if (closed || current !== decoder) return;
+                if (canvas.width !== picture.displayWidth || canvas.height !== picture.displayHeight) {
+                  canvas.width = picture.displayWidth;
+                  canvas.height = picture.displayHeight;
+                }
+                context.drawImage(picture, 0, 0, canvas.width, canvas.height);
+              } finally {
+                picture.close();
+              }
+              painted();
+            },
+            error: () => {
+              if (!closed && current === decoder) failed();
+            },
+          }));
+          current.configure(settings);
+          needKeyframe = true;
+        } else if (tag === 2 || tag === 3) {
+          if (!decoder || decoder.state !== "configured" || (tag === 3 && needKeyframe)) continue;
+          if (tag === 2) needKeyframe = false;
+          time += 33333;
+          decoder.decode(new EncodedVideoChunk({ type: tag === 2 ? "key" : "delta", timestamp: time, data: payload }));
+        }
+      }
+    },
+    close() {
+      closed = true;
+      if (decoder && decoder.state !== "closed") decoder.close();
+      decoder = null;
+    },
+  };
+}
+
+/** Shows `source` in the receiver's image, failing after 8 s; `onCancel` gets a function that abandons the load. */
+export function simulatorImage(image, source, onCancel) {
+  return new Promise((resolve, reject) => {
+    const done = (error) => {
+      clearTimeout(timer);
+      onCancel(null);
+      image.removeEventListener("load", loaded);
+      image.removeEventListener("error", failed);
+      if (error) reject(error);
+      else resolve();
+    };
+    const timer = setTimeout(() => done(new Error("The simulator frame did not load. Retry to reconnect.")), 8000);
+    onCancel(() => done(new Error("Viewer closed.")));
+    const loaded = () => done();
+    const failed = () => done(new Error("The simulator frame could not be displayed."));
+    image.addEventListener("load", loaded);
+    image.addEventListener("error", failed);
+    image.src = source;
+  });
 }

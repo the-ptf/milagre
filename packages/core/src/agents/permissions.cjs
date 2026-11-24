@@ -1,5 +1,6 @@
 const path = require("node:path");
 const { PLAN_TOOL_NAMES } = require("../chat-plan-tools.cjs");
+const { TASK_BLOCKED_TOOL } = require("@milagre/shared/orchestrator");
 const { ROUTINE_TOOL_NAMES } = require("../routines/tools.cjs");
 const { babysitDenial } = require("../babysit-guard.cjs");
 const { BUNDLED_SKILLS_DIRECTORY } = require("../bundled-skills.cjs");
@@ -194,6 +195,7 @@ const OWN_CHAT_TOOLS = [
   "browser_resolve_comment",
   "conclude_negotiation",
   "flow_step_output",
+  TASK_BLOCKED_TOOL,
 ];
 const ROUTINE_READS = ROUTINE_TOOL_NAMES.filter((name) => name === "routine_list");
 const PLAN_TOOLS = new Set([...PLAN_TOOL_NAMES, ...ROUTINE_READS, ...SELF_GATED_TOOLS, ...OWN_CHAT_TOOLS]);

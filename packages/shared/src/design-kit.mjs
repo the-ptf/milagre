@@ -2,13 +2,21 @@ import { designError } from "./design-errors.mjs";
 import { z } from "zod";
 import { designPaint } from "./design-colors.mjs";
 import { designDefaultFill } from "./design-paint.mjs";
+import { designColorReferences, designColorSyntax, resolveDesignColor } from "./design-tokens.mjs";
 import { DESIGN_DEFAULT_FONT_FAMILY, validDesignFontFamily } from "./design-font-family.mjs";
 
 const key = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/);
-const color = z
+/** A color field: a CSS color, `$token`, `$token/0.4` for alpha, or `color-mix(in srgb, $a 40%, $b)`. */
+export const designColorSchema = z
   .string()
-  .max(100)
-  .refine((value) => designPaint(value) !== null, "Use a valid CSS color.");
+  .max(400)
+  .refine(designColorSyntax, "Use a valid CSS color, a $token (with /0.4 for alpha) or color-mix(in srgb, A 40%, B).");
+/** A color token: one color for every mode, or a color per mode (light required). */
+export const designColorTokenSchema = z.union([
+  designColorSchema,
+  z.object({ light: designColorSchema, dark: designColorSchema.optional(), contrast: designColorSchema.optional() }).strict(),
+]);
+const color = designColorTokenSchema;
 const map = (schema, max = 100) => z.record(key, schema).refine((value) => Object.keys(value).length <= max, `Use at most ${max} entries.`);
 const textStyle = z
   .object({
@@ -16,6 +24,7 @@ const textStyle = z
     fontSize: z.number().min(1).max(1000),
     fontWeight: z.number().int().min(100).max(900).optional(),
     lineHeight: z.number().min(0.5).max(5).optional(),
+    letterSpacing: z.number().min(-100).max(100).optional(),
   })
   .strict();
 export const designKitDataSchema = z
@@ -25,6 +34,8 @@ export const designKitDataSchema = z
     textStyles: map(textStyle),
     spacing: map(z.number().min(0).max(2000)),
     radii: map(z.number().min(0).max(2000)),
+    tracking: map(z.number().min(-100).max(100)).optional(),
+    opacity: map(z.number().min(0).max(1)).optional(),
     components: map(z.array(z.record(z.string(), z.unknown())).min(1).max(200), 30).optional(),
     references: z
       .array(z.object({ title: z.string().min(1).max(120), source: z.string().min(1).max(2000) }).strict())
@@ -34,8 +45,17 @@ export const designKitDataSchema = z
   .strict();
 export const designKitSchema = designKitDataSchema.extend({ id: key, version: z.number().int().positive() });
 export const designBindingsSchema = z
-  .object({ padding: key.optional(), gap: key.optional(), minWidth: key.optional(), minHeight: key.optional(), radius: key.optional() })
+  .object({
+    padding: key.optional(),
+    gap: key.optional(),
+    minWidth: key.optional(),
+    minHeight: key.optional(),
+    radius: key.optional(),
+    letterSpacing: key.optional(),
+    opacity: key.optional(),
+  })
   .strict();
+const bindingGroup = { radius: "radii", letterSpacing: "tracking", opacity: "opacity" };
 
 export const designConsistencySchema = z
   .object({
@@ -70,12 +90,13 @@ export function resolveDesignKit(document) {
           document.nodes.indexOf(node),
           "textStyle",
         ]);
-      for (const field of ["fontFamily", "fontSize", "fontWeight", "lineHeight"]) delete node[field];
+      for (const field of ["fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing"]) delete node[field];
       Object.assign(node, style);
     }
     for (const [field, token] of Object.entries(node.bindings ?? {})) {
-      const value = (field === "radius" ? kit.radii : kit.spacing)[token];
-      if (!Object.hasOwn(field === "radius" ? kit.radii : kit.spacing, token))
+      const group = kit[bindingGroup[field] ?? "spacing"] ?? {};
+      const value = group[token];
+      if (!Object.hasOwn(group, token))
         throw designError(`Kit token "${token}" for ${node.id}.${field} does not exist.`, ["nodes", document.nodes.indexOf(node), "bindings", field]);
       node[field] = value;
     }
@@ -85,6 +106,7 @@ export function resolveDesignKit(document) {
 }
 
 const colorKey = (value) => {
+  if (typeof value !== "string") return null;
   const paint = designPaint(value);
   if (!paint) return null;
   const color =
@@ -107,6 +129,7 @@ const typography = (node) => ({
   fontSize: node.fontSize ?? 16,
   fontWeight: node.fontWeight ?? 400,
   lineHeight: node.lineHeight ?? 1.35,
+  letterSpacing: node.letterSpacing ?? 0,
 });
 const equalValue = (a, b) =>
   typeof a === "object" && a !== null && typeof b === "object" && b !== null
@@ -129,13 +152,16 @@ export function designKitWarnings(document) {
       message: exception ? `${message} Exception: ${exception.reason}` : message,
     });
   };
-  for (const [name, expected] of Object.entries(kit.colors))
-    if (colorKey(document.tokens?.[name] ?? expected) !== colorKey(expected))
+  const tokenKey = (tokens, name) => JSON.stringify(["light", "dark", "contrast"].map((mode) => colorKey(resolveDesignColor(tokens, `$${name}`, mode) ?? "")));
+  for (const name of Object.keys(kit.colors))
+    if (tokenKey({ ...kit.colors, ...document.tokens }, name) !== tokenKey(kit.colors, name))
       add("$document", `tokens.${name}`, document.tokens[name], `Color token "${name}" overrides kit ${kit.id} v${kit.version}. Restore the kit color.`);
   const styles = Object.values(kit.textStyles).map(typography);
-  const palette = new Set(Object.values(kit.colors).map(colorKey));
-  const resolvedColor = (value) => (value?.startsWith("$") ? document.tokens?.[value.slice(1)] : value);
+  const palette = new Set(Object.keys(kit.colors).map((name) => colorKey(resolveDesignColor(kit.colors, `$${name}`))));
+  const resolvedColor = (value) => (value === undefined ? undefined : (resolveDesignColor(document.tokens, value) ?? value));
   const outsidePalette = (value) => {
+    const references = designColorReferences(value);
+    if (references.length) return palette.size > 0 && !references.every((name) => Object.hasOwn(kit.colors, name));
     const resolved = resolvedColor(value);
     return palette.size && resolved && designPaint(resolved)?.color !== "none" && designPaint(resolved)?.opacity !== 0 && !palette.has(colorKey(resolved));
   };
@@ -156,10 +182,11 @@ export function designKitWarnings(document) {
       if (outsidePalette(value))
         add(node.id, field, resolvedColor(value), `${node.id}.${field} uses a color outside kit ${kit.id} v${kit.version}. Use a palette color.`);
     }
-    for (const field of ["gap", "padding", "radius", "minWidth", "minHeight"]) {
+    for (const field of ["gap", "padding", "radius", "minWidth", "minHeight", "letterSpacing", "opacity"]) {
       if ((field === "minWidth" || field === "minHeight") && !node.bindings?.[field]) continue;
-      const values = Object.values(field === "radius" ? kit.radii : kit.spacing);
-      if (node[field] !== undefined && node[field] !== 0 && values.length && !values.includes(node[field]))
+      if (field === "letterSpacing" && node.type === "text") continue;
+      const values = Object.values(kit[bindingGroup[field] ?? "spacing"] ?? {});
+      if (node[field] !== undefined && node[field] !== 0 && !(field === "opacity" && node[field] === 1) && values.length && !values.includes(node[field]))
         add(node.id, field, node[field], `${node.id}.${field} is outside kit ${kit.id} v${kit.version}. Bind an existing token.`);
     }
     if (node.type === "text" && styles.length && !styles.some((style) => equalValue(style, typography(node))))

@@ -1,3 +1,4 @@
+const { createHash } = require("node:crypto");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -5,7 +6,8 @@ const { resolveProject } = require("./project-identity.cjs");
 const { createLink, pruneLinks, restoreLink } = require("./project-links.cjs");
 const { createProjectGroup, deleteProjectGroup, updateProjectGroup, validProjectGroup } = require("./project-groups.cjs");
 
-const DEFAULT_ROOTS = [path.join(os.homedir(), "Developer"), path.join(os.homedir(), ".milagre", "worktrees")];
+const registryRoots = (home) => [path.join(home, "Developer"), path.join(home, ".milagre", "worktrees")];
+const DEFAULT_ROOTS = registryRoots(os.homedir());
 const SKIP = new Set([".git", "node_modules", ".next", ".cache"]);
 
 async function coordinationProjects(roots) {
@@ -33,13 +35,42 @@ async function coordinationProjects(roots) {
   return found;
 }
 
-async function present(entry) {
-  try {
-    const identity = await resolveProject(entry.path);
-    return identity.id === entry.id && identity.path === entry.path;
-  } catch {
-    return false;
-  }
+async function identityStamp(entry) {
+  if (entry.git === false || entry.id === entry.path) return null;
+  const dotGit = path.join(entry.path, ".git");
+  const [real, folder, gitDir, gitReal, config, worktreeConfig, commonDir] = await Promise.all([
+    fs.realpath(entry.path).catch(() => null),
+    fs.lstat(entry.path).catch(() => null),
+    fs.lstat(dotGit).catch(() => null),
+    fs.realpath(dotGit).catch(() => null),
+    fs.readFile(path.join(entry.id, "config"), "utf8").catch(() => null),
+    fs.lstat(path.join(entry.id, "config.worktree")).catch(() => null),
+    fs.lstat(path.join(entry.id, "commondir")).catch(() => null),
+  ]);
+  const uid = process.geteuid?.();
+  if (!real || !folder?.isDirectory() || !gitDir?.isDirectory() || gitReal !== entry.id || commonDir || config === null) return null;
+  if (uid === undefined || folder.uid !== uid || gitDir.uid !== uid || /^\s*\[include/im.test(config)) return null;
+  const configHash = createHash("sha256").update(config).digest("hex");
+  return [real, folder.ino, gitDir.ino, configHash, worktreeConfig ? `${worktreeConfig.ino}:${worktreeConfig.mtimeMs}:${worktreeConfig.size}` : "-"].join("|");
+}
+
+function createIdentityCheck(resolve) {
+  const confirmed = new Map();
+  return async (entry) => {
+    const key = `${entry.id}\0${entry.path}`;
+    const stamp = await identityStamp(entry);
+    if (stamp !== null && confirmed.get(key) === stamp) return true;
+    confirmed.delete(key);
+    let identity;
+    try {
+      identity = await resolve(entry.path);
+    } catch {
+      return false;
+    }
+    const present = identity.id === entry.id && identity.path === entry.path;
+    if (present && stamp !== null) confirmed.set(key, stamp);
+    return present;
+  };
 }
 
 async function gone(entry) {
@@ -63,7 +94,8 @@ function validEntry(entry) {
   return entry && typeof entry.id === "string" && path.isAbsolute(entry.id) && typeof entry.path === "string" && path.isAbsolute(entry.path);
 }
 
-function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Date() } = {}) {
+function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Date(), resolve = resolveProject } = {}) {
+  const present = createIdentityCheck(resolve);
   let queue = Promise.resolve();
   let counter = 0;
 
@@ -287,4 +319,4 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
   };
 }
 
-module.exports = { coordinationProjects, createProjectRegistry };
+module.exports = { coordinationProjects, createProjectRegistry, registryRoots };

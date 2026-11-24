@@ -1,4 +1,7 @@
 import { memo, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { bridgeForKey } from "../../lib/computer-bridge";
+import { ipcErrorMessage } from "@milagre/shared/result";
+import { Dialog } from "../primitives/Dialog";
 import { useDisplayNow } from "../../lib/display-clock";
 import { formatElapsed } from "@milagre/shared/display-clock";
 import {
@@ -12,6 +15,7 @@ import {
   PencilEdit01Icon,
   ScrollIcon,
   Search01Icon,
+  StopIcon,
   Tick02Icon,
   WrenchIcon,
 } from "@hugeicons/core-free-icons";
@@ -73,6 +77,61 @@ function AdvisorControls({ agent, onStop, onRetry }: { agent: Subagent; onStop?:
     >
       {action === "stop" ? "Stop" : "Retry"}
     </Button>
+  );
+}
+
+/** A row shows this only on hover or focus, like its Archive button; touch screens always show it. */
+const HOVER_ONLY = "flex opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100";
+
+function NativeStop({ agent, chatKey, hoverOnly = false }: { agent: Subagent; chatKey?: string | null; hoverOnly?: boolean }) {
+  const [confirm, setConfirm] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (agent.source === "milagre-advisor" || !subagentActive(agent) || !chatKey) return null;
+  const stop = async (session = false) => {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await bridgeForKey(chatKey).stopSubagent(chatKey, agent.id, session);
+      setConfirm(result.requiresSessionStop);
+    } catch (failure) {
+      setError(ipcErrorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <span className={hoverOnly && !busy ? HOVER_ONLY : "flex"}>
+        <IconButton
+          label={`Stop ${agent.title}`}
+          icon={StopIcon}
+          size={24}
+          variant="danger-ghost"
+          disabled={busy}
+          data-subagent-stop
+          onClick={() => void stop()}
+        />
+      </span>
+      {error && <InlineError>{error}</InlineError>}
+      {confirm && (
+        <Dialog
+          title="Stop this Chat's work?"
+          description="This provider cannot stop this subagent on its own. Stopping it will also stop the Chat and its other running work."
+          onClose={() => setConfirm(false)}
+          actions={
+            <>
+              <Button variant="secondary" onClick={() => setConfirm(false)}>
+                Cancel
+              </Button>
+              <Button variant="danger" disabled={busy} onClick={() => void stop(true)}>
+                Stop all work
+              </Button>
+            </>
+          }
+        />
+      )}
+    </>
   );
 }
 
@@ -291,6 +350,7 @@ export const SubagentDetail = memo(function SubagentDetail({
         {agent.model && <span>{agent.model}</span>}
         <span className="flex-1" />
         <AdvisorControls agent={agent} onStop={onStop} onRetry={onRetry} />
+        <NativeStop agent={agent} chatKey={chatKey} />
       </div>
       {plan ? (
         <PlanList tasks={plan} said={said} tool={running ? [tool, totals && `${totals} so far`].filter(Boolean).join(" · ") : undefined} />
@@ -369,7 +429,7 @@ export const SubagentDetail = memo(function SubagentDetail({
   );
 });
 
-function SubagentRow({ agent, provider, now }: { agent: Subagent; provider: ModelProvider; now: number }) {
+function SubagentRow({ agent, provider }: { agent: Subagent; provider: ModelProvider }) {
   const running = subagentActive(agent);
   const counts = planCounts(agent.tasks);
   const said = agent.progress?.said ?? lastSaid(subagentSteps(agent.transcript));
@@ -403,7 +463,6 @@ function SubagentRow({ agent, provider, now }: { agent: Subagent; provider: Mode
               {running ? <SpinnerRing size={12} /> : agent.status === "failed" && <Icon icon={AlertCircleIcon} size={12} />}
             </>
           )}
-          <span className="shrink-0 text-11 text-ink-3 tabular-nums">{elapsed(agent, now)}</span>
         </span>
         {line && (
           <span className={`line-clamp-2 break-words ${running ? "text-ink-2" : "text-ink-3"}`} title={line}>
@@ -457,11 +516,13 @@ export function SubagentTrack({
         title={`${agent.title} (${labels[agent.status]})`}
         className="flex min-w-0 flex-1 py-2 pl-1 text-left text-13"
       >
-        <SubagentRow agent={agent} provider={provider} now={now} />
+        <SubagentRow agent={agent} provider={provider} />
       </button>
-      <span className="flex shrink-0 items-center gap-1 pt-1.5">
+      {/* The row's actions sit left of the elapsed time, so the time stays at the edge while they're hidden. */}
+      <span className="flex shrink-0 items-center gap-1 pt-1.5 pr-1">
         <AdvisorControls agent={agent} onStop={onStop} onRetry={onRetry} />
-        <span className="flex opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+        <NativeStop agent={agent} chatKey={chatKey} hoverOnly />
+        <span className={HOVER_ONLY}>
           <Tooltip label={archived ? "Restore subagent" : "Archive subagent"}>
             <IconButton
               label={`${archived ? "Restore" : "Archive"} ${agent.title}`}
@@ -471,6 +532,9 @@ export function SubagentTrack({
               onClick={() => onArchive?.(agent.id, !archived)}
             />
           </Tooltip>
+        </span>
+        <span data-subagent-elapsed className="text-11 text-ink-3 tabular-nums">
+          {elapsed(agent, now)}
         </span>
       </span>
     </li>

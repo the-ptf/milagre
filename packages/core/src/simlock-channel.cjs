@@ -1,92 +1,10 @@
 const { packet } = require("./simulators-helper.cjs");
+const { TAG, createEnvelopeReader, createAvccRelay, readAvcc } = require("./simulator-avcc.cjs");
 
-const TAG = { description: 0x01, keyframe: 0x02, delta: 0x03, seed: 0x04, meta: 0x05, alive: 0x06, ended: 0x07 };
-const MAX_ENVELOPE_BYTES = 8 * 1024 * 1024;
-const MAX_GROUP_BYTES = 6 * 1024 * 1024;
-const MAX_BATCH_BYTES = 1_500_000;
 const ENDED = { explicit: "The device was returned to the Simlock pool.", expired: "The Simlock lease expired.", "device-lost": "Simlock lost the device." };
 
-function createEnvelopeReader() {
-  let buffer = Buffer.alloc(0);
-  return function push(chunk) {
-    buffer = buffer.length ? Buffer.concat([buffer, chunk]) : Buffer.from(chunk);
-    const envelopes = [];
-    while (buffer.length >= 5) {
-      const length = buffer.readUInt32BE(0);
-      if (length < 1 || length > MAX_ENVELOPE_BYTES) throw new Error("The Simlock stream is not a frame envelope stream.");
-      if (buffer.length < 4 + length) break;
-      envelopes.push({ tag: buffer[4], bytes: buffer.subarray(0, 4 + length), payload: buffer.subarray(5, 4 + length) });
-      buffer = buffer.subarray(4 + length);
-    }
-    buffer = Buffer.from(buffer);
-    return envelopes;
-  };
-}
-
-function createAvccRelay() {
-  let description = null,
-    group = [],
-    groupBytes = 0,
-    sequence = 0,
-    waiters = new Set();
-  const wake = () => {
-    for (const waiter of waiters) waiter();
-    waiters = new Set();
-  };
-  return {
-    push(tag, bytes) {
-      const copy = Buffer.from(bytes);
-      if (tag === TAG.description) {
-        description = { sequence: ++sequence, bytes: copy };
-        group = [];
-        groupBytes = 0;
-      } else if (tag === TAG.keyframe) {
-        group = [{ sequence: ++sequence, bytes: copy }];
-        groupBytes = copy.length;
-      } else if (tag === TAG.delta) {
-        if (!group.length) return;
-        if (groupBytes + copy.length > MAX_GROUP_BYTES) {
-          group = [];
-          groupBytes = 0;
-          return;
-        }
-        group.push({ sequence: ++sequence, bytes: copy });
-        groupBytes += copy.length;
-      } else return;
-      wake();
-    },
-    read(after) {
-      if (!description || !group.length) return null;
-      const current = after >= group[0].sequence && after >= description.sequence;
-      const items = current ? group.filter((item) => item.sequence > after) : [description, ...group];
-      if (!items.length) return null;
-      let bytes = 0,
-        count = 0;
-      for (const item of items) {
-        if (count >= (current ? 1 : 2) && bytes + item.bytes.length > MAX_BATCH_BYTES) break;
-        bytes += item.bytes.length;
-        count++;
-      }
-      const sent = items.slice(0, count);
-      return { sequence: sent.at(-1).sequence, reset: !current, data: Buffer.concat(sent.map((item) => item.bytes)).toString("base64") };
-    },
-    wait(signal) {
-      return new Promise((resolve) => {
-        const done = () => {
-          waiters.delete(done);
-          signal?.removeEventListener("abort", done);
-          resolve();
-        };
-        waiters.add(done);
-        signal?.addEventListener("abort", done, { once: true });
-      });
-    },
-    close: wake,
-  };
-}
-
 /** One lease's screen and input, as a simulator channel. `upstream` holds the URLs and the token header. */
-function createSimlockChannel(upstream, { fetch: fetchImpl = globalThis.fetch, WebSocket = require("ws"), frameWaitMs = 20000 } = {}) {
+function createSimlockChannel(upstream, { fetch: fetchImpl = globalThis.fetch, WebSocket = require("ws"), frameWaitMs = 8000 } = {}) {
   const abort = new AbortController();
   const relay = createAvccRelay();
   const state = { width: 0, height: 0, orientation: "portrait", admitted: false, error: null, keyboardUnavailable: false };
@@ -173,13 +91,7 @@ function createSimlockChannel(upstream, { fetch: fetchImpl = globalThis.fetch, W
   return {
     async frame(after, signal) {
       const deadline = AbortSignal.any([signal, abort.signal, AbortSignal.timeout(frameWaitMs)].filter(Boolean));
-      for (;;) {
-        if (state.error) throw new Error(state.error);
-        const batch = relay.read(after);
-        if (batch) return { sequence: batch.sequence, mimeType: "video/avcc", data: batch.data, ...(batch.reset ? { reset: true } : {}) };
-        if (deadline.aborted) return null;
-        await relay.wait(deadline);
-      }
+      return readAvcc(relay, after, deadline, () => (state.error ? new Error(state.error) : null));
     },
     status() {
       const orientation = ["portrait", "portrait-upside-down", "landscape-left", "landscape-right"].includes(state.orientation)

@@ -102,13 +102,40 @@ test("discovery keeps only browser processes with a loopback endpoint owned by t
 });
 
 test("process parsing skips helpers and names products", () => {
-  assert.deepEqual(parseProcesses(PS).candidates, [
-    { pid: 12, port: 0 },
-    { pid: 14, port: 9333 },
-  ]);
+  assert.deepEqual(
+    parseProcesses(PS).candidates.map(({ pid, port }) => ({ pid, port })),
+    [
+      { pid: 12, port: 0 },
+      { pid: 14, port: 9333 },
+    ],
+  );
   assert.equal(productName("Chrome/141.0.1"), "Chrome 141");
   assert.equal(productName("Edg/140.0"), "Edge 140");
   assert.equal(productName(undefined), "Browser");
+});
+
+test("discovery asks lsof only about browser processes it hasn't seen listening", async () => {
+  let ps = PS;
+  let lsof = "p14\ncchromium\nn*:9333\n";
+  const asked = [];
+  const execFile = async (command, args) => {
+    if (command === "lsof") asked.push(args[args.indexOf("-p") + 1]);
+    return { stdout: command === "ps" ? ps : lsof };
+  };
+  const { adapter: a } = adapter({ execFile });
+  const ids = async () => (await a.discover()).browsers.map((browser) => browser.pid);
+  assert.deepEqual(await ids(), [], "a browser not listening yet");
+  lsof = LSOF;
+  assert.deepEqual(await ids(), [12], "is asked again, and shows the moment it listens");
+  assert.deepEqual(await ids(), [12]);
+  assert.deepEqual(asked, ["12,14", "12,14", "14"], "a known loopback listener isn't looked up again; one that doesn't qualify is");
+  ps = `${PS}\n  16     1 /opt/chromium --remote-debugging-port=0 --user-data-dir=/tmp/other`;
+  lsof = "p16\ncchromium\nn127.0.0.1:53111\n";
+  assert.deepEqual(await ids(), [12], "the new browser shares the fake endpoint, so only one id");
+  assert.equal(asked.at(-1), "14,16", "a new process is looked up in the same pass");
+  ps = PS.replace("--user-data-dir=/tmp/secret", "--user-data-dir=/tmp/again");
+  lsof = "";
+  assert.deepEqual(await ids(), [], "a different process under the same pid is looked up again");
 });
 
 test("a browser that fails its probe is omitted rather than failing discovery", async () => {

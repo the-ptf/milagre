@@ -3,6 +3,8 @@ const { diffState } = require("@milagre/shared/state-patch");
 const { sessionWithArchivedSummaries, sessionWithTranscriptTails, withArchivedSummary, withTranscriptTail } = require("@milagre/shared/subagent-transcript");
 const { preparePrivateDirectory } = require("@milagre/core/private-files");
 const { wholeState, unloadedChats, isFromDisk } = require("@milagre/core/message-store");
+const { withWholeTranscripts } = require("@milagre/core/project-content");
+const { createTranscriptOrder } = require("./transcript-order.cjs");
 const { prepareToken } = require("./local-auth.cjs");
 const net = require("node:net");
 const os = require("node:os");
@@ -10,6 +12,12 @@ const { randomUUID } = require("node:crypto");
 const fs = require("node:fs/promises");
 const { once } = require("node:events");
 const { createRuntime } = require("@milagre/core");
+const { registryRoots } = require("@milagre/core/project-registry");
+
+const homeDefaults = (homeDir, options) => ({
+  chatsHome: options.chatsHome ?? require("node:path").join(homeDir, ".milagre", "chats"),
+  registryRoots: options.registryRoots ?? registryRoots(homeDir),
+});
 const { socketPath: pathFor, prepareSocketDirectory } = require("./paths.cjs");
 const { VERSION, MAX_FRAME_BYTES, wire } = require("./protocol.cjs");
 const { createPhone, RELAY_URL } = require("./phone.cjs");
@@ -61,19 +69,25 @@ function leanSessions(sessions, form) {
 }
 function leanState(state, form = WHOLE) {
   if (!state || typeof state !== "object") return state;
-  if (isWhole(form)) return wholeState(state);
+  const transcripts = form.transcripts ? withWholeTranscripts(state) : state;
+  if (isWhole(form)) return wholeState(transcripts);
   const key = formKey(form);
   let cache = leanStates.get(key);
   if (!cache) leanStates.set(key, (cache = new WeakMap()));
-  const base = form.messages ? wholeState(state) : state;
+  const base = form.messages ? wholeState(transcripts) : transcripts;
   let lean = cache.get(base);
   if (!lean) {
     lean = { ...base };
     if (!form.messages) Object.assign(lean, { messages: NO_MESSAGES, messagesInChats: true });
-    if (!wholeSubagents(form)) lean.sessions = leanSessions(state.sessions, form);
+    if (!wholeSubagents(form)) lean.sessions = leanSessions(base.sessions, form);
     cache.set(base, lean);
   }
   return lean;
+}
+function resultStates(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return [];
+  const items = [result, result.project, ...["projects", "links", "states"].flatMap((key) => (Array.isArray(result[key]) ? result[key] : []))];
+  return items.filter((item) => item?.state && typeof item.state === "object").map((item) => item.state);
 }
 function leanResult(result, form = WHOLE) {
   if (!result || typeof result !== "object" || Array.isArray(result)) return result;
@@ -182,6 +196,39 @@ function eventFrame(channel, payload, seq, inlineLimit) {
   return { json, bytes: Buffer.byteLength(json) + 1 };
 }
 
+function statePatchOf({ sentStates, patchClients, clients, epoch, inlineLimit }, channel, payload, seq) {
+  const scope = stateScope(channel, payload);
+  if (!scope) return null;
+  const previous = sentStates.get(scope);
+  const version = (previous?.version ?? 0) + 1;
+  sentStates.set(scope, { version, state: payload.state });
+  if (![...patchClients.keys()].some((key) => clients.has(key))) return null;
+  const { state, ...rest } = payload;
+  const frame = (body) => eventFrame(channel, body, seq, Infinity);
+  const numbered = (patchBody) => {
+    if (previous) {
+      const patched = frame({ ...rest, ...patchBody(), base: previous.version, version, epoch });
+      if (patched.bytes <= inlineLimit) return patched;
+    }
+    return frame({ ...rest, resync: true, version, epoch });
+  };
+  const forms = new Map();
+  return {
+    previous: previous?.state,
+    form(form) {
+      const key = formKey(form);
+      if (!forms.has(key))
+        forms.set(
+          key,
+          numbered(() => ({
+            patch: diffState(leanState(previous.state, form), leanState(state, form)),
+            ...(form.messages ? {} : { messages: messageChanges(previous.state, state) }),
+          })),
+        );
+      return forms.get(key);
+    },
+  };
+}
 function subscribe(set, listener) {
   set.add(listener);
   return () => set.delete(listener);
@@ -216,6 +263,7 @@ async function startDaemon({
   const patchClients = new Map();
   const epoch = randomUUID();
   const sentStates = new Map();
+  const order = createTranscriptOrder({ onError });
   const snapshotRest = new Map();
   let stopping;
   let listening = false;
@@ -251,7 +299,7 @@ async function startDaemon({
     remoteComputers,
     hostNetwork: () => ({ name: (macName ??= computerName()), addresses: lanAddresses() }),
     ...runtimeOptions,
-    chatsHome: runtimeOptions.chatsHome ?? require("node:path").join(homeDir, ".milagre", "chats"),
+    ...homeDefaults(homeDir, runtimeOptions),
     dataDir,
     version,
     isChatFocused,
@@ -276,7 +324,7 @@ async function startDaemon({
         } catch {}
       });
     const seq = ++eventSeq;
-    const patched = statePatch(channel, payload, seq);
+    const patched = statePatchOf({ sentStates, patchClients, clients, epoch, inlineLimit }, channel, payload, seq);
     if (!clients.size) return;
     let whole;
     const agentFrames = new Map();
@@ -288,52 +336,23 @@ async function startDaemon({
       }
       return agentFrames.get(key);
     };
+    const states = hasState(payload) ? [payload.state, patched?.previous].filter(Boolean) : [];
     for (const [key, connection] of clients) {
       if (connection.policy?.denies(channel)) continue;
-      try {
-        const taker = patchClients.get(key);
-        const frame =
-          patched && taker
-            ? patched.form(taker)
-            : (taker && !wholeSubagents(taker) && agentFrame(taker)) ||
-              (whole ??= eventFrame(channel, hasState(payload) ? { ...payload, state: wholeState(payload.state) } : payload, seq, inlineLimit));
-        connection.send(null, frame.json, frame.bytes);
-      } catch (error) {
-        onError(new Error(`Milagre couldn't send a ${channel} event: ${error.message}`));
-      }
+      const taker = patchClients.get(key);
+      order.inOrder(key, taker, states, () => {
+        try {
+          const frame =
+            patched && taker
+              ? patched.form(taker)
+              : (taker && !wholeSubagents(taker) && agentFrame(taker)) ||
+                (whole ??= eventFrame(channel, hasState(payload) ? { ...payload, state: leanState(payload.state) } : payload, seq, inlineLimit));
+          connection.send(null, frame.json, frame.bytes);
+        } catch (error) {
+          onError(new Error(`Milagre couldn't send a ${channel} event: ${error.message}`));
+        }
+      });
     }
-  }
-  function statePatch(channel, payload, seq) {
-    const scope = stateScope(channel, payload);
-    if (!scope) return null;
-    const previous = sentStates.get(scope);
-    const version = (previous?.version ?? 0) + 1;
-    sentStates.set(scope, { version, state: payload.state });
-    if (![...patchClients.keys()].some((key) => clients.has(key))) return null;
-    const { state, ...rest } = payload;
-    const frame = (body) => eventFrame(channel, body, seq, Infinity);
-    const numbered = (patchBody) => {
-      if (previous) {
-        const patched = frame({ ...rest, ...patchBody(), base: previous.version, version, epoch });
-        if (patched.bytes <= inlineLimit) return patched;
-      }
-      return frame({ ...rest, resync: true, version, epoch });
-    };
-    const forms = new Map();
-    return {
-      form(form) {
-        const key = formKey(form);
-        if (!forms.has(key))
-          forms.set(
-            key,
-            numbered(() => ({
-              patch: diffState(leanState(previous.state, form), leanState(state, form)),
-              ...(form.messages ? {} : { messages: messageChanges(previous.state, state) }),
-            })),
-          );
-        return forms.get(key);
-      },
-    };
   }
   function replyNumber(scope, state) {
     const sent = sentStates.get(scope);
@@ -351,7 +370,7 @@ async function startDaemon({
   async function readState(owner, form = WHOLE, { withRest = false } = {}) {
     if (typeof owner !== "string" || !owner) throw new Error("Choose a Project or Link");
     const link = isLinkScopeKey(owner);
-    const answer = (sent) => ({ ...snapshotRest.get(owner), state: leanState(sent.state, form), version: sent.version, epoch });
+    const answer = (sent) => ({ ...snapshotRest.get(owner), state: sent.state, version: sent.version, epoch });
     const sent = sentStates.get(owner);
     if (sent && ((!form.messages && !withRest) || snapshotRest.has(owner))) return answer(sent);
     const { state, ...rest } = await runtime.invoke(link ? "link:snapshot" : "project:snapshot", [link ? scopeFromKey(owner).linkId : owner]);
@@ -406,6 +425,8 @@ async function startDaemon({
     sentNumber,
     formOf,
     leanResult,
+    prepareResult: (result, form) => order.prepare(form, resultStates(result)),
+    inOrder: (key, send) => order.inOrder(key, patchClients.get(key), [], send),
     dataDir,
     homeDir,
     version,
@@ -434,6 +455,7 @@ async function startDaemon({
     onError,
     encode,
     leanResult,
+    inOrder: (key, result, send) => order.inOrder(key, patchClients.get(key), resultStates(result), send),
     replyScope,
     SHOWN_PROJECT,
     close: () => close(),

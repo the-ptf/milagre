@@ -1,5 +1,5 @@
 import { ansi, syntax } from "../build.ts";
-import { fromOklch } from "../color.ts";
+import { fromOklch, withAlpha } from "../color.ts";
 import type { ThemeDefinition, ThemeSource } from "../types.ts";
 
 const lightAnsi = ansi({
@@ -146,7 +146,42 @@ const blueDark = blue(grayDark, {
   accent: fromOklch(0.68, 0.17, 253),
 });
 
+const { accentInk: _lightAccentInk, accentTint: _lightAccentTint, ...grayLightNeutrals } = grayLight;
+const white: ThemeSource = {
+  ...grayLightNeutrals,
+  page: "#ffffff",
+  canvas: "#f2f2f3",
+  surface: "#ffffff",
+  inset: "#f7f7f8",
+  field: "#ededef",
+  ink: "#0a0a0a",
+  ink3: "#8a8a8f",
+  line: "#e3e3e6",
+  lineStrong: "#cfcfd4",
+  hover: withAlpha("#0a0a0a", 0.06),
+  hover2: withAlpha("#0a0a0a", 0.11),
+  accent: "#0a0a0a",
+};
+const { accentInk: _accentInk, accentTint: _accentTint, onAccent: _onAccent, ...grayDarkNeutrals } = grayDark;
+const black: ThemeSource = {
+  ...grayDarkNeutrals,
+  page: "#000000",
+  canvas: "#101012",
+  surface: "#030303",
+  inset: "#010101",
+  field: "#111113",
+  ink: "#f5f5f7",
+  ink2: "#c7c7cc",
+  ink3: "#9a9aa0",
+  line: "#2a2a2d",
+  lineStrong: "#3b3b3f",
+  hover: withAlpha("#f5f5f7", 0.08),
+  hover2: withAlpha("#f5f5f7", 0.13),
+  accent: "#ffffff",
+};
+
 export const milagreThemes: readonly ThemeDefinition[] = [
   { id: "milagre-blue", name: "Milagre Blue", group: "Milagre", lightName: "Light", darkName: "Dark", light: blueLight, dark: blueDark },
   { id: "gray", name: "Gray", group: "Milagre", lightName: "Light", darkName: "Dark", light: grayLight, dark: grayDark },
+  { id: "black", name: "Black", group: "Milagre", lightName: "White", darkName: "Black", light: white, dark: black },
 ];

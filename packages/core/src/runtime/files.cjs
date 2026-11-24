@@ -4,7 +4,8 @@ const { realpathSync } = require("node:fs");
 const { chatPage } = require("../chat-pages.cjs");
 const { discoverSkills, readDiscoveredSkill } = require("../skills.cjs");
 const { listBranches } = require("../worktrees.cjs");
-const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { lastUserModel, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { isLocalPiModel } = require("@milagre/shared/pi-models");
 const { resolveProjectImage } = require("../project-image.cjs");
 const { dictationContext, polishDictation, createDictationModels } = require("../dictation.cjs");
 
@@ -82,10 +83,35 @@ function createFiles({
     }
     return searchFiles(root, query);
   });
+  async function correctionsFor(cwd) {
+    return projectSettings().getDictationCorrections(await accountScopeForFolder(cwd));
+  }
+  commands.handle("dictation:corrections", async (_event, cwd) => {
+    await knownFolder(cwd);
+    return correctionsFor(cwd);
+  });
+  commands.handle("dictation:correct", async (_event, cwd, heard, spelling) => {
+    await knownFolder(cwd);
+    await projectSettings().setDictationCorrection(await accountScopeForFolder(cwd), heard, spelling);
+  });
   commands.handle("dictation:context", async (_event, { cwd, chatTitle, scope, chatId } = {}) => {
     await knownFolder(cwd);
-    return dictationContext({ cwd, chatTitle, listFiles: searchFiles.list, messages: await dictationMessages(scope, chatId) });
+    const [context, corrections] = await Promise.all([
+      dictationContext({ cwd, chatTitle, listFiles: searchFiles.list, messages: await dictationMessages(scope, chatId) }),
+      correctionsFor(cwd),
+    ]);
+    return { ...context, corrections };
   });
+  // A Pi Chat on a local model keeps dictation local; one on a hosted model is cleaned up like any other Chat.
+  async function chatOnLocalModel(scope, chatId) {
+    if (typeof scope !== "string" || !states.has(scope) || !Number.isSafeInteger(chatId)) return true;
+    try {
+      const state = await scopeStates.load(scope, [chatId]);
+      return isLocalPiModel(lastUserModel(state, chatId) || undefined);
+    } catch {
+      return true;
+    }
+  }
   async function dictationMessages(scope, chatId) {
     if (typeof scope !== "string" || !states.has(scope) || !Number.isSafeInteger(chatId)) return [];
     try {
@@ -101,7 +127,8 @@ function createFiles({
     const models =
       options.dictationModels ?? createDictationModels({ cli: async (name) => agentCli(name, await accountScopeForFolder(cwd)), clientVersion: version });
     const picked = typeof model === "string" && model !== "auto" ? model : null;
-    return polishDictation({ text, terms, chatTitle, provider: picked ?? provider, only: Boolean(picked) }, { models });
+    const chatProvider = provider === "pi" && !(await chatOnLocalModel(scope, chatId)) ? undefined : provider;
+    return polishDictation({ text, terms, chatTitle, provider: picked ?? chatProvider, only: Boolean(picked) }, { models });
   });
   async function knownFolder(folder) {
     if (typeof folder !== "string" || !path.isAbsolute(folder)) throw new Error("An absolute Project path is required");

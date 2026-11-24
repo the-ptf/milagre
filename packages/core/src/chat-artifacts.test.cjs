@@ -1,3 +1,4 @@
+process.env.MILAGRE_DESIGN_SYSTEM_FONTS = "0";
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -759,6 +760,60 @@ test("page snapshots capture every design beyond the former 20-design cap", asyn
   assert.ok(snapshot.designs.some((design) => design.title === "Design 21"));
 });
 
+test("workspace snapshots hold every design and the page; a design snapshot holds one design until it is deleted", async (t) => {
+  const { api } = await fixture(t);
+  await assert.rejects(api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "workspace" }), /no designs or page/);
+  await api.show({ chatId: CHAT, title: "Explainer", html: "<h1>Explainer</h1>", width: 1024, height: 768 });
+  const pageOnly = await api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "workspace" });
+  assert.deepEqual(pageOnly, {
+    schemaVersion: 1,
+    kind: "workspace",
+    title: "Work",
+    designs: [],
+    page: { title: "Explainer", html: "<h1>Explainer</h1>", width: 1024, height: 768 },
+  });
+  await api.showDesign({ chatId: CHAT, id: "home", title: "Home", group: "Main", document: designDocument() });
+  await api.showDesign({ chatId: CHAT, id: "live", title: "Live", html: "<p>Live</p>", width: 390, height: 844 });
+  const workspace = await api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "workspace" });
+  assert.deepEqual(
+    workspace.designs.map((design) => [design.title, design.group, !!design.document, !!design.interactive]),
+    [
+      ["Home", "Main", true, false],
+      ["Live", undefined, false, true],
+    ],
+  );
+  assert.equal(workspace.page.title, "Explainer");
+  const one = await api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "design", designId: "live" });
+  assert.deepEqual(one, { schemaVersion: 1, title: "Live", designs: [{ title: "Live", interactive: { html: "<p>Live</p>", width: 390, height: 844 } }] });
+  await api.deleteDesign({ chatId: CHAT, id: "live" });
+  await assert.rejects(api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "design", designId: "live" }), {
+    code: "DESIGN_DELETED",
+    message: "This design was deleted.",
+  });
+  await assert.rejects(api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "other" }), /Choose the workspace/);
+});
+
+test("onChange follows saves and deletions of designs and the page, never comments or replies", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "chat-artifacts-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const changes = [];
+  const api = createChatArtifacts({ directory, validateChat: async () => {}, onChange: (change) => changes.push(change) });
+  const settled = () => new Promise((resolve) => setImmediate(resolve));
+  const design = await api.showDesign({ chatId: CHAT, id: "home", title: "Home", document: designDocument() });
+  await api.apply({ chatId: CHAT, id: "home", expectedVersion: 1, operations: [{ op: "update", id: "heading", patch: { text: "Hi" } }] });
+  await api.show({ chatId: CHAT, title: "Page", html: "<p>Page</p>" });
+  await settled();
+  assert.deepEqual(changes, [{ chatId: CHAT }, { chatId: CHAT }, { chatId: CHAT }]);
+  await api.addComments({ chatId: CHAT, comments: [{ design: { id: design.id, version: 2 }, text: "Bigger" }] });
+  await api.render({ chatId: CHAT, title: "Reply", html: "<p>Reply</p>" });
+  await assert.rejects(api.apply({ chatId: CHAT, id: "home", expectedVersion: 1, operations: [] }), /version conflict/);
+  await settled();
+  assert.equal(changes.length, 3, "comments, inline replies and failed saves change nothing that is published");
+  await api.deleteDesign({ chatId: CHAT, id: "home" });
+  await settled();
+  assert.equal(changes.length, 4);
+});
+
 test("a page split into tabs keeps each tab, changes one tab at a time and is published with its tab bar", async (t) => {
   const { api, directory } = await fixture(t);
   const tools = Object.fromEntries(htmlArtifactToolDefinitions(CHAT, api).map((tool) => [tool.name, tool]));
@@ -1131,4 +1186,52 @@ test("design_validate draws an interactive design without saving it", async (t) 
     await tools.design_validate.run({ html: '<script src="https://unpkg.com/react/umd/react.js"></script>', width: 390, height: 844 }),
   );
   assert.equal(refused.valid, false);
+});
+
+test("one design carries every color mode; the agent previews and checks the mode it names", async (t) => {
+  const { api } = await fixture(t);
+  const drawn = [];
+  const tools = Object.fromEntries(
+    artifactToolDefinitions(CHAT, api, undefined, {
+      renderPng: async (document) => {
+        drawn.push(document.tokens);
+        return { mime: "image/png", base64: "" };
+      },
+    }).map((tool) => [tool.name, tool]),
+  );
+  const document = designDocument();
+  document.tokens = { ink: { light: "#16261f", dark: "#1b1b1b" }, paper: { light: "#f5f4ef", dark: "#121212" } };
+  document.background = "$paper";
+  const shown = await tools.design_show.run({ id: "modes", title: "Modes", document });
+  assert.match(shown.text, /switches between light, dark modes; your image and the warnings show light/);
+  const saved = await api.get({ chatId: CHAT, id: "modes" });
+  assert.match(saved.html, /:root\[data-design-mode="dark"\]\{/);
+  assert.deepEqual(saved.document.tokens.ink, { light: "#16261f", dark: "#1b1b1b" });
+  const dark = await tools.design_inspect.run({ id: "modes", mode: "dark" });
+  const inspection = JSON.parse(dark.text.split("\n").at(-1)).inspection;
+  assert.equal(inspection.mode, "dark");
+  assert.deepEqual(
+    inspection.diagnostics.warnings.map((warning) => warning.kind),
+    ["low-contrast"],
+  );
+  assert.deepEqual(drawn.at(-1), { ink: "#1b1b1b", paper: "#121212" });
+  const light = JSON.parse((await tools.design_inspect.run({ id: "modes" })).text.split("\n").at(-1)).inspection;
+  assert.deepEqual(light.diagnostics.warnings, []);
+});
+
+test("the agent hears how its SF Symbols draw where they can't render", async (t) => {
+  const { tools } = await fixture(t);
+  const document = designDocument();
+  document.nodes.push({ id: "like", type: "icon", x: 20, y: 300, width: 24, height: 24, icon: "sf:heart.fill" });
+  const shown = await tools.design_show.run({ id: "symbols", title: "Symbols", document });
+  assert.match(shown.text, /SF Symbols can't render on this computer, so they draw as their closest Lucide icon here and for the user: heart\.fill → heart\./);
+});
+
+test("watch-sized layer and interactive designs keep their screen size", async (t) => {
+  const { api, tools } = await fixture(t);
+  const face = await tools.design_show.run({ id: "face", title: "Face", document: { schemaVersion: 1, width: 162, height: 197, nodes: [] } });
+  assert.deepEqual([firstLine(face).width, firstLine(face).height], [162, 197]);
+  const live = await api.showDesign({ chatId: CHAT, id: "live", title: "Live", html: "<!doctype html><p>10:09</p>", width: 205, height: 251 });
+  assert.deepEqual([live.width, live.height], [205, 251]);
+  await assert.rejects(tools.design_show.run({ id: "tiny", title: "Tiny", document: { schemaVersion: 1, width: 8, height: 8, nodes: [] } }), />=16/);
 });

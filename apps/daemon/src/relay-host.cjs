@@ -11,11 +11,13 @@ const DEFAULT_TIMING = {
   pendingRepeatMs: 20_000,
   queueWaitMs: 20_000,
   backoff: [1000, 2000, 5000, 10_000, 30_000],
+  serverErrorBackoff: [5000, 30_000, 60_000, 120_000, 300_000],
   replacedMs: 60_000,
   stableMs: 30_000,
   jitter: true,
 };
 const REPLACED = 4409;
+const RELAY_BUSY = 4503;
 const HOOK = 4,
   HOOK_SET = 5,
   HOOK_ACK = 6,
@@ -35,6 +37,42 @@ const CLOSE_CODES = [1000, 1001, 1005, 1006, 1009, 1011, 4403, 4409, 4410];
 const ROLES = ["phone", "retired", "hooks"];
 const zeros = (names) => Object.fromEntries(names.map((name) => [name, 0]));
 const envelopeOf = (bytes) => (bytes.length < 9 ? "short" : (ENVELOPES[bytes[0] - 1] ?? "other"));
+
+function goneCode(data) {
+  try {
+    const message = JSON.parse(data.toString());
+    return message?.t === "gone" && Number.isInteger(message.code) ? message.code : null;
+  } catch {
+    return null;
+  }
+}
+
+function hookDeliveryOf(payload) {
+  try {
+    const at = payload.indexOf(10);
+    if (at < 0) return null;
+    const header = JSON.parse(decoder.decode(payload.subarray(0, at)));
+    if (typeof header?.id !== "string" || typeof header.hookId !== "string") return null;
+    return {
+      id: header.id,
+      hookId: header.hookId,
+      receivedAt: Number(header.receivedAt) || Date.now(),
+      headers: header.headers && typeof header.headers === "object" ? header.headers : {},
+      query: header.query && typeof header.query === "object" ? header.query : {},
+      body: new Uint8Array(payload.subarray(at + 1)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function retryDelay(code, current, { attempt, serverErrors }, { backoff, serverErrorBackoff, replacedMs, jitter }) {
+  current.serverError ||= code === RELAY_BUSY;
+  if (code === REPLACED && current.ready) return jitter ? replacedMs * (1 + Math.random() * 0.4) : replacedMs;
+  const ladder = current.serverError ? serverErrorBackoff : backoff;
+  const base = ladder[Math.min(current.serverError ? serverErrors : attempt, ladder.length - 1)];
+  return jitter ? base * (0.8 + Math.random() * 0.4) : base;
+}
 
 function blankCounters() {
   const direction = (marks) => ({
@@ -140,7 +178,7 @@ function startRelayHost({
   hooksOnly = false,
   diagnostics = transportDiagnostics,
 }) {
-  const { pingMs, idleMs, helloMs, backoff, replacedMs, stableMs, jitter, pendingRepeatMs, queueWaitMs } = { ...DEFAULT_TIMING, ...timing };
+  const { pingMs, idleMs, helloMs, backoff, serverErrorBackoff, replacedMs, stableMs, jitter, pendingRepeatMs, queueWaitMs } = { ...DEFAULT_TIMING, ...timing };
   let probe = diagnostics ? diagnostics.attach(hooksOnly ? "hooks" : retired ? "retired" : "phone") : null;
   const channels = hooksOnly
     ? null
@@ -164,6 +202,7 @@ function startRelayHost({
   let status = "connecting";
   let closed = false;
   let attempt = 0;
+  let serverErrors = 0;
   let retryTimer = null;
   let session = null;
   let drainedOnce = false;
@@ -231,23 +270,8 @@ function startRelayHost({
     current.hookRetry.unref?.();
   }
   function takeHook(current, payload) {
-    let delivery;
-    try {
-      const at = payload.indexOf(10);
-      if (at < 0) return;
-      const header = JSON.parse(decoder.decode(payload.subarray(0, at)));
-      if (typeof header?.id !== "string" || typeof header.hookId !== "string") return;
-      delivery = {
-        id: header.id,
-        hookId: header.hookId,
-        receivedAt: Number(header.receivedAt) || Date.now(),
-        headers: header.headers && typeof header.headers === "object" ? header.headers : {},
-        query: header.query && typeof header.query === "object" ? header.query : {},
-        body: new Uint8Array(payload.subarray(at + 1)),
-      };
-    } catch {
-      return;
-    }
+    const delivery = hookDeliveryOf(payload);
+    if (!delivery) return;
     current.hookBatch.push(delivery);
     if (current.hookBatch.length > 1) return;
     setImmediate(async () => {
@@ -298,6 +322,7 @@ function startRelayHost({
       hookBatch: [],
       hookRetry: null,
       hookAttempt: 0,
+      serverError: false,
     };
     current.send = (bytes) => sendRaw(current, bytes);
     current.queued = () => current.socket.bufferedAmount;
@@ -319,13 +344,8 @@ function startRelayHost({
         return;
       }
       setStatus("offline");
-      let delay;
-      if (code === REPLACED && current.ready) {
-        delay = jitter ? replacedMs * (1 + Math.random() * 0.4) : replacedMs;
-      } else {
-        const base = backoff[Math.min(attempt, backoff.length - 1)];
-        delay = jitter ? base * (0.8 + Math.random() * 0.4) : base;
-      }
+      const delay = retryDelay(code, current, { attempt, serverErrors }, { backoff, serverErrorBackoff, replacedMs, jitter });
+      serverErrors = current.serverError ? serverErrors + 1 : 0;
       attempt += 1;
       retryTimer = setTimeout(connect, delay);
     };
@@ -334,6 +354,11 @@ function startRelayHost({
       try {
         current.lastHeard = Date.now();
         if (probe) probe.frame("in", isBinary ? envelopeOf(data) : "text", data.length);
+        const gone = isBinary ? null : goneCode(data);
+        if (gone !== null) {
+          ws.close(1000);
+          return finish(gone);
+        }
         if (current.ready) {
           if (!isBinary) return;
           if (hooks && hookFrame(current, data)) return;
@@ -367,6 +392,10 @@ function startRelayHost({
     });
     ws.on("close", (code) => finish(code));
     ws.on("error", () => {});
+    ws.on("unexpected-response", (_request, response) => {
+      current.serverError = response.statusCode >= 500;
+      ws.terminate();
+    });
     ws.on("open", () => {
       current.lastHeard = Date.now();
       current.readyTimer = setTimeout(() => {

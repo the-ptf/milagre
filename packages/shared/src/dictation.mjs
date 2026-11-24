@@ -105,7 +105,6 @@ const DEV_TERMS = [
 ];
 const NOISE = new Set(["src", "lib", "dist", "build", "test", "tests", "app", "apps", "packages", "index", "main", "utils", "scripts", "docs", "assets"]);
 const MAX_TERMS = 150;
-export const VOCABULARY_WAIT_MS = 1500;
 const RECENT_FILES = 20;
 const CODE_NAME = /[a-z][A-Z]|^[A-Z][a-z]+[A-Z]|[a-z]_[a-z]/;
 
@@ -213,11 +212,77 @@ export function dictationTerms({ projectName, branch, chatTitle, chat = [], file
     .slice(0, MAX_TERMS);
 }
 
+export function composerTerms(draft = "", selected = "", attachments = [], quotes = []) {
+  const names = attachments.slice(0, 32).map((path) => path.split(/[\\/]/).at(-1));
+  return [...new Set([...names, ...chatTerms([draft, ...quotes.slice(-8), selected])])].filter((name) => name && name.length <= 128);
+}
+
+export function takeVocabulary(focused, corrections, context) {
+  return [...new Set([...focused, ...corrections.map((item) => item.spelling), ...context])].slice(0, MAX_TERMS);
+}
+
+export function recognitionVocabulary(anchor, context, symbols) {
+  const focused = composerTerms(anchor.draft, anchor.draft?.slice(anchor.selection.start, anchor.selection.end), anchor.attachments, anchor.quotes);
+  let terms = focused;
+  let corrections = [];
+  void context
+    .then((result) => {
+      corrections = result?.corrections ?? [];
+      terms = takeVocabulary(focused, corrections, result?.terms ?? []);
+    })
+    .catch(() => {});
+  return {
+    get terms() {
+      return terms;
+    },
+    preview: (text) => (corrections.length ? text : snapTerms(text, terms)),
+    format: (text) => formatDictation(text, corrections, symbols, terms),
+  };
+}
+
+export function editedCorrection(before, after, selected = "") {
+  const original = before.trim().split(/\s+/);
+  const edited = after.trim().split(/\s+/);
+  let start = 0;
+  while (start < original.length && original[start] === edited[start]) start++;
+  let a = original.length,
+    b = edited.length;
+  while (a > start && b > start && original[a - 1] === edited[b - 1]) {
+    a--;
+    b--;
+  }
+  const heard = original.slice(start, a).join(" ");
+  const spelling = edited.slice(start, b).join(" ");
+  if (heard && spelling && heard.length <= 128 && spelling.length <= 128 && (!selected || selected === spelling)) return { heard, spelling };
+  return { heard: "", spelling: selected.slice(0, 128) };
+}
+
+export function formatDictation(text, corrections, symbols, terms = []) {
+  if (corrections.length) {
+    const byHeard = new Map(corrections.map(({ heard, spelling }) => [heard.toLowerCase(), spelling]));
+    const phrases = [...byHeard.keys()].filter(Boolean).sort((a, b) => b.length - a.length);
+    if (phrases.length) {
+      const escaped = phrases.map((phrase) => phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      const pattern = new RegExp(`(?<![\\p{L}\\p{M}\\p{N}_])(?:${escaped.join("|")})(?![\\p{L}\\p{M}\\p{N}_])`, "giu");
+      let start = 0;
+      let result = "";
+      for (const match of text.matchAll(pattern)) {
+        result += snapTerms(text.slice(start, match.index), terms) + (byHeard.get(match[0].toLowerCase()) ?? match[0]);
+        start = match.index + match[0].length;
+      }
+      text = result + snapTerms(text.slice(start), terms);
+    }
+  } else text = snapTerms(text, terms);
+  if (!symbols) return text;
+  return text.replace(/\bbacktick\s+(.+?)\s+backtick\b/gi, (_, code) => "`" + code + "`").replace(/[ \t]*\binsert (?:a )?new ?line\b[.,]?[ \t]*/gi, "\n");
+}
+
 const keyOf = (text) =>
   String(text)
     .toLowerCase()
     .normalize("NFKD")
-    .replace(/[^a-z0-9]/g, "");
+    .replace(/\p{M}/gu, "")
+    .replace(/[^\p{L}\p{N}]/gu, "");
 
 const BRANDS = new Set(
   [
@@ -299,7 +364,7 @@ export function snapTerms(text, terms) {
     const sound = skeleton(shape.term);
     if (shape.brand && sound.length >= 4 && !sounds.has(sound)) sounds.set(sound, shape);
   }
-  const tokens = [...source.matchAll(/[\p{L}\p{N}](?:[\p{L}\p{N}_'\u2019-]|\.(?=[\p{L}\p{N}]))*/gu)].map((match) => ({
+  const tokens = [...source.matchAll(/[\p{L}\p{N}](?:[\p{L}\p{M}\p{N}_'\u2019-]|\.(?=[\p{L}\p{N}]))*/gu)].map((match) => ({
     text: match[0],
     start: match.index,
     end: match.index + match[0].length,
@@ -388,6 +453,7 @@ export function dictationFixModel(value) {
 export function fixUpProvider(model, chatProvider) {
   const picked = dictationFixModel(model);
   if (picked !== "auto") return picked;
+  if (chatProvider === "pi") return "pi";
   return DICTATION_FIX_MODELS.some((item) => item.value === chatProvider && item.value !== "auto") ? chatProvider : "claude";
 }
 
@@ -398,10 +464,11 @@ export function fixUpModelName(model, chatProvider) {
 
 // Whisper reads at most 224 tokens of prompt and drops the start of a longer one; about 600 characters stays under that.
 const PROMPT_CHARACTERS = 600;
+const MULTILINGUAL_HINT = "Olá, vamos conversar and switch languages when needed.";
 
 /** Whisper's prompt: the terms as a comma list, cut at a term boundary so the most telling ones stay. */
 export function whisperPrompt(terms, language) {
-  const hint = language && dictationLanguage(language) === "auto" ? "Olá, vamos conversar and switch languages when needed. " : "";
+  const hint = language && dictationLanguage(language) === "auto" ? `${MULTILINGUAL_HINT} ` : "";
   let prompt = "";
   for (const term of terms) {
     const next = prompt ? `${prompt}, ${term}` : term;
@@ -592,15 +659,34 @@ function speechOf(text) {
   return split && isCaption(split[2]) ? split[1].trim() : line;
 }
 
+function echoesPrompt(transcript, prompt) {
+  if (!prompt || !transcript) return false;
+  const heard = lineKey(transcript);
+  if (prompt.startsWith(MULTILINGUAL_HINT)) {
+    if (heard === lineKey(MULTILINGUAL_HINT) || heard === lineKey(prompt)) return true;
+    prompt = prompt.slice(MULTILINGUAL_HINT.length);
+  }
+  const terms = prompt.split(",").map(lineKey).filter(Boolean);
+  for (let start = 0; start + 2 < terms.length; start++) {
+    let phrase = terms[start];
+    for (let end = start + 1; heard.startsWith(phrase + " ") && end < terms.length; end++) {
+      phrase += " " + terms[end];
+      if (end >= start + 2 && phrase === heard) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * What Whisper heard, without its non-speech markers and the caption lines it invents for sound that holds no words. Given
  * its `segments`, each is judged on its own, so a hallucinated trailer after the last words goes and the words stay; the
  * joined `text` alone is judged as one line. "" when nothing else was said, including when every segment is a farewell.
  */
-export function whisperText(text, segments) {
+export function whisperText(text, segments, prompt = "") {
   const lines = (Array.isArray(segments) && segments.length ? segments.map((segment) => speechOf(segment?.text)) : [speechOf(text)]).filter(Boolean);
   if (lines.every((line) => FAREWELL_KEYS.has(lineKey(line)))) return "";
-  return lines.join(" ");
+  const transcript = lines.join(" ");
+  return echoesPrompt(transcript, prompt) ? "" : transcript;
 }
 
 // On a silent clip Whisper writes a line it learned from video captions ("Thank you."), so silence never reaches it.
@@ -616,4 +702,36 @@ export function silentPcm(samples) {
     if (10 * Math.log10(sum / (end - start) || 1e-16) > SPEECH_DB) return false;
   }
   return true;
+}
+
+export function lastDictationStore(read, write) {
+  let fallback = "";
+  let latest = null;
+  const get = () => {
+    try {
+      return read() || fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  const put = (text) => {
+    fallback = text;
+    try {
+      write(text);
+    } catch {}
+  };
+  return {
+    get,
+    save(text, correction) {
+      const take = Symbol();
+      latest = take;
+      put(text);
+      void correction?.then(
+        (fixed) => {
+          if (fixed && latest === take && get() === text) put(fixed);
+        },
+        () => {},
+      );
+    },
+  };
 }

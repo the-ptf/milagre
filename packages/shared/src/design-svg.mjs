@@ -1,8 +1,9 @@
 import { designPaint } from "./design-colors.mjs";
 import { designRenderBudget, visibleDesignTextLines } from "./design-render-limits.mjs";
 import { designDrawnWeight, designFontFamily } from "./design-fonts.mjs";
-import { designIcons } from "./design-icons.mjs";
-import { designDefaultFill } from "./design-paint.mjs";
+import { designLucideIcon, designSymbolImage } from "./design-symbols.mjs";
+import { DESIGN_INK, designDefaultFill } from "./design-paint.mjs";
+import { designPathGeometry, designPathStroked, designPathStrokeShape } from "./design-path.mjs";
 
 const xml = (value) =>
   String(value)
@@ -55,13 +56,13 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
     const x = box.x + border + (anchor === "middle" ? contentWidth / 2 : anchor === "end" ? contentWidth : 0);
     const baseline = box.y + border + (lineHeight - fontSize) / 2 + fontSize * 0.8;
     // Renderers that match by weight alone (resvg) would round 650 up to Bold, wider than the layout measured.
-    const fontWeight = designDrawnWeight(node.fontFamily, node.fontWeight);
+    const fontWeight = designDrawnWeight(node.fontFamily, node.fontWeight, fontSize);
     const spans = visibleDesignTextLines(node, box, layout)
       .map((line, index) => take(`<tspan x="${number(x)}" y="${number(baseline + index * lineHeight)}">${xml(line)}</tspan>`, node))
       .join("");
     return (
       take(
-        `<text ${colorAttributes("fill", node.fill, designDefaultFill(node))} font-family="${xml(designFontFamily(node.fontFamily))}" font-size="${number(fontSize)}" font-weight="${fontWeight}" text-anchor="${anchor}" xml:space="preserve" style="font-kerning:none;font-variant-ligatures:none;font-feature-settings:&quot;calt&quot; 0">`,
+        `<text ${colorAttributes("fill", node.fill, designDefaultFill(node))} font-family="${xml(designFontFamily(node.fontFamily, fontSize))}" font-size="${number(fontSize)}" font-weight="${fontWeight}"${node.letterSpacing ? ` letter-spacing="${number(node.letterSpacing)}"` : ""} text-anchor="${anchor}" xml:space="preserve" style="font-kerning:none;font-variant-ligatures:none;font-feature-settings:&quot;calt&quot; 0">`,
         node,
       ) +
       spans +
@@ -74,10 +75,34 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
         const box = bounds.get(node.id);
         if (node.hidden || !box) return "";
         if (onCanvasOnly && (box.x >= document.width || box.y >= document.height || box.x + box.width <= 0 || box.y + box.height <= 0)) return "";
+        if (node.type === "path") {
+          const geometry = designPathGeometry(node, box);
+          const strokeColor = node.stroke ?? (geometry.arc ? node.fill : undefined);
+          const stroke = designPathStroked(node) ? ` ${colorAttributes("stroke", strokeColor, DESIGN_INK)} ${designPathStrokeShape(node, geometry)}` : "";
+          const fill = geometry.arc ? 'fill="none"' : colorAttributes("fill", node.fill, designDefaultFill(node));
+          return take(
+            `<g id="layer-${xml(node.id)}" opacity="${number(node.opacity ?? 1)}"><title>${xml(node.name ?? node.id)}</title><svg x="${number(box.x)}" y="${number(box.y)}" width="${number(box.width)}" height="${number(box.height)}" viewBox="${geometry.viewBox}" preserveAspectRatio="xMidYMid meet" overflow="hidden"><path d="${xml(geometry.d)}" ${fill}${stroke}/></svg></g>`,
+            node,
+          );
+        }
         if (node.type === "icon") {
           const { color, opacity } = paint(resolveColor(node.fill, designDefaultFill(node)));
+          const head = `<g id="layer-${xml(node.id)}" opacity="${number((node.opacity ?? 1) * opacity)}"><title>${xml(node.name ?? node.id)}</title>`;
+          const frame = `x="${number(box.x)}" y="${number(box.y)}" width="${number(box.width)}" height="${number(box.height)}"`;
+          const symbol = designSymbolImage(node);
+          if (symbol) {
+            const source = `data:image/png;base64,${symbol.png}`;
+            definitions.push(
+              take(
+                `<mask id="symbol-${index}" maskUnits="userSpaceOnUse" ${frame}><image ${frame} preserveAspectRatio="xMidYMid meet" href="${source}" xlink:href="${source}"/></mask>`,
+                node,
+              ),
+            );
+            return take(`${head}<rect ${frame} fill="${xml(color)}" mask="url(#symbol-${index})"/></g>`, node);
+          }
+          const lucide = designLucideIcon(node);
           return take(
-            `<g id="layer-${xml(node.id)}" opacity="${number((node.opacity ?? 1) * opacity)}"><title>${xml(node.name ?? node.id)}</title><svg x="${number(box.x)}" y="${number(box.y)}" width="${number(box.width)}" height="${number(box.height)}" viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" fill="none" stroke="${xml(color)}" stroke-width="${number(node.strokeWidth ?? 2)}" stroke-linecap="round" stroke-linejoin="round" color="${xml(color)}">${designIcons[node.icon]}</svg></g>`,
+            `${head}<svg ${frame} viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" fill="${lucide.filled ? xml(color) : "none"}" stroke="${xml(color)}" stroke-width="${number(lucide.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round" color="${xml(color)}">${lucide.markup}</svg></g>`,
             node,
           );
         }

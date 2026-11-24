@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { needsYouLine } from "@milagre/shared/orchestrator";
 import { shortcutCommand, useShortcutLabel } from "../../lib/keybindings";
 import { isModalOpen } from "../../lib/modal";
 import { focusOrchestratorBox, requestTaskOpen, saveOrchestratorSettings } from "../../lib/orchestrator-store";
 import { useDismiss } from "../../lib/use-dismiss";
+import { cardsIn } from "../../lib/orchestrator-board";
 import { useOrchestratorBoard } from "../../lib/use-orchestrator-board";
 import { RenameField } from "../sidebar/RenameField";
 import GlideMenu from "../primitives/GlideMenu";
@@ -60,7 +62,7 @@ function RenameMenu({ x, y, onRename, onClose }: { x: number; y: number; onRenam
 }
 
 export function OrchestratorSidebarRow({ active, onShow }: { active: boolean; onShow: () => void }) {
-  const { orchestrator, counts, names } = useOrchestratorBoard();
+  const { orchestrator, cards, counts, names } = useOrchestratorBoard();
   const { settings } = orchestrator;
   const [quick, setQuick] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -86,6 +88,7 @@ export function OrchestratorSidebarRow({ active, onShow }: { active: boolean; on
     onShow();
     requestTaskOpen(key);
   };
+  const needs = needsYouLine(cardsIn(cards, "needs"));
   const label = (
     <span className="sidebar-copy min-w-0 flex-1 truncate text-[length:calc(13px+var(--sidebar-delta))] font-semibold text-ink in-data-[sidebar-collapsed=true]:hidden">
       {settings.name}
@@ -105,7 +108,7 @@ export function OrchestratorSidebarRow({ active, onShow }: { active: boolean; on
           />
         </div>
       ) : (
-        <Tooltip label={settings.name} shortcut={shortcut} side="bottom" className="w-full">
+        <Tooltip label={needs ? `${settings.name}. ${needs}` : settings.name} shortcut={shortcut} side="bottom" wrap={Boolean(needs)} className="w-full">
           <button
             type="button"
             data-orchestrator-row

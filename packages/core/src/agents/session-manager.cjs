@@ -257,6 +257,20 @@ class SessionManager {
     return entry && !entry.session.closed ? backgroundCount(entry) : 0;
   }
 
+  stopsSubagents(chatId) {
+    return this.sessions.get(chatId)?.session.stopsSubagents?.() === true;
+  }
+
+  canStopSubagent(chatId, id) {
+    return this.sessions.get(chatId)?.session.canStopSubagent?.(id) === true;
+  }
+
+  async stopSubagent(chatId, id) {
+    const session = this.sessions.get(chatId)?.session;
+    if (!session || session.closed || typeof session.stopSubagent !== "function") throw new Error("Stopping this subagent is not available.");
+    await session.stopSubagent(id);
+  }
+
   async taskOutput(chatId, taskId) {
     const session = this.sessions.get(chatId)?.session;
     if (!session || session.closed || typeof session.taskOutput !== "function") throw new Error("That background task has ended.");

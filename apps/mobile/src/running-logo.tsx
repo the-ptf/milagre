@@ -232,7 +232,38 @@ function RunningLabel({ label }: { label: string }) {
   );
 }
 
-export function ThinkingIndicator({ label, showLabel = false, startedAt }: { label: string; showLabel?: boolean; startedAt?: number }) {
+export function ThinkingIndicator({
+  label,
+  showLabel = false,
+  startedAt,
+  detail,
+  onPress,
+}: {
+  label: string;
+  showLabel?: boolean;
+  startedAt?: number;
+  detail?: ReactNode;
+  onPress?: () => void;
+}) {
+  if (detail && onPress)
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${label}. Show activity`}
+        // 36 tall in the transcript; the slop makes up the 44pt touch.
+        hitSlop={4}
+        onPress={onPress}
+        style={({ pressed }) => [
+          { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 36, paddingHorizontal: 4, paddingVertical: 4 },
+          pressStyle({ pressed }),
+        ]}
+      >
+        <RunningLogo />
+        {detail}
+        <Elapsed startedAt={startedAt} />
+        <Icon icon={ArrowRight01Icon} tone="ink3" size={12} />
+      </Pressable>
+    );
   return (
     <View
       accessible

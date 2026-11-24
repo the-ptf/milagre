@@ -60,6 +60,7 @@ test("a lean desktop opens the large Project within its budget", async (t) => {
   const dataDir = path.join(directory, "profile");
   const daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "9.8.7",
     runtimeOptions: {
       cwd: project,

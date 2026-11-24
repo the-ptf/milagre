@@ -27,6 +27,8 @@ function latestFrames() {
   const abort = new AbortController(),
     waiters = new Set();
   let latest = null,
+    previous = null,
+    freshUntil = 0,
     sequence = 0,
     failure = null;
   const notify = () => {
@@ -36,12 +38,15 @@ function latestFrames() {
     signal: abort.signal,
     discard() {
       latest = null;
+      freshUntil = Date.now() + 3000;
       return sequence;
     },
     publish(image) {
       if (abort.signal.aborted) return;
       if (!Buffer.isBuffer(image.data) || !image.data.length || image.data.length > MAX_FRAME_BYTES || !["image/jpeg", "image/png"].includes(image.mimeType))
         throw new Error("Invalid or oversized simulator frame.");
+      if (latest && Date.now() >= freshUntil && previous?.equals(image.data)) return;
+      previous = Buffer.from(image.data);
       latest = { sequence: ++sequence, data: image.data.toString("base64"), mimeType: image.mimeType };
       notify();
     },
@@ -165,4 +170,21 @@ function createSnapshotFrames(capture, { intervalMs = 250 } = {}) {
     },
   };
 }
-module.exports = { createMjpegFrames, createSnapshotFrames, normalizeAndroidSnapshot };
+const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+function createAndroidSnapshots({ execFile, adb, deviceId }, onSize) {
+  return createSnapshotFrames(async (signal) => {
+    const { stdout } = await execFile(adb, ["-s", deviceId, "exec-out", "screencap", "-p"], {
+      encoding: null,
+      timeout: 5000,
+      maxBuffer: 32 * 1024 * 1024,
+      signal,
+    });
+    if (!Buffer.isBuffer(stdout) || stdout.length < 24 || !stdout.subarray(0, 8).equals(PNG)) throw new Error("Invalid Android screenshot.");
+    const width = stdout.readUInt32BE(16),
+      height = stdout.readUInt32BE(20);
+    if (!width || !height || width > 16384 || height > 16384 || width * height > 16 * 1024 * 1024) throw new Error("Invalid Android screenshot dimensions.");
+    onSize({ width, height });
+    return normalizeAndroidSnapshot(stdout, { execFile, signal });
+  });
+}
+module.exports = { createMjpegFrames, createSnapshotFrames, createAndroidSnapshots, normalizeAndroidSnapshot };

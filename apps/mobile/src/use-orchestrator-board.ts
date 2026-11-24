@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { chatPullRequests } from "@milagre/shared/chats";
+import { chatPullRequests, ownsWorktree } from "@milagre/shared/chats";
 import { pullRequestState, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { allComputers, useComputerViews } from "./all-computers";
 import { taskHost } from "./orchestrator-actions";
 import type { ProjectCopy } from "./all-computers-store";
 import { boardItem, boardCounts, type BoardItem, type TaskChat } from "./orchestrator-board";
 import { useListSnapshot, useSession } from "./session";
-import { useChatPullRequests, type PullRequestTarget } from "./use-chat-pull-requests";
+import { useComputerChatPullRequests, type ComputerPullRequestTargets } from "./use-chat-pull-requests";
 
-type Joined = { task: OrchestratorTask; chat?: TaskChat; prPath?: string; prRefs: string[] };
+type Joined = { task: OrchestratorTask; chat?: TaskChat; prPath?: string; prRefs: string[]; owned?: boolean };
 
 function join(task: OrchestratorTask, copy: ProjectCopy | undefined): Joined {
   if (!copy || task.sessionId === null) return { task, prRefs: [] };
@@ -21,6 +21,7 @@ function join(task: OrchestratorTask, copy: ProjectCopy | undefined): Joined {
     chat: { chat, run, messages },
     prPath: copy.project.state.worktrees[chat.worktree_id]?.path,
     prRefs: chat.summary?.pullRequests ?? copy.project.pullRequestRefs?.[chat.id] ?? [],
+    owned: ownsWorktree(copy.project.state, chat.id, copy.project.path),
   };
 }
 
@@ -50,7 +51,7 @@ export function useOrchestratorBoard(tasks: readonly OrchestratorTask[]) {
         const here = at === hostId;
         const copy =
           !path || !at ? undefined : here && snapshot?.project.path === path ? snapshot : (view?.copies.get(path) ?? (here ? cachedProject(path) : undefined));
-        return { ...join(task, copy), at, ...(here ? {} : { prPath: undefined }) };
+        return { ...join(task, copy), at };
       }),
     [tasks, snapshot, views, hostId, cachedProject],
   );
@@ -65,22 +66,28 @@ export function useOrchestratorBoard(tasks: readonly OrchestratorTask[]) {
       void allComputers.refreshProject(at, path).catch(() => {});
     }
   }, [missingKey]);
-  const targets = useMemo<PullRequestTarget[]>(() => {
-    const byPath = new Map<string, Set<string>>();
+  const targets = useMemo<ComputerPullRequestTargets[]>(() => {
+    const byHost = new Map<string, Map<string, Set<string>>>();
     for (const entry of joined) {
-      if (!entry.prPath) continue;
-      const refs = byPath.get(entry.prPath) ?? new Set<string>();
+      if (!entry.prPath || !entry.at) continue;
+      const paths = byHost.get(entry.at) ?? new Map<string, Set<string>>();
+      const refs = paths.get(entry.prPath) ?? new Set<string>();
       for (const ref of entry.prRefs) refs.add(ref);
-      byPath.set(entry.prPath, refs);
+      paths.set(entry.prPath, refs);
+      byHost.set(entry.at, paths);
     }
-    return [...byPath].map(([path, refs]) => ({ path, refs: [...refs] }));
-  }, [joined]);
-  const status = useChatPullRequests(session.client, targets);
+    return [...byHost].map(([at, paths]) => ({
+      hostId: at,
+      client: at === hostId ? session.client : allComputers.clientFor(at),
+      targets: [...paths].map(([path, refs]) => ({ path, refs: [...refs] })),
+    }));
+  }, [joined, hostId, session.client]);
+  const status = useComputerChatPullRequests(targets);
   const items = useMemo<BoardItem[]>(
     () =>
       joined.map((entry) => {
-        const found = entry.prPath ? status[entry.prPath] : undefined;
-        const prs = found ? chatPullRequests(entry.prRefs, found.found, found.branch) : [];
+        const found = entry.prPath && entry.at ? status[entry.at]?.[entry.prPath] : undefined;
+        const prs = found ? chatPullRequests(entry.prRefs, found.found, entry.owned ? found.branch : undefined) : [];
         return boardItem(entry.task, entry.chat, pullRequestState(prs.map((pr) => pr.state)), now);
       }),
     [joined, status, now],

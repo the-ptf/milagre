@@ -4,10 +4,14 @@ import { createHookDirectory, createHookRoom, handleHookRequest, hookResponse, s
 export interface Env {
   ROOMS: DurableObjectNamespace;
   HOOKS: DurableObjectNamespace;
+  DIAG?: AnalyticsEngineDataset;
 }
 const ID = /^[A-Za-z0-9_-]{22}$/;
 const HOOK_ID = /^[0-9a-f]{64}$/;
 const INTERNAL = "https://relay.internal";
+// Bumping the generation moves every Mac into a fresh object; its hooks re-register on the next HOOK_SET.
+const ROOM_GENERATION = "r2";
+const roomOf = (env: Env, id: string) => env.ROOMS.get(env.ROOMS.idFromName(`${ROOM_GENERATION}:${id}`));
 
 async function lookupRoom(env: Env, hookId: string): Promise<string | null> {
   const owner = await env.HOOKS.get(env.HOOKS.idFromName(hookId)).fetch(`${INTERNAL}/room`);
@@ -23,14 +27,19 @@ export default {
       return handleHookRequest(request, {
         lookupRoom: (hookId) => lookupRoom(env, hookId),
         forwardToRoom: (roomId, hookId, packed) =>
-          env.ROOMS.get(env.ROOMS.idFromName(roomId)).fetch(`${INTERNAL}/hook`, { method: "POST", headers: { "x-milagre-hook": hookId }, body: packed }),
-      });
+          roomOf(env, roomId).fetch(`${INTERNAL}/hook`, { method: "POST", headers: { "x-milagre-hook": hookId }, body: packed }),
+      }).catch(busyHook);
     const role = url.pathname === "/v1/host" ? "host" : url.pathname === "/v1/phone" ? "phone" : null;
     if (!role) return new Response("Not found", { status: 404 });
     if (!ID.test(url.searchParams.get("id") ?? "")) return new Response("Bad id", { status: 400 });
     if (request.headers.get("Upgrade") !== "websocket") return new Response("Expected a WebSocket", { status: 426 });
     const id = url.searchParams.get("id")!;
-    const answer = await env.ROOMS.get(env.ROOMS.idFromName(id)).fetch(request);
+    let answer: Response;
+    try {
+      answer = await roomOf(env, id).fetch(request);
+    } catch {
+      return closedSocket(BUSY);
+    }
     const refusal = answer.status === 101 ? null : parseRefusal(answer.headers.get(REFUSAL_HEADER));
     return refusal ? closedSocket(refusal) : answer;
   },
@@ -43,6 +52,16 @@ export default {
 const REFUSAL_HEADER = "x-milagre-refusal";
 
 type Refusal = { code: number; reason: string };
+
+// A room that can't be reached throws: the account is over its daily Durable Objects limit, or Cloudflare failed. A
+// client can't read an HTTP status off a failed WebSocket handshake, so the Worker accepts the socket and closes it
+// with a code that says to wait.
+const BUSY: Refusal = { code: 4503, reason: "relay-busy" };
+const busyHook = () =>
+  new Response(JSON.stringify({ error: "relay busy" }), {
+    status: 503,
+    headers: { "content-type": "application/json", "cache-control": "no-store", "retry-after": "300" },
+  });
 
 function parseRefusal(value: string | null): Refusal | null {
   const match = /^(4\d{3}) ([a-z-]{1,40})$/.exec(value ?? "");
@@ -80,18 +99,22 @@ export class Room implements DurableObject {
   constructor(
     private readonly state: DurableObjectState,
     private readonly env: Env,
-  ) {}
+  ) {
+    this.diag("construct", "");
+  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/hook") return this.hookDelivery(request);
     const id = url.searchParams.get("id")!;
     const role: Role = url.pathname === "/v1/host" ? "host" : "phone";
+    const woke = !this.room;
     const kv = this.state.storage.kv;
     if (kv.get("id") !== id) kv.put("id", id);
     if (this.room && this.roomId !== id) this.room = undefined;
     const room = this.live();
     const refusal = role === "phone" ? room.phoneRefusal() : null;
+    this.diag(refusal ? "refuse" : "open", role, { woke });
     if (refusal) return refusalAnswer(refusal);
     const [client, server] = Object.values(new WebSocketPair());
     if (!client || !server) throw new Error("WebSocketPair did not yield two sockets");
@@ -103,12 +126,21 @@ export class Room implements DurableObject {
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    const woke = !this.room;
+    const started = Date.now();
     const room = this.live();
-    if (this.roleOf(ws) === "host") await room.hostMessage(ws, message);
+    const role = this.roleOf(ws);
+    if (role === "host") await room.hostMessage(ws, message);
     else room.phoneMessage(ws, message);
+    this.diag("message", `${role}:${frameKind(message)}`, {
+      woke,
+      ms: Date.now() - started,
+      size: typeof message === "string" ? message.length : message.byteLength,
+    });
   }
 
   async alarm(): Promise<void> {
+    this.diag("alarm", "");
     const next = this.hooks().expire(Date.now());
     if (next !== null) await this.state.storage.setAlarm(next);
   }
@@ -122,6 +154,7 @@ export class Room implements DurableObject {
     } catch {
       return hookResponse(NOT_FOUND);
     }
+    this.diag("hook", "", { woke: !this.room });
     this.live();
     const answer = this.hooks().receive(hookId, delivery);
     if (answer.status === 202 && (await this.state.storage.getAlarm()) === null) {
@@ -157,7 +190,8 @@ export class Room implements DurableObject {
     }));
   }
 
-  webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): void {
+  webSocketClose(ws: WebSocket, code: number, _reason: string, wasClean: boolean): void {
+    this.diag("close", `${this.roleOf(ws)}:${code}:${wasClean ? "clean" : "unclean"}`, { woke: !this.room });
     this.closed(ws);
     // The compatibility date turns on web_socket_auto_reply_to_close, so the runtime has already answered
     // the peer's Close frame; closing back is only a fallback and throws if the socket is already closed.
@@ -171,11 +205,37 @@ export class Room implements DurableObject {
   }
 
   webSocketError(ws: WebSocket, _error: unknown): void {
+    this.diag("error", `${this.roleOf(ws)}`, { woke: !this.room });
     this.closed(ws);
     try {
       ws.close(1011, "error");
     } catch {
       /* already closed */
+    }
+  }
+
+  private readonly born = Date.now();
+  private lastMessageDiag = 0;
+
+  /**
+   * One Analytics Engine point per room event (no payloads, URLs or room ids: only this object's id prefix, the event
+   * kind and timings), to see what keeps a hibernatable room in memory. Plain message frames are sampled once per 10 s
+   * per room so a busy relay stays within the free tier's daily points.
+   */
+  private diag(kind: string, detail: string, { woke = false, ms = 0, size = 0 } = {}): void {
+    const dataset = this.env.DIAG;
+    if (!dataset) return;
+    const now = Date.now();
+    if (kind === "message" && !woke && ms === 0 && !detail.endsWith(":text") && !detail.includes(":c0-") && now - this.lastMessageDiag < 10_000) return;
+    if (kind === "message") this.lastMessageDiag = now;
+    try {
+      const sockets = this.state.getWebSockets();
+      let hosts = 0;
+      for (const socket of sockets) if (this.roleOf(socket) === "host") hosts++;
+      const object = this.state.id.toString().slice(0, 8);
+      dataset.writeDataPoint({ indexes: [object], blobs: [object, kind, detail], doubles: [woke ? 1 : 0, ms, sockets.length, hosts, size, now - this.born] });
+    } catch {
+      /* diagnostics never break a room */
     }
   }
 
@@ -204,6 +264,7 @@ export class Room implements DurableObject {
   private stateOf(ws: WebSocket): unknown {
     const state: unknown = ws.deserializeAttachment();
     const role = state && typeof state === "object" ? (state as { role?: unknown }).role : undefined;
+    if (role === "parked") return state;
     const tag: Role | null = role === "host" || role === "pending" ? "host" : role === "phone" ? "phone" : null;
     return tag && tag === this.roleOf(ws) ? state : null;
   }
@@ -249,4 +310,12 @@ export class HookDirectory implements DurableObject {
     }
     return new Response("", { status: 404 });
   }
+}
+
+function frameKind(message: string | ArrayBuffer): string {
+  if (typeof message === "string") return "text";
+  const bytes = new Uint8Array(message);
+  if (bytes.byteLength < 9) return "short";
+  const conn0 = bytes.subarray(1, 9).every((byte) => byte === 0);
+  return `${conn0 ? "c0-" : ""}${bytes[0]}`;
 }

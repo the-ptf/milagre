@@ -1,4 +1,4 @@
-import type { DesignPageShare } from "@milagre/shared/artifact";
+import type { ArtifactPageKind, DesignPageShare } from "@milagre/shared/artifact";
 
 type Caller = { call: <T>(method: string, args: unknown[]) => Promise<T> };
 const errorText = (error: unknown) => (error instanceof Error ? error.message : "Could not update page sharing.");
@@ -12,8 +12,14 @@ export type PageSharingState = {
   availability: { available: boolean; reason?: string } | null;
 };
 
-export function createDesignPageSharing(client: Caller, chatId?: string | null, kind: "designs" | "artifacts" = "designs") {
-  const scope = kind === "artifacts" ? { kind } : {};
+export type ShareScope = { kind: ArtifactPageKind; designId?: string };
+
+/**
+ * One published scope of a Chat's Artifact (`chatId`), or every published page of the computer (no `chatId`). The
+ * workspace is every design and the HTML page; a new link follows the agent's saves until paused or stopped.
+ */
+export function createDesignPageSharing(client: Caller, chatId?: string | null, { kind, designId }: ShareScope = { kind: "workspace" }) {
+  const scope = { kind, ...(designId ? { designId } : {}) };
   let state: PageSharingState = {
     shares: [],
     loading: false,
@@ -38,7 +44,7 @@ export function createDesignPageSharing(client: Caller, chatId?: string | null, 
     const current = ++statusGeneration;
     update({ ...state, checking: true });
     try {
-      const value = await client.call<{ available: boolean; reason?: string }>("artifact:sharing-status", kind === "artifacts" ? [{ kind }] : []);
+      const value = await client.call<{ available: boolean; reason?: string }>("artifact:sharing-status", [{ ...scope, chatId }]);
       if (current === statusGeneration)
         update({
           ...state,
@@ -69,15 +75,15 @@ export function createDesignPageSharing(client: Caller, chatId?: string | null, 
         listeners.delete(listener);
       };
     },
-    async refresh() {
+    async refresh({ quiet = false } = {}) {
       if (disposed || state.busy) return;
       const current = ++generation;
-      update({ ...state, loading: true, error: "" });
+      if (!quiet) update({ ...state, loading: true, error: "" });
       try {
         const shares = await history();
         if (current === generation) update({ ...state, shares, loading: false, loaded: true });
       } catch (error) {
-        if (current === generation) update({ ...state, loading: false, error: errorText(error) });
+        if (current === generation) update({ ...state, loading: false, error: quiet ? state.error : errorText(error) });
       }
     },
     async publish(title: string) {
@@ -106,6 +112,18 @@ export function createDesignPageSharing(client: Caller, chatId?: string | null, 
               error: errorText(error),
             });
         }
+      }
+    },
+    async setPaused(id: string, paused: boolean) {
+      if (disposed || !chatId || state.busy) return;
+      const current = ++generation;
+      update({ ...state, loading: false, busy: paused ? "pause" : "resume", error: "" });
+      try {
+        const share = await client.call<DesignPageShare>("artifact:set-page-share-paused", [{ chatId, id, paused }]);
+        if (current === generation)
+          update({ ...state, busy: null, shares: state.shares.map((item) => (item.id === id ? { ...item, ...share, id: share?.id ?? id } : item)) });
+      } catch (error) {
+        if (current === generation) update({ ...state, busy: null, error: errorText(error) });
       }
     },
     async revoke(id: string) {

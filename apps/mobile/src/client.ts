@@ -109,7 +109,7 @@ const LONG_CALLS = new Set([
 ]);
 const PAGE_URL_MS = 75000;
 const MCP_CALLS = new Set(["mcp:accounts", "mcp:check", "mcp:definition", "mcp:saveUrl", "mcp:remove", "mcp:toggle"]);
-const DESIGN_SHARE_CALLS = new Set(["artifact:share-page", "artifact:revoke-page-share", "artifact:revoke-saved-page-share"]);
+const DESIGN_SHARE_CALLS = new Set(["artifact:share-page", "artifact:set-page-share-paused", "artifact:revoke-page-share", "artifact:revoke-saved-page-share"]);
 
 function overRelay(
   through: Promise<RelayTransport>,
@@ -403,7 +403,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
           : LONG_CALLS.has(method)
             ? Math.max(timeoutMs, 330000)
             : DESIGN_SHARE_CALLS.has(method)
-              ? Math.max(timeoutMs, method === "artifact:share-page" ? 420000 : 120000)
+              ? Math.max(timeoutMs, method === "artifact:share-page" || method === "artifact:set-page-share-paused" ? 420000 : 120000)
               : MCP_CALLS.has(method)
                 ? Math.max(timeoutMs, 45000)
                 : method === "browser:page-url"

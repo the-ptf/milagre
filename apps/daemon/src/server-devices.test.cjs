@@ -21,6 +21,7 @@ test("devices:list and devices:remove are desktop methods over the saved devices
   const relays = [];
   const daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "test",
     phoneOptions: {
       localPort: 0,
@@ -89,6 +90,7 @@ async function withRelays(t) {
   const relays = [];
   const daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "test",
     phoneOptions: {
       localPort: 0,
@@ -150,6 +152,7 @@ test("a phone that pairs while no window is connected is announced once to the n
   const start = () =>
     startDaemon({
       dataDir,
+      homeDir: dataDir,
       version: "test",
       phoneOptions: {
         localPort: 0,

@@ -247,3 +247,80 @@ test("the Chat's names come right after its title, before the files being worked
   assert.equal(terms.indexOf("voice-dictation.ts"), terms.indexOf("Dictation") + 1);
   assert.ok(terms.indexOf("OtherThing") > terms.indexOf("voice-dictation.ts"));
 });
+
+test("Whisper drops its prompt echoed across segments but keeps short names and instructions", async () => {
+  const { whisperText } = await import("./dictation.mjs");
+  const prompt = whisperPrompt(["Milagre", "Claude Code", "Codex", "Kiro"], "auto");
+  assert.equal(whisperText(prompt, [], prompt), "");
+  assert.equal(whisperText("", [{ text: "Claude Code." }, { text: "Codex, Kiro!" }], prompt), "");
+  for (const text of ["Codex", "Codex, Kiro", "Use Claude Code, Codex, Kiro.", "Claude Code, Kiro, Codex"]) {
+    assert.equal(whisperText(text, [], prompt), text);
+  }
+  assert.equal(whisperText("Claude Code, Codex, Kiro"), "Claude Code, Codex, Kiro");
+});
+
+test("vocabulary corrections preserve surrounding words in other scripts", () => {
+  assert.equal(snapTerms("请用 git hub 修复它", ["GitHub"]), "请用 GitHub 修复它");
+  assert.equal(snapTerms("открой code x сейчас", ["Codex"]), "открой Codex сейчас");
+});
+
+test("the draft, selection, quoted code and attached filenames lead the vocabulary even while the computer is offline", async () => {
+  const { recognitionVocabulary } = await import("./dictation.mjs");
+  const draft = "check makeBuffer and parseFile";
+  const { promise: context, resolve } = Promise.withResolvers();
+  const take = recognitionVocabulary(
+    { draft, selection: { start: 21, end: draft.length }, quotes: ["run buildDraft"], attachments: ["C:\\src\\file-name.ts"] },
+    context,
+    false,
+  );
+  assert.deepEqual(take.terms, ["file-name.ts", "parseFile", "buildDraft", "makeBuffer"]);
+  assert.equal(take.format("use queue now"), "use queue now");
+  resolve({ terms: ["Milagre", "file-name.ts"], corrections: [{ heard: "use queue", spelling: "useQueue" }] });
+  await context;
+  assert.deepEqual(take.terms, ["file-name.ts", "parseFile", "buildDraft", "makeBuffer", "useQueue", "Milagre"]);
+  assert.equal(take.format("use queue now"), "useQueue now");
+});
+
+test("saved phrases match whole words longest first without rewriting replacements", async () => {
+  const { formatDictation, editedCorrection } = await import("./dictation.mjs");
+  const edit = editedCorrection("check insert dictation now", "check insertDictation now");
+  assert.deepEqual(edit, { heard: "insert dictation", spelling: "insertDictation" });
+  assert.equal(
+    formatDictation("Open code X in git hub.", [{ heard: "code X", spelling: "CodeXTools" }], false, ["Codex", "GitHub"]),
+    "Open CodeXTools in GitHub.",
+  );
+  const rules = [edit, { heard: "insert", spelling: "other" }, { heard: "c++", spelling: "Cpp" }];
+  assert.equal(formatDictation("INSERT DICTATION, insert. Reinsert c++.", rules, false), "insertDictation, other. Reinsert Cpp.");
+});
+
+test("spoken symbols require an explicit command or a pair of backticks", async () => {
+  const { formatDictation } = await import("./dictation.mjs");
+  const words = "Run backtick npm test backtick. Insert newline then commit.";
+  assert.equal(formatDictation(words, [], true), "Run `npm test`.\nthen commit.");
+  assert.equal(formatDictation(words, [], false), words);
+  assert.equal(formatDictation("Add a newline after the import and explain backtick.", [], true), "Add a newline after the import and explain backtick.");
+});
+
+test("a late fix-up never replaces a newer completed take", async () => {
+  const { lastDictationStore } = await import("./dictation.mjs");
+  let saved = null;
+  const store = lastDictationStore(
+    () => saved,
+    (text) => {
+      saved = text;
+    },
+  );
+  const old = Promise.withResolvers();
+  store.save("first", old.promise);
+  store.save("second", Promise.resolve("Second."));
+  old.resolve("First.");
+  await old.promise;
+  assert.equal(store.get(), "Second.");
+  assert.equal(
+    lastDictationStore(
+      () => saved,
+      () => {},
+    ).get(),
+    "Second.",
+  );
+});

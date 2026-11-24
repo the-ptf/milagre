@@ -1,14 +1,15 @@
 const fs = require("node:fs");
 const { parentPort } = require("node:worker_threads");
+const { withDesignHost } = require("./design-host-fonts.cjs");
 
 const MAX_EDGE = 1568;
+const MIN_EDGE = 512;
+const MAX_UPSCALE = 4;
 let ready;
 
 async function load() {
-  const [{ initWasm, Resvg }, { designSvg, designFontBuffers, loadDesignFonts }] = await Promise.all([
-    import("@resvg/resvg-wasm"),
-    import("@milagre/shared/design"),
-  ]);
+  const [{ initWasm, Resvg }, design] = await Promise.all([import("@resvg/resvg-wasm"), import("@milagre/shared/design")]);
+  const { designSvg, designFontBuffers, loadDesignFonts } = withDesignHost(design);
   await initWasm(fs.readFileSync(require.resolve("@resvg/resvg-wasm/index_bg.wasm")));
   return { Resvg, designSvg, designFontBuffers, loadDesignFonts };
 }
@@ -21,14 +22,15 @@ async function render(document, crop) {
   const { Resvg, designSvg, designFontBuffers, loadDesignFonts } = await ready;
   await loadDesignFonts(document);
   const fontBuffers = designFontBuffers(document).map((base64) => new Uint8Array(Buffer.from(base64, "base64")));
-  const scale = Math.min(1, MAX_EDGE / Math.max(crop?.width ?? document.width, crop?.height ?? document.height));
+  const longest = Math.max(crop?.width ?? document.width, crop?.height ?? document.height);
+  const scale = Math.min(MAX_EDGE / longest, Math.max(1, Math.min(MAX_UPSCALE, MIN_EDGE / longest)));
   let resvg;
   let rendered;
   try {
     const svg = designSvg(document, { embedFonts: false, onCanvasOnly: true });
     resvg = new Resvg(svg, {
       font: { fontBuffers, loadSystemFonts: false, defaultFontFamily: "Inter", sansSerifFamily: "Inter" },
-      fitTo: { mode: "zoom", value: crop ? 1 : scale },
+      fitTo: { mode: "zoom", value: crop ? Math.max(1, scale) : scale },
     });
     rendered = resvg.render();
     if (crop) {

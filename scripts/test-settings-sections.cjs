@@ -68,7 +68,7 @@ window.milagre = {
   readRoutinesEnabled: async () => ({ enabled: true }),
   listRoutines: async () => ({ routines: [] }),
   artifacts: {
-    allPageShares: async () => { window.shareCalls.push(["all"]); return [window.savedShare]; },
+    allPageShares: async () => { window.shareCalls.push(["all"]); return [window.savedShare, { id: "live", url: "https://share.milagre.cloud/s/live", title: "Login screens", createdAt: 1780000000000, designCount: 2, kind: "workspace", live: true, paused: true }]; },
     revokeSavedPageShare: async ({ id }) => { window.shareCalls.push(["revoke", id]); window.savedShare = { ...window.savedShare, revoked: true }; },
     pageShares: async () => { throw new Error("No Chat exists"); },
   },
@@ -413,8 +413,13 @@ async function browserChecks() {
     await waitFor(`${shareDialog}?.open && ${shareDialog}.textContent.includes("Deleted Chat page")`);
     assert.equal(await evaluate(`${shareDialog}.querySelector("[data-slot=design-page-publish]") === null`), true, "global manager has no publication action");
     assert.deepEqual(await evaluate("window.shareCalls"), [["all"]], "deleted Chat history requires no Chat or service health call");
+    assert.deepEqual(
+      await evaluate(`[...${shareDialog}.querySelectorAll("[data-slot=design-page-scope]")].map((n) => n.textContent)`),
+      ["Designs · Snapshot", "Workspace · Paused"],
+      "each published page names what it shows and where it stands",
+    );
     await screenshot("published-pages-orphan");
-    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Revoke link").click()`);
+    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Stop sharing").click()`);
     await evaluate(`${shareDialog}.querySelector("[data-slot=design-page-revoke-confirm]").click()`);
     await waitFor(`${shareDialog}.textContent.includes("Revoked")`);
     assert.deepEqual(await evaluate("window.shareCalls"), [["all"], ["revoke", "orphan"]]);

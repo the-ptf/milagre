@@ -7,9 +7,11 @@ import {
   foldOrchestratorAnswers,
   isMemoryImporting,
   boardColumn,
+  placedColumn,
   pullRequestState,
   isIrreversible,
   keywordRoute,
+  needsYouLine,
   normalizeOrchestratorMemory,
   normalizeOrchestratorSettings,
   normalizeOrchestratorTask,
@@ -17,7 +19,9 @@ import {
   pickComputer,
   recordTrust,
   roleById,
+  taskBlockedText,
   taskDoneAt,
+  taskOutcomePrompt,
   taskSwept,
   titleFromPrompt,
   trustScore,
@@ -72,14 +76,46 @@ test("keyword routing matches a Project by name first, then by its hints", () =>
   assert.equal(keywordRoute("write me a poem", projects), null);
 });
 
-test("board columns follow done, needs you and the pull request", () => {
-  assert.equal(boardColumn({ done: false, needsYou: false }), "running");
-  assert.equal(boardColumn({ done: false, needsYou: true, pullRequest: "open" }), "needs");
-  assert.equal(boardColumn({ done: false, needsYou: false, pullRequest: "open" }), "review");
-  assert.equal(boardColumn({ done: false, needsYou: false, pullRequest: "merged" }), "done");
-  assert.equal(boardColumn({ done: true, needsYou: true }), "done");
-  assert.equal(boardColumn({ done: false, needsYou: false, finished: true }), "done", "finished work without a pull request is done");
-  assert.equal(boardColumn({ done: false, needsYou: false, finished: true, pullRequest: "open" }), "review", "an open pull request waits in review");
+test("a finished reply cannot bypass the required PR, but marking the Chat Done accepts the task", () => {
+  const base = { done: false, needsYou: false, outcome: "pull-request" };
+  assert.equal(boardColumn(base), "running");
+  assert.equal(boardColumn({ ...base, finished: true }), "needs");
+  assert.equal(boardColumn({ ...base, done: true }), "done");
+  assert.equal(boardColumn({ ...base, pullRequest: "open" }), "done");
+  assert.equal(boardColumn({ ...base, pullRequest: "merged" }), "done");
+  assert.equal(boardColumn({ ...base, pullRequest: "closed" }), "needs");
+  assert.equal(boardColumn({ ...base, done: true, needsYou: true, pullRequest: "merged" }), "needs");
+  assert.equal(boardColumn({ ...base, active: true, pullRequest: "open" }), "running");
+  assert.equal(boardColumn({ ...base, outcome: "reply", finished: true }), "done");
+  assert.equal(boardColumn({ ...base, outcome: "reply", done: true }), "done");
+  assert.equal(boardColumn({ ...base, outcome: "merged", pullRequest: "open" }), "review");
+  assert.equal(boardColumn({ ...base, outcome: "merged", pullRequest: "merged" }), "done");
+  assert.equal(boardColumn({ ...base, outcome: "merged", pullRequest: "closed", done: true }), "done");
+  assert.equal(boardColumn({ ...base, outcome: "merged", pullRequest: "closed" }), "needs");
+  assert.equal(boardColumn({ done: false, needsYou: false, finished: true }), "done", "no recorded outcome finishes with its agent");
+});
+
+test("a column the owner moved a task to wins over its derived one and keeps it on the board", () => {
+  const moved = (column) => ({ summary: { lastOutcome: "completed", lastAt: 1 }, orchestrator: { column } });
+  assert.equal(placedColumn(moved("review")), "review");
+  assert.equal(placedColumn(moved("done")), null, "Done is the Chat's Done mark");
+  assert.equal(placedColumn(moved("sideways")), null);
+  assert.equal(placedColumn({ ...moved("needs"), archived: true }), null);
+  assert.equal(boardColumn({ done: false, needsYou: true, active: true, placed: "review" }), "review");
+  assert.equal(boardColumn({ done: false, needsYou: false, finished: true, placed: null }), "done");
+  assert.equal(taskSwept(moved("needs"), { retentionHours: 1, now: 1e10 }), false);
+  assert.equal(taskSwept(moved(null), { retentionHours: 1, now: 1e10 }), true);
+});
+
+test("outcomes persist; unknown settings require a PR and tasks saved without one finish with their agent", () => {
+  for (const outcome of ["pull-request", "merged", "reply"]) {
+    assert.equal(normalizeOrchestratorSettings({ outcome }).outcome, outcome);
+    assert.equal(normalizeOrchestratorTask({ id: "t", prompt: "fix", outcome }).outcome, outcome);
+  }
+  for (const outcome of [undefined, "invented", null]) {
+    assert.equal(normalizeOrchestratorSettings({ outcome }).outcome, "pull-request");
+    assert.equal(normalizeOrchestratorTask({ id: "t", prompt: "fix", outcome }).outcome, "reply");
+  }
 });
 
 test("a Chat's pull requests read as one board state: open wins, then merged", () => {
@@ -222,11 +258,36 @@ test("a task leaves the board when its Chat is gone, or after the Done retention
   assert.equal(taskSwept({ archived: true }, { retentionHours: 0, now }), true);
   assert.equal(taskSwept({ done_at: now - 24 * HOUR }, { retentionHours: 24, now }), true);
   assert.equal(taskSwept({ done_at: now - 23 * HOUR }, { retentionHours: 24, now }), false);
-  assert.equal(taskSwept(finished(now - 2 * HOUR), { retentionHours: 1, now }), true);
-  assert.equal(taskSwept(finished(now - 2 * HOUR), { retentionHours: 0, now }), false);
-  assert.equal(taskSwept(finished(now - 2 * HOUR), { busy: true, retentionHours: 1, now }), false);
-  assert.equal(taskSwept(finished(now - 2 * HOUR, { pullRequests: ["https://x/pull/1"] }), { retentionHours: 1, now }), false);
+  assert.equal(taskSwept(finished(now - 2 * HOUR), { retentionHours: 1, now, outcome: "reply" }), true);
+  assert.equal(taskSwept(finished(now - 2 * HOUR), { retentionHours: 0, now, outcome: "reply" }), false);
+  assert.equal(taskSwept(finished(now - 2 * HOUR), { busy: true, retentionHours: 1, now, outcome: "reply" }), false);
+  assert.equal(taskSwept(finished(now - 2 * HOUR, { pullRequests: ["https://x/pull/1"] }), { retentionHours: 1, now, outcome: "reply" }), false);
+  assert.equal(
+    taskSwept(finished(now - 2 * HOUR), { retentionHours: 1, now, outcome: "pull-request" }),
+    false,
+    "a task that still needs its PR stays on the board",
+  );
   assert.equal(taskSwept({ summary: { lastOutcome: "failed", lastAt: 1 } }, { retentionHours: 1, now }), false);
   assert.equal(taskDoneAt({ summary: { lastOutcome: "cancelled", lastAt: 5 } }), 5);
   assert.equal(taskDoneAt({ done_at: 9, summary: { lastOutcome: "completed", lastAt: 5 } }, true), 9);
+});
+
+test("a task its agent marked blocked waits on the owner until a turn runs or its Chat is marked Done", () => {
+  const blocked = { reason: "Sign in to the resend MCP server\nwith /mcp", at: 7 };
+  const session = { summary: { lastOutcome: "completed", lastAt: 5 }, orchestrator: { taskId: "t", hidden: true, blocked } };
+  assert.equal(taskBlockedText(session), "Blocked: Sign in to the resend MCP server with /mcp");
+  assert.equal(taskBlockedText(session, true), null, "a running turn has cleared it");
+  assert.equal(taskBlockedText({ ...session, done_at: 9 }), null);
+  assert.equal(taskBlockedText({ ...session, orchestrator: { taskId: "t", hidden: true, blocked: { reason: "  ", at: 7 } } }), null);
+  assert.equal(taskDoneAt(session), null, "a blocked task never counts as Done on its own");
+  assert.equal(taskDoneAt({ ...session, done_at: 9 }), 9);
+  assert.equal(taskSwept(session, { retentionHours: 1, now: 10 ** 12, outcome: "reply" }), false);
+  for (const outcome of ["reply", "pull-request", "merged"]) assert.match(taskOutcomePrompt(outcome), /milagre task_blocked tool/);
+});
+
+test("the sidebar names the one task that needs the owner and why, else counts them", () => {
+  const card = (title, detail) => ({ task: { title }, detail });
+  assert.equal(needsYouLine([]), null);
+  assert.equal(needsYouLine([card("Email templates", "Blocked: Sign in to resend")]), "Email templates. Blocked: Sign in to resend");
+  assert.equal(needsYouLine([card("a", "x"), card("b", "y")]), "2 need you");
 });

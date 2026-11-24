@@ -151,9 +151,14 @@ async function check() {
       detail: "**Inspecting recorded swipe events**\n\nCompare the fields.",
     };
     await run(`window.setActivitySteps(${JSON.stringify([thought])})`);
-    await wait('document.querySelector("[data-slot=step]").textContent.includes("Inspecting recorded swipe events")');
+    await wait('document.querySelector("[data-live-activity]")?.textContent.includes("Inspecting recorded swipe events")');
+    assert.equal(
+      await run('document.querySelector("[data-slot=activity], [data-slot=step]")'),
+      null,
+      "a running group shows in the loader, not the transcript",
+    );
     await run(`window.setActivitySteps(${JSON.stringify([{ ...thought, detail: `${thought.detail}\n\n**Testing both post orders**` }])})`);
-    await wait('document.querySelector("[data-slot=step]").textContent.includes("Testing both post orders")');
+    await wait('document.querySelector("[data-live-activity]").textContent.includes("Testing both post orders")');
     const command = {
       id: "live-command",
       kind: "shell",
@@ -164,14 +169,21 @@ async function check() {
       detail: "$ npm test\n",
     };
     await run(`window.setActivitySteps(${JSON.stringify([command, thought])})`);
-    await wait('document.querySelector("[data-slot=activity] > button")?.textContent.includes("Running 2 calls")');
-    // The activity row names the command; the running mark beside the timer doesn't repeat it.
+    await wait('document.querySelector("[data-live-activity]")?.textContent.includes("Running 2 calls")');
+    // The loader names the calls once; nothing beside it repeats the command's description.
     assert.equal(
       await run(`[...document.querySelectorAll('[role="status"]')].some((node) => node.textContent.includes("Check recorded swipe events"))`),
       false,
     );
-    await run('document.querySelector("[data-slot=activity] > button").click()');
-    await wait('document.querySelectorAll("[data-slot=step]").length === 2');
+    await run('document.querySelector("[data-live-activity]").click()');
+    await wait('document.querySelectorAll("[data-slot=activity-body] [data-slot=step]").length === 2');
+    assert.equal(
+      await run(
+        'Boolean(document.querySelector("[data-live-activity]").compareDocumentPosition(document.querySelector("[data-slot=activity-body]")) & Node.DOCUMENT_POSITION_FOLLOWING)',
+      ),
+      true,
+      "the running calls open below the loader row",
+    );
     await run('document.querySelector("[data-slot=step] button[aria-expanded]").click()');
     await wait('document.querySelector("[data-slot=step]").textContent.includes("npm test")');
     if (process.env.MILAGRE_SCREENSHOT_DIR) {

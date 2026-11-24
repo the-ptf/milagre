@@ -4,6 +4,9 @@ const { PROVIDERS } = require("@milagre/shared/providers");
 const { hasToken } = require("./antigravity-install.cjs");
 const { loginMessage } = require("./events.cjs");
 const { kiroLoggedOut } = require("../kiro-account.cjs");
+const { piReady } = require("./pi-profile.cjs");
+
+const piLoggedOut = async (_command, { env } = {}) => !(await piReady({ env: env ?? process.env }));
 
 //              Codex: account/read answers { account: null, requiresOpenaiAuth: true }
 //              Antigravity: the account's GEMINI_HOME has no antigravity-acp/acp_token.json (nothing is spawned)
@@ -82,7 +85,7 @@ function createCliStatus({
   clientVersion,
   now = Date.now,
   ttlMs = READY_TTL_MS,
-  loggedOut = { claude: claudeLoggedOut, codex: codexLoggedOut, antigravity: antigravityLoggedOut, kiro: kiroLoggedOut },
+  loggedOut = { claude: claudeLoggedOut, codex: codexLoggedOut, antigravity: antigravityLoggedOut, kiro: kiroLoggedOut, pi: piLoggedOut },
 }) {
   const cache = new Map();
   function lookup(name) {

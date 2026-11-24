@@ -58,6 +58,13 @@ function nonWhiteIn(image, { x, y, width, height }) {
   return count;
 }
 
+test("watch-sized screens are enlarged up to 4x so the agent can read them", async () => {
+  const face = await renderDesignPng({ schemaVersion: 1, width: 162, height: 197, nodes: [] });
+  assert.deepEqual([face.width, face.height], [421, 512]);
+  const island = await renderDesignPng({ schemaVersion: 1, width: 36, height: 16, nodes: [] });
+  assert.deepEqual([island.width, island.height], [144, 64]);
+});
+
 test("large canvases are scaled to 1568px on the long edge", async () => {
   const png = await renderDesignPng({ schemaVersion: 1, width: 3840, height: 2160, nodes: [] });
   assert.deepEqual([png.width, png.height], [1568, 882]);
@@ -272,7 +279,6 @@ test("inspecting a lower text layer crops without a resvg text panic", async () 
     ],
   };
   const result = await renderDesignPng(document, { crop: { x: 20, y: 420, width: 318, height: 52 } });
-  assert.equal(result.width, 318);
-  assert.equal(result.height, 52);
+  assert.deepEqual([result.width, result.height], [512, 84], "a small crop is enlarged to stay readable");
   assert.ok(result.base64.length > 100);
 });

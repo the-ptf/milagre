@@ -4,7 +4,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { ChatImages } = require("../chat-images.cjs");
-const { storeImages } = require("../project-content.cjs");
+const { storeImages, withLoadedSubagent } = require("../project-content.cjs");
 const { ipcErrorMessage } = require("@milagre/shared/result");
 const {
   answeredQuestions,
@@ -23,6 +23,7 @@ const { framedBrief, renderTranscript } = require("./handover.cjs");
 const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
 const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
 const { summarizeStep } = require("@milagre/shared/tool-activity");
+const { startedStep, checkedOutBranch: readCheckedOutBranch } = require("./step-start.cjs");
 const { providerName } = require("@milagre/shared/providers");
 const { accountSwitchText, limitResetText } = require("@milagre/shared/usage-limit");
 const { eligibleLimitTurn, DAY_MS, RESET_ALLOWANCE_MS, RESET_PROMPT } = require("../limit-resume.cjs");
@@ -78,7 +79,7 @@ function revertSwitch(session, from, to) {
 
 function compactionProvider(session) {
   const provider = session.provider ?? "claude";
-  if (!providerCapabilities(provider).compact) throw new Error("Only Claude chats can be compacted from here.");
+  if (!providerCapabilities(provider).compact) throw new Error("This Chat's agent can't be compacted from here.");
   return provider;
 }
 
@@ -161,6 +162,7 @@ class ChatHost {
     onQueuedStart = () => {},
     onQueuedRemoved = () => {},
     now = Date.now,
+    checkedOutBranch = readCheckedOutBranch,
   }) {
     Object.assign(this, {
       states,
@@ -181,6 +183,7 @@ class ChatHost {
       onQueuedStart,
       onQueuedRemoved,
       now,
+      checkedOutBranch,
     });
     this.preparing = new Map();
     this.pendingSends = new Map();
@@ -609,16 +612,12 @@ class ChatHost {
     return this.states
       .update(
         projectPath,
-        (state) => {
+        async (state) => {
           if (resolve) event = resolve(state.sessions[sessionId]);
           if (event.type === "step-started") {
             const startedAt = this.runs[chatId]?.steps.find((step) => step.id === event.step.id)?.startedAt ?? this.now();
-            const command =
-              ["shell", "setup"].includes(event.step.kind) && event.step.detail?.startsWith("$ ") && event.step.detail.endsWith("\n")
-                ? event.step.detail.slice(2, -1)
-                : undefined;
-            const input = command && command.length <= 4000 ? command : event.step.input;
-            event = { ...event, step: { ...event.step, ...(input ? { input } : {}), startedAt } };
+            const folder = state.worktrees?.[state.sessions[sessionId]?.worktree_id]?.path;
+            event = { ...event, step: await startedStep(event.step, { startedAt, folder, readBranch: this.checkedOutBranch }) };
           }
           if (event.type === "step-completed") {
             const step = this.runs[chatId]?.steps.find((item) => item.id === event.id);
@@ -631,7 +630,7 @@ class ChatHost {
           }
           const last = state.messages.findLast((item) => item.session_id === sessionId && item.role === "user");
           if (isTurnEnd(event) && last?.context?.kind === "compaction" && last.context.quiet) event = { ...event, quiet: true };
-          const result = applyAgentEvent(state, this.runs, projectPath, chatId, event);
+          const result = applyAgentEvent(await withLoadedSubagent(state, sessionId, event), this.runs, projectPath, chatId, event);
           this.runs = result.runs;
           seq = ++this.seq;
           if (!result.changed) return state;
