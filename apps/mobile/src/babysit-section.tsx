@@ -132,7 +132,9 @@ export function BabysitSection() {
       <Group title="Babysit PRs" inset={0}>
         <View style={{ gap: 4, paddingVertical: 8 }}>
           {toggle("Babysit new PRs", settings.enabled, () => change({ enabled: !settings.enabled }))}
-          {caption("Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done.")}
+          {caption(
+            "Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done. Orchestrator task Chats still on the board are always babysat.",
+          )}
         </View>
         <View style={{ gap: 8, paddingVertical: 12 }}>
           <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>Check every</Text>

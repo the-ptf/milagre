@@ -895,7 +895,7 @@ function createRuntime(options) {
     }
     return result;
   });
-  babysitWatch = createBabysitWatch({ settings: babysitSettings, routines });
+  babysitWatch = createBabysitWatch({ settings: babysitSettings, routines, projectStates: states.states });
   commands.handle("routines:list", () => routines.list());
   commands.handle("routines:update", (_event, id, patch) => routines.update(id, patch));
   commands.handle("routines:delete", (_event, id) => routines.remove(id));

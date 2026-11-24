@@ -15413,7 +15413,8 @@ test("mobile Babysit PRs page shows the four groups and saves each change to the
     node(
       (n) =>
         n.type === "Text" &&
-        n.props.children === "Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done.",
+        n.props.children ===
+          "Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done. Orchestrator task Chats still on the board are always babysat.",
     ),
   );
   toggle("Babysit new PRs").props.onPress();

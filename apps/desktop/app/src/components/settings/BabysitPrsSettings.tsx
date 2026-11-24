@@ -226,7 +226,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
       >
         <Row
           label="Babysit new PRs"
-          description="Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done."
+          description="Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done. Orchestrator task Chats still on the board are always babysat."
         >
           <SettingCheckbox label="Babysit new PRs" checked={settings.enabled} onChange={(enabled) => change({ enabled })} />
         </Row>

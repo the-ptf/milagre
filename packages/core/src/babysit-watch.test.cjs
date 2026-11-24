@@ -6,7 +6,7 @@ const URL = "https://github.com/the-ptf/milagre-ade/pull/42";
 const CHAT = "/project#2";
 const SETTINGS = { enabled: true, stopAfterDays: { on: true, days: 7 } };
 
-function harness({ settings = SETTINGS, live = null } = {}) {
+function harness({ settings = SETTINGS, live = null, projectStates } = {}) {
   const created = [];
   const routines = {
     findPullRequest: (repo, number) => (live && live.repo === repo && live.number === number ? { id: "r" } : undefined),
@@ -15,7 +15,7 @@ function harness({ settings = SETTINGS, live = null } = {}) {
       return { id: "new" };
     },
   };
-  const watch = createBabysitWatch({ settings: { read: () => settings }, routines });
+  const watch = createBabysitWatch({ settings: { read: () => settings }, routines, projectStates });
   const run = async (detail, { id = "s1", kind = "shell", status = "done", chatId = CHAT } = {}) => {
     watch.observe(chatId, { type: "step-started", step: { id, kind, title: "Run", detail: "$ gh pr create\n" } });
     return watch.observe(chatId, { type: "step-completed", id, status, detail });
@@ -41,6 +41,16 @@ test("disabled setting creates nothing", async () => {
   const { created, run } = harness({ settings: { ...SETTINGS, enabled: false } });
   await run(OUTPUT);
   assert.deepEqual(created, []);
+});
+
+test("an Orchestrator task Chat still on the board is babysat with the switch off", async () => {
+  const off = { ...SETTINGS, enabled: false };
+  const sessions = { 2: { orchestrator: { taskId: "t1", hidden: true } }, 3: { orchestrator: { taskId: "t2", hidden: false } }, 4: {} };
+  const { created, run } = harness({ settings: off, projectStates: new Map([["/project", { sessions }]]) });
+  await run(OUTPUT);
+  await run(OUTPUT, { id: "s2", chatId: "/project#3" });
+  await run(OUTPUT, { id: "s3", chatId: "/project#4" });
+  assert.deepEqual(created, [{ chatId: CHAT, url: URL, repo: "github.com/the-ptf/milagre-ade", number: 42, settings: off }]);
 });
 
 test("failed step creates nothing", async () => {
