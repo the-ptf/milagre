@@ -213,24 +213,17 @@ async function startDesktop() {
     if (event.senderFrame === event.sender.mainFrame) previews.release(event.sender.id, url);
   });
   protocol.handle("milagre-artifact", (request) => previews.handle(request));
-  const { createAppIconStore, appIconFile, applyAppIcon } = require("./app-icon.cjs");
+  const { appIconFile, installAppIcon } = require("./app-icon.cjs");
   const publicDir = path.join(__dirname, "../app/public");
-  const appIcon = createAppIconStore({ file: path.join(app.getPath("userData"), "app-icon.json") });
-  const showAppIcon = () =>
-    applyAppIcon({
-      icon: appIcon.get(),
-      publicDir,
-      platform: process.platform,
-      createImage: (file) => nativeImage.createFromPath(file),
-      setDockIcon: (image) => background.setDockIcon(/** @type {Electron.NativeImage} */ (image)),
-      windows: () => BrowserWindow.getAllWindows(),
-    });
-  ipcMain.handle("app-icon:get", () => appIcon.get());
-  ipcMain.handle("app-icon:set", (_event, icon) => {
-    const next = appIcon.set(icon);
-    showAppIcon();
-    return next;
+  const appIcons = installAppIcon({
+    app,
+    ipcMain,
+    nativeImage,
+    publicDir,
+    windows: () => BrowserWindow.getAllWindows(),
+    setDockIcon: (image) => background.setDockIcon(image),
   });
+  const appIcon = appIcons.store;
   const { createReleaseChannelStore, prepareUpdater } = require("./release-channel.cjs");
   const { createAppUpdates, createAutoInstall, deferUpdater, stageNativeUpdate, watchAppUpdates } = require("./app-updates.cjs");
   const updateLog = require("./update-log.cjs").createUpdateLog(path.join(app.getPath("userData"), "updates.log"));
@@ -425,7 +418,7 @@ async function startDesktop() {
 
   const notifier = new AttentionNotifier({
     createNotification: ({ title, subtitle, body, silent }) =>
-      new Notification({ title, body, ...(subtitle ? { subtitle } : {}), ...(silent ? { silent } : {}) }),
+      new Notification({ title, body, ...(subtitle ? { subtitle } : {}), ...(silent ? { silent } : {}), ...appIcons.notificationOptions() }),
     isAppFocused: () => Boolean(mainWindow?.isFocused()),
     canPlayChime: () => Boolean(mainWindow && !mainWindow.isDestroyed()),
     playChime: (chime) => mainWindow?.webContents.send("notification:play-chime", chime),
@@ -499,7 +492,7 @@ async function startDesktop() {
     else createWindow();
   });
   createWindow();
-  if (process.platform === "darwin" && app.dock) showAppIcon();
+  if (process.platform === "darwin" && app.dock) appIcons.show();
   try {
     runtime = await connectDesktopRuntime({
       ...hostOptions,

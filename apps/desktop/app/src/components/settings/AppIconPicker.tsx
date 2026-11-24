@@ -14,7 +14,7 @@ const APP_ICONS: { id: AppIcon; name: string }[] = [
   { id: "eight-bit", name: "8-bit" },
 ];
 
-const APP_ICON_DESCRIPTION = "Shown in the Dock or taskbar on this computer. Finder and Launchpad keep the Milagre icon.";
+const APP_ICON_DESCRIPTION = "Shown in the Dock, Finder and notifications on a Mac, and in the taskbar and notifications on Windows and Linux.";
 
 export function AppIconPicker() {
   const [current, setCurrent] = useState<AppIcon | null>(null);
