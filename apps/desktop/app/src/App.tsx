@@ -913,11 +913,11 @@ function App() {
     setNotice,
     receiveState,
     refreshLinearIssues,
-    handlers: { openGitDialog, archiveChat, markChatDone, reportMilagreBug, openCanvasChat, openChat },
+    handlers: { openGitDialog, archiveChat, markChatDone: settleChat, reportMilagreBug, openCanvasChat, openChat },
   });
-  function markChatDone(sessionId: number, path: string | undefined) {
+  function settleChat(sessionId: number, path: string | undefined, snoozeUntil?: number) {
     if (!selectedLinkRef.current && selectedSessionRef.current === sessionId) startNewChat();
-    patchChat(sessionId, { done: true, unread: false }, path);
+    patchChat(sessionId, snoozeUntil ? { snoozed_until: snoozeUntil } : { done: true, unread: false }, path);
   }
 
   function controlAdvisor(action: "stop" | "retry", id: string) {
@@ -2633,9 +2633,7 @@ function App() {
                         offScreen={!(view === "chat" || runPaneOpen)}
                         mentionContext={mentionContext}
                         messages={displayedMessages}
-                        limitPending={selectedSession?.limitResume}
-                        limitSourceMessageId={selectedSession?.limitTurn?.sourceMessageId}
-                        limitResumeBlocked={!!selectedSession?.queued?.length}
+                        session={selectedSession}
                         loading={messagesLoading}
                         loadError={lean ? (pendingHere && pendingCanonicalId !== null ? canonicalWindow : chatWindow).error : undefined}
                         onRetryLoad={() => void (pendingHere && pendingCanonicalId !== null ? canonicalWindow : chatWindow).retry()}
@@ -2657,6 +2655,7 @@ function App() {
                         linearActive={linear.active}
                         onStartFromIssue={surfaces.git ? startFromIssue : undefined}
                         onStop={run && selectedSession ? () => void agentRuns.interrupt(chatKey(project.path, selectedSession.id)) : undefined}
+                        onSettle={readOnly ? undefined : (id, until) => settleChat(id, project.path, until)}
                         pullRequestAction={
                           selectedSession && pullRequestBlockerAction && pullRequestActionRequest
                             ? {

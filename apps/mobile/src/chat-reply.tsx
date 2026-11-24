@@ -338,6 +338,25 @@ function useUserPrompt(message: ChatMessage | undefined, run: AgentRun | undefin
   return { userQuoted, userText, userImages, userParts };
 }
 
+type ChatReplyProps = {
+  chats?: readonly ReplyChat[];
+  message?: ChatMessage;
+  onOpenChat?: (chatKey: string) => void;
+  onFork?: (messageId: number) => void;
+  highlighted?: boolean;
+  run?: AgentRun;
+  onActivity: (message: string, stepId?: string) => void;
+  media: MediaSource;
+  basePath?: string;
+  chatId?: string;
+  designChoice?: string;
+  designsMoved?: number;
+  limitProjectPath?: string;
+  limitPending?: LimitResume;
+  limitResumeBlocked?: boolean;
+  limitResumeAvailable?: boolean;
+};
+
 export const ChatReply = memo(function ChatReply({
   chats = NO_MENTION_CHATS,
   message,
@@ -355,24 +374,7 @@ export const ChatReply = memo(function ChatReply({
   highlighted = false,
   onOpenChat,
   onFork,
-}: {
-  chats?: readonly ReplyChat[];
-  message?: ChatMessage;
-  onOpenChat?: (chatKey: string) => void;
-  onFork?: (messageId: number) => void;
-  highlighted?: boolean;
-  run?: AgentRun;
-  onActivity: (message: string, stepId?: string) => void;
-  media: MediaSource;
-  basePath?: string;
-  chatId?: string;
-  designChoice?: string;
-  designsMoved?: number;
-  limitProjectPath?: string;
-  limitPending?: LimitResume;
-  limitResumeBlocked?: boolean;
-  limitResumeAvailable?: boolean;
-}) {
+}: ChatReplyProps) {
   const { colors, textPx } = useTheme();
   const styles = useStyles();
   const { userQuoted, userText, userImages, userParts } = useUserPrompt(message, run, basePath, chats);

@@ -56,6 +56,7 @@ import { useComposerLayout, useNewChatSetup, useUndoFlow } from "./composer/comp
 import { ReplyProviders, TranscriptContexts, TranscriptSlots } from "./transcript/ChatTranscript";
 import { NO_WORKTREES, NO_BRANCHES, NewChatHeader } from "./NewChatHeader";
 import type { ChatComposerProps } from "./composer/chat-composer-props";
+import { useTranscriptSession } from "../lib/composer-session";
 import { useRunSteps } from "../lib/agent-runs-store";
 import { sideQuestionsBlocked, useSideQuestions } from "./composer/use-side-questions";
 
@@ -89,6 +90,7 @@ export function ChatComposer({
   store,
   onSend,
   onStop,
+  onSettle,
   onCompact,
   pullRequestAction,
   pullRequestReview,
@@ -120,9 +122,7 @@ export function ChatComposer({
   statusLabel,
   onOpenLinkedChat,
   onOpenAccounts,
-  limitPending,
-  limitSourceMessageId,
-  limitResumeBlocked,
+  session,
   resume,
   queue,
   models,
@@ -198,6 +198,7 @@ export function ChatComposer({
   const { steps: streamingSteps, phase } = useLiveSteps(givenSteps, streamingKey, statusLabel);
   const [jumpToBottom, setJumpToBottom] = useState<{ key: string | null | undefined; jump: () => void } | null>(null);
   const [transcriptAtEnd, setTranscriptAtEnd] = useState(true);
+  const transcriptSession = useTranscriptSession(session, isSending, onSettle);
   const runtimeChat = typeof chatId === "number" && chatId > 0 && projectPath ? (agentChatId ?? `${messageScope ?? projectPath}#${chatId}`) : null;
   const draftKey = scrollKey === undefined ? null : `view:${scrollKey}`;
   const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat ?? draftKey);
@@ -397,9 +398,7 @@ export function ChatComposer({
                             cliStatus={cliStatus}
                             onOpenLinkedChat={onOpenLinkedChat}
                             onOpenAccounts={onOpenAccounts}
-                            limitPending={limitPending}
-                            limitSourceMessageId={limitSourceMessageId}
-                            limitResumeBlocked={limitResumeBlocked}
+                            {...transcriptSession}
                             offlineName={offlineName}
                             models={models}
                           />

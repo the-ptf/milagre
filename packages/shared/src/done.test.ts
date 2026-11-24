@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { byDoneAt, doneCountdown, doneDue, isDone, normalizeDoneSettings, retentionLabel, DONE_RETENTION_OPTIONS } from "./done.mjs";
+import { byDoneAt, doneCountdown, doneDue, doneFromReply, isDone, normalizeDoneSettings, retentionLabel, DONE_RETENTION_OPTIONS } from "./done.mjs";
 
 const HOUR = 60 * 60 * 1000;
 
@@ -38,4 +38,14 @@ test("the countdown reads hours:minutes left, rounds up, and stops at 0:00", () 
 
 test("the Done list shows the most recently marked first", () => {
   assert.deepEqual([{ done_at: 1 }, { done_at: 3 }, { done_at: 2 }].sort(byDoneAt), [{ done_at: 3 }, { done_at: 2 }, { done_at: 1 }]);
+});
+
+test("a reply offers Done only on an open, writable Chat with nothing queued", () => {
+  assert.equal(doneFromReply({}), true);
+  assert.equal(doneFromReply({ queued: [] }), true);
+  assert.equal(doneFromReply(null), false);
+  assert.equal(doneFromReply({ done_at: 1 }), false);
+  assert.equal(doneFromReply({ archived: true }), false);
+  assert.equal(doneFromReply({ readOnlyReason: "Worktree removed" }), false);
+  assert.equal(doneFromReply({ queued: [{}] }), false);
 });

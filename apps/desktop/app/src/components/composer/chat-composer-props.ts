@@ -1,5 +1,6 @@
 import type { MessageDelivery } from "@milagre/shared/queued-messages";
-import type { AgentPort, LimitResume, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, Subagent } from "../../model";
+import type { AgentSession } from "@milagre/shared/model";
+import type { AgentPort, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, Subagent } from "../../model";
 import type { ReactNode } from "react";
 import { type Starter } from "../Onboarding";
 import type { LinearIssue } from "@milagre/shared/linear";
@@ -22,10 +23,10 @@ import type { QueueControls } from "../QueuedMessages";
 import type { ChatActivity } from "@milagre/shared/chat-activity";
 import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
 
+export type ComposerSession = Pick<AgentSession, "id" | "limitResume" | "limitTurn" | "queued" | "readOnlyReason" | "done_at" | "archived">;
+
 export interface ChatComposerProps {
-  limitPending?: LimitResume;
-  limitSourceMessageId?: number;
-  limitResumeBlocked?: boolean;
+  session?: ComposerSession;
   mentionContext?: ChatMentionScope;
   offlineName?: string | null;
   reconnectingName?: string | null;
@@ -55,6 +56,7 @@ export interface ChatComposerProps {
   store: DraftStore;
   onSend: (delivery?: MessageDelivery, background?: boolean) => void;
   onStop?: () => void;
+  onSettle?: (sessionId: number, snoozeUntil?: number) => void;
   onCompact?: () => void;
   pullRequestAction?: { label: string; tone: "red" | "orange" | "green"; onRun: () => void };
   pullRequestReview?: { count: number; onOpen: () => void };

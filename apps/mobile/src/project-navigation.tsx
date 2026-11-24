@@ -1,4 +1,5 @@
 import { lineHeight, type } from "./design-tokens";
+import { useDoneMarks } from "./settled-marks";
 import { hideRevealed } from "./chat-swipe-row";
 import { useDoneRetention } from "./done-retention";
 import { type SnoozeMark } from "./snooze-actions";
@@ -40,7 +41,7 @@ import { allComputers, useAllComputers, useFoldedProjects } from "./all-computer
 import type { ProjectCopy } from "./all-computers-store";
 import { ChatListControls, useControlsBottomInset, useControlsVisibility } from "./chat-list-controls";
 import { chatFamily } from "@milagre/shared/subchats";
-import { sameDeps, buildHost, type Destination, type Row, type HostBuild, type DoneMark, type Show } from "./navigation-build";
+import { sameDeps, buildHost, type Destination, type Row, type HostBuild, type Show } from "./navigation-build";
 import { computeRows, searchRows } from "./navigation-rows";
 import { ROW_FIELDS, useNavigationActions } from "./navigation-actions";
 import { useProjectReorder } from "./navigation-reorder";
@@ -158,7 +159,7 @@ const NavigationBody = memo(function NavigationBody({
     const key = `${currentHostId}|${openRoot}`;
     setSubchatOpen((open) => (open.has(key) ? open : new Set(open).add(key)));
   }, [openRoot, currentHostId, activeChatId]);
-  const [doneMarks, setDoneMarks] = useState<ReadonlyMap<string, DoneMark>>(() => new Map());
+  const [doneMarks, setDoneMarks] = useDoneMarks();
   const [snoozeMarks, setSnoozeMarks] = useState<ReadonlyMap<string, SnoozeMark>>(() => new Map());
   const [page, setPage] = useState<"add" | null>(null);
   const [addHostId, setAddHostId] = useState<string | undefined>();

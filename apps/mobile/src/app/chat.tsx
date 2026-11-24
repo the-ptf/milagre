@@ -139,7 +139,8 @@ import { PlanPanel, usePlanPanel } from "../plan-pill";
 import { SubchatPanel, useSubchatPanel } from "../subchat-pill";
 import { useTheme } from "../theme";
 import { ToastPill } from "../primitives/toast";
-import { undoHistory, useHistoryToast } from "../undo-history";
+import { useHistoryToast } from "../undo-history";
+import { leaveToList, markChatDone, settleActions, SettleFlight } from "../settle-flight";
 import { archiveFromPhone, showArchiveNotice } from "../archive";
 import { randomUUID } from "expo-crypto";
 import { runChatAction } from "../chat-actions";
@@ -234,13 +235,13 @@ export default function ChatScreen() {
   const besideTouched = useCallback(() => touchPane("beside"), []);
   return (
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.page }}>
-      <View style={{ flex: 1, overflow: "hidden" }} onTouchStart={routedTouched}>
+      <SettleFlight style={{ flex: 1, overflow: "hidden" }} onTouchStart={routedTouched}>
         <ChatPane key="routed" params={params} pane={shown ? "primary" : "single"} keyboard={!besideTyping} onTyping={routedTypes} onClose={promote} />
-      </View>
+      </SettleFlight>
       {shown && (
         <>
           <View style={{ width: StyleSheet.hairlineWidth, backgroundColor: colors.line }} />
-          <View style={{ flex: 1, overflow: "hidden" }} onTouchStart={besideTouched}>
+          <SettleFlight style={{ flex: 1, overflow: "hidden" }} onTouchStart={besideTouched}>
             <BesideSession key={`${shown.hostId}|${shown.projectPath}`} chat={shown}>
               <ChatPane
                 key={`${shown.hostId}|${shown.projectPath}#${shown.chatId}`}
@@ -251,7 +252,7 @@ export default function ChatScreen() {
                 onClose={closeBeside}
               />
             </BesideSession>
-          </View>
+          </SettleFlight>
         </>
       )}
     </View>
@@ -1616,15 +1617,9 @@ function ChatPane({
     else if (id === "archive" && chat?.archived) void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]));
     else if (id === "archive" && chat) void archive(chat);
   }
-  async function markDone(finished: NonNullable<typeof chat>) {
-    const ok = await action(() => client.call("chat:patch", [project.path, finished.id, { done: true, unread: false }]));
-    if (!ok) return;
-    if (secondary) closeBeside();
-    else router.setParams({ id: undefined, worktreeId: undefined, draft: undefined, prefill: undefined });
-    const patch = (done: boolean) => () =>
-      void action(() => client.call("chat:patch", [project.path, finished.id, { done, ...(done ? { unread: false } : {}) }]));
-    undoHistory.record({ text: "Moved to Done", kind: "done", undoneText: "Back in Chats", place: "chat", undo: patch(false), redo: patch(true) });
-  }
+  const leaveChat = () => (secondary ? closeBeside() : leaveToList(split.dockable, () => panels.show("left")));
+  const markDone = (finished: NonNullable<typeof chat>) => markChatDone({ client, projectPath: project.path, chat: finished, action, leave: leaveChat });
+  const settle = settleActions({ chat, messages, busy: { run, pending, offline } }, { client, projectPath: project.path, action, leave: leaveChat });
   async function archive(target: NonNullable<typeof chat>) {
     if (busy || archiveRequest.current) return;
     archiveRequest.current = true;
@@ -1921,6 +1916,7 @@ function ChatPane({
     ) : null;
   const dock = (
     <ChatComposerDock
+      settle={settle}
       btw={<BtwDock btw={btw} chatId={chatId} setQuotes={composer.setQuotes} focus={() => setComposerFocusRequest((value) => value + 1)} />}
       column={column}
       padding={dockPadding}

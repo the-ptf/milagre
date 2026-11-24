@@ -1,4 +1,5 @@
 import { lineHeight, space, type } from "./design-tokens";
+import { SettledCount } from "./settle-flight";
 import { ChatSwipeRow } from "./chat-swipe-row";
 import { retentionOf } from "./done-retention";
 import { doneCountdown } from "@milagre/shared/done";
@@ -167,7 +168,7 @@ export const NavigationRow = memo(function NavigationRow({ item, view, copy }: {
         <View style={s.projectTitle}>
           <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />
           <Text style={[s.secondary, { fontWeight: "600", color: colors.ink2 }]}>{name}</Text>
-          <Text style={[s.secondary, { color: colors.ink3, fontVariant: ["tabular-nums"] }]}>{item.count}</Text>
+          <SettledCount count={item.count} style={s.secondary} />
         </View>
       </Pressable>
     );
