@@ -12,6 +12,19 @@ marked `session.orchestrator = { taskId, hidden }`. `isHiddenTaskChat` keeps it 
 Move to sidebar clears the flag. It is the Run Chat pattern, with no "shown while waiting" exception: a task that needs
 the owner shows in Needs you on the board instead.
 
+## Moving and deleting tasks
+
+The owner can move a task to another column by hand: drag its card, or pick Move to from its menu (the card's ⋯ button
+or right-click on desktop, the task sheet on the phone). `orchestrator:task:move` stores the column on the task Chat as
+`session.orchestrator.column`, where `placedColumn` makes it win over the derived one, until the Chat's next
+`turn-started` clears it like `blocked`. Done is not stored there: moving to Done marks the Chat Done, and moving out of
+Done clears that mark. A task held in a column the owner picked is never swept.
+
+Delete task (card menu and task header on desktop, task sheet on the phone) runs `orchestrator:task:delete`: it deletes
+the task's Chat through `chat:delete` (which stops its agent) and drops the task. When the delete fails the Chat is
+archived instead, so a hidden task Chat is never left behind. Its Worktree and branch stay. Desktop waits out the usual
+Undo toast first; the phone asks to confirm. A task on another computer forwards both commands to it.
+
 ## Routing
 
 `orchestrator/router.cjs` asks the router model (Haiku by default) for a Project, role and title over each Project's hints

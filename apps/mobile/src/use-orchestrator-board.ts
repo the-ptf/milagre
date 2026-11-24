@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { chatPullRequests } from "@milagre/shared/chats";
+import { chatPullRequests, ownsWorktree } from "@milagre/shared/chats";
 import { pullRequestState, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { boardPullRequestMark } from "@milagre/shared/pr-blockers";
 import { allComputers, useComputerViews } from "./all-computers";
+import { retentionOf, useDoneRetention } from "./done-retention";
 import { taskHost } from "./orchestrator-actions";
 import type { ProjectCopy } from "./all-computers-store";
 import { boardItem, boardCounts, type BoardItem, type TaskChat } from "./orchestrator-board";
 import { useListSnapshot, useSession } from "./session";
 import { useComputerChatPullRequests, type ComputerPullRequestTargets } from "./use-chat-pull-requests";
 
-type Joined = { task: OrchestratorTask; chat?: TaskChat; prPath?: string; prRefs: string[] };
+type Joined = { task: OrchestratorTask; chat?: TaskChat; prPath?: string; prRefs: string[]; owned?: boolean };
 
 function join(task: OrchestratorTask, copy: ProjectCopy | undefined): Joined {
   if (!copy || task.sessionId === null) return { task, prRefs: [] };
@@ -22,6 +23,7 @@ function join(task: OrchestratorTask, copy: ProjectCopy | undefined): Joined {
     chat: { chat, run, messages },
     prPath: copy.project.state.worktrees[chat.worktree_id]?.path,
     prRefs: chat.summary?.pullRequests ?? copy.project.pullRequestRefs?.[chat.id] ?? [],
+    owned: ownsWorktree(copy.project.state, chat.id, copy.project.path),
   };
 }
 
@@ -83,14 +85,23 @@ export function useOrchestratorBoard(tasks: readonly OrchestratorTask[]) {
     }));
   }, [joined, hostId, session.client]);
   const status = useComputerChatPullRequests(targets);
+  const hosts = [...new Set(joined.flatMap((entry) => (entry.chat?.chat.done_at && entry.at ? [entry.at] : [])))].sort();
+  const doneHours = useDoneRetention(hosts, (at) => (at === hostId ? session.client : allComputers.clientFor(at)), hosts.length > 0);
   const items = useMemo<BoardItem[]>(
     () =>
       joined.map((entry) => {
         const found = entry.prPath && entry.at ? status[entry.at]?.[entry.prPath] : undefined;
-        const prs = found ? chatPullRequests(entry.prRefs, found.found, found.branch) : [];
-        return boardItem(entry.task, entry.chat, pullRequestState(prs.map((pr) => pr.state)), now, boardPullRequestMark(prs));
+        const prs = found ? chatPullRequests(entry.prRefs, found.found, entry.owned ? found.branch : undefined) : [];
+        return boardItem(
+          entry.task,
+          entry.chat,
+          pullRequestState(prs.map((pr) => pr.state)),
+          now,
+          entry.at ? retentionOf(doneHours, entry.at) : undefined,
+          boardPullRequestMark(prs),
+        );
       }),
-    [joined, status, now],
+    [joined, status, now, doneHours],
   );
   const counts = useMemo(() => boardCounts(items), [items]);
   return { items, counts };

@@ -127,6 +127,11 @@ test("a task whose turn ended without a PR needs the owner", () => {
   assert.equal(boardCards([task("t1")], states as never, {}, NOW)[0]!.column, "needs");
 });
 
+test("a task the owner moved stays in that column", () => {
+  const states = { "/p/app": { sessions: { 1: { id: 1, summary: { count: 2 }, orchestrator: { taskId: "t1", hidden: true, column: "review" } } } } };
+  assert.equal(boardCards([task("t1")], states as never, {}, NOW)[0]!.column, "review");
+});
+
 test("a finished task is Done; one its agent marked blocked or that asks a question waits in Needs you with why", () => {
   const blocked = { reason: "Sign in to the resend MCP server with /mcp, then reply continue.", at: NOW - 5 };
   const states = {
@@ -239,6 +244,14 @@ test("the route's reason reads as sentences and names where it runs", () => {
     routeReason({ reason: { ...reason, role: null }, computer: "Studio" }, "this computer"),
     "Matched “gym” in its hints. Least used today, 22%. Runs on Studio.",
   );
+  assert.equal(
+    routeReason({ reason: { ...reason, role: null }, computer: null }, "this computer", "Personal"),
+    "Matched “gym” in its hints. Uses Personal: least used today, 22%. Runs on this computer.",
+  );
+  assert.equal(
+    routeReason({ reason: { ...reason, role: null, account: null }, computer: null }, "this computer", "Personal"),
+    "Matched “gym” in its hints. Uses Personal. Runs on this computer.",
+  );
 });
 
 test("a request autopilot is about to answer keeps the card running", () => {
@@ -298,4 +311,27 @@ test("a done card carries its PR's state and CI as a mark; one without a PR has 
   assert.equal(card().pullRequestMark, null, "unread yet: no mark");
   const marked = { "/p/app": { sessions: { 1: { id: 1, done_at: NOW - 10, summary: { lastOutcome: "completed" } } } } };
   assert.equal(boardCards([task("t1")], marked, {}, NOW)[0]!.pullRequestMark, null);
+});
+
+test("a Done card counts down to when the host archives its Chat, as the sidebar's Done list does", () => {
+  const hour = 3_600_000;
+  const states = {
+    "/p/app": {
+      sessions: {
+        1: { id: 1, done_at: NOW - 2.5 * hour },
+        2: { id: 2, done_at: NOW - hour, archived: true },
+        3: { id: 3, summary: { lastOutcome: "completed" } },
+      },
+    },
+  };
+  const tasks = [task("t1"), task("t2", { createdAt: NOW - 1 }), task("t3", { createdAt: NOW - 2, outcome: "reply" })];
+  assert.deepEqual(
+    boardCards(tasks, states, {}, NOW, {}, 8).map((card) => [card.task.id, card.column, card.countdown]),
+    [
+      ["t1", "done", "5:30"],
+      ["t2", "done", null],
+      ["t3", "done", null],
+    ],
+  );
+  assert.equal(boardCards([task("t1")], states, {}, NOW, {}, 0)[0]!.countdown, null, "with Never, nothing counts down");
 });

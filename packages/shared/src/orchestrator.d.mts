@@ -153,7 +153,7 @@ export function activeRoles(roles: readonly OrchestratorRole[]): OrchestratorRol
 export interface TaskChatSession {
   archived?: boolean;
   done_at?: number;
-  orchestrator?: { blocked?: { reason: string; at: number } | null };
+  orchestrator?: { blocked?: { reason: string; at: number } | null; column?: BoardColumn | null };
   summary?: { lastOutcome?: "completed" | "failed" | "cancelled"; lastAt?: number; pullRequests?: string[] };
 }
 export const TASK_BLOCKED_TOOL: "task_blocked";
@@ -174,7 +174,9 @@ export function boardColumn(input: {
   finished?: boolean;
   active?: boolean;
   outcome?: TaskOutcome;
+  placed?: BoardColumn | null;
 }): BoardColumn;
+export function placedColumn(session: TaskChatSession | null | undefined): BoardColumn | null;
 export function isIrreversible(input?: { tool?: string; command?: string; text?: string }): boolean;
 export function autopilotPending(
   task: OrchestratorTask | null | undefined,
@@ -210,7 +212,13 @@ export function pickComputer<T extends { id: string; online: boolean; local: boo
 declare module "./model.ts" {
   interface AgentSession {
     /** An Orchestrator task: off the sidebar while `hidden`, on the account it picked per provider. */
-    orchestrator?: { taskId: string; hidden: boolean; accounts?: Partial<Record<string, string>>; blocked?: { reason: string; at: number } | null };
+    orchestrator?: {
+      taskId: string;
+      hidden: boolean;
+      accounts?: Partial<Record<string, string>>;
+      blocked?: { reason: string; at: number } | null;
+      column?: BoardColumn | null;
+    };
   }
 }
 

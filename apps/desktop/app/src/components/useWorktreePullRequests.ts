@@ -182,7 +182,8 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
       await Promise.all(
         entries.map(async ([path, refs]) => {
           if (only && path !== only) return;
-          const selected = refs.filter((ref) => known[path]?.[ref]?.state !== "MERGED");
+          // A merged PR stays merged; a pushed branch (push:) may get a new PR, so it's read again.
+          const selected = refs.filter((ref) => ref.startsWith("push:") || known[path]?.[ref]?.state !== "MERGED");
           if (!selected.length) return;
           const read = chatReadAt.get(readKey(projectPath, path));
           if (fresh && read && recent(read.at) && selected.every((ref) => read.refs.has(ref))) return;

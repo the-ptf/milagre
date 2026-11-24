@@ -1,6 +1,7 @@
 import {
   autopilotPending,
   boardColumn,
+  placedColumn,
   taskBlockedText,
   taskLimitText,
   taskOutcomeDetail,
@@ -10,6 +11,7 @@ import {
 } from "@milagre/shared/orchestrator";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import type { BoardPullRequestMark } from "@milagre/shared/pr-blockers";
+import { DONE_DEFAULTS, doneCountdown } from "@milagre/shared/done";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { AgentModels, AgentSession, ChatMessage, ModelProvider } from "@milagre/shared/model";
 import { MODEL_CATALOG } from "@milagre/shared/model-options";
@@ -37,18 +39,25 @@ export type BoardItem = {
   pullRequest: PullRequestState;
   pullRequestMark: BoardPullRequestMark | null;
   inSidebar: boolean;
+  countdown: string | null;
 };
 
 const NEEDS_YOU = new Set<ChatMark>(["question", "waiting", "interrupted", "failed"]);
 
+function doneItemCountdown(column: BoardColumn, chat: AgentSession, retentionHours: number, now: number): string | null {
+  return column === "done" ? doneCountdown(chat, retentionHours, now) : null;
+}
+
+/** `retentionHours`: how long the task's computer keeps a Done Chat before archiving it, for the countdown on Done cards. */
 export function boardItem(
   task: OrchestratorTask,
   chat: TaskChat | undefined,
   pullRequest: PullRequestState,
   now: number,
+  retentionHours: number = DONE_DEFAULTS.retentionHours,
   pullRequestMark: BoardPullRequestMark | null = null,
 ): BoardItem {
-  const base = { task, pullRequest, pullRequestMark, inSidebar: false };
+  const base = { task, pullRequest, pullRequestMark, inSidebar: false, countdown: null };
   if (task.state === "routing") return { ...base, column: "running", kind: "deciding", mark: null, detail: "Deciding where this goes…" };
   if (task.state === "needs-project")
     return { ...base, column: "needs", kind: "needs-project", mark: null, detail: task.reason.project ?? "No Project fits. Pick one to start." };
@@ -70,11 +79,13 @@ export function boardItem(
     active,
     outcome: task.outcome,
     pullRequest,
+    placed: placedColumn(chat.chat),
     finished: !chat.run && (chat.chat.summary?.lastOutcome === "completed" || (chat.chat.summary?.count ?? chat.messages?.length ?? 0) > 1),
   });
   return {
     ...base,
     inSidebar: chat.chat.orchestrator?.hidden === false,
+    countdown: doneItemCountdown(column, chat.chat, retentionHours, now),
     column,
     kind: "chat",
     mark: autopilot ? null : mark,

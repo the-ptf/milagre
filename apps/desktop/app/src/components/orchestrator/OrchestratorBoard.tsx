@@ -3,14 +3,9 @@ import type { BoardColumn } from "@milagre/shared/orchestrator";
 import type { TaskCard } from "../../lib/orchestrator-board";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Select } from "../primitives/Select";
-import { ChatCard, DecidingCard, FailedCard, PickProjectCard, type CardEnv } from "./TaskCards";
+import { COLUMNS, ChatCard, DecidingCard, FailedCard, PickProjectCard, TASK_DRAG_TYPE, type CardEnv } from "./TaskCards";
 
-export const COLUMNS: { id: BoardColumn; name: string }[] = [
-  { id: "running", name: "Running" },
-  { id: "needs", name: "Needs you" },
-  { id: "review", name: "In review" },
-  { id: "done", name: "Done" },
-];
+export { COLUMNS };
 
 const ALL = "all";
 
@@ -43,6 +38,7 @@ export function OrchestratorBoard({
   onOpen: (key: string) => void;
 }) {
   const [filter, setFilter] = useState(ALL);
+  const [over, setOver] = useState<BoardColumn | null>(null);
   const { deciding, settle, column } = useSettling(cards);
   const shown = cards.filter((card) => filter === ALL || card.task.projectPath === filter);
   const paths = new Set(cards.flatMap((card) => (card.task.projectPath ? [card.task.projectPath] : [])));
@@ -79,7 +75,28 @@ export function OrchestratorBoard({
         {COLUMNS.map(({ id, name }) => {
           const list = shown.filter((card) => column(card) === id);
           return (
-            <div key={id} data-board-column={id} className="flex min-h-0 flex-col rounded-card bg-canvas p-2 shadow-hairline">
+            <div
+              key={id}
+              data-board-column={id}
+              onDragOver={(event) => {
+                if (!event.dataTransfer.types.includes(TASK_DRAG_TYPE)) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setOver(id);
+              }}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOver((current) => (current === id ? null : current));
+              }}
+              onDrop={(event) => {
+                setOver(null);
+                const taskId = event.dataTransfer.getData(TASK_DRAG_TYPE);
+                const card = cards.find((entry) => entry.task.id === taskId);
+                if (!card || column(card) === id) return;
+                event.preventDefault();
+                env.onMove(taskId, id);
+              }}
+              className={`flex min-h-0 flex-col rounded-card bg-canvas p-2 shadow-hairline transition-shadow ${over === id ? "ring-2 ring-accent" : ""}`}
+            >
               <div className="flex h-7 shrink-0 items-center gap-2 px-1 pb-1 text-12 font-medium text-ink-2">
                 {id === "needs" && <span aria-hidden className="size-2 rounded-full bg-orange" />}
                 {name}

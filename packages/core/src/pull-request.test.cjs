@@ -429,3 +429,36 @@ test("readPullRequestState reports a CLOSED PR as known, and a failed lookup as 
   const none = async (command) => (command === "git" ? { stdout: "milagre/login\n" } : { stdout: "[]" });
   assert.deepEqual(await readPullRequestState("/project/worktree", none), { known: true, pr: null });
 });
+
+test("a pushed branch reads as the newest PR from that repository's branch, never a fork's namesake", async () => {
+  const calls = [];
+  const exec = async (command, args) => {
+    calls.push(args);
+    const pr = (number, owner) => ({
+      number,
+      url: `https://github.com/example/project/pull/${number}`,
+      state: "OPEN",
+      title,
+      headRepository: { name: "project" },
+      headRepositoryOwner: { login: owner },
+    });
+    return { stdout: JSON.stringify([pr(14, "someone"), pr(12, "Example")]) };
+  };
+  const [pushed, merged, flag, escape, bare] = await readPullRequests(
+    "/project",
+    ["push:example/project:fix/login", "branch:fix/login", "push:example/project:--web", "push:example/project:a..b", "push:fix/login"],
+    exec,
+  );
+  assert.equal(pushed.number, 12, "the PR from the pushed repository, not the newer one from a fork");
+  assert.equal(merged.number, 14, "a merged branch reads as its newest PR");
+  assert.equal(flag, null);
+  assert.equal(escape, null);
+  assert.equal(bare, null, "a push without its repository isn't read");
+  assert.deepEqual(
+    calls.map((args) => args.slice(0, 8)),
+    [
+      ["pr", "list", "--head", "fix/login", "--state", "all", "--limit", "10"],
+      ["pr", "list", "--head", "fix/login", "--state", "all", "--limit", "1"],
+    ],
+  );
+});

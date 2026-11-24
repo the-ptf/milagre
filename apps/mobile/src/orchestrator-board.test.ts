@@ -118,8 +118,22 @@ test("a finished task is Done; one its agent marked blocked or that asks a quest
 test("a done or in-review card leads with its PR mark; a running one keeps its own", () => {
   const finished = { chat: chat({ summary: { count: 2, lastOutcome: "completed" } as AgentSession["summary"] }) };
   const mark = { icon: "failed", tone: "red", label: "Pull request #7 open, CI failed" } as const;
-  assert.equal(shownPullRequestMark(boardItem(task(), finished, "open", 0, mark)), mark);
-  assert.equal(shownPullRequestMark(boardItem(task({ outcome: "merged" }), finished, "open", 0, mark)), mark);
-  assert.equal(shownPullRequestMark(boardItem(task(), { ...finished, run: run() }, "open", 0, mark)), null);
+  assert.equal(shownPullRequestMark(boardItem(task(), finished, "open", 0, undefined, mark)), mark);
+  assert.equal(shownPullRequestMark(boardItem(task({ outcome: "merged" }), finished, "open", 0, undefined, mark)), mark);
+  assert.equal(shownPullRequestMark(boardItem(task(), { ...finished, run: run() }, "open", 0, undefined, mark)), null);
   assert.equal(shownPullRequestMark(boardItem(task(), { chat: chat({ done_at: 1 }) }, null, 0)), null);
+});
+
+test("a Done card counts down to when its computer archives the Chat, as the Done list does", () => {
+  const hour = 3_600_000;
+  const now = 10 * hour;
+  assert.equal(boardItem(task(), { chat: chat({ done_at: now - 2.5 * hour }) }, null, now, 8).countdown, "5:30");
+  assert.equal(boardItem(task(), { chat: chat({ done_at: now - hour, archived: true }) }, null, now, 8).countdown, null, "an archived Chat is gone already");
+  assert.equal(boardItem(task(), { chat: chat({ done_at: now }) }, null, now, 0).countdown, null, "with Never, nothing counts down");
+  assert.equal(boardItem(task(), { chat: chat() }, "open", now, 8).countdown, null, "only Done cards count down");
+});
+
+test("a task the owner moved stays in that column on the phone too", () => {
+  const moved = chat({ summary: { count: 2, lastOutcome: "completed" } as never, orchestrator: { taskId: "t1", hidden: true, column: "running" } });
+  assert.equal(boardItem(task(), { chat: moved }, null, 0).column, "running");
 });

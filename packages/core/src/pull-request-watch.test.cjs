@@ -146,7 +146,7 @@ function clock() {
   return { now: () => at, timers, advance, settle };
 }
 
-// GitHub as a fake gh: `branches` maps a branch to its latest PR node, `numbers` a PR number to its node.
+// GitHub as a fake gh: `branches` maps a branch to its latest PR node (or its PR nodes, newest first), `numbers` a PR number to its node.
 function github({ branches = {}, numbers = {}, remote = {}, rate = { remaining: 5000, limit: 5000 } } = {}) {
   const calls = [];
   let failing = false;
@@ -159,7 +159,7 @@ function github({ branches = {}, numbers = {}, remote = {}, rate = { remaining: 
     const data = { rateLimit: { ...rate, resetAt: new Date(2_000_000).toISOString() }, repository };
     const errors = [];
     for (const [, alias, branch] of query.matchAll(/(a\d+): pullRequests\(headRefName: ("(?:[^"\\]|\\.)*")/g))
-      repository[alias] = { nodes: branches[JSON.parse(branch)] ? [branches[JSON.parse(branch)]] : [] };
+      repository[alias] = { nodes: branches[JSON.parse(branch)] ? [branches[JSON.parse(branch)]].flat() : [] };
     for (const [, alias, number] of query.matchAll(/(a\d+): pullRequest\(number: (\d+)\)/g)) {
       repository[alias] = numbers[number] ?? null;
       if (!numbers[number]) errors.push({ type: "NOT_FOUND", message: `Could not resolve to a PullRequest with the number of ${number}.` });
@@ -356,5 +356,28 @@ test("a Worktree nobody asked about for FORGET_MS is dropped", async () => {
   await time.advance(IDLE_MS * 3);
   assert.equal(hub.calls.length, calls);
   assert.equal(gitCalls.length, reads);
+  watch.close();
+});
+
+test("a pushed branch reads in the same query as the newest PR from that repository, and is read again after it merges", async () => {
+  const head = (pr, nameWithOwner) => ({ ...pr, headRepository: { nameWithOwner } });
+  const fork = head(node(14), "someone/repo");
+  const branches = { "fix/login": [fork, head(node(12, "MERGED"), "Example/Repo")], "fix/other": node(13) };
+  const { watch, hub, time } = setup({ heads: { "/repo": "fix/other" }, branches });
+  const refs = ["push:example/repo:fix/login", "branch:fix/other", "push:example/repo:-x", "push:example/repo:../up"];
+  const read = watch.refs("/repo", refs);
+  await time.advance(100);
+  assert.deepEqual(
+    (await read).map((pr) => pr?.number ?? null),
+    [12, 13, null, null],
+    "the merged PR from the pushed repository, not the fork's newer one",
+  );
+  assert.equal(hub.calls.length, 1);
+  assert.match(hub.calls[0].query, /headRefName: "fix\/login", first: 10.*headRepository \{ nameWithOwner \}/);
+  assert.doesNotMatch(hub.calls[0].query, /\.\.\/up|"-x"/);
+  // The branch gets a new PR after the merged one: a push ref is read again, where a merged URL or number isn't.
+  branches["fix/login"] = [head(node(15), "example/repo"), ...branches["fix/login"]];
+  await time.advance(5 * 60_000);
+  assert.equal((await watch.refs("/repo", refs))[0].number, 15);
   watch.close();
 });

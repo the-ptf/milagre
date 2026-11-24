@@ -95,15 +95,15 @@ const NO_SPACE_AFTER = /[\s([{]$/;
  * The draft with `text` at `selection` and the caret after it. The selection is clamped to the draft's current length.
  * Null for empty text.
  */
-export function insertDictation(draft: string, selection: Selection, text: string): { value: string; caret: number } | null {
-  const words = text.trim();
+export function insertDictation(draft: string, selection: Selection, text: string, preserveLineBreaks = false): { value: string; caret: number } | null {
+  const words = preserveLineBreaks ? text.replace(/^[ \t]+|[ \t]+$/g, "") : text.trim();
   if (!words) return null;
   const start = Math.max(0, Math.min(selection.start, draft.length));
   const end = Math.max(start, Math.min(selection.end, draft.length));
   const before = draft.slice(0, start);
   const after = draft.slice(end);
-  const lead = before && !NO_SPACE_AFTER.test(before) ? " " : "";
-  const trail = after && !NO_SPACE_BEFORE.test(after) ? " " : "";
+  const lead = before && !words.startsWith("\n") && !NO_SPACE_AFTER.test(before) ? " " : "";
+  const trail = after && !words.endsWith("\n") && !NO_SPACE_BEFORE.test(after) ? " " : "";
   const inserted = `${lead}${words}`;
   return { value: `${before}${inserted}${trail}${after}`, caret: start + inserted.length };
 }
@@ -133,13 +133,13 @@ export function startTake(draft: string, selection: Selection): DictationTake {
 export function writeTake(take: DictationTake, draft: string, text: string, settled: number): { take: DictationTake; value: string; caret: number } | null {
   const start = Math.max(0, Math.min(take.start, draft.length));
   const end = Math.max(start, Math.min(take.end, draft.length));
-  const words = text.trim();
+  const words = text.replace(/^[ \t]+|[ \t]+$/g, "");
   if (!words) {
     if (start === end) return null;
     const value = draft.slice(0, start) + draft.slice(end);
     return { take: { ...take, produced: value, start, end: start, settled: start }, value, caret: start };
   }
-  const edit = insertDictation(draft, { start, end }, words);
+  const edit = insertDictation(draft, { start, end }, words, true);
   if (!edit) return null;
   const from = edit.caret - words.length;
   const stable = from + Math.max(0, Math.min(settled, words.length));
@@ -159,7 +159,7 @@ export function revertTake(take: DictationTake, draft: string): { value: string;
  */
 export function correctTake(take: DictationTake, draft: string, fixed: string): { take: DictationTake; value: string; caret: number } | null {
   if (draft !== take.produced) return null;
-  const words = fixed.trim();
+  const words = fixed.replace(/^[ \t]+|[ \t]+$/g, "");
   if (!words || words === draft.slice(take.start, take.end).trim()) return null;
   return writeTake(take, draft, words, words.length);
 }

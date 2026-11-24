@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { taskBlockedText } = require("@milagre/shared/orchestrator");
+const { placedColumn, taskBlockedText } = require("@milagre/shared/orchestrator");
 const { withTaskChat } = require("../runtime/orchestrator-wiring.cjs");
 const { createTaskTools } = require("./task-tools.cjs");
 
@@ -9,10 +9,10 @@ function setup() {
   const sessionId = (chatId) => Number(chatId.split("#")[1]);
   const tools = createTaskTools({
     taskOf: (chatId) => state.sessions[sessionId(chatId)]?.orchestrator ?? null,
-    setBlocked: (chatId, blocked) =>
+    mark: (chatId, patch) =>
       new Promise((resolve) =>
         setImmediate(() => {
-          state = withTaskChat(state, sessionId(chatId), { blocked: blocked ?? undefined });
+          state = withTaskChat(state, sessionId(chatId), patch);
           resolve();
         }),
       ),
@@ -45,4 +45,19 @@ test("task_blocked keeps the task in Needs you with its reason until the next tu
   assert.equal(Object.hasOwn(session(2).orchestrator, "blocked"), false);
   assert.equal(session(2).orchestrator.taskId, "t2", "clearing it keeps the task mark");
   await assert.rejects(blocked.run({ reason: " \n " }), /what the owner must do/);
+});
+
+test("a column the owner moved a task to holds until its next turn starts", async () => {
+  const { tools, session, settled } = setup();
+  tools.observe("/p#2", { type: "turn-started" });
+  await settled();
+  assert.deepEqual(session(2).orchestrator, { taskId: "t2", hidden: true }, "nothing to clear leaves the Chat alone");
+  Object.assign(session(2), withTaskChat({ sessions: { 2: session(2) } }, 2, { column: "review" }).sessions[2]);
+  assert.equal(placedColumn(session(2)), "review");
+  tools.observe("/p#2", { type: "turn-completed" });
+  await settled();
+  assert.equal(placedColumn(session(2)), "review");
+  tools.observe("/p#2", { type: "turn-started" });
+  await settled();
+  assert.equal(placedColumn(session(2)), null);
 });

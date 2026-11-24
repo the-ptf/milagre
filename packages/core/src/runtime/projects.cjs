@@ -162,14 +162,17 @@ function registerChatReads({
   openProject,
   projectName,
   projectsWithGit,
+  projectRegistry,
   readProject,
   recentProjects,
   scopeStates,
   states,
   withKind,
 }) {
+  const listed = async (projectPath) =>
+    (await recentProjects().list()).some((item) => item.path === projectPath) || (await projectRegistry().list()).some((item) => item.path === projectPath);
   commands.handle("project:read", async (_event, projectPath, read) => {
-    const known = chatsHome.isHome(projectPath) ? await chatsHome.exists() : (await recentProjects().list()).some((item) => item.path === projectPath);
+    const known = chatsHome.isHome(projectPath) ? await chatsHome.exists() : await listed(projectPath);
     if (!known) throw new Error("Open this project in Milagre first.");
     const project = withKind(await readProject(projectPath));
     if (read?.state !== false) return project;
@@ -332,6 +335,7 @@ function registerProjects({
     openProject,
     projectName,
     projectsWithGit,
+    projectRegistry,
     readProject,
     recentProjects,
     scopeStates,
