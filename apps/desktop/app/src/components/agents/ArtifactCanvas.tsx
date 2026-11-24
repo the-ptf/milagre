@@ -1,14 +1,6 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  ArrowLeft01Icon,
-  ArrowRight01Icon,
-  CheckmarkCircle02Icon,
-  Delete02Icon,
-  Download04Icon,
-  MoreHorizontalIcon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
 import {
   ARTIFACT_CSP,
   DESIGN_CODE_CSP,
@@ -16,11 +8,10 @@ import {
   ARTIFACT_PAGE,
   artifactCsp,
   artifactDocument,
-  createDesignFontReader,
-  restoreDesignFonts,
   designGroups,
   designKitLabel,
   isInteractiveDesign,
+  libraryEditLabel,
   readPageMessage,
   type Artifact,
   type ArtifactAsset,
@@ -29,20 +20,22 @@ import {
 } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
-import { Button, IconButton } from "../primitives/Button";
+import { IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
-import { useDesignsEnabled } from "../../lib/designs-enabled";
-import { bridgeForKey, isRemoteKey, onComputerConnection } from "../../lib/computer-bridge";
-import { DESIGN_DELETED, type DesignDeleted } from "./design-events";
-import { DesignExportDialog } from "./DesignExportDialog";
-import { MenuRow, Popover } from "../primitives/Popover";
+import { useArtifact } from "./artifact-read";
+import { DesignDeleteButton, type Deleting } from "./DesignDeleteButton";
+import { DesignFrameMenu } from "./DesignFrameMenu";
 import { designLayout, designNodeAt } from "@milagre/shared/design";
+import { designModesOf } from "@milagre/shared/design-modes";
+import { CanvasDesignBody } from "./CanvasDesignBody";
+import { useDesignMode } from "./design-mode";
+import { DesignFrameChips } from "./DesignFrameChips";
 import { CommentLayer, CommentPin } from "./CommentPin";
 import { LiveDesignLayer, LiveDesignWaiting, LiveDraftFrames } from "./LiveDesignFrame";
 import { useLiveDesign } from "./design-live";
-import { designPreviews, designPreviewKey, designLiveZoom, designPreviewScale } from "./design-preview-cache";
+import { designPreviewKey, designLiveZoom } from "./design-preview-cache";
 import { createDesignVisibility, designDensity, subscribeDesignDensity } from "./design-visibility";
 
 export type DesignPin = {
@@ -100,75 +93,8 @@ const GROUP_LABEL = 30;
 const MIN_SCALE = 0.05;
 const FIT_MARGIN = 24;
 const FIT_BOTTOM = 56;
-const MAX_SCALE = 2;
+const MAX_SCALE = 8;
 const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
-
-const versionsRead = new Map<string, Promise<Artifact>>();
-const versionsKept = new Map<string, Artifact>();
-const fontReaders = new WeakMap<object, ReturnType<typeof createDesignFontReader<Artifact>>>();
-const KEEP = 48;
-export function readArtifact(chatId: string, id: string, version: number | null): Promise<Artifact> {
-  const api = bridgeForKey(chatId).artifacts;
-  const request = { chatId, id, ...(version === null ? {} : { version }) };
-  const readDesign = () => {
-    if (!isRemoteKey(chatId)) return api.get(request);
-    let reader = fontReaders.get(api);
-    if (!reader) {
-      reader = createDesignFontReader((args) => api.get(args));
-      fontReaders.set(api, reader);
-      onComputerConnection(chatId, reader.reconnect, () => fontReaders.delete(api));
-    }
-    return reader(request).then(restoreDesignFonts);
-  };
-  if (version === null) return readDesign();
-  const key = `${chatId}\n${id}\n${version}`;
-  let read = versionsRead.get(key);
-  if (!read) {
-    read = readDesign();
-    versionsRead.set(key, read);
-    read.then(
-      (artifact) => {
-        versionsKept.set(key, artifact);
-        for (const old of versionsKept.keys()) {
-          if (versionsKept.size <= KEEP) break;
-          versionsKept.delete(old);
-          designPreviews.delete(old);
-          versionsRead.delete(old);
-        }
-      },
-      () => versionsRead.delete(key),
-    );
-  }
-  return read;
-}
-const keptArtifact = (chatId: string | null, id: string, version: number | null) =>
-  (chatId && version !== null && versionsKept.get(`${chatId}\n${id}\n${version}`)) || null;
-
-export function useArtifact(chatId: string | null, id: string, version: number | null, revision?: number) {
-  const { enabled } = useDesignsEnabled(chatId);
-  const [state, setState] = useState<{
-    artifact: Artifact | null;
-    error: string | null;
-  }>(() => ({ artifact: keptArtifact(chatId, id, version), error: null }));
-  useEffect(() => {
-    if (!chatId) return;
-    let live = true;
-    readArtifact(chatId, id, version)
-      .then((artifact) => live && setState({ artifact, error: null }))
-      .catch(
-        (error: unknown) =>
-          live &&
-          setState({
-            artifact: null,
-            error: error instanceof Error ? error.message : String(error),
-          }),
-      );
-    return () => {
-      live = false;
-    };
-  }, [chatId, id, version, enabled, revision]);
-  return chatId && (enabled || state.artifact?.format === "html") ? state : { artifact: null, error: null };
-}
 
 export type PageState = {
   mode?: { input: "mouse"; comment: boolean; cursor?: string };
@@ -314,6 +240,7 @@ export const ArtifactCanvas = forwardRef<
   {
     chatId: string;
     allowLive?: boolean;
+    library?: boolean;
     designs: ArtifactRef[];
     versions: Record<string, number | null>;
     onVersion: (id: string, version: number | null) => void;
@@ -322,8 +249,13 @@ export const ArtifactCanvas = forwardRef<
     comments: PinControls;
     choice: ChoiceControls;
     onView: (view: CanvasView) => void;
+    onShare?: (design: ArtifactRef) => void;
+    onAddToLibrary?: (design: ArtifactRef) => void;
   }
->(function ArtifactCanvas({ chatId, allowLive = true, designs, versions, onVersion, focus, commenting, comments, choice, onView }, handle) {
+>(function ArtifactCanvas(
+  { chatId, allowLive = true, library = false, designs, versions, onVersion, focus, commenting, comments, choice, onView, onShare, onAddToLibrary },
+  handle,
+) {
   const viewport = useRef<HTMLDivElement>(null);
   const board = useRef<HTMLDivElement>(null);
   const visibility = useMemo(() => createDesignVisibility(), []);
@@ -542,7 +474,7 @@ export const ArtifactCanvas = forwardRef<
       ref={viewport}
       data-slot="artifact-canvas"
       tabIndex={-1}
-      className={`relative min-h-0 flex-1 touch-none overflow-hidden bg-canvas outline-none ${drag.current ? "cursor-grabbing" : "cursor-grab"}`}
+      className={`relative min-h-0 flex-1 touch-none overflow-clip bg-canvas outline-none ${drag.current ? "cursor-grabbing" : "cursor-grab"}`}
       style={{
         backgroundImage: "radial-gradient(var(--color-line) 1px, transparent 1px)",
         backgroundSize: `${dotStep(view.scale)}px ${dotStep(view.scale)}px`,
@@ -587,7 +519,7 @@ export const ArtifactCanvas = forwardRef<
                   key={`${chatId}\n${design.id}`}
                   chatId={chatId}
                   design={design}
-                  label={optionLabel(offset)}
+                  label={library ? "" : optionLabel(offset)}
                   dimmed={dimmedInRow(row.designs, design.id, choice)}
                   version={versions[design.id] ?? null}
                   onVersion={onVersion}
@@ -600,26 +532,42 @@ export const ArtifactCanvas = forwardRef<
                   allowLive={allowLive}
                   visibility={visibility}
                   pixelRatio={pixelRatio}
+                  library={library}
+                  onShare={onShare}
+                  onAddToLibrary={onAddToLibrary}
                 />
               ))}
-              <LiveDraftFrames chatId={chatId} designs={designs} group={row.group} scale={view.scale} gap={GAP} header={HEADER} onSized={showDraft} />
+              {!library && (
+                <LiveDraftFrames chatId={chatId} designs={designs} group={row.group} scale={view.scale} gap={GAP} header={HEADER} onSized={showDraft} />
+              )}
             </div>
           </section>
         ))}
-        <LiveDraftFrames
-          chatId={chatId}
-          designs={designs}
-          orphans={rows.map((row) => row.group)}
-          scale={view.scale}
-          gap={GAP}
-          header={HEADER}
-          onSized={showDraft}
-        />
+        {!library && (
+          <LiveDraftFrames
+            chatId={chatId}
+            designs={designs}
+            orphans={rows.map((row) => row.group)}
+            scale={view.scale}
+            gap={GAP}
+            header={HEADER}
+            onSized={showDraft}
+          />
+        )}
       </div>
-      {!designs.length && <LiveDesignWaiting chatId={chatId} />}
+      {!designs.length && !library && <LiveDesignWaiting chatId={chatId} />}
     </div>
   );
 });
+
+function LibraryEditNote({ artifact, version, chatId }: { artifact: Artifact | null; version: number; chatId: string | null | undefined }) {
+  const label = libraryEditLabel(artifact, version, chatId);
+  return label ? (
+    <span className="ml-2" data-slot="artifact-library-edit">
+      {label}
+    </span>
+  ) : null;
+}
 
 function optionLabel(index: number): string {
   return index < 26 ? String.fromCharCode(65 + index) : optionLabel(Math.floor(index / 26) - 1) + optionLabel(index % 26);
@@ -646,6 +594,9 @@ const DesignFrame = memo(function DesignFrame({
   visibility,
   allowLive,
   pixelRatio,
+  library,
+  onShare,
+  onAddToLibrary,
 }: {
   chatId: string;
   design: ArtifactRef;
@@ -663,6 +614,9 @@ const DesignFrame = memo(function DesignFrame({
   visibility: ReturnType<typeof createDesignVisibility>;
   allowLive: boolean;
   pixelRatio: number;
+  library: boolean;
+  onShare?: (design: ArtifactRef) => void;
+  onAddToLibrary?: (design: ArtifactRef) => void;
 }) {
   const frame = useRef<HTMLDivElement>(null);
   const [inView, setInView] = useState(false);
@@ -675,25 +629,12 @@ const DesignFrame = memo(function DesignFrame({
     return () => clearTimeout(timer);
   }, [scale]);
   const [painted, setPainted] = useState<Artifact | null>(null);
-  const { live, hold } = useLiveDesign(chatId, design, version === null);
+  const { live, hold } = useLiveDesign(chatId, design, version === null && !library);
   const { artifact, error } = useArtifact(chatId, design.id, design.format === "html" ? null : (hold ?? version ?? design.version));
   const markPainted = useCallback((ready: boolean) => setPainted(ready ? artifact : null), [artifact]);
   const [editError, setEditError] = useState("");
-  const moreAnchor = useRef<HTMLSpanElement>(null);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [deleting, setDeleting] = useState<"confirm" | "busy" | null>(null);
-  const remove = async () => {
-    setDeleting("busy");
-    setEditError("");
-    try {
-      await bridgeForKey(chatId).artifacts.delete({ chatId, id: design.id });
-      window.dispatchEvent(new CustomEvent<DesignDeleted>(DESIGN_DELETED, { detail: { chatId, id: design.id } }));
-    } catch (cause) {
-      setEditError(cause instanceof Error ? cause.message : String(cause));
-      setDeleting(null);
-    }
-  };
+  const [deleting, setDeleting] = useState<Deleting>(null);
   const width = artifact?.width ?? 1280,
     height = artifact?.height ?? 800;
   useLayoutEffect(onSized, [width, height, onSized]);
@@ -704,6 +645,9 @@ const DesignFrame = memo(function DesignFrame({
     format: artifact?.format ?? design.format,
   };
   const last = Math.max(artifact?.latest ?? 1, design.version);
+  const modes = artifact?.format === "design" && artifact.document ? designModesOf(artifact.document) : ["light" as const];
+  const [chosenMode, setMode] = useDesignMode(chatId, design.id, modes);
+  const mode = modes.includes(chosenMode) ? chosenMode : "light";
   const pendingHere = choice.pending?.id === design.id && choice.pending.version === shown.version;
   const sentHere = !choice.pending && choice.sent?.id === design.id && choice.sent.version === shown.version;
   const isChosen = pendingHere || sentHere;
@@ -752,6 +696,7 @@ const DesignFrame = memo(function DesignFrame({
                 {designKitLabel(artifact)}
               </span>
             )}
+            {library && <LibraryEditNote artifact={artifact} version={shown.version} chatId={chatId} />}
           </span>
           <Tooltip label="Next version" asChild>
             <IconButton
@@ -765,63 +710,29 @@ const DesignFrame = memo(function DesignFrame({
         </>
       )}
       {artifact?.format === "design" && (
-        <span ref={moreAnchor} className="inline-flex">
-          <Tooltip label="More" asChild>
-            <IconButton
-              data-slot="artifact-more"
-              label={`More actions for ${shown.title}`}
-              icon={MoreHorizontalIcon}
-              size={24}
-              aria-haspopup="menu"
-              aria-expanded={moreOpen}
-              onClick={() => setMoreOpen((open) => !open)}
-            />
-          </Tooltip>
-          {moreOpen && (
-            <Popover anchor={moreAnchor} label={`${shown.title} actions`} onClose={() => setMoreOpen(false)}>
-              <MenuRow
-                data-slot="artifact-export"
-                icon={Download04Icon}
-                title={isInteractiveDesign(artifact) ? "Download HTML" : "Export…"}
-                onClick={() => {
-                  setMoreOpen(false);
-                  if (isInteractiveDesign(artifact)) downloadHtml(artifact.html, `${artifact.id}-v${artifact.version}.html`);
-                  else setExporting(true);
-                }}
-              />
-            </Popover>
-          )}
-        </span>
+        <DesignFrameMenu
+          artifact={artifact}
+          shown={shown}
+          open={moreOpen}
+          onOpen={setMoreOpen}
+          modes={modes}
+          mode={mode}
+          onMode={setMode}
+          onShare={onShare}
+          onAddToLibrary={onAddToLibrary}
+        />
       )}
-      {design.format === "design" &&
-        (deleting ? (
-          <span className="flex items-center gap-1">
-            <Button
-              variant="danger"
-              size={24}
-              data-slot="artifact-delete-confirm"
-              aria-label={`Delete ${shown.title} and every version`}
-              disabled={deleting === "busy"}
-              onClick={() => void remove()}
-            >
-              {deleting === "busy" ? "Deleting…" : "Delete"}
-            </Button>
-            <Button variant="ghost" size={24} disabled={deleting === "busy"} onClick={() => setDeleting(null)}>
-              Cancel
-            </Button>
-          </span>
-        ) : (
-          <Tooltip label="Delete design" asChild>
-            <IconButton
-              data-slot="artifact-delete"
-              variant="danger-ghost"
-              label={`Delete ${shown.title}`}
-              icon={Delete02Icon}
-              size={24}
-              onClick={() => setDeleting("confirm")}
-            />
-          </Tooltip>
-        ))}
+      {design.format === "design" && (
+        <DesignDeleteButton
+          chatId={chatId}
+          id={design.id}
+          title={shown.title}
+          library={library}
+          deleting={deleting}
+          onDeleting={setDeleting}
+          onError={setEditError}
+        />
+      )}
       {!sentHere && choice.onChoose && (
         <button
           type="button"
@@ -838,40 +749,6 @@ const DesignFrame = memo(function DesignFrame({
     </>
   );
   // has more than one, and chosen. The actions stay out of the way until the pointer or focus is on the frame.
-  const chips = (
-    <>
-      {isInteractiveDesign(artifact) && (
-        <span
-          data-slot="artifact-interactive"
-          title={active ? "Live: clicks go to the design. Click outside it to let go." : "Interactive: click the design to try it"}
-          aria-label={active ? "Live" : "Interactive"}
-          className={`flex h-5 shrink-0 items-center gap-1 rounded-chip bg-field text-11 font-medium text-ink-2 ${tight ? "w-5 justify-center" : "px-1.5"}`}
-        >
-          <span aria-hidden className={`size-1.5 rounded-full ${active ? "bg-green" : "bg-ink-4"}`} />
-          {!tight && (active ? "Live" : "Interactive")}
-        </span>
-      )}
-      {last > 1 && (
-        <span
-          data-slot="artifact-version-chip"
-          title={`Version ${shown.version} of ${last}`}
-          className="flex h-5 shrink-0 items-center rounded-chip bg-field px-1.5 text-11 font-medium text-ink-2 tabular-nums"
-        >
-          v{shown.version}
-        </span>
-      )}
-      {isChosen && (
-        <span
-          data-slot={sentHere ? "artifact-chosen" : undefined}
-          title={sentHere ? undefined : "Chosen here; Send tells the agent"}
-          className={`flex h-5 shrink-0 items-center gap-1 rounded-chip px-1.5 text-11 font-semibold ${sentHere ? "bg-ink text-on-ink" : "text-ink ring-1 ring-ink ring-inset"}`}
-        >
-          <Icon icon={Tick02Icon} size={12} />
-          Chosen
-        </span>
-      )}
-    </>
-  );
   return (
     <div
       ref={frame}
@@ -886,15 +763,25 @@ const DesignFrame = memo(function DesignFrame({
           className="absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1.5 pb-1.5 text-12"
           style={{ width: width * scale, height: HEADER, transform: `scale(${1 / scale})` }}
         >
-          <span className="shrink-0 font-semibold text-ink-3" data-slot="artifact-frame-label">
+          <span className="shrink-0 font-semibold text-ink-3 empty:hidden" data-slot="artifact-frame-label">
             {label}
           </span>
           <span className={`min-w-0 flex-1 truncate font-medium ${dimmed ? "text-ink-2" : "text-ink"}`} title={shown.title}>
             {shown.title}
           </span>
-          {compact
-            ? isChosen && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} strokeWidth={1.8} aria-label="Chosen" className="shrink-0 text-ink" />
-            : chips}
+          {compact ? (
+            isChosen && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} strokeWidth={1.8} aria-label="Chosen" className="shrink-0 text-ink" />
+          ) : (
+            <DesignFrameChips
+              interactive={isInteractiveDesign(artifact)}
+              active={active}
+              tight={tight}
+              mode={mode}
+              version={shown.version}
+              last={last}
+              chosen={isChosen ? (sentHere ? "sent" : "pending") : null}
+            />
+          )}
           <div
             data-slot="artifact-frame-controls"
             className={`absolute top-full left-1.5 mt-1.5 flex items-center gap-1 whitespace-nowrap rounded-control bg-surface p-1 text-ink shadow-raised ${deleting || moreOpen ? "" : "pointer-events-none opacity-0 transition-opacity group-focus-within/frame:pointer-events-auto group-focus-within/frame:opacity-100 group-hover/frame:pointer-events-auto group-hover/frame:opacity-100"}`}
@@ -921,6 +808,7 @@ const DesignFrame = memo(function DesignFrame({
               allowLive={allowLive}
               scale={scale}
               live={active || (liveZoom && inView) || artifact.format === "html"}
+              mode={mode}
               onPainted={markPainted}
             />
           ) : (
@@ -973,161 +861,6 @@ const DesignFrame = memo(function DesignFrame({
       <InlineError size={12} className="max-w-full px-2">
         {editError}
       </InlineError>
-      {exporting && artifact?.format === "design" && artifact.document && (
-        <DesignExportDialog designs={[{ id: artifact.id, title: artifact.title, document: artifact.document }]} onClose={() => setExporting(false)} />
-      )}
     </div>
   );
 });
-
-function downloadHtml(html: string, filename: string) {
-  const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-  const link = window.document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function CanvasDesignBody({
-  artifact,
-  files,
-  title,
-  previewKey,
-  scale,
-  pixelRatio,
-  allowLive,
-  live,
-  onPainted,
-}: {
-  artifact: Artifact;
-  files?: PageFiles;
-  title: string;
-  previewKey: string;
-  scale: number;
-  pixelRatio: number;
-  allowLive: boolean;
-  live: boolean;
-  onPainted: (ready: boolean) => void;
-}) {
-  type Preview = { key: string; result: NonNullable<ReturnType<typeof designPreviews.get>> };
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [readyPreview, setReadyPreview] = useState<{ key: string; src: string } | null>(null);
-  const [settledScale, setSettledScale] = useState<number | null>(null);
-  const previewScale = readyPreview && settledScale !== null ? settledScale : designPreviewScale(scale);
-  useEffect(() => {
-    const timer = setTimeout(() => setSettledScale(designPreviewScale(scale)), 150);
-    return () => clearTimeout(timer);
-  }, [scale]);
-  const cacheKey = `${previewKey}\n${pixelRatio}\n${previewScale}`;
-  const [imageFailed, setImageFailed] = useState<string | null>(null);
-  const [framePainted, setFramePainted] = useState(false);
-  const [document] = useState(() => (artifact.format === "design" ? artifact.document : undefined));
-  const decoded = !!readyPreview;
-  const useFrame = (allowLive && (live || !document || (preview && "error" in preview.result) || imageFailed === cacheKey)) || (!decoded && framePainted);
-  useLayoutEffect(() => {
-    if (!document) return;
-    return designPreviews.request(
-      cacheKey,
-      document,
-      (result) => setPreview({ key: cacheKey, result }),
-      () => versionsKept.has(previewKey),
-      pixelRatio,
-      previewScale,
-      previewKey,
-    );
-  }, [cacheKey, document, previewKey, pixelRatio, previewScale]);
-  const painted = useFrame ? framePainted || decoded : decoded;
-  useEffect(() => {
-    onPainted(painted);
-  }, [painted, onPainted]);
-  if (artifact.format === "html")
-    return allowLive ? <ArtifactFrame html={artifact.html} title={title} format="html" files={files} onLoad={() => setFramePainted(true)} /> : null;
-  return (
-    <div className="relative size-full" data-painted={painted || undefined} data-slot="design-renderer">
-      {readyPreview && readyPreview.key !== preview?.key && <img src={readyPreview.src} alt="" aria-hidden draggable={false} className="block size-full" />}
-      {preview && "src" in preview.result && (
-        <DecodedPreviewImage
-          key={preview.key}
-          resourceKey={preview.key}
-          src={preview.result.src}
-          title={title}
-          hidden={framePainted}
-          painted={readyPreview?.key === preview.key}
-          onDecoded={setReadyPreview}
-          onFailed={setImageFailed}
-        />
-      )}
-      {useFrame && <PaintedFrame key={previewKey} artifact={artifact} title={title} onPainted={setFramePainted} />}
-    </div>
-  );
-}
-
-const DecodedPreviewImage = memo(function DecodedPreviewImage({
-  resourceKey,
-  src,
-  title,
-  hidden,
-  painted,
-  onDecoded,
-  onFailed,
-}: {
-  resourceKey: string;
-  src: string;
-  title: string;
-  hidden: boolean;
-  painted: boolean;
-  onDecoded: (value: { key: string; src: string }) => void;
-  onFailed: (key: string) => void;
-}) {
-  const receive = useCallback(
-    (image: HTMLImageElement | null) => {
-      if (!image) return;
-      void image.decode().then(
-        () => {
-          if (image.isConnected) onDecoded({ key: resourceKey, src });
-          return null;
-        },
-        () => {
-          if (image.isConnected) onFailed(resourceKey);
-          return null;
-        },
-      );
-    },
-    [resourceKey, src, onDecoded, onFailed],
-  );
-  return (
-    <img
-      ref={receive}
-      src={src}
-      alt={title}
-      aria-hidden={hidden || undefined}
-      draggable={false}
-      decoding="async"
-      className="absolute inset-0 block size-full"
-      style={{ opacity: painted ? 1 : 0 }}
-      onError={(event) => {
-        if (event.currentTarget.isConnected) onFailed(resourceKey);
-      }}
-    />
-  );
-});
-
-/** Unmount on the way back to an image. Every new iframe starts hidden and fades over the decoded preview. */
-function PaintedFrame({ artifact, title, onPainted }: { artifact: Artifact; title: string; onPainted: (painted: boolean) => void }) {
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    onPainted(ready);
-    return () => onPainted(false);
-  }, [ready, onPainted]);
-  return (
-    <div
-      inert={!ready}
-      aria-hidden={!ready || undefined}
-      className="absolute inset-0 transition-opacity duration-[120ms] motion-reduce:transition-none"
-      style={{ opacity: ready ? 1 : 0 }}
-    >
-      <ArtifactFrame html={artifact.html} title={title} format={artifact.format} code={isInteractiveDesign(artifact)} onLoad={() => setReady(true)} />
-    </div>
-  );
-}

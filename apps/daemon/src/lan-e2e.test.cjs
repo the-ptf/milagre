@@ -33,6 +33,7 @@ test("a phone learns the LAN route over the bridge, then calls the daemon over t
   });
   daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "9.8.7",
     runtimeOptions: { cwd: project, environmentReady: Promise.resolve(), titleModels: {} },
     phoneOptions: { localPort: 0, lanPort: 0, lanHostname: "127.0.0.1", addresses: () => ["127.0.0.1"], startRelay },

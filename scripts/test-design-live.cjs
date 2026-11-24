@@ -2,7 +2,8 @@
 // design_apply input, streamed as step-draft events, builds over the design's frame with Claude's cursor on the layer
 // it touched last, then hands over to the saved version without a replay; a design_show of a new design builds on a
 // placeholder frame that hands over to the new frame; and a new version from an agent that doesn't stream its input
-// (Codex) plays back layer by layer over the frame, which holds the old version until it settles on the new one.
+// (Codex) plays back layer by layer over the frame, which holds the old version until it settles on the new one; a new
+// design saved that way (a Claude subagent) plays back from a blank screen.
 // In a Chat with no design yet, the Designs open by themselves when the agent starts designing, without taking the
 // composer's focus, and open again for each later design call after the user closed them; a dock opened mid-call
 // still shows the whole draft. Set MILAGRE_SCREENSHOT_DIR to keep screenshots.
@@ -299,7 +300,7 @@ async function browserChecks() {
       "the saved draft settles onto its version's decoded preview",
     );
     // A user zoom disables automatic fitting. Remount before the new-design checks so they still exercise auto-fit.
-    await evaluate(`${dock}.querySelector('[aria-label="Close designs"]').click()`);
+    await evaluate(`${dock}.querySelector('[aria-label="Close the Artifact panel"]').click()`);
     await waitFor(`!${dock}`);
     await evaluate('[...document.querySelectorAll("[data-slot=artifact-card] button")].filter((b) => b.textContent === "Open").at(-1).click()');
     await waitFor(`${frame("login")}?.querySelector("[data-design-body][data-painted]") && ${frame("login")}.dataset.version === "2"`);
@@ -408,6 +409,21 @@ async function browserChecks() {
     await screenshot("6d-subagent-replay", 250);
     await waitFor(`${frame("login")}.dataset.version === "4" && !${live("login")}`, 400);
 
+    // 3e. A subagent saves a new design without streaming it (Claude Code streams no subagent input): the new frame
+    // plays back from a blank screen under the subagent's cursor, then settles on the saved version.
+    await evaluate(`
+      window.emit({ type: "step-started", step: { id: "toolu_sub_plan", kind: "artifact", title: "Showed \`Plan\`", tool: "design_show", agent: "toolu_sub1" } });
+      window.saved.plan = { title: "Plan", document: { ...${JSON.stringify(home)}, background: "#13294b" } };
+      window.emit({ type: "step-completed", id: "toolu_sub_plan", status: "done", artifact: { id: "plan", version: 1, title: "Plan", format: "design" } });
+      window.reply("Noah drew a plan.", [window.step("toolu_sub_plan", { id: "plan", version: 1, title: "Plan" }, "toolu_sub1")]);
+      true`);
+    await waitFor(`${live("plan")}?.dataset.live === "replay"`);
+    assert.equal(await evaluate(`${cursor(live("plan"))}.dataset.agent`), "Noah", "a new design plays back under the subagent's cursor");
+    assert.match(await evaluate(`${live("plan")}.querySelector("[role=status]").textContent`), /^Noah is designing/);
+    await waitFor(`(() => { const n = +(${live("plan")}?.querySelector("[data-slot=live-design-frame]")?.dataset.layers ?? 0); return n > 0 && n < 9; })()`);
+    await screenshot("6e-subagent-new-design", 250);
+    await waitFor(`${frame("plan")}.dataset.version === "1" && !${live("plan")}`, 400);
+
     // 3d. Two agents edit one design: the second save fails on its version and its draft goes; the retry builds again.
     const conflict = JSON.stringify({ id: "home", expectedVersion: 1, operations: [{ op: "update", id: "greeting", patch: { text: "Good evening" } }] });
     await evaluate(`window.conflict = window.streamAs("toolu_conflict", "design_apply", ${JSON.stringify(conflict)}, { size: 30 }); true`);
@@ -447,7 +463,7 @@ async function browserChecks() {
 
     // 5. Closed by the user, the Designs open again for the next design call. Closed and opened again mid-call, the
     // canvas still shows everything written so far.
-    const close = () => evaluate(`${dock}.querySelector("[aria-label='Close designs']").click()`);
+    const close = () => evaluate(`${dock}.querySelector("[aria-label='Close the Artifact panel']").click()`);
     await close();
     await waitFor(`!${dock}`);
     const profileText = JSON.stringify({ ...showInput, title: "Profile", id: "profile" });
@@ -480,7 +496,7 @@ async function browserChecks() {
     await evaluate('window.emit({ type: "step-completed", id: "c-design", status: "failed" }); window.emit({ type: "turn-completed" })');
     assert.deepEqual(blocked, [], "the renderer's policy blocks no script the canvas runs");
     console.log(
-      "PASS: under the packaged renderer's CSP, Claude's streamed design_apply builds over the frame with its cursor and hands over without a replay; a streamed design_show builds on a placeholder that hands over to the new frame; a Codex version plays back over the held frame and settles on the new one; the Designs open by themselves for each design call, in a Chat with no design too, keep the composer's focus and show a draft begun before they opened; two agents at once each get their own named cursor and placeholder, a subagent's saved edit plays back under its cursor, and a draft whose save failed goes while the retry builds again",
+      "PASS: under the packaged renderer's CSP, Claude's streamed design_apply builds over the frame with its cursor and hands over without a replay; a streamed design_show builds on a placeholder that hands over to the new frame; a Codex version plays back over the held frame and settles on the new one; the Designs open by themselves for each design call, in a Chat with no design too, keep the composer's focus and show a draft begun before they opened; two agents at once each get their own named cursor and placeholder, a subagent's saved edit and new design play back under its cursor, and a draft whose save failed goes while the retry builds again",
     );
     app.exit(0);
   } catch (error) {

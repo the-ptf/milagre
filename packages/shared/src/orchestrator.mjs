@@ -1,5 +1,6 @@
 import { doneDueAt } from "./done.mjs";
 import { limitHeadline } from "./usage-limit.mjs";
+import { currentModelId, currentProvider } from "./providers.mjs";
 
 export const ORCHESTRATOR_MASCOT = Object.freeze({
   version: 1,
@@ -14,9 +15,16 @@ export const AUTOPILOT_MODES = Object.freeze(["answer", "ask", "off"]);
 export const COMPUTER_PREFERENCES = Object.freeze(["prefer", "normal", "less", "manual", "never"]);
 export const VETO_SECONDS = Object.freeze([0, 30, 120, 600]);
 export const BOARD_COLUMNS = Object.freeze(["running", "needs", "review", "done"]);
+export const TASK_OUTCOMES = Object.freeze([
+  { value: "pull-request", label: "PR created" },
+  { value: "merged", label: "PR merged" },
+  { value: "reply", label: "Agent finished" },
+]);
+export const TASK_OUTCOME_DESCRIPTION =
+  "Applies to new tasks. PR created needs a verified PR; PR merged waits for merge. Choose Agent finished for work that needs no PR.";
 export const MEMORY_GROUPS = Object.freeze(["work", "projects", "tools", "other"]);
 
-const PROVIDER_IDS = new Set(["claude", "codex", "antigravity", "kiro"]);
+const PROVIDER_IDS = new Set(["claude", "codex", "antigravity", "kiro", "pi"]);
 const HINTS_MAX = 600;
 const INSTRUCTIONS_MAX = 4000;
 const NOTE_MAX = 300;
@@ -83,6 +91,7 @@ export const ORCHESTRATOR_DEFAULTS = Object.freeze({
   projects: Object.freeze({}),
   hideTaskChats: true,
   notify: true,
+  outcome: "pull-request",
   mascotColor: "#ffffff",
   name: "Orchestrator",
   boardHidden: false,
@@ -97,8 +106,9 @@ const oneOf = (value, options, fallback) => (options.includes(value) ? value : f
 function normalizeRole(raw, fallback) {
   const base = fallback ?? { id: "", name: "", description: "", provider: null, model: null, effort: null, instructions: null };
   if (!isObject(raw)) return base;
-  const provider = PROVIDER_IDS.has(raw.provider) ? raw.provider : raw.provider === null ? null : base.provider;
-  const model = provider === null ? null : (text(raw.model, 120) ?? (provider === base.provider ? base.model : null));
+  const saved = currentProvider(raw.provider);
+  const provider = PROVIDER_IDS.has(saved) ? saved : raw.provider === null ? null : base.provider;
+  const model = provider === null ? null : (currentModelId(text(raw.model, 120)) ?? (provider === base.provider ? base.model : null));
   return {
     id: text(raw.id, 40) ?? base.id,
     name: text(raw.name, 40) ?? base.name,
@@ -136,8 +146,8 @@ export function normalizeOrchestratorSettings(raw) {
     for (const [projectPath, entry] of Object.entries(value.projects))
       if (isObject(entry)) projects[projectPath] = { included: entry.included !== false, hints: text(entry.hints, HINTS_MAX) };
   const router =
-    isObject(value.router) && PROVIDER_IDS.has(value.router.provider) && text(value.router.model, 120)
-      ? { provider: value.router.provider, model: text(value.router.model, 120) }
+    isObject(value.router) && PROVIDER_IDS.has(currentProvider(value.router.provider)) && text(value.router.model, 120)
+      ? { provider: currentProvider(value.router.provider), model: currentModelId(text(value.router.model, 120)) }
       : { ...ORCHESTRATOR_DEFAULTS.router };
   return {
     enabled: value.enabled === true,
@@ -152,6 +162,7 @@ export function normalizeOrchestratorSettings(raw) {
     projects,
     hideTaskChats: value.hideTaskChats !== false,
     notify: value.notify !== false,
+    outcome: normalizeTaskOutcome(value.outcome),
     mascotColor:
       typeof value.mascotColor === "string" && /^#[0-9a-f]{6}$/i.test(value.mascotColor) ? value.mascotColor.toLowerCase() : ORCHESTRATOR_DEFAULTS.mascotColor,
     name: oneLine(value.name, 40) ?? ORCHESTRATOR_DEFAULTS.name,
@@ -166,6 +177,7 @@ export function normalizeOrchestratorTask(raw) {
   return {
     id: raw.id,
     prompt: raw.prompt.slice(0, 20000),
+    outcome: normalizeTaskOutcome(raw.outcome, "reply"),
     title: text(raw.title, 120) ?? titleFromPrompt(raw.prompt),
     projectPath: typeof raw.projectPath === "string" ? raw.projectPath : null,
     worktreeId: typeof raw.worktreeId === "string" ? raw.worktreeId : null,
@@ -174,7 +186,7 @@ export function normalizeOrchestratorTask(raw) {
     remoteComputerId: typeof raw.remoteComputerId === "string" ? raw.remoteComputerId : null,
     remoteTaskId: typeof raw.remoteTaskId === "string" ? raw.remoteTaskId : null,
     role: typeof raw.role === "string" ? raw.role : "build",
-    provider: PROVIDER_IDS.has(raw.provider) ? raw.provider : null,
+    provider: PROVIDER_IDS.has(currentProvider(raw.provider)) ? currentProvider(raw.provider) : null,
     model: typeof raw.model === "string" ? raw.model : null,
     effort: typeof raw.effort === "string" ? raw.effort : null,
     accountId: typeof raw.accountId === "string" ? raw.accountId : null,
@@ -307,6 +319,41 @@ export function roleById(roles, id) {
   return active.find((role) => role.id === id) ?? active.find((role) => role.id === "build") ?? active[0] ?? null;
 }
 
+/** Unknown settings require a PR; a task saved before outcomes existed keeps finishing when its agent does. */
+export function normalizeTaskOutcome(value, fallback = ORCHESTRATOR_DEFAULTS.outcome) {
+  return oneOf(
+    value,
+    TASK_OUTCOMES.map((option) => option.value),
+    fallback,
+  );
+}
+
+export const TASK_BLOCKED_TOOL = "task_blocked";
+const BLOCKED_PROMPT = `If you can't finish without the owner (an MCP server that needs sign-in, a missing credential or permission, an error only they can fix, a decision only they can make), call the milagre ${TASK_BLOCKED_TOOL} tool with what they must do before you end your turn, and say the same in your reply. The task then waits in Needs you instead of counting as finished.`;
+
+export function taskOutcomePrompt(outcome) {
+  if (outcome === "reply") return `Complete the requested work and report the result, including validation and any remaining blockers. ${BLOCKED_PROMPT}`;
+  const requirement =
+    outcome === "merged"
+      ? "The task is Done only after its pull request is merged. Open a pull request with the completed work, then ask the owner before merging. An open PR stays In review."
+      : "The task is Done only after a pull request exists for the completed work. Commit the changes, push the task branch and open a pull request.";
+  return `${requirement} Include the PR URL in your final reply. Do not stop at local changes or a summary. If a PR cannot be created or the request needs no code changes, explain the blocker to the owner. ${BLOCKED_PROMPT} Never make an empty or unrelated PR to satisfy this requirement. Merging, deploying and publishing still require the owner's approval.`;
+}
+
+export const TASK_BLOCKED_MAX = 300;
+
+/** A task_blocked reason as stored: one line, at most TASK_BLOCKED_MAX characters; null when empty. */
+export function taskBlockedReason(value) {
+  return oneLine(value, TASK_BLOCKED_MAX);
+}
+
+/** Why a task waits on its owner, as its agent said with task_blocked; null while a turn runs or once its Chat is Done. */
+export function taskBlockedText(session, running = false) {
+  if (running || !session || session.done_at || session.archived) return null;
+  const reason = taskBlockedReason(session.orchestrator?.blocked?.reason);
+  return reason ? `Blocked: ${reason}` : null;
+}
+
 /** A Chat's pull requests as one state for the board: an open one wins, then a merged one. */
 export function pullRequestState(states) {
   if (states.includes("OPEN")) return "open";
@@ -315,13 +362,39 @@ export function pullRequestState(states) {
   return null;
 }
 
-/** Which board column a task's Chat belongs in. */
-export function boardColumn({ done, needsYou, pullRequest, finished = false }) {
-  if (done || pullRequest === "merged" || pullRequest === "closed") return "done";
+export function taskOutcomeDetail(outcome, pullRequest) {
+  if (outcome === "reply") return null;
+  if (pullRequest === "closed") return "The PR was closed without merging. Reopen it or create a replacement.";
+  if (!pullRequest) return "Required outcome missing: no PR verified. Open the Chat to finish it.";
+  if (outcome === "merged" && pullRequest === "open") return "Waiting for the PR to merge.";
+  return null;
+}
+
+/** A finished turn waits for the task's recorded outcome; marking the Chat Done accepts the task as it is. */
+/** The column the owner moved a task Chat to by hand, which holds until its next turn starts; Done is the Chat's own Done mark. */
+export function placedColumn(session) {
+  const column = session?.orchestrator?.column;
+  return column && column !== "done" && BOARD_COLUMNS.includes(column) && !session.archived ? column : null;
+}
+
+export function boardColumn({ done, needsYou, pullRequest, finished = false, active = false, outcome = "reply", placed = null }) {
+  if (placed) return placed;
   if (needsYou) return "needs";
-  if (pullRequest === "open") return "review";
-  if (finished) return "done";
+  if (active) return "running";
+  if (done) return "done";
+  if (outcome === "reply") return finished ? "done" : "running";
+  if (pullRequest === "merged") return "done";
+  if (pullRequest === "closed") return "needs";
+  if (pullRequest === "open") return outcome === "merged" ? "review" : "done";
+  if (finished) return "needs";
   return "running";
+}
+
+/** The sidebar's line for tasks in Needs you: the task and why when only one is, else how many; null when none is. */
+export function needsYouLine(needs) {
+  if (needs.length === 0) return null;
+  if (needs.length === 1) return `${needs[0].task.title}. ${needs[0].detail}`;
+  return `${needs.length} need you`;
 }
 
 /** When a task's Chat became Done on the board's clock (ms): marked Done, or idle after a turn that ended with no pull request; null while it isn't. */
@@ -329,14 +402,15 @@ export function taskDoneAt(session, busy = false) {
   if (!session) return null;
   if (session.done_at) return session.done_at;
   const summary = session.summary;
-  if (busy || summary?.pullRequests?.length) return null;
+  if (busy || summary?.pullRequests?.length || taskBlockedText(session)) return null;
   return summary?.lastOutcome === "completed" || summary?.lastOutcome === "cancelled" ? (summary.lastAt ?? null) : null;
 }
 
 /** Whether a task leaves the board: its Chat is archived or gone, or it has been Done as long as a Done Chat stays in the sidebar. */
-export function taskSwept(session, { busy = false, retentionHours, now = Date.now() }) {
+export function taskSwept(session, { busy = false, retentionHours, now = Date.now(), outcome = "reply" }) {
   if (!session || session.archived) return true;
-  const doneAt = taskDoneAt(session, busy);
+  if (placedColumn(session)) return false;
+  const doneAt = outcome === "reply" ? taskDoneAt(session, busy) : (session.done_at ?? null);
   if (doneAt === null) return false;
   const due = doneDueAt({ done_at: doneAt }, retentionHours);
   return due !== null && due <= now;

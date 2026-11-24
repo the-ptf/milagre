@@ -304,8 +304,26 @@ test("accounts saved before Antigravity existed still load and default Antigravi
   assert.equal(accounts.selected("antigravity"), "default");
   assert.deepEqual(
     (await accounts.list()).providers.map((p) => p.provider),
-    ["codex", "claude", "antigravity", "kiro"],
+    ["codex", "claude", "antigravity", "kiro", "pi"],
   );
+});
+
+test("accounts saved while Pi was the Ollama provider load under Pi, and its profile moves with them", async (t) => {
+  const f = fixture(t);
+  const root = path.join(f.root, "profile", "accounts");
+  fs.mkdirSync(path.join(root, "ollama-pi", "sessions"), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(root, "ollama-pi", "sessions", "kept.jsonl"), "{}\n");
+  fs.writeFileSync(
+    path.join(root, "accounts.json"),
+    JSON.stringify({ accounts: [], selected: { claude: "default", ollama: "default" }, scopes: { "/work/app": { ollama: "default" } } }),
+  );
+  const accounts = createAccounts(f.options);
+  t.after(() => accounts.close());
+  assert.equal(accounts.selected("pi"), "default");
+  const env = accounts.environment("pi", "default");
+  assert.equal(env.PI_CODING_AGENT_DIR, path.join(root, "pi"));
+  assert.equal(fs.existsSync(path.join(root, "pi", "sessions", "kept.jsonl")), true);
+  assert.equal(fs.existsSync(path.join(root, "ollama-pi")), false);
 });
 
 test("an added Claude account picks up the connected account's MCP servers when its environment is built", async (t) => {

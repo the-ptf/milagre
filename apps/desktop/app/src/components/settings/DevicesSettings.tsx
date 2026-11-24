@@ -11,9 +11,12 @@ import { bridgeFor } from "../../lib/computer-bridge";
 import { cloudflarePhonesNote, pairingWindow, phoneLanLine, phoneQrSrc, phoneStatusLine } from "../../lib/phone";
 import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQuestion } from "../../lib/devices";
 import { Select } from "../primitives/Select";
+import { Segmented } from "../primitives/Segmented";
+import { ThisMacMap, useComputersView, type ComputersView } from "./ThisMacMap";
 import { Group, Row } from "./SettingsGroup";
 import { ComputerResourceList, type ResourceComputer } from "./ComputerResources";
 import { SimlockSettings } from "./SimlockSettings";
+import { BaguetteSettings } from "./BaguetteSettings";
 import { ComputerUseRow, ComputerUseSettings } from "./ComputerUseSettings";
 import { thisComputer } from "../../lib/shortcut-hints";
 import { Icon, SECONDARY_BUTTON, DANGER_BUTTON } from "./settings-parts";
@@ -40,6 +43,7 @@ export function PhoneSharingPage({ title }: { title?: string }) {
       <h1 className="text-22 font-semibold tracking-[-0.01em] text-ink">{title}</h1>
       <DevicesSettings />
       <Group title="Simulators">
+        <BaguetteSettings />
         <SimlockSettings />
       </Group>
       <Group title="Designs and artifacts">
@@ -80,9 +84,10 @@ export function resourceComputer(computer: ComputerView, now: number): ResourceC
   };
 }
 
-/** Settings › This Mac: memory and disk on this Mac and on every computer it drives. */
+/** Settings › This Mac: this Mac and every computer and phone around it, as a map or as memory and disk rows. */
 function DeviceResources() {
   const { otherComputers } = useSettings();
+  const [view, setView] = useComputersView();
   const { thisMac, computers } = useComputers();
   // "Seen 2h ago" keeps counting while the page stays open.
   const [now, setNow] = useState(() => Date.now());
@@ -101,8 +106,22 @@ function DeviceResources() {
     ...(otherComputers ? computers.map((computer) => resourceComputer(computer, now)) : []),
   ];
   return (
-    <Group>
-      <ComputerResourceList computers={rows} />
+    <Group
+      title="Computers"
+      action={
+        <Segmented<ComputersView>
+          label="Show computers as"
+          dataKey="computers-view"
+          value={view}
+          options={[
+            { value: "map", label: "Map" },
+            { value: "list", label: "List" },
+          ]}
+          onChange={setView}
+        />
+      }
+    >
+      {view === "map" ? <ThisMacMap /> : <ComputerResourceList computers={rows} />}
     </Group>
   );
 }

@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { Image, Pressable, ScrollView, Text, View, type ViewStyle } from "react-native";
+import { useRef, type ReactNode } from "react";
+import { Image, Pressable, ScrollView, Text, View, type ViewInstance, type ViewStyle } from "react-native";
 import { router } from "expo-router";
 import { ArrowUp01Icon, Attachment01Icon, Cancel01Icon, File01Icon, StopIcon, Video01Icon } from "@hugeicons/core-free-icons";
 import type { ChatMessage, ContextUsage } from "@milagre/shared/model";
@@ -14,13 +14,16 @@ import { ComposerGlass } from "./composer-glass";
 import { UltracodeGlow } from "./ultracode-glow";
 import { QuoteChips } from "./quote-chips";
 import { PromptField } from "./prompt-field";
+import { useSendStayShortcut } from "./send-stay-shortcut";
 import { AgentControls } from "./agent-controls";
 import { ContextRing } from "./context-ring";
+import { PiStats } from "./pi-stats";
 import { Icon } from "./icons";
 import { DISABLED_OPACITY, IconButton, PageScroll, PullDown, useStyles } from "./ui";
 import { useTheme } from "./theme";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { PersistenceNotice } from "./persistence-notice";
+import { ProviderUpdatePill } from "./provider-update-notice";
 import { SubchatAsk, SubchatPill, type SubchatPanelState } from "./subchat-pill";
 import { PlanPill, type PlanPanelState } from "./plan-pill";
 import { PullRequestAction, PullRequestMerge, PullRequestReview, SubagentChip } from "./status-indicators";
@@ -36,6 +39,7 @@ import type { PastedImage } from "./attachment-picker";
 import type { Attachment } from "./attachments";
 import type { MobileModel, TurnPreferences } from "./turn-options";
 import type { RunShape } from "./run-shape";
+import { armSendLaunch } from "./send-launch-store";
 
 type Project = Snapshot["project"];
 type DockChat = NonNullable<Project["state"]["sessions"][number]>;
@@ -79,6 +83,7 @@ function DockChips(props: DockChipsProps) {
       style={{ marginHorizontal: -12, flexGrow: 0 }}
       contentContainerStyle={{ flexGrow: 1, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 8 }}
     >
+      <ProviderUpdatePill />
       {own && <SubchatPill panel={props.subchatPanel} messages={props.messages} />}
       {props.actionPr && own && <PullRequestAction pr={props.actionPr} disabled={props.actionDisabled} onRun={props.onAction} />}
       {props.mergeable && own && pr && <PullRequestMerge pr={pr} onOpen={() => props.onOpenPr()} />}
@@ -192,7 +197,9 @@ type ComposerControlsProps = {
 
 function ComposerControls(props: ComposerControlsProps) {
   const { colors } = useTheme();
-  const { attachDisabled, compactButton, contextUsage, quietContext, compactionFeedback } = props;
+  const { attachDisabled, compactButton, quietContext, compactionFeedback } = props;
+  const local = props.model.provider === "pi" && Boolean(props.model.local);
+  const contextUsage = props.contextUsage ?? (local && props.model.contextWindow ? { used: 0, size: props.model.contextWindow } : undefined);
   return (
     <>
       <PullDown
@@ -233,7 +240,7 @@ function ComposerControls(props: ComposerControlsProps) {
         </Text>
       ) : (
         !quietContext &&
-        (compactButton || (props.showContextSize && contextUsage && contextUsage.size > 0)) && (
+        (compactButton || ((props.showContextSize || local) && contextUsage && contextUsage.size > 0)) && (
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             {props.compactWarning && (
               <View
@@ -256,7 +263,7 @@ function ComposerControls(props: ComposerControlsProps) {
                 {...contextUsage}
                 canCompact={props.canCompact}
                 threshold={props.threshold}
-                showSize={props.showContextSize}
+                showSize={props.showContextSize || local}
                 onPress={props.onContext}
               />
             )}
@@ -295,6 +302,7 @@ type DraftComposerProps = {
   placeholder?: string;
   focusRequest: number;
   onSend: () => void;
+  onSendStay?: () => void;
   onStop: () => void;
   onFocus: () => void;
   onBlur: () => void;
@@ -316,8 +324,17 @@ function DraftComposer(props: DraftComposerProps) {
   const attachments = held.attachments[chatId] || NO_ATTACHMENTS;
   const empty = !draft.trim() && !quotes.length && !attachments.length;
   const sendDisabled = props.sendBlocked || empty;
+  const focused = useRef(false);
+  const field = useRef<ViewInstance>(null);
+  const send = () => {
+    if (start) armSendLaunch(field);
+    props.onSend();
+  };
+  const sendStay = start && !sendDisabled ? props.onSendStay : undefined;
+  useSendStayShortcut(sendStay, () => focused.current);
   return (
     <View
+      ref={field}
       style={{
         backgroundColor: start ? colors.surface : "transparent",
         borderWidth: 1,
@@ -360,6 +377,8 @@ function DraftComposer(props: DraftComposerProps) {
         onAcceptSuggestion={(text) => composer.setDrafts((current) => (current[chatId] ? current : { ...current, [chatId]: text }))}
         chatTitle={props.chatTitle}
         provider={props.provider}
+        attachmentNames={attachments.map((item) => item.name)}
+        quoteTexts={quotes.map((quote) => quote.text)}
         images={attachments.filter((item) => item.image).length}
         onImagePaste={props.onImagePaste}
         known={props.known}
@@ -367,10 +386,16 @@ function DraftComposer(props: DraftComposerProps) {
         commands={props.commands}
         placeholder={props.placeholder}
         onSubmit={() => {
-          if (!sendDisabled) props.onSend();
+          if (!sendDisabled) send();
         }}
-        onFocus={props.onFocus}
-        onBlur={props.onBlur}
+        onFocus={() => {
+          focused.current = true;
+          props.onFocus();
+        }}
+        onBlur={() => {
+          focused.current = false;
+          props.onBlur();
+        }}
         focusRequest={props.focusRequest}
         onTouchStart={props.onTouchStart}
         onChangeText={(value) => {
@@ -384,7 +409,17 @@ function DraftComposer(props: DraftComposerProps) {
               <IconButton label="Stop agent" icon={StopIcon} filled size={36} disabled={props.actionBusy} onPress={props.onStop} />
             )}
             {(offline || !running || !empty) && (
-              <IconButton label={props.sendLabel} icon={ArrowUp01Icon} filled size={36} loading={busy} disabled={sendDisabled} onPress={props.onSend} />
+              <IconButton
+                label={props.sendLabel}
+                icon={ArrowUp01Icon}
+                filled
+                size={36}
+                loading={busy}
+                disabled={sendDisabled}
+                onPress={send}
+                onLongPress={sendStay}
+                longPressLabel="Start in a new worktree, stay here"
+              />
             )}
           </View>
         )}
@@ -492,6 +527,7 @@ export function ChatComposerDock({ onRoom, onHeight, column, padding, ...props }
           </ComposerTray>
         )
       )}
+      {asking && props.controls.model.provider === "pi" && <PiStats usage={props.controls.contextUsage} local={Boolean(props.controls.model.local)} />}
     </View>
   );
 }

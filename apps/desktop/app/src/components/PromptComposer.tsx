@@ -1,3 +1,4 @@
+import { ComposerMicrophone } from "./composer/ComposerMicrophone";
 import { COMMANDS, UNDO_COMMAND } from "./composer/prompt-commands";
 import { useContextSettings } from "../lib/context-settings";
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
@@ -7,18 +8,19 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import type { ComponentProps, KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CleanIcon, Cancel01Icon, ArrowUp02Icon, Attachment01Icon, FlashIcon, Mic01Icon } from "@hugeicons/core-free-icons";
+import { ArrowUp02Icon, Attachment01Icon, FlashIcon } from "@hugeicons/core-free-icons";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
-import { effortCopy, PERMISSION_MODE_LABEL } from "../model";
+import { effortCopy, modelMatches, PERMISSION_MODE_LABEL } from "../model";
 import { cliNotice, messageParts } from "../lib/cli-status";
 import type { ImageDraft } from "./usePastedImages";
 import { ModelPicker } from "./ModelPicker";
 import { UltracodeFatality } from "./UltracodeFatality";
 import { useDismiss } from "../lib/use-dismiss";
 import { useSettings } from "../lib/settings";
+import { shortcutCommand } from "../lib/keybindings";
 import { ProviderLogo } from "./ProviderLogo";
 import { Attachments } from "./Attachments";
-import { QuoteChips } from "./QuoteChips";
+import { QuotedField } from "./QuoteChips";
 import { useProjectFiles } from "./useProjectFiles";
 import { promptToken, fileMentionPath, insertImageMentions, insertPromptToken } from "../lib/file-mentions";
 import { mentionedImages, shiftImageMentions } from "../lib/prompt-mentions";
@@ -29,15 +31,13 @@ import { useSkills } from "./useSkills";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { useKnownFiles } from "./useKnownFiles";
-import { ContextRing } from "./ContextRing";
+import { ContextCapsule, isLocalModel, shownContextUsage } from "./composer/ContextCapsule";
+import { PiStats } from "./composer/PiStats";
 import { compactButtonState } from "@milagre/shared/chat-display";
 import { PROMPT_PLACEHOLDER, matchingMentionChats, matchingMentionComputers } from "@milagre/shared/prompt-mentions";
 import { useChatMentions, useMentionComputers } from "./ChatMentions";
 import { offlinePlaceholder, reconnectingPlaceholder } from "../lib/computers";
-import { DictationNotice } from "./DictationNotice";
-import { DownloadRing, DroppingArrow } from "./DownloadRing";
 import Tooltip from "./primitives/Tooltip";
-import { SpinnerRing } from "./primitives/SpinnerRing";
 import { useDictationTake } from "./composer/use-dictation-take";
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
@@ -60,7 +60,7 @@ interface PromptComposerProps {
   quotes?: readonly ComposerQuote[];
   onRemoveQuote?: (id: string) => void;
   history?: string[];
-  onSend: (delivery?: MessageDelivery) => void;
+  onSend: (delivery?: MessageDelivery, background?: boolean) => void;
   onStop?: () => void;
   sendBlocked: boolean;
   running?: boolean;
@@ -94,13 +94,6 @@ interface PromptComposerProps {
 
 const NO_HISTORY: string[] = [];
 const NO_QUOTES: readonly ComposerQuote[] = [];
-
-const DICTATION_LABELS = {
-  idle: "Dictate",
-  preparing: "Cancel dictation",
-  recording: "Stop dictation",
-  transcribing: "Transcribing",
-} as const;
 
 const POPOVER_GAP = 12;
 const POPOVER_EDGE = 8;
@@ -326,7 +319,7 @@ export function PromptComposer({
         : [];
   const providerNotice = cliNotice(cliStatus?.[provider]);
   const providerTabs = pickerProviders(cliStatus, selectedModel.provider, provider);
-  const modelRows = models.filter((model) => model.provider === provider && `${model.name} ${model.id}`.toLowerCase().includes(query.toLowerCase()));
+  const modelRows = models.filter((model) => model.provider === provider && modelMatches(model, query));
   const canSend = draft.trim().length > 0 || quotes.length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
   const canStop = !offlineName && running && Boolean(onStop) && !canSend;
   const visibleSuggestion =
@@ -412,21 +405,18 @@ export function PromptComposer({
     transformOrigin: `${anchor.below ? "top" : "bottom"} ${anchor.alignRight ? "right" : "left"}`,
   };
 
-  function send() {
+  function send(background = false) {
     browsing.current = null;
     setModelOpen(false);
     const missing = chipPaths.filter((path) => !imageDraft.files.includes(path));
-    if (missing.length) {
+    if (missing.length)
       flushSync(() => {
         for (const path of missing) {
           mentionAttached.current.add(path);
           imageDraft.attachPath(path);
         }
       });
-      onSendLatest.current(delivery);
-      return;
-    }
-    onSend(delivery);
+    onSendLatest.current(delivery, background);
   }
 
   function chooseModel(model: ModelOption) {
@@ -444,21 +434,23 @@ export function PromptComposer({
     if (canSend && !sendBlocked && !imageDraft.loading && !offlineName) send();
   });
 
-  const { dictateShortcutLabel, dictating, dictation, dictationError, discardDictation, fixing, provisional, rootRef, startDictation, dictatedSend } =
-    useDictationTake({
-      projectPath,
-      imageDraft,
-      draft,
-      draftLatest,
-      onDraftChange,
-      setCaret,
-      inputRef,
-      caret,
-      dictationAction,
-      dictationShortcutMode,
-      mentions,
-      selectedModel,
-    });
+  const dictationTake = useDictationTake({
+    projectPath,
+    imageDraft,
+    draft,
+    quotes,
+    draftLatest,
+    onDraftChange,
+    setCaret,
+    inputRef,
+    caret,
+    dictationAction,
+    dictationShortcutMode,
+    mentions,
+    selectedModel,
+  });
+
+  const { dictating, dictation, fixing, provisional, rootRef, dictatedSend } = dictationTake;
 
   function insertImages(promise: Promise<number[]>, range = inputRef.current?.getSelection() ?? { start: caret, end: caret }) {
     const original = draftLatest.current;
@@ -583,9 +575,10 @@ export function PromptComposer({
       }
     }
     if (recall(event)) return;
-    if (event.key === "Enter" && !event.shiftKey) {
+    const stay = shortcutCommand(event.nativeEvent) === "chat.sendStay";
+    if (stay || (event.key === "Enter" && !event.shiftKey)) {
       event.preventDefault();
-      if (canSend || !visibleSuggestion) send();
+      if (canSend || !visibleSuggestion) send(stay);
     }
   }
 
@@ -792,19 +785,14 @@ export function PromptComposer({
           ) : null}
 
           <div className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,max-content)_auto] items-end gap-x-1 gap-y-1.5">
-            <div className="relative col-span-full row-start-1 flex w-full min-w-0 flex-wrap items-start">
-              {onRemoveQuote && quotes.length > 0 && (
-                <span className="contents text-[length:calc(var(--chat-size)+1px)] leading-5 [&>[data-quote-chip]]:mt-2 [&>[data-quote-chip]]:ml-2 [&>[data-quote-chip]]:top-0">
-                  <QuoteChips
-                    quotes={quotes}
-                    onRemove={(id) => {
-                      onRemoveQuote(id);
-                      inputRef.current?.focus();
-                    }}
-                  />
-                </span>
-              )}
-              <div className="relative min-w-40 flex-1 basis-40">
+            <QuotedField
+              quotes={onRemoveQuote ? quotes : NO_QUOTES}
+              onRemove={(id) => {
+                onRemoveQuote?.(id);
+                inputRef.current?.focus();
+              }}
+            >
+              {(spacer) => (
                 <PromptEditor
                   ref={inputRef}
                   resetKey={imageDraft.scope}
@@ -837,10 +825,10 @@ export function PromptComposer({
                       : (running ? (queuesFollowUp ? "Queue a message for the next turn…" : "Steer the agent…") : (placeholder ?? PROMPT_PLACEHOLDER)) +
                         (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
                   }
-                  className="min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
+                  className={`min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5 ${spacer}`}
                 />
-              </div>
-            </div>
+              )}
+            </QuotedField>
             <Tooltip label="Attach files" asChild>
               <button
                 type="button"
@@ -889,126 +877,22 @@ export function PromptComposer({
                   ✓ {compactionFeedback.percent}%<span className="@max-[700px]:hidden"> · {compactionFeedback.freed} freed</span>
                 </span>
               ) : (
-                !quiet &&
-                (compactButton.visible || compactQueued || compacting || (showContextSize && contextUsage && contextUsage.size > 0)) && (
-                  <div
-                    data-context-capsule
-                    className={`flex shrink-0 items-center overflow-hidden rounded-control ${compactButton.warning ? "bg-orange/15 text-orange-ink" : "text-ink-2"}`}
-                  >
-                    {(compactButton.visible || compactQueued || compacting) && (
-                      <button
-                        type="button"
-                        data-compact-context
-                        aria-label={compactQueued ? "Cancel queued compaction" : "Compact context"}
-                        disabled={Boolean(compactBlocked)}
-                        title={compactLabel}
-                        onClick={compactQueued ? onCancelCompact : onCompact}
-                        className="flex h-7 items-center gap-1 px-2 text-12 font-medium disabled:opacity-40"
-                      >
-                        <Icon icon={compactQueued ? Cancel01Icon : CleanIcon} size={14} />
-                        <span className="@max-[700px]:hidden">{compactLabel}</span>
-                      </button>
-                    )}
-                    {contextUsage && contextUsage.size > 0 && (
-                      <ContextRing
-                        {...contextUsage}
-                        onCompact={onCompact}
-                        compactBlocked={compactBlocked}
-                        compactLabel={running ? "Compact after turn" : "Compact now"}
-                        settings={contextSettings}
-                        showSize={showContextSize}
-                      />
-                    )}
-                  </div>
+                !quiet && (
+                  <ContextCapsule
+                    {...{ compactButton, compactQueued, compacting, compactLabel, compactBlocked, running, showContextSize, onCompact, onCancelCompact }}
+                    contextUsage={shownContextUsage(contextUsage, selectedModel)}
+                    alwaysShown={isLocalModel(selectedModel)}
+                    settings={contextSettings}
+                  />
                 )
               )}
-              <span className="relative flex shrink-0">
-                {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}
-                {dictation.download ? (
-                  <Tooltip
-                    label={`Downloading speech model · ${Math.round((dictation.download.received / dictation.download.total) * 100)}% of ${Math.round(dictation.download.total / 1e6)} MB`}
-                    align="end"
-                  >
-                    <button
-                      type="button"
-                      data-dictation-download
-                      aria-label={`Downloading speech model, ${Math.round((dictation.download.received / dictation.download.total) * 100)}%. Cancel`}
-                      onClick={discardDictation}
-                      className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink"
-                    >
-                      <DownloadRing size={28} progress={dictation.download.received / dictation.download.total}>
-                        <DroppingArrow size={14} well={20} />
-                      </DownloadRing>
-                    </button>
-                  </Tooltip>
-                ) : dictating ? (
-                  <span data-dictation-capsule className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-hover px-1">
-                    <button
-                      type="button"
-                      aria-label="Discard dictation"
-                      title="Discard dictation"
-                      onClick={discardDictation}
-                      className="flex size-6 shrink-0 items-center justify-center rounded-full text-ink-2 transition-colors hover:text-ink"
-                    >
-                      <Icon icon={Cancel01Icon} size={14} />
-                    </button>
-                    {dictation.phase === "recording" ? (
-                      <button
-                        ref={(node) => {
-                          dictation.meter.current = node;
-                        }}
-                        type="button"
-                        aria-label="Stop dictation"
-                        title="Stop dictation"
-                        onClick={() => void dictation.stop()}
-                        className="relative flex size-6 shrink-0 items-center justify-center rounded-full"
-                      >
-                        <span
-                          aria-hidden
-                          className="absolute inset-0.5 rounded-full bg-red/25 motion-safe:transition-transform motion-safe:duration-75"
-                          style={{
-                            transform: "scale(calc(1 + var(--level, 0) * 0.38))",
-                          }}
-                        />
-                        <span aria-hidden className="relative block size-2.5 rounded-inline bg-red" />
-                      </button>
-                    ) : (
-                      <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
-                        <span className="block size-4 rounded-full border-2 border-line border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
-                      </span>
-                    )}
-                  </span>
-                ) : (
-                  <Tooltip
-                    label={fixing !== null ? (fixing ? `Correcting names · ${fixing}` : "Correcting names…") : DICTATION_LABELS.idle}
-                    shortcut={dictateShortcutLabel}
-                    align="end"
-                  >
-                    <button
-                      type="button"
-                      data-dictation-processing={fixing !== null || undefined}
-                      aria-label={DICTATION_LABELS.idle}
-                      aria-busy={fixing !== null}
-                      aria-description={fixing !== null ? "Correcting names. Start a new dictation to replace the pending correction." : undefined}
-                      onClick={startDictation}
-                      className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors ${fixing !== null ? "bg-hover text-ink-4" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
-                    >
-                      {fixing !== null && (
-                        <span className="pointer-events-none absolute inset-0">
-                          <SpinnerRing size={28} stroke={1.5} color="var(--accent)" />
-                        </span>
-                      )}
-                      <Icon icon={Mic01Icon} size={16} />
-                    </button>
-                  </Tooltip>
-                )}
-              </span>
+              <ComposerMicrophone take={dictationTake} cwd={projectPath} />
               <button
                 type="button"
                 aria-label={canStop ? "Stop agent" : offlineName ? "Queue message" : running ? (queuesFollowUp ? "Queue message" : "Send now") : "Send"}
                 data-composer-submit
                 disabled={!canStop && (dictating || !canSend || sendBlocked || imageDraft.loading)}
-                onClick={canStop ? onStop : send}
+                onClick={canStop ? onStop : (event) => send(event.metaKey || event.ctrlKey)}
                 className={`flex size-7 shrink-0 items-center justify-center rounded-full text-on-ink transition-[background-color,opacity,scale] duration-fast enabled:hover:opacity-90 enabled:active:scale-press disabled:cursor-not-allowed disabled:opacity-40 ${ultracodeOn ? "bg-purple" : "bg-ink"}`}
               >
                 {canStop ? (
@@ -1023,6 +907,7 @@ export function PromptComposer({
           </div>
         </div>
       </div>
+      {selectedModel.provider === "pi" && <PiStats usage={contextUsage} local={isLocalModel(selectedModel)} />}
     </div>
   );
 }

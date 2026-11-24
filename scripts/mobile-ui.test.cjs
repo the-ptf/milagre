@@ -218,6 +218,27 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (relative === "undo-history" && !(id in modules)) return undoHistoryModule();
       if (relative === "design-font-cache")
         return load("design-font-cache.ts", { "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts") }, "", cache);
+      if (relative === "design-build-in")
+        return load(
+          "design-build-in.ts",
+          {
+            ...modules,
+            "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+            "@milagre/shared/design-build": require("../packages/shared/src/design-build.mjs"),
+          },
+          "",
+          cache,
+        );
+      if (relative === "design-modes-menu")
+        return load(
+          "design-modes-menu.ts",
+          {
+            "@milagre/shared/design-modes": require("../packages/shared/src/design-modes.mjs"),
+            "./artifact-pages.ts": require("../apps/mobile/src/artifact-pages.ts"),
+          },
+          "",
+          cache,
+        );
       if (relative === "secret-question")
         return load(
           "secret-question.tsx",
@@ -351,6 +372,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // Dictation is not available in a test: no microphone, no on-device transcriber.
       if (file === "prompt-field.tsx" && base === "chat-display-setting" && !(id in modules)) return { useDictationAction: () => ["paste"] };
       if (base === "dictation-shortcut" && !(id in modules)) return { useDictationShortcut() {}, toggleDictationShortcut() {} };
+      if (base === "send-stay-shortcut" && !(id in modules)) return { useSendStayShortcut() {}, sendStayShortcut() {} };
+      if (base === "composer-placeholder" && !(id in modules)) return require("../apps/mobile/src/composer-placeholder.ts");
       if (base === "voice-dictation-hook" && !(id in modules))
         return {
           useVoiceDictation: () => ({
@@ -366,6 +389,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
             dismiss() {},
           }),
         };
+      if (base === "last-dictation" && !(id in modules)) return { saveLastDictation() {} };
+      if (base === "composer-microphone") return load("composer-microphone.tsx", modules, "", cache);
+      if (base === "voice-menu" && !(id in modules)) return { openComposerVoiceMenu() {} };
       if (base === "voice-mic-button" && !(id in modules))
         return {
           VoiceMicButton: "VoiceMicButton",
@@ -393,9 +419,15 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           chatsHomePath: async (_client, _hostId, home) => home.path,
           allComputers: { clientFor: () => null, hostFor: () => undefined, viewOf: () => undefined },
         };
+      // The first message's flight from the composer (send-launch.tsx) is drawing: without a launch it is the plain View it wraps.
+      if (base === "send-launch-store" && !(id in modules)) return require("../apps/mobile/src/send-launch-store.ts");
+      if (base === "send-launch" && !(id in modules))
+        return { SendLaunch: ({ style, children }) => modules["react/jsx-runtime"].jsx(modules["react-native"].View, { style, children }) };
       // One row per repository in New Chat's Project picker (new-chat-project.ts) is pure.
       if (base === "new-chat-project" && !(id in modules)) return require("../apps/mobile/src/new-chat-project.ts");
       if (base === "project-icon" && !(id in modules)) return { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" };
+      // The update chip and its card (provider-update-notice.tsx) read the computer's CLI updates; none in these screens.
+      if (base === "provider-update-notice" && !(id in modules)) return { ProviderUpdatePill: () => null, ProviderUpdatesProvider: ({ children }) => children };
       // A phone-width window: no pinned sidebar and no reading column (split-context.tsx); the width helpers are pure.
       if (base === "split-context" && !(id in modules))
         return { useSplit: () => phoneSplit, useSplitLayout: () => phoneSplit, SplitProvider: ({ children }) => children };
@@ -455,6 +487,23 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // A phone's width: simulators and designs open full screen, never in the panel docked beside the Chat (panel-tabs.tsx).
       if (base === "panel-tabs" && !(id in modules)) return { PanelTabsContext: ({ children }) => children, usePanelTabs: () => null };
       if (base === "side-panels" && !(id in modules)) return { useChatPanelTabs: () => null };
+      // The Artifact's page menu and its Share entries load with the sheet's own fakes; the pages each Chat last viewed
+      // (artifact-pages.ts) and a link's status copy (page-share-status.ts) are pure, one copy for every sheet.
+      if (["artifact-page-menu", "use-share-available"].includes(base) && !(id in modules))
+        return load(base === "artifact-page-menu" ? `${base}.tsx` : `${base}.ts`, modules, "", cache);
+      if (["artifact-pages", "page-share-status"].includes(base) && !(id in modules)) return require(`../apps/mobile/src/${base}.ts`);
+      // The Project library's reads and Add to Project library load with the sheet's own fakes; the iPad tab picks its sheet
+      // (artifact-panel.tsx) from the same fakes, and a library page draws as a named element unless a test supplies it.
+      if (["design-library", "artifact-panel", "artifact-page-actions"].includes(base) && !(id in modules))
+        return load(
+          base === "design-library" ? `${base}.ts` : `${base}.tsx`,
+          { "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"), ...modules },
+          "",
+          cache,
+        );
+      if (base === "library-sheet" && !(id in modules)) return { LibrarySheet: "LibrarySheet" };
+      // Open Design library pushes the Project's page; a test reads what it asked for on globalThis.openedDesignLibrary.
+      if (base === "design-library-route" && !(id in modules)) return { openDesignLibrary: (...args) => (globalThis.openedDesignLibrary = args) };
       if (base === "browser-setting" && !(id in modules)) return { useInternalBrowser: () => [globalThis.internalBrowser !== false, async () => {}] };
       // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
       if (base === "hardware-keys" && !(id in modules))
@@ -542,6 +591,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "orchestrator-row" && !(id in modules)) return { OrchestratorRow: () => null };
       if (base === "orchestrator-church-row" && !(id in modules)) return { OrchestratorChurchRow: () => null };
       if (id === "@milagre/shared/orchestrator" && !(id in modules)) return require("@milagre/shared/orchestrator");
+      if (id === "@milagre/shared/provider-capabilities" && !(id in modules)) return require("@milagre/shared/provider-capabilities");
+      if (id === "@milagre/shared/providers" && !(id in modules)) return require("@milagre/shared/providers");
+      // The local-model speed line under the composer renders nothing without a Pi turn.
+      if (base === "pi-stats" && !(id in modules)) return { PiStats: () => null };
       if (base === "orchestrator-answer-line" && !(id in modules)) return { OrchestratorAnswerLine: () => null };
       if (base === "orchestrator-mention-row" && !(id in modules)) return { OrchestratorMentionRow: () => null };
       if (base === "use-orchestrator" && !(id in modules)) return { useTaskEffort: () => null };
@@ -654,6 +707,7 @@ const primitive = (name, file) => {
   return fn;
 };
 const jsx = (type, props, key) => {
+  if (typeof type === "function" && type.name === "ComposerMicrophone") return type(props);
   if (type === messageActionsStub) return messageActionsStub(props);
   // A primitive drawing a sibling (Group's SectionLabel, CheckRow's CheckboxBox) reads as that sibling's name.
   type = realPrimitives.get(type) ?? type;
@@ -3559,6 +3613,13 @@ function find(node, predicate) {
     if (found) return found;
   }
 }
+// A reply's activity rows (ReplyActivity in chat-reply.tsx) drawn in place, as React would.
+function drawReplyActivity(node) {
+  if (Array.isArray(node)) return node.map(drawReplyActivity);
+  if (!node || typeof node !== "object" || !node.props) return node;
+  if (typeof node.type === "function" && node.type.name === "ReplyActivity") return drawReplyActivity(node.type(node.props));
+  return "children" in node.props ? { ...node, props: { ...node.props, children: drawReplyActivity(node.props.children) } } : node;
+}
 // The routed Chat's native header (ChatStackOptions in app/chat.tsx) as its Stack.Screen publishes it, with the header
 // its slot draws in place of the HeaderSlot the navigator gets.
 function chatScreen(tree) {
@@ -3624,6 +3685,8 @@ function chatHost({
   // "secondary" renders the pane as the Chat beside the routed one, with these params as its own.
   pane: asPane,
   platform = "ios",
+  // Worktree 1's folder: the Project folder, or a Worktree of its own, where the Chat shows the branch's PR.
+  worktreePath = "/p",
 } = {}) {
   const sending = deferred();
   const calls = [];
@@ -3674,7 +3737,14 @@ function chatHost({
       project: {
         path: "/p",
         name: "P",
-        state: { next_id: 4, projects: {}, sessions: {}, messages: [], tasks: {}, worktrees: { 1: { id: 1, name: "main", path: "/p", project_id: 1 } } },
+        state: {
+          next_id: 4,
+          projects: {},
+          sessions: {},
+          messages: [],
+          tasks: {},
+          worktrees: { 1: { id: 1, name: "main", path: worktreePath, project_id: 1 } },
+        },
       },
       runs: { runs: {} },
     },
@@ -3869,7 +3939,8 @@ function chatHost({
       useReanimatedKeyboardAnimation: () => ({ height: { get: () => 0 }, progress: { get: () => 0 } }),
       useKeyboardState: (select) => select({ isVisible: false, height: 0 }),
     },
-    "../running-logo": { ThinkingIndicator: "ThinkingIndicator", BackgroundIndicator: "BackgroundIndicator" },
+    "../running-logo": { BackgroundIndicator: "BackgroundIndicator" },
+    "../run-indicator": { RunIndicator: "RunIndicator" },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
     "@milagre/shared/model": require("@milagre/shared/model"),
     "@milagre/shared/agent-runs": { ...require("@milagre/shared/agent-runs"), lastUserModel: () => "" },
@@ -5657,7 +5728,7 @@ test("a linked Chat shows the Link icon, and its ⋯ menu links with another Cha
     undefined,
   );
   same(ids(login), [
-    ["copy-path", "copy-branch"],
+    ["copy-path", "copy-branch", "design-library"],
     ["rename", "fork", "unread"],
     ["pin"],
     ["link-with", "link-remove"],
@@ -7002,7 +7073,7 @@ test("the PR pill sends a PR action whose preview is already a card", async () =
     checks: "failed",
   };
   try {
-    const screen = chatHost();
+    const screen = chatHost({ worktreePath: "/p-fix" });
     screen.params.id = "42";
     screen.session.snapshot.project.state.sessions[42] = {
       id: 42,
@@ -7036,7 +7107,7 @@ test("a PR ready to merge shows Merge #n, which opens the PR sheet, and the shee
   globalThis.chatPullRequest = { number: 90, title: "Fix it", url, state: "OPEN", readyToMerge: true };
   globalThis.openedPullRequests = [];
   try {
-    const screen = chatHost({ effects: true, call: async () => ({ sessionId: 42 }) });
+    const screen = chatHost({ worktreePath: "/p-fix", effects: true, call: async () => ({ sessionId: 42 }) });
     screen.params.id = "42";
     screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
     const tree = screen.render();
@@ -7071,7 +7142,7 @@ test("a new Chat whose Worktree has a PR opens it from the header, and the sheet
   globalThis.chatPullRequest = { number: 91, title: "Fix it", url: "https://github.com/o/r/pull/91", state: "OPEN", readyToMerge: true };
   globalThis.openedPullRequests = [];
   try {
-    const screen = chatHost({ effects: true });
+    const screen = chatHost({ worktreePath: "/p-fix", effects: true });
     const tree = screen.render();
     const key = `${screen.session.snapshot.project.path}#new:1`;
     find(tree, (node) => node.type?.name === "HeaderAction" && node.props.label === "Pull request #91").props.onPress();
@@ -7082,6 +7153,29 @@ test("a new Chat whose Worktree has a PR opens it from the header, and the sheet
   } finally {
     delete globalThis.chatPullRequest;
     delete globalThis.openedPullRequests;
+  }
+});
+
+test("a Chat in the Project folder doesn't show the folder branch's PR, which another Chat may have opened (#876)", () => {
+  globalThis.chatPullRequest = { number: 91, title: "Fix it", url: "https://github.com/o/r/pull/91", state: "OPEN", readyToMerge: true };
+  try {
+    const fresh = chatHost();
+    assert.equal(
+      find(fresh.render(), (node) => node.type?.name === "HeaderAction" && node.props.label === "Pull request #91"),
+      undefined,
+      "a new Chat in the Project folder",
+    );
+    const saved = chatHost({ worktreePath: "/p-fix" });
+    saved.params.id = "42";
+    saved.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
+    saved.session.snapshot.project.state.sessions[43] = { id: 43, provider: "codex", worktree_id: 1 };
+    assert.equal(
+      find(saved.render(), (node) => node.type === "PullRequestMerge"),
+      undefined,
+      "a Chat sharing its Worktree with another open Chat",
+    );
+  } finally {
+    delete globalThis.chatPullRequest;
   }
 });
 
@@ -7100,7 +7194,7 @@ test("open review threads show a Review pill beside Merge, which opens the PR's 
   globalThis.prDetail = { number: 92, state: "OPEN", threads: [thread("1", false), thread("2", true), thread("3", false, true)] };
   globalThis.openedPrPages = [];
   try {
-    const screen = chatHost();
+    const screen = chatHost({ worktreePath: "/p-fix" });
     screen.params.id = "42";
     screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
     const tree = screen.render();
@@ -7130,7 +7224,7 @@ test("on an iPad the PR opens in the right panel, beside Changes", () => {
   globalThis.chatPullRequest = { number: 91, title: "Fix it", url: "https://github.com/o/r/pull/91", state: "OPEN", readyToMerge: true };
   globalThis.openedPullRequests = [];
   try {
-    const screen = chatHost({ screenWidth: 1194 });
+    const screen = chatHost({ worktreePath: "/p-fix", screenWidth: 1194 });
     screen.params.id = "42";
     screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
     find(screen.render(), (node) => node.type === "PullRequestMerge").props.onOpen();
@@ -9440,7 +9534,7 @@ test("first send immediately shows input and a running Chat in the drawer before
   const reply = find(screen.render(), (node) => node.type === "ChatReply" && node.props.message?.role === "user");
   assert.equal(reply.props.message.body, "first message");
   assert.deepEqual(Array.from(reply.props.message.files), ["notes.txt"]);
-  assert.ok(find(screen.render(), (node) => node.type === "ThinkingIndicator"));
+  assert.ok(find(screen.render(), (node) => node.type === "RunIndicator"));
   const nav = navigationHost(Promise.resolve(), { session: { ...screen.session, recent: [{ path: "/p" }] } });
   const row = nav.rows().props.data.find((row) => row.kind === "chat");
   assert.equal(row.chat.title, "first message");
@@ -9601,10 +9695,15 @@ function simulatorHost(client, file = "simulator.tsx", { modules = {}, native: n
       "expo-clipboard": { setStringAsync: async () => {} },
       "@hugeicons/core-free-icons": {},
       "@milagre/shared/simulator-receiver": require("../packages/shared/src/simulator-receiver.mjs"),
-      "@milagre/shared/simulator": { SIMLOCK_DEVICE_PREFIX: "simlock:" },
+      "@milagre/shared/simulator": require("../packages/shared/src/simulator.ts"),
       "./session": { useSession: () => ({ client }) },
       "./icons": { Icon: "Icon" },
       "./status-pill": { StatusPill: "StatusPill" },
+      "./simulator-handheld": {
+        HandheldControls: "HandheldControls",
+        HandheldStage: "HandheldStage",
+        useHandheldMode: () => ({ handheld: false, fullscreen: false, enter() {}, exit() {} }),
+      },
       "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
       "./theme": {
         hex: () => ({
@@ -9628,7 +9727,8 @@ function simulatorHost(client, file = "simulator.tsx", { modules = {}, native: n
       ...modules,
     },
     file === "simulator.tsx"
-      ? "\nexports.TestSimulatorWebView = SimulatorWebView;"
+      ? // The live WebView sits in a View that also holds handheld mode's overlay.
+        '\nexports.TestSimulatorWebView = (props) => { const tree = SimulatorWebView(props); return (tree?.type === "View" && [tree.props.children].flat().find((child) => child?.type === "DomWebView")) || tree; };'
       : file === "ports.tsx"
         ? // The Chat screen reads the ports once and hands them to the pill (app/chat.tsx).
           "\nexports.TestChatPorts = ({ chatId }) => PortsChip({ chatId, ports: useChatPorts(useSession().client, chatId).ports });"
@@ -9726,8 +9826,8 @@ test("mobile simulator chooses the sole running device, but a list never starts 
     const calls = [];
     const h = simulatorHost({
       url: "mac",
-      call: async (method) => {
-        calls.push(method);
+      call: async (method, args) => {
+        calls.push([method, args]);
         return { chatId: "/p#7", supported: true, devices, attached: devices, available: [] };
       },
     });
@@ -9736,7 +9836,11 @@ test("mobile simulator chooses the sole running device, but a list never starts 
     const tree = h.render("SimulatorSheet", { hostId: "mac", chatId: "/p#7" });
     assert.equal(tree.props.style.paddingBottom, 34, "controls clear the phone home indicator");
     assert.equal(!!find(tree, (node) => node.props?.deviceId === "one"), devices.length === 1);
-    assert.deepEqual(calls, ["simulator:list"]);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(calls)),
+      [["simulator:list", [{ chatId: "/p#7", attachedOnly: false }]]],
+      "the viewer lists every running device",
+    );
     if (devices.length === 2) assert.ok(find(tree, (node) => node.type === "Pressable"));
     h.cleanup();
   }
@@ -11806,19 +11910,48 @@ test("mobile Accounts lists each Project's accounts under its saved accounts, wi
   const { SettingsView } = loadSettings({ client: { url: "http://mac", call: async () => null } });
   find(SettingsView({ onOpen: (page) => opened.push(page) }), (n) => n.props.title === "Accounts").props.onPress();
   assert.deepEqual(opened, ["accounts"]);
+  const state = { chosen: null, views: [] };
+  const studio = { url: "http://studio", call: async () => null };
   const { default: Screen } = load("app/(settings)/accounts.tsx", {
     "react/jsx-runtime": { jsx, jsxs: jsx },
+    react: { useState: () => [state.chosen, (value) => (state.chosen = value)] },
     "expo-router": { Stack: { Screen: "Screen" } },
-    "react-native": { View: "View" },
-    "../ui": { PageScroll: "PageScroll", SectionLabel: "SectionLabel" },
+    "react-native": { Text: "Text", View: "View" },
+    "../settings-find": { Findable: "Findable", SettingsScroll: "SettingsScroll" },
+    "../ui": { PullDown: "PullDown", SectionLabel: "SectionLabel", useStyles: () => ({ card: {}, text: {} }) },
+    "../session": { useSession: () => ({ client: { url: "http://mac" }, hostName: "Mac mini" }) },
+    "../all-computers": {
+      useComputerViews: () => state.views,
+      allComputers: { clientFor: (hostId) => (hostId === studio.url ? studio : null) },
+    },
     "../accounts-section": { AccountsSection: "AccountsSection" },
     "../limit-switch-section": { LimitAutoSwitchSection: "LimitAutoSwitchSection" },
     "../project-accounts-section": { ProjectAccountsSection: "ProjectAccountsSection" },
   });
-  const rendered = Screen();
-  assert.equal(find(rendered, (n) => n.type === "Screen").props.options.title, "Accounts");
-  assert.ok(find(rendered, (n) => n.type === "SectionLabel" && n.props.children === "Per Project"));
-  assert.equal(find(rendered, (n) => n.type === "ProjectAccountsSection").props.onAccountsPage, true);
+  const alone = Screen();
+  assert.equal(find(alone, (n) => n.type === "Screen").props.options.title, "Accounts");
+  assert.equal(
+    find(alone, (n) => n.type === "PullDown"),
+    undefined,
+    "One computer needs no Computer menu",
+  );
+  assert.ok(find(alone, (n) => n.type === "SectionLabel" && n.props.children === "Per Project"));
+  assert.equal(find(alone, (n) => n.type === "ProjectAccountsSection").props.onAccountsPage, true);
+
+  state.views = [
+    { hostId: "http://mac", name: "Mac mini", state: "online" },
+    { hostId: studio.url, name: "Studio", state: "online" },
+  ];
+  const menu = find(Screen(), (n) => n.type === "PullDown");
+  assert.equal(menu.props.sections[0].items.map((item) => `${item.title}:${item.checked}`).join(", "), "Mac mini:true, Studio:false");
+  assert.equal(find(Screen(), (n) => n.type === "AccountsSection").props.client, undefined, "This computer uses the session's client");
+  menu.props.onSelect(studio.url);
+  const remote = Screen();
+  assert.equal(find(remote, (n) => n.type === "AccountsSection").props.client, studio);
+  assert.equal(find(remote, (n) => n.type === "AccountsSection").props.hostName, "Studio");
+  assert.equal(find(remote, (n) => n.type === "LimitAutoSwitchSection").props.client, studio);
+  find(remote, (n) => n.type === "PullDown").props.onSelect("http://mac");
+  assert.equal(state.chosen, null);
 });
 
 test("new mobile Chat has no simulator pill; an existing Chat carries its identity", () => {
@@ -11846,10 +11979,22 @@ test("mobile simulator pill stays hidden until this Chat has attachments, includ
   const device = { id: "a", name: "My iPhone", platform: "ios", version: "27" };
   for (const attached of [[], [device]]) {
     const gate = deferred();
-    const h = simulatorHost({ url: "mac", call: () => gate.promise });
+    const calls = [];
+    const h = simulatorHost({
+      url: "mac",
+      call: (method, args) => {
+        calls.push([method, args]);
+        return gate.promise;
+      },
+    });
     t.after(() => h.cleanup());
     const render = () => h.render("SimulatorChip", { chatId: "/p#7" });
     assert.equal(render(), null, "loading must not flash an empty pill");
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(calls)),
+      [["simulator:list", [{ chatId: "/p#7", attachedOnly: true }]]],
+      "the pill lists no devices while nothing is attached",
+    );
     gate.resolve({ chatId: "/p#7", supported: true, devices: [], attached, available: [device] });
     await settle();
     if (attached.length) assert.equal(render().props.accessibilityLabel, "Simulators, 1 attached to this Chat");
@@ -12422,7 +12567,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
           },
         },
       },
-      "expo-router": { router: { back: () => router.back(), push: (route) => pushes.push(route) } },
+      "expo-router": { router: { back: () => router.back(), push: (route) => pushes.push(route), setParams: (params) => pushes.push({ setParams: params }) } },
       "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 47, bottom: 34 }) },
       "@expo/dom-webview": { DomWebView: "DomWebView" },
       "expo-file-system": { File, Paths: { cache: "/cache" } },
@@ -12541,7 +12686,7 @@ function designsHost(client, router = { back() {} }, feature = designsOn, pushes
           },
         },
       },
-      "expo-router": { router: { back: () => router.back(), push: (route) => pushes.push(route) } },
+      "expo-router": { router: { back: () => router.back(), push: (route) => pushes.push(route), setParams: (params) => pushes.push({ setParams: params }) } },
       "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 47, bottom: 34 }) },
       "react-native-reanimated": {
         __esModule: true,
@@ -12675,6 +12820,64 @@ test("structured designs on mobile open on their canvas, with versions in the me
   h.cleanup();
 });
 
+test("designs that land while the phone canvas is open build in layer by layer; the ones it opened with don't", async () => {
+  const { createExampleDesign, designHtml } = require("../packages/shared/src/design.mjs");
+  const document = createExampleDesign();
+  const design = (id, version, doc) => ({
+    id,
+    version,
+    latest: version,
+    versions: version,
+    title: id,
+    format: "design",
+    width: 390,
+    height: 844,
+    html: designHtml(doc),
+    document: doc,
+  });
+  const changed = { ...document, nodes: document.nodes.map((node, index) => (index === 1 ? { ...node, opacity: 0.5 } : node)) };
+  let list = [design("fieldnotes", 1, document)];
+  const client = {
+    url: "mac",
+    call: async (method, [request] = []) => {
+      if (method === "artifact:list") return list;
+      if (method === "artifact:get") return list.find((item) => item.id === request.id);
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      throw new Error(`Unexpected request: ${method}`);
+    },
+  };
+  const h = designsHost(client);
+  const props = { hostId: "mac", chatId: "/p#7", id: "fieldnotes" };
+  await h.open(props);
+  await settle();
+  h.render("DesignsSheet", props);
+  const docs = (id) =>
+    h
+      .commands()
+      .filter((command) => command.t === "html" && command.id === id)
+      .map((command) => command.doc);
+  assert.equal(docs("fieldnotes").length, 1);
+  assert.doesNotMatch(docs("fieldnotes")[0], /milagre-build/, "a design the canvas opened with goes on as it is");
+  list = [design("fieldnotes", 2, changed), design("plan", 1, document)];
+  h.reconnect();
+  for (let round = 0; round < 4; round++) {
+    h.render("DesignsSheet", props);
+    await settle();
+  }
+  const edited = docs("fieldnotes").at(-1);
+  const added = docs("plan").at(-1);
+  assert.ok(edited && added, "both landed versions reach the canvas");
+  const layers = (doc) => [...doc.matchAll(/\[data-design-node="([^"]+)"\]\{animation-delay/g)].map((match) => match[1]);
+  assert.deepEqual(layers(edited), [document.nodes[1].id], "an edit builds in only the layers it changed");
+  assert.deepEqual(
+    layers(added),
+    document.nodes.map((node) => node.id),
+    "a new design builds in every layer, in order",
+  );
+  h.cleanup();
+});
+
 test("canvas fonts are injected once per page and replayed before documents after reload", async () => {
   const { createExampleDesign } = require("../packages/shared/src/design.mjs");
   const document = createExampleDesign();
@@ -12697,6 +12900,7 @@ test("canvas fonts are injected once per page and replayed before documents afte
       if (method === "artifact:list") return designs;
       if (method === "artifact:comments") return [];
       if (method === "artifact:sharing-status") return { available: false };
+      if (method === "design-library:list") return { pages: [] };
       calls.push(request);
       return {
         ...designs.find((item) => item.id === request.id),
@@ -12749,6 +12953,7 @@ test("a superseding canvas effect reuses an outstanding design read", async () =
       if (method === "artifact:list") return [design];
       if (method === "artifact:comments") return [];
       if (method === "artifact:sharing-status") return { available: false };
+      if (method === "design-library:list") return { pages: [] };
       gets++;
       return new Promise((resolve) => {
         finish = resolve;
@@ -13035,8 +13240,8 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
 
 test("mobile tool display keeps compact progress specific and Full detail in order", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
-  const reply = (display) =>
-    load("chat-reply.tsx", {
+  const reply = (display) => {
+    const ChatReply = load("chat-reply.tsx", {
       "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
       "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
       "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
@@ -13071,6 +13276,8 @@ test("mobile tool display keeps compact progress specific and Full detail in ord
       "./viewer-store": { showImages() {} },
       "./ui": { colors: {}, styles: { card: {}, row: {}, muted: {} } },
     }).ChatReply;
+    return (props) => drawReplyActivity(ChatReply(props));
+  };
   const body = "Running the tests.Tests pass, reading the config.Done.";
   const steps = [
     { id: "a", kind: "shell", title: "Ran `npm test`", status: "done", offset: 18 },
@@ -13111,13 +13318,68 @@ test("mobile tool display keeps compact progress specific and Full detail in ord
     const row = find(tree, (node) => typeof node.type === "function" && node.type.name === "ActivityRow");
     return row.type(row.props);
   };
-  const parallel = compactRow([command, thought]);
-  assert.ok(find(parallel, (node) => node.type === "Text" && node.props.children === "Running 2 calls"));
-  const thinking = compactRow([{ ...command, status: "done" }, thought]);
-  assert.equal(find(thinking, (node) => node.type === "ActivityTitle").props.title, "Thinking");
+  const loaderHolds = reply("compact")({ ...props, message: undefined, run: { ...live, steps: [command, thought], approvals: [] } });
+  assert.ok(!find(loaderHolds, (node) => typeof node.type === "function" && node.type.name === "ActivityRow"), "the loader shows running calls, not a row");
   const waiting = compactRow([command, thought], [{ stepId: command.id }]);
   assert.equal(find(waiting, (node) => node.type === "ActivityTitle").props.title, "Run `npm test`");
   assert.equal(find(waiting, (node) => node.type === "ActivityTitle").props.shimmer, false);
+});
+
+test("the phone's loader shows the running calls and opens them in the activity sheet", () => {
+  const routes = [];
+  let run;
+  let display = "compact";
+  const { RunIndicator } = load("run-indicator.tsx", {
+    react: { useMemo: (compute) => compute() },
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { router: { push: (route) => routes.push(route) } },
+    "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"),
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "@milagre/shared/tool-activity": require("@milagre/shared/tool-activity"),
+    "./activity-item": { ActivityTitle: "ActivityTitle" },
+    "./chat-display-setting": { useToolCallDisplay: () => [display, () => {}] },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "./running-logo": { ThinkingIndicator: "ThinkingIndicator" },
+    "./session": { useRun: () => run },
+    "./theme": { useTheme: () => ({ colors: { ink2: "ink2", ink3: "ink3", ink4: "ink4" } }) },
+  });
+  const command = { id: "loader-command", kind: "shell", title: "Ran `npm test`", status: "running", offset: 9 };
+  const read = { id: "loader-read", kind: "read", title: "Read `a.ts`", status: "done", offset: 9 };
+  const draw = (props = {}) => RunIndicator({ chatKey: "/p#7", model: "Opus", ...props });
+  run = { text: "Checking.", steps: [read, command], approvals: [], questions: [], startedAt: 5 };
+  const loader = draw();
+  assert.equal(find(loader.props.detail, (node) => node.type === "ActivityTitle").props.title, "Running `npm test`");
+  assert.ok(find(loader.props.detail, (node) => node.type === "Text" && node.props.children === "2 calls"));
+  assert.equal(loader.props.startedAt, 5);
+  loader.props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(routes)), [{ pathname: "/activity", params: { id: "7", message: "run" } }]);
+  run = { ...run, steps: [read, command, { ...command, id: "loader-second" }] };
+  assert.equal(find(draw().props.detail, (node) => node.type === "ActivityTitle").props.title, "Running 2 calls");
+  assert.ok(
+    find(draw().props.detail, (node) => node.type === "Text" && node.props.children === "3 calls"),
+    "the count adds what the title doesn't say",
+  );
+  run = { ...run, steps: [command, { ...command, id: "loader-second" }] };
+  assert.ok(
+    !find(draw().props.detail, (node) => node.type === "Text" && String(node.props.children).endsWith("calls")),
+    "every call running: the title says the count",
+  );
+  run = { ...run, steps: [read, command, { ...command, id: "loader-second" }] };
+  run = { ...run, text: "Checking.\n\nFound it." };
+  assert.equal(draw().props.detail, undefined, "text after the calls lands them in the reply");
+  run = { ...run, text: "Checking.", approvals: [{ stepId: "loader-command" }] };
+  assert.equal(draw().props.detail, undefined, "a call waiting for approval stays in the reply beside its card");
+  run = { ...run, approvals: [] };
+  assert.equal(draw().props.detail, undefined, "approved, the group stays beside where its card was");
+  run = { ...run, steps: [{ ...command, id: "loader-next" }] };
+  assert.ok(draw().props.detail, "the next group goes back to the loader");
+  display = "full";
+  assert.equal(draw().props.detail, undefined, "Full detail keeps every call inline");
+  display = "compact";
+  const phase = draw({ phase: "Running Worktree setup" });
+  assert.equal(phase.props.showLabel, true);
+  assert.equal(phase.props.label, "Running Worktree setup");
 });
 
 test("mobile activity sheet opens the selected call without paging and keeps approval asks in Chat", () => {
@@ -14633,10 +14895,12 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
     "../mac-feature-row": { MacFeatureRow: "MacFeatureRow" },
   });
   assert.equal(find(integrations, (n) => n.type === "MacFeatureRow").props.href, "/babysit-prs");
-  // Phone & sharing: Simlock devices, then Designs and artifacts.
+  // Phone & sharing: iPhones on a cable and Simlock devices, then Designs and artifacts.
   const sharing = page("app/(settings)/phone-sharing.tsx", "Phone & sharing", "published-pages-section", "PublishedPagesSection", {
     "../mac-feature-row": { MacFeatureRow: "MacFeatureRow" },
+    "../baguette-row": { BaguetteRow: "BaguetteRow" },
   });
+  assert.ok(find(sharing, (n) => n.type === "BaguetteRow"));
   assert.equal(find(sharing, (n) => n.type === "MacFeatureRow").props.href, "/simlock");
   assert.ok(find(sharing, (n) => n.type === "SectionLabel" && n.props.children === "Designs and artifacts"));
   page("app/(settings)/experimental.tsx", "Church", "experimental-section", "ExperimentalSection");
@@ -16597,10 +16861,14 @@ test("mobile page sharing opens the Chat's Share sheet over the designs, regardl
   const props = { hostId: "mac", chatId: "/p#7", id: "one", version: "1" };
   let tree = await h.open(props);
   find(tree, (node) => node.type === "PullDown").props.onSelect("share");
+  find(tree, (node) => node.type === "PullDown").props.onSelect("share-design");
   assert.deepEqual(
     JSON.parse(JSON.stringify(pushes)),
-    [{ pathname: "/design-share-sheet", params: { hostId: "mac", chatId: "/p#7" } }],
-    "no design id or version: sharing captures the whole page",
+    [
+      { pathname: "/design-share-sheet", params: { hostId: "mac", chatId: "/p#7", kind: "workspace" } },
+      { pathname: "/design-share-sheet", params: { hostId: "mac", chatId: "/p#7", kind: "design", designId: "one" } },
+    ],
+    "Share publishes every design and the page; Share this design names the one shown",
   );
   // The sheet's own health check reaches the designs it opened from.
   h.shareAvailabilityChanged("mac", "/p#7", false);
@@ -16690,7 +16958,7 @@ test("mobile Share stays hidden until the current host is healthy and refreshes 
   h.cleanup();
 });
 
-test("mobile publishing checks availability, retries, and keeps history available in the global manager", async () => {
+test("mobile sharing checks availability, follows a live link through pause, stale and stop, and names each link's scope and state", async (t) => {
   const react = hookHost({ effects: true });
   let state = {
     shares: [],
@@ -16715,8 +16983,15 @@ test("mobile publishing checks availability, retries, and keeps history availabl
     },
     async publish(title) {
       calls.push(["publish", title]);
-      const updated = state.shares.length ? { updatedAt: 2 } : {};
-      state = { ...state, shares: [{ id: "snapshot", title, url: "https://share.milagre.cloud/s/snapshot", designCount: 2, createdAt: 1, ...updated }] };
+      const updated = state.shares.length ? { updatedAt: Date.now(), paused: state.shares[0].paused } : {};
+      state = {
+        ...state,
+        shares: [{ id: "snapshot", title, url: "https://share.milagre.cloud/s/snapshot", designCount: 2, createdAt: Date.now(), live: true, ...updated }],
+      };
+    },
+    async setPaused(id, paused) {
+      calls.push(["paused", id, paused]);
+      state = { ...state, shares: state.shares.map((share) => (share.id === id ? { ...share, paused } : share)) };
     },
     async revoke(id) {
       calls.push(["revoke", id]);
@@ -16737,6 +17012,7 @@ test("mobile publishing checks availability, retries, and keeps history availabl
     },
     "expo-clipboard": { setStringAsync: async (url) => calls.push(["copy", url]) },
     "@hugeicons/core-free-icons": { ArrowLeft01Icon: "back" },
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
     "./design-page-sharing": { createDesignPageSharing: () => store },
     "./ui": {
       CircleButton: "CircleButton",
@@ -16746,82 +17022,132 @@ test("mobile publishing checks availability, retries, and keeps history availabl
   });
   const availability = [];
   const onAvailabilityChange = (available) => availability.push(available);
+  let scope;
   const render = (chatId) => {
     react.begin();
-    return DesignPageShareSheet({ client: {}, chatId, onClose() {}, onAvailabilityChange });
+    return DesignPageShareSheet({ client: {}, chatId, scope, onClose() {}, onAvailabilityChange });
   };
   const text = (tree, value) => find(tree, (n) => typeof n.props?.children === "string" && n.props.children.includes(value));
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+  t.after(() => react.cleanup());
   let tree = render("chat");
   assert.equal(availability.at(-1), null);
   assert.ok(find(tree, (n) => n.type === "SheetHeader" && n.props.title === "Share"));
-  assert.equal(find(tree, (n) => n.props?.title === "Publish").props.disabled, true);
+  assert.equal(find(tree, (n) => n.type === "PillButton" && n.props.title === "Share").props.disabled, true);
   assert.ok(find(tree, (n) => n.props?.children === "Checking the sharing service…"));
-  assert.ok(text(tree, "Anyone with the link can view it."));
+  assert.ok(text(tree, "The link keeps updating as the agent works"), "the first share says the link is live");
+  assert.ok(text(tree, "every design and the page, hidden HTML included"), "the workspace holds every design and the page");
+  assert.ok(
+    text(tree, "Apple's SF fonts, New York and SF Symbols show as Inter, Source Serif and Lucide icons on the shared page."),
+    "the notice says which Apple fonts and symbols the shared page swaps",
+  );
   state = {
     ...state,
     checking: false,
     availability: { available: false, reason: "Not deployed" },
   };
   tree = render("chat");
-  assert.equal(find(tree, (n) => n.props?.title === "Publish").props.disabled, true);
+  assert.equal(find(tree, (n) => n.type === "PillButton" && n.props.title === "Share").props.disabled, true);
   assert.ok(find(tree, (n) => n.props?.children === "Not deployed"));
   assert.equal(availability.at(-1), false, "dialog health failure updates the entry gate");
   find(tree, (n) => n.props?.title === "Retry check").props.onPress();
   assert.equal(calls.at(-1), "status");
   state = { ...state, availability: { available: true } };
-  assert.equal(find(render("chat"), (n) => n.props?.title === "Publish").props.disabled, false);
+  assert.equal(find(render("chat"), (n) => n.type === "PillButton" && n.props.title === "Share").props.disabled, false);
   assert.equal(availability.at(-1), true);
-  find(render("chat"), (n) => n.props?.title === "Publish").props.onPress();
-  await new Promise((resolve) => setImmediate(resolve));
+  find(render("chat"), (n) => n.type === "PillButton" && n.props.title === "Share").props.onPress();
+  await tick();
   tree = render("chat");
-  assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"], "publishing copies the link right away");
-  assert.ok(toastPill(tree, "Published. Link copied."), "a toast says what happened");
+  assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"], "sharing copies the link right away");
+  assert.ok(toastPill(tree, "Shared. Link copied."), "a toast says what happened");
   assert.equal(
-    find(tree, (n) => n.props?.title === "Publish"),
+    find(tree, (n) => n.type === "PillButton" && n.props.title === "Share"),
     undefined,
-    "a shared page offers an update instead",
+    "a shared scope shows its link instead",
   );
-  assert.ok(find(tree, (n) => n.props?.title === "Update snapshot"));
-  assert.ok(find(tree, (n) => n.props?.accessibilityLabel === "Snapshot link"));
-  assert.ok(text(tree, "Published "));
-  assert.equal(text(tree, "Published snapshots"), undefined, "no history list under the link");
-  find(tree, (n) => n.props?.title === "Copy link").props.onPress();
-  await new Promise((resolve) => setImmediate(resolve));
+  const shareLink = find(tree, (n) => n.type?.name === "ShareLink");
+  assert.equal(shareLink.props.share.url, "https://share.milagre.cloud/s/snapshot");
+  assert.ok(text(tree, "Live · published just now"));
+  assert.equal(
+    find(tree, (n) => n.props?.title === "Update now"),
+    undefined,
+    "a live link follows the agent on its own",
+  );
+  find(shareLink.type(shareLink.props), (n) => n.props?.title === "Copy link").props.onPress();
+  await tick();
   assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"]);
-  find(render("chat"), (n) => n.props?.title === "Update snapshot").props.onPress();
-  await new Promise((resolve) => setImmediate(resolve));
+  find(tree, (n) => n.props?.title === "Pause").props.onPress();
+  await tick();
   tree = render("chat");
-  assert.deepEqual(calls.at(-2), ["publish", "Designs"], "only an older host needs the title");
-  assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"]);
+  assert.deepEqual(calls.at(-1), ["paused", "snapshot", true]);
+  assert.ok(find(tree, (n) => n.props?.children === "Paused"));
+  assert.ok(toastPill(tree, "Paused. The link keeps its last update."));
+  find(tree, (n) => n.props?.title === "Update now").props.onPress();
+  await tick();
+  tree = render("chat");
+  assert.deepEqual(calls.at(-1), ["publish", "Artifact"], "only an older host needs the title, and Update now publishes without copying");
   assert.equal(state.shares.length, 1, "the update keeps one link");
-  assert.ok(toastPill(tree, "Snapshot updated. Link copied."));
-  assert.ok(text(tree, "Updated "));
-  find(tree, (n) => n.props?.title === "Revoke link").props.onPress();
+  assert.ok(toastPill(tree, "Updated."));
+  find(tree, (n) => n.props?.title === "Resume").props.onPress();
+  await tick();
+  assert.deepEqual(calls.at(-1), ["paused", "snapshot", false]);
+  state = { ...state, shares: [{ ...state.shares[0], stale: true, lastError: "Upload failed" }] };
   tree = render("chat");
-  assert.ok(find(tree, (n) => n.props?.children === "Remove this page? Copies may remain online."));
-  find(tree, (n) => n.props?.title === "Revoke link" && !n.props.secondary).props.onPress();
-  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(find(tree, (n) => n.props?.children === "Couldn't update: Upload failed. Retrying."));
+  assert.ok(
+    find(tree, (n) => n.props?.title === "Update now"),
+    "a stale link can be pushed now",
+  );
+  state = { ...state, shares: [{ ...state.shares[0], live: undefined, stale: undefined }] };
+  tree = render("chat");
+  assert.ok(text(tree, "Snapshot · "), "an old link is a frozen snapshot");
+  assert.ok(text(tree, "Share again for a link that keeps updating as the agent works."));
+  assert.equal(
+    find(tree, (n) => n.props?.title === "Pause"),
+    undefined,
+  );
+  assert.ok(find(tree, (n) => n.props?.title === "Share again"));
+  find(tree, (n) => n.props?.title === "Stop sharing").props.onPress();
+  tree = render("chat");
+  assert.ok(find(tree, (n) => n.props?.children === "Stop sharing this link? Copies may remain online."));
+  find(tree, (n) => n.props?.title === "Stop sharing" && n.props.destructive && !n.props.variant).props.onPress();
+  await tick();
   tree = render("chat");
   assert.deepEqual(calls.at(-1), ["revoke", "snapshot"]);
   assert.ok(
-    find(tree, (n) => n.props?.title === "Publish"),
-    "after revoking, Publish creates a new link",
+    find(tree, (n) => n.type === "PillButton" && n.props.title === "Share"),
+    "after stopping, Share creates a new link",
   );
   assert.equal(
-    find(tree, (n) => n.props?.accessibilityLabel === "Snapshot link"),
+    find(tree, (n) => n.type?.name === "ShareLink"),
     undefined,
   );
-  assert.ok(toastPill(tree, "Link revoked. Copies may remain online."));
+  assert.ok(toastPill(tree, "Stopped sharing. Copies may remain online."));
+  scope = { kind: "design", designId: "login" };
+  tree = render("chat");
+  assert.ok(find(tree, (n) => n.type === "SheetHeader" && n.props.title === "Share this design"));
+  assert.equal(text(tree, "hidden HTML included"), undefined);
+  scope = undefined;
+  state = {
+    ...state,
+    shares: [
+      { id: "w", title: "Chat", url: "u1", createdAt: 1, designCount: 2, kind: "workspace", live: true },
+      { id: "d", title: "Chat", url: "u2", createdAt: 1, designCount: 1, kind: "design", designId: "login", live: true, paused: true },
+      { id: "p", title: "Chat", url: "u3", createdAt: 1, designCount: 0, kind: "artifacts" },
+      { id: "o", title: "Chat", url: "u4", createdAt: 1, designCount: 3, revoked: true },
+    ],
+  };
   tree = render(undefined);
   assert.equal(
-    find(tree, (n) => n.props?.title === "Publish"),
-    undefined,
-  );
-  assert.equal(
-    find(tree, (n) => n.props?.accessibilityLabel === "Page title"),
+    find(tree, (n) => n.type === "PillButton" && n.props.title === "Share"),
     undefined,
   );
   assert.ok(find(tree, (n) => n.props?.children === "Published pages"));
+  for (const row of ["Workspace · Live", "Design · Paused", "Page · Snapshot", "Designs · Revoked"])
+    assert.ok(
+      find(tree, (n) => n.props?.children === row),
+      row,
+    );
 });
 
 test("mobile Published pages entry requires owner access", async () => {
@@ -17163,10 +17489,7 @@ test("HTML artifact opens the current single page with Designs off, without vers
   assert.equal(backs, 0);
   assert.ok(find(tree, (n) => n.props?.html === page.html));
   assert.ok(find(tree, (n) => n.props?.label === "Close artifact"));
-  assert.ok(
-    find(tree, (n) => n.props?.children === "How it works"),
-    "the header names the page",
-  );
+  assert.equal(find(tree, (n) => n.type?.name === "ArtifactPageTitle").props.title, "How it works", "the header names the page");
   assert.equal(
     find(tree, (n) => n.type === "CircleButton" && n.props.filled),
     undefined,
@@ -17193,16 +17516,30 @@ test("HTML artifact opens the current single page with Designs off, without vers
   await settle();
   tree = h.render("ArtifactSheet", props);
   assert.ok(find(tree, (n) => n.props?.html === page.html));
-  // Share is in ⋯, and opens the Chat's Share sheet for its Artifact page.
+  // Share is in ⋯: the whole Artifact (the workspace), or this page alone.
   const menu = find(tree, (n) => n.type === "PullDown");
-  assert.deepEqual(JSON.parse(JSON.stringify(menu.props.sections.flatMap((section) => section.items).map((item) => item.id))), ["resolved", "share"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(menu.props.sections.flatMap((section) => section.items).map((item) => item.id))), [
+    "resolved",
+    "share",
+    "share-page",
+  ]);
   menu.props.onSelect("share");
+  assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), {
+    pathname: "/design-share-sheet",
+    params: { hostId: client.url, chatId: "/p#7", kind: "workspace" },
+  });
+  menu.props.onSelect("share-page");
   assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), {
     pathname: "/design-share-sheet",
     params: { hostId: client.url, chatId: "/p#7", kind: "artifacts" },
   });
-  assert.ok(calls.some(([method, args]) => method === "artifact:sharing-status" && args[0]?.kind === "artifacts"));
-  h.share.shareAvailabilityChanged(client.url, "/p#7", false, "artifacts");
+  assert.ok(calls.some(([method, args]) => method === "artifact:sharing-status" && args[0]?.kind === "workspace" && args[0]?.chatId === "/p#7"));
+  assert.equal(
+    calls.some(([method]) => method === "artifact:list"),
+    false,
+    "with Designs off the page menu never asks for designs",
+  );
+  h.share.shareAvailabilityChanged(client.url, "/p#7", false);
   assert.equal(
     find(h.render("ArtifactSheet", props), (n) => n.type === "PullDown")
       .props.sections.flatMap((section) => section.items)
@@ -18847,7 +19184,7 @@ test("a phone Run Chat, hidden or kept, shows a Routine header button that opens
 test("the phone Chat header keeps its title on one line with an ellipsis, clear of the toolbar group, as Browser and PR shortcuts appear", () => {
   const title = "Rotate staging API key before Friday";
   const header = (screenWidth, { routines = [], routine, browserShortcut = null } = {}) => {
-    const chat = chatHost({ routines, screenWidth, browserShortcut });
+    const chat = chatHost({ worktreePath: "/p-fix", routines, screenWidth, browserShortcut });
     chat.params.id = "9";
     chat.session.snapshot.project.state.sessions[9] = { id: 9, worktree_id: 1, title, ...(routine ? { routine } : {}) };
     const tree = chat.render();
@@ -18929,7 +19266,7 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
     { id: "s2", kind: "other", title: 'Set Heartbeat "Babysit PR #473"', status: "done", routine: { id: "hb1", name: "Babysit PR #473" } },
   ];
   const message = { id: 9, session_id: 7, role: "assistant", body: "Opened #473. I'll check every 15 minutes.", steps };
-  const tree = ChatReply({ message, media: () => null, onActivity() {}, chatId: "/p#7" });
+  const tree = drawReplyActivity(ChatReply({ message, media: () => null, onActivity() {}, chatId: "/p#7" }));
   const card = find(tree, (node) => node.type === "HeartbeatCard");
   assert.ok(card, "the card shows");
   assert.equal(card.props.step.routine.id, "hb1");
@@ -19219,24 +19556,25 @@ test("a Linear comment Routine on the phone form drops the Each Run rows: commen
   assert.deepEqual(create[1][0].target, { kind: "new-chat", projectPath: "/p", workspace: "worktree" }, "it carries the Project open on the phone");
 });
 
-test("provider update cards on the phone install the advertised release on the connected computer", async () => {
+test("the phone's update chip installs the advertised release on the connected computer and hears its progress", async () => {
   const react = hookHost();
   const calls = [];
+  const lives = [];
   let transport;
   let refreshed = 0;
-  const state = { current: { provider: "codex", version: "0.163.0", installedVersion: "0.160.0" }, working: false, error: "", dismiss() {}, install() {} };
-  const { ProviderUpdateNotice } = load("provider-update-notice.tsx", {
+  const { ProviderUpdatesProvider } = load("provider-update-notice.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Text: "Text", View: "View" },
-    "expo-router": { router: { push: (path) => calls.push(path) } },
-    "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View", useWindowDimensions: () => ({ width: 390, height: 844 }) },
+    "expo-clipboard": { setStringAsync: async () => {} },
+    "@hugeicons/core-free-icons": {},
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
     "@milagre/shared/providers": require("@milagre/shared/providers"),
+    "@milagre/shared/provider-update-view": require("../packages/shared/src/provider-update-view.ts"),
     "@milagre/shared/use-provider-updates": {
       useProviderUpdates: (value) => {
         transport = value;
-        return state;
+        return { items: [], clearDone() {} };
       },
     },
     "./hosts-native": {
@@ -19253,32 +19591,37 @@ test("provider update cards on the phone install the advertised release on the c
             calls.push(args);
             return { ok: true };
           },
+          live: (projectPath, options) => {
+            lives.push({ projectPath, options, closed: false });
+            return { close: () => (lives.at(-1).closed = true) };
+          },
         },
         hostName: "Studio Mac",
         refreshProviders: () => refreshed++,
       }),
     },
-    "./icons": { ProviderLogo: "ProviderLogo" },
-    "./ui": { IconButton: "IconButton", PillButton: "PillButton", PullDown: "PullDown", InlineError: "InlineError" },
+    "./icons": { Icon: "Icon", ProviderLogo: "ProviderLogo", SpinnerRing: "SpinnerRing" },
+    "./progress-sweep": { ProgressSweep: "ProgressSweep" },
+    "./status-pill": { StatusPill: "StatusPill" },
+    "./ui": { IconButton: "IconButton", InlineError: "InlineError", PillButton: "PillButton", ProgressBar: "ProgressBar", announce() {}, useAnnounce() {} },
+    "./design-tokens": { lineHeight: {}, radius: {}, space: {}, type: {} },
+    "./theme": { useTheme: () => ({ colors: {} }) },
   });
   react.begin();
-  const tree = ProviderUpdateNotice();
-  find(tree, (node) => node.type === "PillButton" && node.props.title === "Settings").props.onPress();
-  assert.equal(calls[0], "/accounts");
-  await transport.install(state.current);
+  ProviderUpdatesProvider({ children: null });
+  await transport.read();
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ["agent:provider-updates"]);
+  const result = await transport.install({ provider: "codex", version: "0.163.0", installedVersion: "0.160.0" });
+  assert.equal(result.ok, true);
   assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), ["agent:update-cli", ["codex", "0.163.0"]]);
-  assert.equal(refreshed, 1);
-  state.working = true;
-  react.begin();
-  const pending = ProviderUpdateNotice();
-  assert.equal(find(pending, (node) => node.type === "PillButton" && node.props.title === "Updating…").props.disabled, true);
-  assert.equal(find(pending, (node) => node.type === "IconButton").props.disabled, true);
-  state.error = "Permission denied";
-  state.working = false;
-  react.begin();
-  const failed = ProviderUpdateNotice();
-  assert.equal(find(failed, (node) => node.props?.accessibilityRole === "alert").props.children, "Permission denied");
-  assert.equal(find(failed, (node) => node.type === "PillButton" && node.props.title === "Retry").props.disabled, false);
+  assert.equal(refreshed, 1, "the model picker reads the CLIs again after an install");
+  let heard = 0;
+  const stop = transport.watch(() => heard++);
+  lives[0].options.onSignal("usage");
+  lives[0].options.onSignal("provider-updates");
+  assert.equal(heard, 1, "progress on the computer reaches the phone as a provider-updates signal");
+  stop();
+  assert.equal(lives[0].closed, true);
   await transport.dismissals.add("codex:0.163.0");
   await transport.dismissals.load();
   assert.deepEqual(
@@ -19312,17 +19655,22 @@ test("a provider update dismissed on the phone stays dismissed when the connecti
     react.begin();
     return exports.useProviderUpdates(current);
   };
-  assert.equal(render().current, undefined, "nothing shows before the saved dismissals are read");
+  // The hook runs in its own realm, so its arrays are compared as text.
+  const providers = () =>
+    render()
+      .items.map((item) => item.provider)
+      .join(",");
+  assert.equal(providers(), "", "nothing shows before the saved dismissals are read");
   await settle();
   const first = render();
-  assert.equal(first.current.provider, "codex");
+  assert.equal(first.items.map((item) => item.provider).join(","), "claude,codex");
   first.dismiss();
-  assert.equal(render().current.provider, "claude");
-  assert.deepEqual([...saved], ["codex:0.165.0"]);
+  assert.equal(providers(), "");
+  assert.deepEqual([...saved].sort(), ["claude:2.1.312", "codex:0.165.0"]);
   current = transport(); // a reconnect builds a new client and so a new transport
-  assert.equal(render().current, undefined);
+  assert.equal(providers(), "");
   await settle();
-  assert.equal(render().current.provider, "claude", "the dismissed Codex release does not come back");
+  assert.equal(providers(), "", "the dismissed releases do not come back");
   react.unmount();
 });
 
@@ -20569,6 +20917,7 @@ test("Chat header promotes only Browser and PR, with working actions and no dupl
   let shortcutOptions;
   const shortcut = { accessibilityLabel: "Browser, 1 page in this Chat", onPress: () => opened++ };
   const screen = chatHost({
+    worktreePath: "/p-fix",
     browserShortcut: (options) => {
       shortcutOptions = options;
       return shortcut;
@@ -20812,12 +21161,11 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
   idle.props.onPress();
   assert.equal(starts, 1);
   const processing = VoiceMicButton({ onPress: () => starts++, processing: "GPT-6 Luna" });
-  assert.equal(processing.props.accessibilityState.busy, true);
+  assert.ok(!processing.props.accessibilityState?.busy);
   assert.equal(processing.props.accessibilityValue.text, "Correcting names · GPT-6 Luna");
   assert.equal(processing.props.style({ pressed: false }).width, 44, "processing keeps the mic's touch target");
-  assert.equal(find(processing, (node) => node.type === "Icon").props.tone, "ink4", "the busy mic is gray");
-  const border = find(processing, (node) => typeof node.type === "function" && node.type.name === "MicLoadingRing");
-  assert.equal(border.props.size, 36, "the loading arc is on the visual button's border");
+  assert.equal(find(processing, (node) => node.type === "Icon").props.tone, "ink2");
+  assert.ok(!find(processing, (node) => typeof node.type === "function" && node.type.name === "MicLoadingRing"));
   processing.props.onPress();
   assert.equal(starts, 2, "starting a new take stays available while the previous correction is pending");
 
@@ -21585,9 +21933,13 @@ test("artifact feedback opens its tab and reveals after ready, including a repea
   find(tree, (node) => node.props?.accessibilityLabel === "Close the comment").props.onPress();
   tree = h.render("ArtifactSheet", props);
   assert.deepEqual(h.commands().findLast((cmd) => cmd.t === "pins").pins, [], "closing a resolved history comment clears it from the canvas");
-  find(tree, (node) => node.type === "PullDown" && node.props.sections.some((section) => section.items.some((item) => item.id === "overview"))).props.onSelect(
-    "overview",
+  const pages = find(tree, (node) => node.type?.name === "ArtifactPageTitle");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(pages.props.sections.flatMap((section) => section.items.map((item) => item.id)))),
+    ["page:overview", "page:headers"],
+    "no designs: the page menu lists the page's tabs",
   );
+  pages.props.onSelect("page:overview");
   tree = h.render("ArtifactSheet", props);
   assert.ok(find(tree, (node) => node.props?.html === "Overview"));
   const before = h.commands().filter((cmd) => cmd.t === "reveal").length;
@@ -21617,6 +21969,91 @@ test("artifact route forwards a feedback target to the native viewer", () => {
   const tree = Screen();
   assert.equal(tree.type, "ArtifactSheet");
   for (const field of ["tab", "comment", "requestId", "hostId", "chatId", "id"]) assert.equal(tree.props[field], params[field]);
+});
+
+test("the Artifact's page menu switches between Canvas and the HTML page in place, on a phone and in the iPad's tab", async () => {
+  const page = {
+    id: "page",
+    title: "HTTP",
+    format: "html",
+    version: 1,
+    latest: 1,
+    html: "Overview",
+    tabs: [
+      { id: "overview", title: "Overview", html: "Overview" },
+      { id: "headers", title: "Headers", html: "Headers" },
+    ],
+  };
+  const designs = [
+    { id: "login", version: 1, title: "Login", format: "design", width: 390, height: 844 },
+    { id: "signup", version: 1, title: "Signup", format: "design", width: 390, height: 844 },
+  ];
+  const client = {
+    url: "pages-host",
+    call: async (method, args) => {
+      if (method === "artifact:list") return args[0]?.format === "design" ? designs : [...designs, page];
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      if (method === "artifact:get") return args[0].id === page.id ? page : { ...designs[0], document: {}, html: "<main>Login</main>" };
+      return [];
+    },
+  };
+  const pushes = [];
+  const onPage = [];
+  const h = artifactHost(client, pushes);
+  const props = { hostId: client.url, chatId: "/p#7", id: page.id, tab: "headers" };
+  let tree = await h.open(props);
+  await settle();
+  tree = h.render("ArtifactSheet", props);
+  let title = find(tree, (node) => node.type?.name === "ArtifactPageTitle");
+  assert.deepEqual(JSON.parse(JSON.stringify(title.props.sections.flatMap((section) => section.items.map((item) => [item.id, !!item.checked])))), [
+    ["canvas", false],
+    ["page:overview", false],
+    ["page:headers", true],
+  ]);
+  assert.equal(title.props.subtitle, "Headers");
+  title.props.onSelect("canvas");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(pushes.at(-1))),
+    { setParams: { hostId: client.url, chatId: "/p#7", id: "login" } },
+    "the phone sheet replaces its params",
+  );
+  h.render("ArtifactSheet", { ...props, onPage: (target) => onPage.push(target) });
+  tree = h.render("ArtifactSheet", { ...props, onPage: (target) => onPage.push(target) });
+  find(tree, (node) => node.type?.name === "ArtifactPageTitle").props.onSelect("canvas");
+  assert.deepEqual(JSON.parse(JSON.stringify(onPage)), [{ hostId: client.url, chatId: "/p#7", id: "login" }], "the iPad's tab shows the canvas instead");
+  h.cleanup();
+
+  const d = designsHost(client, { back() {} }, designsOn, pushes);
+  const canvasProps = { hostId: client.url, chatId: "/p#7", id: "signup", version: "1" };
+  tree = await d.open(canvasProps);
+  await settle();
+  tree = d.render("DesignsSheet", canvasProps);
+  const header = find(tree, (node) => node.type === "SheetHeader");
+  title = header.props.center;
+  assert.equal(title.type.name, "ArtifactPageTitle");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(title.props.sections.flatMap((section) => section.items.map((item) => [item.id, !!item.checked])))),
+    [
+      ["canvas", true],
+      ["page:overview", false],
+      ["page:headers", false],
+    ],
+    "the canvas lists the page's tabs",
+  );
+  title.props.onSelect("page:overview");
+  assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), {
+    setParams: { hostId: client.url, chatId: "/p#7", id: page.id, kind: "html", tab: "overview" },
+  });
+  d.cleanup();
+
+  const back = artifactHost(client, pushes);
+  tree = await back.open({ hostId: client.url, chatId: "/p#7", id: page.id });
+  await settle();
+  tree = back.render("ArtifactSheet", { hostId: client.url, chatId: "/p#7", id: page.id });
+  find(tree, (node) => node.type?.name === "ArtifactPageTitle").props.onSelect("canvas");
+  assert.equal(pushes.at(-1).setParams.id, "signup", "Canvas returns to the design last viewed");
+  back.cleanup();
 });
 
 test("artifact feedback refreshes comments received after a dock was opened", async () => {
@@ -22947,4 +23384,589 @@ test("read-only phone history keeps restore notes and hides Undo and Redo action
   );
   chatMenuEntry(tree, "View checkpoints").props.onPress();
   assert.equal(find(chat.render(), (node) => node.type === "UndoPanel").props.readOnly, true, "history previews remain read-only");
+});
+
+const libraryDesign = (id, version, extra = {}) => ({
+  id,
+  version,
+  latest: version,
+  versions: version,
+  title: id,
+  format: "design",
+  width: 390,
+  height: 844,
+  document: require("../packages/shared/src/design.mjs").createExampleDesign(),
+  html: "<html><head></head><body></body></html>",
+  ...extra,
+});
+const projectLibrary = () => ({
+  pages: [
+    {
+      id: "iphone",
+      name: "iPhone",
+      designs: [
+        {
+          ...libraryDesign("library:home", 2),
+          page: "iphone",
+          edits: [
+            { version: 1, chatId: "/p#3", chat: "Login flow", agent: "Claude", at: 1 },
+            { version: 2, chatId: "/p#4", chat: "Polish", agent: "Codex", at: 2 },
+          ],
+        },
+      ],
+    },
+  ],
+});
+
+test("the phone's Artifact menu lists the Project library's pages, and Add to Project library puts a design on one", async (t) => {
+  const design = libraryDesign("one", 1);
+  const calls = [];
+  const client = {
+    url: "mac",
+    call: async (method, [request] = []) => {
+      calls.push([method, request]);
+      if (method === "artifact:list") return [design];
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      if (method === "design-library:list") return projectLibrary();
+      if (method === "design-library:add")
+        return { ...libraryDesign(`library:${request.designId}`, 1), page: request.page === "iPhone" ? "iphone" : "watch", edits: [] };
+      return design;
+    },
+  };
+  const pushes = [];
+  const h = designsHost(client, { back() {} }, designsOn, pushes);
+  t.after(() => {
+    h.cleanup();
+    delete globalThis.promptAnswer;
+  });
+  const props = { hostId: "mac", chatId: "/p#7", id: "one" };
+  let tree = await h.open(props);
+  const title = find(tree, (node) => node.type?.name === "ArtifactPageTitle");
+  const library = title.props.sections.find((section) => section.title === "Project library");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(library.items.map((item) => [item.id, item.title, item.checked]))),
+    [
+      ["library:iphone", "iPhone", false],
+      ["open-library", "Open Design library", null],
+    ],
+    "after the Chat's own pages come the library's, then the whole Design library",
+  );
+  title.props.onSelect("library:iphone");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(pushes.at(-1))),
+    { setParams: { hostId: "mac", chatId: "/p#7", id: "library:home", library: "iphone" } },
+    "a library page opens in place on its first design",
+  );
+
+  const add = menuItems(tree).find((item) => item.id === "library");
+  assert.equal(add.title, "Add to Project library");
+  assert.deepEqual(JSON.parse(JSON.stringify(add.submenu.map((item) => [item.id, item.title]))), [
+    ["library-add:iphone", "iPhone"],
+    ["library-add:", "New page…"],
+  ]);
+  find(tree, (node) => node.type === "PullDown").props.onSelect("library-add:iphone");
+  await settle();
+  await settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.findLast(([method]) => method === "design-library:add")[1])), {
+    chatId: "/p#7",
+    designId: "one",
+    page: "iPhone",
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), { setParams: { hostId: "mac", chatId: "/p#7", id: "library:one", library: "iphone" } });
+
+  globalThis.promptAnswer = "  Watch ";
+  tree = h.render("DesignsSheet", props);
+  find(tree, (node) => node.type === "PullDown").props.onSelect("library-add:");
+  await settle();
+  await settle();
+  assert.equal(calls.findLast(([method]) => method === "design-library:add")[1].page, "Watch", "a new page takes the typed name");
+  const adds = calls.filter(([method]) => method === "design-library:add").length;
+  globalThis.promptAnswer = null;
+  find(h.render("DesignsSheet", props), (node) => node.type === "PullDown").props.onSelect("library-add:");
+  await settle();
+  assert.equal(calls.filter(([method]) => method === "design-library:add").length, adds, "cancelling the name adds nothing");
+});
+
+test("a Project library page opens on the phone's canvas with who saved each version, and Remove takes it out of the library", async (t) => {
+  const calls = [];
+  const client = {
+    url: "mac",
+    call: async (method, [request] = []) => {
+      calls.push([method, request]);
+      if (method === "design-library:list") return projectLibrary();
+      if (method === "artifact:list") return [];
+      if (method === "artifact:delete") return { id: request.id };
+      if (method === "design-library:update") return request;
+      const entry = projectLibrary().pages[0].designs[0];
+      return request.version === 1 ? { ...entry, version: 1 } : entry;
+    },
+  };
+  const react = hookHost({ effects: true });
+  const injected = [];
+  let backs = 0;
+  const source = load("library-sheet.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Alert: { alert: (_title, _message, buttons) => buttons[0].onPress() }, Text: "Text", View: "View" },
+    "expo-router": { router: { back: () => backs++, setParams() {} } },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 47, bottom: 34 }) },
+    "@expo/dom-webview": {},
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+    "./designs-sheet": { DesignsCanvas: "DesignsCanvas" },
+    "./session": { useSession: () => ({ client, designs: designsOn, reconnects: 0 }) },
+    "./ui": { PullDown: "PullDown", CircleButton: "CircleButton", SheetHeader: "SheetHeader", ErrorNotice: "ErrorNotice", useStyles: () => ({ muted: {} }) },
+    "./theme": { useTheme: () => ({ colors: { surface: "#fff", ink3: "#666", accent: "#07f" } }) },
+  });
+  t.after(() => react.cleanup());
+  const props = { hostId: "mac", chatId: "/p#7", page: "iphone", id: "library:home" };
+  const render = () => {
+    react.begin();
+    const tree = source.LibrarySheet(props);
+    react.flush();
+    return tree;
+  };
+  render();
+  await settle();
+  render();
+  await settle();
+  let tree = render();
+  const canvas = find(tree, (node) => node.type === "DesignsCanvas");
+  canvas.props.ref.current = { injectJavaScript: (script) => injected.push(JSON.parse(/run\((.*)\);true;$/s.exec(script)[1])) };
+  canvas.props.onMessage(JSON.stringify({ t: "ready" }));
+  tree = render();
+  assert.deepEqual(JSON.parse(JSON.stringify(injected.find((command) => command.t === "set").rows)), [
+    { group: "", designs: [{ id: "library:home", w: 390, h: 844 }] },
+  ]);
+  assert.ok(
+    injected.some((command) => command.t === "html" && command.id === "library:home"),
+    "the library design draws through artifact:get",
+  );
+  const header = find(tree, (node) => node.type === "SheetHeader");
+  assert.equal(header.props.subtitle, "Project library · v2 · Edited in Polish · Codex");
+  assert.ok(find(header.props.center, () => true).props.sections.some((section) => section.items.some((item) => item.id === "library:iphone" && item.checked)));
+  const actions = find(tree, (node) => node.type === "PullDown");
+  const items = actions.props.sections.flatMap((section) => section.items);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(items.map((item) => item.id))),
+    ["version:2", "version:1", "rename", "move", "remove"],
+    "versions, Rename, Move and Remove: no comments or Choose on a library design",
+  );
+  globalThis.promptAnswer = "Start";
+  actions.props.onSelect("rename");
+  await settle();
+  delete globalThis.promptAnswer;
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.findLast(([method]) => method === "design-library:update")[1])), {
+    chatId: "/p#7",
+    id: "library:home",
+    title: "Start",
+  });
+  actions.props.onSelect("version:1");
+  render();
+  await settle();
+  tree = render();
+  assert.equal(find(tree, (node) => node.type === "SheetHeader").props.subtitle, "Project library · v1 · Edited in Login flow · Claude");
+  find(tree, (node) => node.type === "PullDown").props.onSelect("remove");
+  await settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.findLast(([method]) => method === "artifact:delete")[1])), { chatId: "/p#7", id: "library:home" });
+  assert.equal(backs, 1, "removing the page's last design closes the sheet");
+});
+
+test("Open Design library in the phone's Artifact menu opens the Project's whole library page", async (t) => {
+  const design = libraryDesign("one", 1);
+  const client = {
+    url: "mac",
+    call: async (method) => {
+      if (method === "artifact:list") return [design];
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      if (method === "design-library:list") return projectLibrary();
+      return design;
+    },
+  };
+  const h = designsHost(client, { back() {} }, designsOn, []);
+  t.after(() => {
+    h.cleanup();
+    delete globalThis.openedDesignLibrary;
+  });
+  const tree = await h.open({ hostId: "mac", chatId: "/work/habits#7", id: "one" });
+  const title = find(tree, (node) => node.type?.name === "ArtifactPageTitle");
+  const library = title.props.sections.find((section) => section.title === "Project library");
+  assert.deepEqual(JSON.parse(JSON.stringify(library.items.map((item) => [item.id, item.title]))), [
+    ["library:iphone", "iPhone"],
+    ["open-library", "Open Design library"],
+  ]);
+  title.props.onSelect("open-library");
+  assert.deepEqual(globalThis.openedDesignLibrary, ["mac", "/work/habits", "habits"]);
+});
+
+function libraryScreenHost(client, pushes, { wide = false, params = {} } = {}) {
+  const react = hookHost({ effects: true });
+  const screen = load("design-library-page.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      Alert: { alert: (_title, _message, buttons) => buttons?.[0]?.onPress?.() },
+      StyleSheet: { hairlineWidth: 1 },
+      Text: "Text",
+      View: "View",
+    },
+    "expo-linear-gradient": { LinearGradient: "LinearGradient" },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 24, bottom: 20, left: 0, right: 0 }) },
+    "./split-context": { useSplitLayout: () => ({ widthClass: wide ? "wide" : "compact" }) },
+    "expo-router": {
+      router: { push: (route) => pushes.push(route), setParams: (next) => pushes.push({ setParams: next }) },
+      Stack: { Screen: "Stack.Screen" },
+      useFocusEffect: () => {},
+    },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+    "./session": { useSession: () => ({ client }) },
+    "./all-computers": { allComputers: { clientFor: () => null } },
+    "./icons": { Icon: "Icon" },
+    "./theme": { useTheme: () => ({ colors: { canvas: "#eee" } }) },
+    "./confirm-store": { confirm: async () => true },
+    "./ui": {
+      CircleButton: "CircleButton",
+      SheetHeader: "SheetHeader",
+      EmptyState: "EmptyState",
+      ErrorNotice: "ErrorNotice",
+      Group: "Group",
+      PageScroll: "PageScroll",
+      PullDown: "PullDown",
+      useStyles: () => ({ caption: {}, text: {} }),
+    },
+  });
+  const props = { hostId: "mac", path: "/p", name: "Habits", ...params };
+  const render = () => {
+    react.begin();
+    const tree = screen.DesignLibraryScreen(props);
+    react.flush();
+    return tree;
+  };
+  return { render, cleanup: () => react.cleanup() };
+}
+
+test("a Project's Design library page on the phone lists its pages and recent edits, each opening the library canvas", async (t) => {
+  const calls = [];
+  const watch = {
+    ...libraryDesign("library:rings", 1),
+    title: "Rings",
+    page: "watch",
+    edits: [{ version: 1, chatId: "/p#9", chat: "Watch face", agent: "Claude", at: 5 }],
+  };
+  let library = projectLibrary();
+  library.pages.push({ id: "watch", name: "Watch", designs: [watch] });
+  const client = {
+    url: "mac",
+    call: async (method, [request] = []) => {
+      calls.push([method, JSON.parse(JSON.stringify(request))]);
+      if (method === "design-library:list") return library;
+      return { id: request.id };
+    },
+  };
+  const pushes = [];
+  const h = libraryScreenHost(client, pushes);
+  t.after(() => {
+    h.cleanup();
+    delete globalThis.promptAnswer;
+  });
+  h.render();
+  await settle();
+  let tree = h.render();
+  assert.deepEqual(calls.find(([method]) => method === "design-library:list")[1], { projectPath: "/p" }, "read by the Project, no Chat");
+  const group = (title) => find(tree, (node) => node.type === "Group" && node.props.title === title);
+  const rows = (title) => findAll(group(title), (node) => node.type === "PullDown");
+  assert.deepEqual(JSON.parse(JSON.stringify(rows("Pages").map((row) => row.props.label))), ["iPhone, 1 design", "Watch, 1 design"]);
+  rows("Pages")[1].props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), {
+    pathname: "/artifact-sheet",
+    params: { hostId: "mac", projectPath: "/p", library: "watch" },
+  });
+  // Recent edits, newest first, say who saved each in which Chat; a row opens its design on its page.
+  assert.deepEqual(JSON.parse(JSON.stringify(rows("Recent edits").map((row) => row.props.title))), ["Rings", "library:home"]);
+  assert.match(find(rows("Recent edits")[0], (node) => node.type?.name === "LibraryRow").props.caption, /^Watch · Claude in Watch face · /);
+  assert.match(rows("Recent edits")[1].props.label, /iPhone · v2 · Edited in Polish · Codex/);
+  rows("Recent edits")[1].props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), {
+    pathname: "/artifact-sheet",
+    params: { hostId: "mac", projectPath: "/p", library: "iphone", id: "library:home" },
+  });
+  // Holding a page renames it; holding a recent edit renames, moves or deletes it.
+  assert.deepEqual(JSON.parse(JSON.stringify(rows("Pages")[0].props.sections.flatMap((section) => section.items.map((item) => item.id)))), ["rename-page"]);
+  globalThis.promptAnswer = "Phones";
+  rows("Pages")[0].props.onSelect("rename-page");
+  await settle();
+  const home = rows("Recent edits")[1];
+  assert.deepEqual(JSON.parse(JSON.stringify(home.props.sections.flatMap((section) => section.items.map((item) => item.id)))), ["rename", "move", "delete"]);
+  home.props.onSelect("delete");
+  await settle();
+  assert.deepEqual(
+    calls.filter(([method]) => method !== "design-library:list"),
+    [
+      ["design-library:rename-page", { projectPath: "/p", page: "iphone", name: "Phones" }],
+      ["artifact:delete", { projectPath: "/p", id: "library:home" }],
+    ],
+  );
+
+  library = { pages: [] };
+  home.props.onSelect("rename");
+  await settle();
+  tree = h.render();
+  await settle();
+  tree = h.render();
+  assert.ok(
+    find(tree, (node) => node.type === "EmptyState"),
+    "an empty library says how designs get there",
+  );
+  assert.match(textOf(find(tree, (node) => node.type === "EmptyState")), /Add to Project library.*ask an agent/);
+});
+
+test("on an iPad the Design library page shows its lists beside the chosen page's canvas", async (t) => {
+  const watch = { ...libraryDesign("library:rings", 1), title: "Rings", page: "watch", edits: [{ version: 1, at: 5 }] };
+  const library = projectLibrary();
+  library.pages.push({ id: "watch", name: "Watch", designs: [watch] });
+  const client = { url: "mac", call: async (method) => (method === "design-library:list" ? library : {}) };
+  const pushes = [];
+  const render = async (params) => {
+    const h = libraryScreenHost(client, pushes, { wide: true, params });
+    t.after(() => h.cleanup());
+    h.render();
+    await settle();
+    return h.render();
+  };
+  let tree = await render({});
+  const sheet = () => find(tree, (node) => node.type === "LibrarySheet");
+  same({ ...sheet().props, onClose: undefined }, { hostId: "mac", projectPath: "/p", page: "iphone", id: undefined, onClose: undefined });
+  assert.equal(typeof sheet().props.onClose, "function", "embedded: no close button");
+  assert.equal(find(tree, (node) => node.type === "Stack.Screen").props.options.headerShown, false, "the lists column has its own header");
+  const header = find(tree, (node) => node.type === "SheetHeader");
+  same([header.props.title, header.props.subtitle, header.props.leading.props.label], ["Design library", "Habits", "Back"]);
+  const selected = () => findAll(tree, (node) => node.type?.name === "LibraryRow" && node.props.selected).map((node) => node.props.title);
+  same(selected(), ["iPhone"]);
+  const rows = (title) =>
+    findAll(
+      find(tree, (node) => node.type === "Group" && node.props.title === title),
+      (node) => node.type === "PullDown",
+    );
+  rows("Recent edits")[0].props.onPress();
+  same(pushes.at(-1), { setParams: { library: "watch", id: "library:rings" } }, "the canvas changes in place, no sheet pushed");
+  rows("Pages")[0].props.onPress();
+  same(pushes.at(-1), { setParams: { library: "iphone", id: "" } });
+  tree = await render({ page: "watch", id: "library:rings" });
+  same([sheet().props.page, sheet().props.id], ["watch", "library:rings"]);
+  same(selected(), ["Rings"]);
+});
+
+test("a library design renames and moves through the computer, by its Chat or its Project", async (t) => {
+  const library = load("design-library.ts", {
+    react: hookHost(),
+    "react-native": { Alert: { alert() {} } },
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+  });
+  t.after(() => delete globalThis.promptAnswer);
+  const calls = [];
+  const source = { call: async (method, [request]) => calls.push([method, JSON.parse(JSON.stringify(request))]) };
+  const pages = projectLibrary().pages.concat([{ id: "watch", name: "Watch", designs: [] }]);
+  const design = pages[0].designs[0];
+  const menu = library.libraryEditSections({ pages }, design);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(menu.flatMap((section) => section.items).map((item) => [item.id, item.submenu?.map((sub) => [sub.id, !!sub.checked])]))),
+    [
+      ["rename", null],
+      [
+        "move",
+        [
+          ["move:iphone", true],
+          ["move:watch", false],
+          ["move:", false],
+        ],
+      ],
+    ],
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(library.libraryEditSections(null, design))), []);
+  globalThis.promptAnswer = " Start ";
+  assert.equal(await library.editLibraryDesign(source, "/p", pages, design, "rename"), true);
+  await library.editLibraryDesign(source, "/p", pages, design, "move:watch");
+  await library.editLibraryDesign(source, "/p", pages, design, "move:iphone");
+  globalThis.promptAnswer = "Kit";
+  await library.editLibraryDesign(source, "/p#7", pages, design, "move:");
+  assert.equal(await library.editLibraryDesign(source, "/p", pages, design, "remove"), false);
+  globalThis.promptAnswer = "Phones";
+  await library.renameLibraryPage(source, "/p", pages[0]);
+  assert.deepEqual(calls, [
+    ["design-library:update", { projectPath: "/p", id: "library:home", title: "Start" }],
+    ["design-library:update", { projectPath: "/p", id: "library:home", page: "Watch" }],
+    ["design-library:update", { chatId: "/p#7", id: "library:home", page: "Kit" }],
+    ["design-library:rename-page", { projectPath: "/p", page: "iphone", name: "Phones" }],
+  ]);
+});
+
+test("the phone project menu opens its Design library page", async () => {
+  const nav = navigationHost(deferred().promise);
+  const menu = nav.open(nav.row("project"));
+  const items = menu.props.sections.flatMap((section) => section.items);
+  assert.equal(items.find((item) => item.id === "design-library")?.title, "Design library");
+  menu.props.onSelect("design-library");
+  await settleAll();
+  assert.deepEqual(JSON.parse(JSON.stringify(nav.routes.at(-1))), { pathname: "/design-library", params: { hostId: "mac", path: "/last", name: "last" } });
+  assert.equal(nav.secondaryRoutes.at(-1), true, "a page, pushed after the sidebar closes, as Routines is");
+});
+
+test("a phone Chat row's menu opens its Project's Design library page, in any list view", async () => {
+  const nav = withTwoWorktrees(navigationHost(deferred().promise));
+  const menu = nav.more(nav.row("chat", 0));
+  assert.equal(menu.props.sections.flatMap((section) => section.items).find((item) => item.id === "design-library")?.title, "Design library");
+  menu.props.onSelect("design-library");
+  await settleAll();
+  assert.deepEqual(JSON.parse(JSON.stringify(nav.routes.at(-1))), { pathname: "/design-library", params: { hostId: "mac", path: "/last", name: "web" } });
+});
+
+test("a library page opened from the Design library page starts on all its designs, a design on that design", async (t) => {
+  const client = {
+    url: "mac",
+    call: async (method) => (method === "design-library:list" ? projectLibrary() : projectLibrary().pages[0].designs[0]),
+  };
+  const react = hookHost({ effects: true });
+  const source = load("library-sheet.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Alert: { alert() {} }, Text: "Text", View: "View" },
+    "expo-router": { router: { back() {}, setParams() {} } },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 47, bottom: 34 }) },
+    "@expo/dom-webview": {},
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+    "./designs-sheet": { DesignsCanvas: "DesignsCanvas" },
+    "./all-computers": { allComputers: { clientFor: () => null } },
+    "./session": { useSession: () => ({ client, designs: designsOn, reconnects: 0 }) },
+    "./ui": { PullDown: "PullDown", CircleButton: "CircleButton", SheetHeader: "SheetHeader", ErrorNotice: "ErrorNotice", useStyles: () => ({ muted: {} }) },
+    "./theme": { useTheme: () => ({ colors: { surface: "#fff", ink3: "#666", accent: "#07f" } }) },
+  });
+  t.after(() => react.cleanup());
+  const overviews = async (props) => {
+    const injected = [];
+    const render = () => {
+      react.begin();
+      const tree = source.LibrarySheet(props);
+      react.flush();
+      return tree;
+    };
+    render();
+    await settle();
+    const canvas = find(render(), (node) => node.type === "DesignsCanvas");
+    canvas.props.ref.current = { injectJavaScript: (script) => injected.push(JSON.parse(/run\((.*)\);true;$/s.exec(script)[1])) };
+    canvas.props.onMessage(JSON.stringify({ t: "ready" }));
+    render();
+    return injected.find((command) => command.t === "set").overview;
+  };
+  assert.equal(await overviews({ hostId: "mac", projectPath: "/p", page: "iphone" }), true, "the canvas places the page at its overview");
+  assert.equal(await overviews({ hostId: "mac", projectPath: "/p", page: "iphone", id: "library:home" }), false);
+});
+
+test("a library design opened from the Design library page reads and removes it by the Project, with no Chat", async (t) => {
+  const calls = [];
+  const client = {
+    url: "mac",
+    call: async (method, [request] = []) => {
+      calls.push([method, JSON.parse(JSON.stringify(request))]);
+      if (method === "design-library:list") return projectLibrary();
+      if (method === "artifact:delete") return { id: request.id };
+      return projectLibrary().pages[0].designs[0];
+    },
+  };
+  const react = hookHost({ effects: true });
+  let backs = 0;
+  const source = load("library-sheet.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Alert: { alert: (_title, _message, buttons) => buttons[0].onPress() }, Text: "Text", View: "View" },
+    "expo-router": { router: { back: () => backs++, setParams() {} } },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 47, bottom: 34 }) },
+    "@expo/dom-webview": {},
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+    "./designs-sheet": { DesignsCanvas: "DesignsCanvas" },
+    "./all-computers": { allComputers: { clientFor: () => null } },
+    "./session": { useSession: () => ({ client, designs: designsOn, reconnects: 0 }) },
+    "./ui": { PullDown: "PullDown", CircleButton: "CircleButton", SheetHeader: "SheetHeader", ErrorNotice: "ErrorNotice", useStyles: () => ({ muted: {} }) },
+    "./theme": { useTheme: () => ({ colors: { surface: "#fff", ink3: "#666", accent: "#07f" } }) },
+  });
+  t.after(() => react.cleanup());
+  const props = { hostId: "mac", projectPath: "/p", page: "iphone", id: "library:home" };
+  const render = () => {
+    react.begin();
+    const tree = source.LibrarySheet(props);
+    react.flush();
+    return tree;
+  };
+  render();
+  await settle();
+  render();
+  await settle();
+  const tree = render();
+  assert.deepEqual(calls.find(([method]) => method === "design-library:list")[1], { projectPath: "/p" });
+  assert.deepEqual(calls.find(([method]) => method === "artifact:get")[1], { projectPath: "/p", id: "library:home", version: 2, fonts: { have: [] } });
+  assert.equal(
+    calls.some(([method]) => method === "artifact:list"),
+    false,
+    "no Chat to read designs or a page from",
+  );
+  const header = find(tree, (node) => node.type === "SheetHeader");
+  assert.equal(header.props.subtitle, "Project library · v2 · Edited in Polish · Codex");
+  find(tree, (node) => node.type === "PullDown").props.onSelect("remove");
+  await settle();
+  assert.deepEqual(calls.findLast(([method]) => method === "artifact:delete")[1], { projectPath: "/p", id: "library:home" });
+  assert.equal(backs, 1);
+});
+
+test("the phone mic menu replays at the selection and saves the user's last edit as a Project correction", async () => {
+  let sheet;
+  const calls = [];
+  const prompts = [];
+  const writes = [];
+  const { openComposerVoiceMenu } = load("voice-menu.ts", {
+    "react-native": { Alert: { alert: assert.fail } },
+    "@milagre/shared/dictation": require("@milagre/shared/dictation"),
+    "./last-dictation": { lastDictation: () => "Recovered words." },
+    "./ui": {
+      showActions: (options) => {
+        sheet = options;
+      },
+    },
+    "./text-prompt": {
+      promptText: async (title, options) => {
+        prompts.push(title);
+        return options.value;
+      },
+    },
+  });
+  const open = () =>
+    openComposerVoiceMenu({
+      client: {
+        call: async (method, args) => {
+          calls.push([method, [...args]]);
+          return [];
+        },
+      },
+      cwd: "/Project",
+      before: "fix insert dictation",
+      draft: "fix insertDictation",
+      selection: { start: 4, end: 19 },
+      insert: (edit) => writes.push(edit.value),
+    });
+  open();
+  sheet.onSelect("last");
+  assert.deepEqual(writes, ["fix Recovered words."]);
+  open();
+  sheet.onSelect("vocabulary");
+  await new Promise(setImmediate);
+  sheet.onSelect("add");
+  await new Promise(setImmediate);
+  assert.deepEqual(prompts, ["Heard as", "Write as"]);
+  assert.deepEqual(calls, [
+    ["dictation:corrections", ["/Project"]],
+    ["dictation:correct", ["/Project", "insert dictation", "insertDictation"]],
+  ]);
 });

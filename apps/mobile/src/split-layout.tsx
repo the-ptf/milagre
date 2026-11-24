@@ -1,4 +1,5 @@
 import { toggleDictationShortcut } from "./dictation-shortcut";
+import { sendStayShortcut } from "./send-stay-shortcut";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { router, usePathname, type Href } from "expo-router";
@@ -281,6 +282,10 @@ export function HardwareShortcuts() {
         toggleDictationShortcut();
         return;
       }
+      if (command === "chat.sendStay") {
+        sendStayShortcut();
+        return;
+      }
       if (command === "settings.open") {
         router.push("/settings");
         return;
@@ -296,10 +301,9 @@ export function HardwareShortcuts() {
         return;
       }
       const index = chatShortcutIndex(command);
-      if (command !== "chat.new" && command !== "commandPalette.toggle" && index === null) return;
-      requestNavigation(
-        command === "chat.new" ? { kind: "new" } : command === "commandPalette.toggle" ? { kind: "search" } : { kind: "chat", index: index ?? 0 },
-      );
+      const newChat = command === "chat.new" || command === "worktree.new";
+      if (!newChat && command !== "commandPalette.toggle" && index === null) return;
+      requestNavigation(newChat ? { kind: "new" } : command === "commandPalette.toggle" ? { kind: "search" } : { kind: "chat", index: index ?? 0 });
       if (split.dockable) {
         if (!split.pinned) split.toggle();
       } else if (panels.attached && panels.open !== "left") panels.show("left");

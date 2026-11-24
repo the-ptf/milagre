@@ -9,7 +9,7 @@ const { catalogue } = require("./product-commands.cjs");
 const generated = require("../../../packages/core/src/command-contracts.json");
 test("every UI action is discoverable as an owner command or a declared desktop capability", async (t) => {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-parity-"));
-  const daemon = await startDaemon({ dataDir, version: "test", runtimeOptions: { environmentReady: Promise.resolve() } });
+  const daemon = await startDaemon({ dataDir, homeDir: dataDir, version: "test", runtimeOptions: { environmentReady: Promise.resolve() } });
   t.after(async () => {
     await daemon.close();
     await fs.rm(dataDir, { recursive: true, force: true });

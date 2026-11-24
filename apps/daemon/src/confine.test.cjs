@@ -39,6 +39,7 @@ async function fixture(t, { allowedRoot = true, runtime = (options) => options, 
   await fs.symlink(outside, path.join(demo, "link-out"));
   const daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "test",
     runtimeOptions: runtime(demoRuntimeOptions({ cwd: demo, worktreeRoot: path.join(demo, ".milagre", "worktrees") })),
   });
@@ -354,7 +355,7 @@ test("a confined phone gets no worktree root outside its folder", async (t) => {
 
 test("the demo daemon reports only the demo agent, whichever provider the phone picks", async (t) => {
   const f = await fixture(t);
-  assert.deepEqual((await f.rpc("agent:models")).body.result, { codex: [DEMO_MODEL], claude: null, antigravity: null, kiro: null });
+  assert.deepEqual((await f.rpc("agent:models")).body.result, { codex: [DEMO_MODEL], claude: null, antigravity: null, kiro: null, pi: null });
   const status = (await f.rpc("agent:cli-status")).body.result;
   assert.deepEqual(status.codex, { state: "ready" });
   assert.equal(status.claude.state, "missing");
@@ -692,9 +693,28 @@ test("even a Chat inside the demo Project cannot publish, revoke or enumerate ow
   for (const [method, args] of [
     ["artifact:share-page", [{ chatId, title: "Demo", acknowledgePublic: true }]],
     ["artifact:revoke-page-share", [{ chatId, id: "x".repeat(43) }]],
+    ["artifact:set-page-share-paused", [{ chatId, id: "x".repeat(43), paused: false }]],
     ["artifact:revoke-saved-page-share", [{ id: "x".repeat(43) }]],
     ["artifact:all-page-shares", []],
     ["artifact:sharing-status", []],
+  ])
+    await assert.rejects(confine.checkCall(method, args), { status: 403, message: REFUSED });
+});
+
+test("a confined phone sees its own Project's design library and changes nothing in it", async (t) => {
+  const f = await fixture(t);
+  const confine = createConfinement({ allowedRoot: f.demo });
+  await confine.checkCall("design-library:list", [{ chatId: `${f.demo}#1` }]);
+  await confine.checkCall("design-library:list", [{ projectPath: f.demo }]);
+  await confine.checkCall("artifact:get", [{ projectPath: f.demo, id: "library:home" }]);
+  await assert.rejects(confine.checkCall("design-library:list", [{ chatId: `${f.outside}#1` }]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("design-library:list", [{ projectPath: f.outside }]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("artifact:get", [{ projectPath: f.outside, id: "library:home" }]), { status: 403, message: REFUSED });
+  for (const [method, args] of [
+    ["design-library:add", [{ chatId: `${f.demo}#1`, designId: "home", page: "iPhone" }]],
+    ["design-library:update", [{ projectPath: f.demo, id: "library:home", title: "Start" }]],
+    ["design-library:rename-page", [{ projectPath: f.demo, page: "iPhone", name: "Phone" }]],
+    ["artifact:delete", [{ projectPath: f.demo, id: "library:home" }]],
   ])
     await assert.rejects(confine.checkCall(method, args), { status: 403, message: REFUSED });
 });

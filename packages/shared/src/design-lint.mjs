@@ -3,9 +3,11 @@ import { designLuminance } from "./design-colors.mjs";
 import { designLayout, designTextLayout } from "./design-layout.mjs";
 import { visibleDesignTextLines } from "./design-render-limits.mjs";
 import { DESIGN_INK } from "./design-paint.mjs";
+import { resolveDesignColor } from "./design-tokens.mjs";
 
 const MAX_WARNINGS = 20;
 const SHAPE_TYPES = new Set(["frame", "rectangle", "ellipse"]);
+const PATTERNED = new Set(["image", "path"]);
 // Below 3:1 text is hard to read at any size; stricter limits are the author's call.
 const MINIMUM_CONTRAST = 3;
 const TOLERANCE = 1;
@@ -39,7 +41,7 @@ const contrast = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 export function designDiagnostics(document) {
   const nodes = new Map(document.nodes.map((node) => [node.id, node]));
   const bounds = designLayout(document, designTextLayout);
-  const resolve = (value) => (value?.startsWith("$") ? document.tokens?.[value.slice(1)] : value);
+  const resolve = (value) => (value === undefined ? undefined : (resolveDesignColor(document.tokens, value) ?? undefined));
   const order = paintOrder(document);
   const position = new Map(order.map((layer, at) => [layer.id, at]));
   const warnings = [];
@@ -139,11 +141,11 @@ export function designDiagnostics(document) {
         const candidate = order[earlier];
         const candidateBox = bounds.get(candidate.id);
         if (!candidateBox || !overlaps(candidateBox, box)) continue;
-        if (candidate.type === "image" || (SHAPE_TYPES.has(candidate.type) && candidate.fill)) behind = { node: candidate, box: candidateBox };
+        if (PATTERNED.has(candidate.type) || (SHAPE_TYPES.has(candidate.type) && candidate.fill)) behind = { node: candidate, box: candidateBox };
       }
       let backdrop = resolve(document.background ?? "#ffffff");
       if (behind) {
-        backdrop = behind.node.type !== "image" && (behind.node.opacity ?? 1) === 1 && contains(behind.box, box) ? resolve(behind.node.fill) : null;
+        backdrop = !PATTERNED.has(behind.node.type) && (behind.node.opacity ?? 1) === 1 && contains(behind.box, box) ? resolve(behind.node.fill) : null;
       }
       const foreground = (node.opacity ?? 1) === 1 ? luminance(resolve(node.fill ?? DESIGN_INK)) : null;
       const background = luminance(backdrop);
@@ -161,7 +163,7 @@ export function designDiagnostics(document) {
       });
       if (checked && contrast(foreground, background) < MINIMUM_CONTRAST) {
         const alternatives = Object.entries(document.kit?.colors ?? document.tokens ?? {})
-          .map(([name, color]) => ({ name, value: luminance(document.tokens?.[name] ?? color) }))
+          .map(([name, color]) => ({ name, value: luminance(resolveDesignColor(document.tokens, document.tokens?.[name] ?? color)) }))
           .filter(({ value }) => value !== null && contrast(value, background) >= MINIMUM_CONTRAST)
           .sort((a, b) => contrast(b.value, background) - contrast(a.value, background));
         const alternative = alternatives[0];

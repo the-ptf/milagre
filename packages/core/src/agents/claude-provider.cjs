@@ -591,6 +591,21 @@ class ClaudeSession {
     markEnded();
   }
 
+  /** Whether this session stops one subagent on its own; a child can still be waiting for its SDK task ID. */
+  stopsSubagents() {
+    return typeof this.query?.stopTask === "function";
+  }
+
+  canStopSubagent(id) {
+    return Boolean(this.query?.stopTask && [...(this.state.taskAgents ?? [])].some(([, agent]) => agent === id));
+  }
+
+  async stopSubagent(id) {
+    const task = [...(this.state.taskAgents ?? [])].find(([, agent]) => agent === id)?.[0];
+    if (!task || !this.query?.stopTask) throw new Error("Stopping this subagent is not available.");
+    await this.query.stopTask(task);
+  }
+
   async interrupt() {
     if (!this.turnActive) return;
     this.cancelRequested = true;

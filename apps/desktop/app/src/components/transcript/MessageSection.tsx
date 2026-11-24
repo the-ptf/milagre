@@ -71,7 +71,8 @@ import { ActivityBlock } from "../agents/ActivityBlock";
 import { GeneratedImage } from "../agents/GeneratedImage";
 import { ViewedImages } from "../agents/ViewedImages";
 import { Markdown, StreamingMarkdown } from "../markdown/Markdown";
-import { replyActivity, unspokenThought } from "../../lib/reply-parts";
+import { loaderActivity, replyActivity, unspokenThought, type ActivityEntry } from "../../lib/reply-parts";
+import { useSettings } from "../../lib/settings";
 import { extractOutdatedProvider } from "../../lib/cli-status";
 import { splitFences } from "../../lib/message-fences";
 import { CodeBlock } from "../markdown/CodeBlock";
@@ -185,6 +186,8 @@ function UserBody({
   );
 }
 
+const isRunning = (entry: ActivityEntry) => entry.type === "step" && entry.step.status === "running";
+
 function ReplyContent({
   body,
   steps,
@@ -210,17 +213,21 @@ function ReplyContent({
   const thought = !streaming || asking ? unspokenThought(body, steps) : "";
   const before = answer.trim() ? activity.slice(0, answerAt) : activity;
   const after = answer.trim() ? activity.slice(answerAt) : [];
+  const { toolCallDisplay } = useSettings();
+  const loaderHolds = streaming && !asking && toolCallDisplay !== "full" && loaderActivity(body, steps, waitingStepIds).length > 0;
   return (
     <>
       {setup.map((step) => (
         <StepRow key={step.id} step={step} />
       ))}
-      <ActivityBlock
-        entries={before}
-        streaming={streaming && after.length === 0}
-        waitingStepIds={waitingStepIds}
-        credits={after.length ? undefined : credits}
-      />
+      {!(loaderHolds && !answer.trim()) && (
+        <ActivityBlock
+          entries={before}
+          streaming={streaming && after.length === 0 && (toolCallDisplay === "full" || !answer.trim() || before.some(isRunning))}
+          waitingStepIds={waitingStepIds}
+          credits={after.length ? undefined : credits}
+        />
+      )}
       <ViewedImages steps={viewedImages} attachments={attachments} />
       {images.map((step) => (
         <GeneratedImage key={step.id} step={step} />
@@ -235,7 +242,7 @@ function ReplyContent({
           {streaming && after.length === 0 ? <StreamingMarkdown text={answer} /> : <Markdown text={answer} />}
         </div>
       )}
-      {after.length > 0 && <ActivityBlock entries={after} streaming={streaming} waitingStepIds={waitingStepIds} credits={credits} />}
+      {after.length > 0 && !loaderHolds && <ActivityBlock entries={after} streaming={streaming} waitingStepIds={waitingStepIds} credits={credits} />}
       {copyable && (answer.trim() || onFork) && (
         <div className="h-7" data-message-copy-footer>
           {!streaming && (
@@ -649,7 +656,7 @@ export const MessageSection = memo(function MessageSection({
           )}
         </div>
       )}
-      <div className={bodyClass(cards, isUser, highlighted)}>
+      <div data-user-bubble={bubble || undefined} className={bodyClass(cards, isUser, highlighted)}>
         {bubble && bubbleActionsAvailable(copyUser, undoId, onUndo, forkThis) && (
           <BubbleActions
             message={message}

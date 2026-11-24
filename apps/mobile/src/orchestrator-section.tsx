@@ -142,11 +142,13 @@ export function OrchestratorSection({
   models,
   save,
   computers,
+  completion,
 }: {
   settings: OrchestratorSettings;
   models: AgentModels | null;
   save: Save;
   computers?: React.ReactNode;
+  completion?: React.ReactNode;
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -163,6 +165,7 @@ export function OrchestratorSection({
         {on ? null : <Text style={styles.caption}>Turn it on to change the settings below.</Text>}
       </View>
       <View pointerEvents={on ? "auto" : "none"} style={[{ gap: space.section }, dimmed(on)]}>
+        {completion}
         <Group title="Name" inset={0}>
           <NameRow key={settings.name} name={settings.name} onSave={(name) => save({ name })} />
         </Group>

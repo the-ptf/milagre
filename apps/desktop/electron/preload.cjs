@@ -32,13 +32,6 @@ const LOCAL_ONLY = new Set([
   "skills:reveal",
   "runtime:connection",
   "runtime:restart-host",
-  "accounts:list",
-  "accounts:add",
-  "accounts:select",
-  "accounts:login",
-  "accounts:cancel",
-  "accounts:code",
-  "accounts:remove",
   "chat:limit-switch",
   "agent:update-cli",
   "agent:provider-updates",
@@ -89,6 +82,14 @@ function simulatorBridge(invoke) {
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "simulators" | "baguette">}
+ */
+function simulatorBridges(invoke) {
+  return { simulators: simulatorBridge(invoke), baguette: { status: () => invoke("baguette:status") } };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "askBtw" | "stopBtw" | "readBtw" | "onBtwEvent" | "forkChat" | "deleteChat">}
  */
@@ -101,6 +102,18 @@ function makeSideQuestionBridge(invoke, listen) {
     stopBtw: (chatId, options) => invoke("chat:btw-stop", chatId, options),
     readBtw: (chatId) => invoke("chat:btw-read", chatId),
     onBtwEvent: (callback) => listen("chat:btw-event", callback),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "stopSubagent" | "stopAdvisor" | "retryAdvisor">}
+ */
+function backgroundAgentBridge(invoke) {
+  return {
+    stopSubagent: (chatId, id, stopSession) => invoke("subagent:stop", chatId, id, stopSession),
+    stopAdvisor: (chatId, id) => invoke("advisor:stop", chatId, id),
+    retryAdvisor: (chatId, id) => invoke("advisor:retry", chatId, id),
   };
 }
 
@@ -121,7 +134,7 @@ function accountsBridge(invoke, listen) {
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
- * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readBabysitSettings" | "saveBabysitSettings" | "onBabysitSettings" | "readDoneSettings" | "saveDoneSettings" | "onDoneSettings" | "readOrchestrator" | "readOrchestratorProjects" | "readOrchestratorComputers" | "saveOrchestratorSettings" | "sendToOrchestrator" | "pickOrchestratorProject" | "showOrchestratorTaskInSidebar" | "undoOrchestratorTask" | "rerouteOrchestratorTask" | "dismissOrchestratorTask" | "importOrchestratorMemory" | "saveOrchestratorMemory" | "forgetOrchestratorMemory" | "onOrchestrator">}
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readBabysitSettings" | "saveBabysitSettings" | "onBabysitSettings" | "readDoneSettings" | "saveDoneSettings" | "onDoneSettings" | "readOrchestrator" | "readOrchestratorProjects" | "readOrchestratorComputers" | "saveOrchestratorSettings" | "sendToOrchestrator" | "pickOrchestratorProject" | "showOrchestratorTaskInSidebar" | "undoOrchestratorTask" | "moveOrchestratorTask" | "deleteOrchestratorTask" | "rerouteOrchestratorTask" | "dismissOrchestratorTask" | "importOrchestratorMemory" | "saveOrchestratorMemory" | "forgetOrchestratorMemory" | "onOrchestrator">}
  */
 function hostSettingsBridge(invoke, listen) {
   return {
@@ -139,6 +152,8 @@ function hostSettingsBridge(invoke, listen) {
     pickOrchestratorProject: (taskId, projectPath) => invoke("orchestrator:task:project", taskId, projectPath),
     showOrchestratorTaskInSidebar: (taskId, shown) => invoke("orchestrator:task:sidebar", taskId, shown),
     undoOrchestratorTask: (taskId) => invoke("orchestrator:task:undo", taskId),
+    moveOrchestratorTask: (taskId, column) => invoke("orchestrator:task:move", taskId, column),
+    deleteOrchestratorTask: (taskId) => invoke("orchestrator:task:delete", taskId),
     rerouteOrchestratorTask: (taskId, change) => invoke("orchestrator:task:reroute", taskId, change),
     dismissOrchestratorTask: (taskId) => invoke("orchestrator:task:dismiss", taskId),
     importOrchestratorMemory: () => invoke("orchestrator:memory:import"),
@@ -151,12 +166,40 @@ function hostSettingsBridge(invoke, listen) {
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
+ * @returns {import("../app/src/electron.d.ts").MilagreBridge["artifacts"]}
+ */
+function artifactBridge(invoke, listen) {
+  return {
+    sharingStatus: (request) => invoke("artifact:sharing-status", request),
+    allPageShares: () => invoke("artifact:all-page-shares"),
+    revokeSavedPageShare: (request) => invoke("artifact:revoke-saved-page-share", request),
+    pageShares: (request) => invoke("artifact:page-shares", request),
+    sharePage: (request) => invoke("artifact:share-page", request),
+    revokePageShare: (request) => invoke("artifact:revoke-page-share", request),
+    setPageSharePaused: (request) => invoke("artifact:set-page-share-paused", request),
+    get: (request) => invoke("artifact:get", request),
+    asset: (request) => invoke("artifact:asset", request),
+    list: (request) => invoke("artifact:list", request),
+    delete: (request) => invoke("artifact:delete", request),
+    addComments: (request) => invoke("artifact:add-comments", request),
+    comments: (request) => invoke("artifact:comments", request),
+    library: (request) => invoke("design-library:list", request),
+    addToLibrary: (request) => invoke("design-library:add", request),
+    updateLibraryDesign: (request) => invoke("design-library:update", request),
+    renameLibraryPage: (request) => invoke("design-library:rename-page", request),
+    onLibraryChanged: (callback) => listen("design-library:changed", callback),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @param {(channel: string, ...args: any[]) => void} send
  * @returns {import("../app/src/electron.d.ts").MilagreBridge}
  */
 function makeBridge(invoke, listen, send) {
   return {
-    simulators: simulatorBridge(invoke),
+    ...simulatorBridges(invoke),
     computerUse: {
       readSettings: () => invoke("computer-use:settings:read"),
       saveSettings: (patch) => invoke("computer-use:settings:save", patch),
@@ -207,27 +250,13 @@ function makeBridge(invoke, listen, send) {
     onDesignsEnabledChanged: (callback) => listen("designs:enabled-changed", callback),
     createArtifactPreview: (html, source) => invoke("artifact-preview:register", html, source),
     releaseArtifactPreview: (url) => invoke("artifact-preview:release", url),
-    artifacts: {
-      sharingStatus: (request) => invoke("artifact:sharing-status", request),
-      allPageShares: () => invoke("artifact:all-page-shares"),
-      revokeSavedPageShare: (request) => invoke("artifact:revoke-saved-page-share", request),
-      pageShares: (request) => invoke("artifact:page-shares", request),
-      sharePage: (request) => invoke("artifact:share-page", request),
-      revokePageShare: (request) => invoke("artifact:revoke-page-share", request),
-      get: (request) => invoke("artifact:get", request),
-      asset: (request) => invoke("artifact:asset", request),
-      list: (request) => invoke("artifact:list", request),
-      delete: (request) => invoke("artifact:delete", request),
-      addComments: (request) => invoke("artifact:add-comments", request),
-      comments: (request) => invoke("artifact:comments", request),
-    },
+    artifacts: artifactBridge(invoke, listen),
     getRuntimeConnection: () => invoke("runtime:connection"),
     restartHost: () => invoke("runtime:restart-host"),
     onRuntimeConnection: (callback) => listen("runtime:connection", callback),
     onRuntimeSnapshot: (callback) => listen("runtime:snapshot", callback),
     getPathForFile: (file) => webUtils.getPathForFile(file),
-    readAttachment: (file) => invoke("attachment:preview", file),
-    readAttachmentChunk: (file, offset, version = "") => invoke("attachment:read", file, offset, version),
+    ...dictationAndAttachmentBridge(invoke),
     searchProjectFiles: (root, query) => invoke("project:files", root, query),
     listSkills: (projectPath) => invoke("skills:list", projectPath),
     readSkill: (projectPath, file) => invoke("skills:read", projectPath, file),
@@ -464,8 +493,7 @@ function makeBridge(invoke, listen, send) {
     getCliStatus: (scopeKey) => invoke("agent:cli-status", scopeKey),
     getProviderUpdates: () => invoke("agent:provider-updates"),
     updateCli: (provider, targetVersion) => invoke("agent:update-cli", provider, targetVersion),
-    stopAdvisor: (chatId, id) => invoke("advisor:stop", chatId, id),
-    retryAdvisor: (chatId, id) => invoke("advisor:retry", chatId, id),
+    ...backgroundAgentBridge(invoke),
     onCliProgress: (callback) => listen("agent:cli-progress", callback),
     interruptAgent: (chatId) => invoke("agent:interrupt", chatId),
     respondToPermission: (chatId, requestId, decision) => invoke("agent:respond-permission", { chatId, requestId, decision }),
@@ -696,3 +724,16 @@ contextBridge.exposeInMainWorld("milagrePreferences", {
     ipcRenderer.on("preferences:changed", (_event, change) => listener(change));
   },
 });
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readAttachment" | "dictationCorrections" | "setDictationCorrection" | "readAttachmentChunk">}
+ */
+function dictationAndAttachmentBridge(invoke) {
+  return {
+    dictationCorrections: (cwd) => invoke("dictation:corrections", cwd),
+    setDictationCorrection: (cwd, heard, spelling) => invoke("dictation:correct", cwd, heard, spelling),
+    readAttachment: (file) => invoke("attachment:preview", file),
+    readAttachmentChunk: (file, offset, version = "") => invoke("attachment:read", file, offset, version),
+  };
+}

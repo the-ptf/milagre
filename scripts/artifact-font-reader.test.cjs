@@ -8,7 +8,7 @@ const { createDesignFontReader, restoreDesignFonts } = require("../packages/shar
 const { onComputerConnection } = require("../apps/desktop/app/src/lib/computer-bridge.ts");
 
 function fixture() {
-  const filename = path.join(__dirname, "../apps/desktop/app/src/components/agents/ArtifactCanvas.tsx");
+  const filename = path.join(__dirname, "../apps/desktop/app/src/components/agents/artifact-read.ts");
   const source = fs.readFileSync(filename, "utf8");
   const start = source.indexOf("const versionsRead =");
   const end = source.indexOf("const keptArtifact =", start);
@@ -51,6 +51,7 @@ function fixture() {
     restoreDesignFonts,
     bridgeForKey: (key) => ({ artifacts: key.includes("|") ? remote : local }),
     isRemoteKey: (key) => key.includes("|"),
+    designScope: require("../packages/shared/src/artifact.ts").designScope,
     onComputerConnection,
   });
   return {

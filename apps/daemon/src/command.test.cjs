@@ -150,6 +150,7 @@ test("terminal pairing opens a timed window and computers wait for an explicit a
   let relay;
   const daemon = await startDaemon({
     dataDir,
+    homeDir: dataDir,
     version: "test",
     phoneOptions: {
       localPort: 0,

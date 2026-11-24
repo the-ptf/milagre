@@ -302,6 +302,22 @@ test("host gone rejects pending requests, and the next request reconnects", asyn
   transport.close();
 });
 
+test("the relay's gone notice, a text frame, drops the socket at once and the next request reconnects", async () => {
+  const fake = relay((request) => (request.path === "/slow" ? "never" : { body: '"again"' }));
+  const { transport } = transportFor(fake);
+  const failure = assert.rejects(GET(transport, "/slow"), { message: LOST });
+  await settle();
+  const first = fake.sockets[0];
+  assert.ok(first !== undefined);
+  first.emit("message", { data: JSON.stringify({ t: "gone", code: 4410, reason: "host-gone" }) });
+  await failure;
+  assert.equal(first.open, false, "the phone hung up");
+  const response = await GET(transport, "/fast");
+  assert.equal(decoder.decode(response.body), '"again"');
+  assert.equal(fake.sockets.length, 2);
+  transport.close();
+});
+
 test("a stale pairing says to scan again, and does not reconnect", async () => {
   const fake = relay();
   fake.state.mode = "bad-token";

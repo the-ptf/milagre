@@ -18,6 +18,13 @@ export function VoiceSettings({ onOpenKeybindings }: { onOpenKeybindings?: () =>
     <>
       <ChoiceGroup title="Dictation">
         <div className="mb-4 overflow-hidden rounded-card border border-line bg-surface">
+          <Row label="Enable dictation" description="Show the microphone and enable the dictation shortcut on this device.">
+            <SettingCheckbox
+              label="Enable dictation"
+              checked={settings.dictationEnabled}
+              onChange={(dictationEnabled) => updateSettings({ dictationEnabled })}
+            />
+          </Row>
           <Row label="Shortcut" description="Starts dictation in the composer from anywhere in the Chat. Change the keys in Keybindings.">
             <span className="flex items-center gap-2">
               <kbd data-dictation-shortcut className="rounded-control border border-line-strong bg-surface px-2 py-1 font-sans text-13 font-semibold text-ink">
@@ -40,6 +47,9 @@ export function VoiceSettings({ onOpenKeybindings }: { onOpenKeybindings?: () =>
         <p className="mt-4 mb-2 px-1 text-14 font-semibold text-ink">When dictation finishes</p>
         <DictationActionChoice value={settings.dictationAction} onChange={(dictationAction) => updateSettings({ dictationAction })} />
         <div className="mt-4 overflow-hidden rounded-card border border-line bg-surface">
+          <Row label="Spoken symbols" description={'Say "backtick npm test backtick" for inline code or "insert newline" for a line break.'}>
+            <SettingCheckbox label="Spoken symbols" checked={settings.dictationSymbols} onChange={(dictationSymbols) => updateSettings({ dictationSymbols })} />
+          </Row>
           <Row
             label="Fix names with AI"
             description="After you stop, a small model corrects misheard file, code and provider names using this Chat. Your words show at once and update a few seconds later, unless you edit them first."

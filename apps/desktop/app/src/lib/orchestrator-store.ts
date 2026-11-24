@@ -6,22 +6,28 @@ import {
   type OrchestratorMemoryNote,
   type OrchestratorSettings,
   type OrchestratorSnapshot,
+  type BoardColumn,
   type OrchestratorTask,
 } from "@milagre/shared/orchestrator";
+import { DELETE_UNDO_MS, deleteUndoWindow, undoDelete } from "@milagre/shared/archive";
 import { taskForChat } from "./orchestrator-board";
 import { getSettings } from "./settings";
+import { undoHistory } from "./undo-history";
 
 const EMPTY: OrchestratorSnapshot = { settings: { ...ORCHESTRATOR_DEFAULTS }, tasks: [], memory: normalizeOrchestratorMemory(null) };
 
 let snapshot = EMPTY;
+let received = EMPTY;
 let loaded = false;
 let started = false;
 const listeners = new Set<() => void>();
 const sentHere = new Set<string>();
+const deleting = new Set<string>();
 
 function apply(next: OrchestratorSnapshot | null | undefined) {
   if (!next?.settings) return;
-  snapshot = next;
+  received = next;
+  snapshot = deleting.size ? { ...next, tasks: next.tasks.filter((task) => !deleting.has(task.id)) } : next;
   loaded = true;
   listeners.forEach((notify) => notify());
 }
@@ -100,6 +106,29 @@ export async function undoTask(taskId: string) {
 export async function dismissTask(taskId: string) {
   apply({ ...snapshot, tasks: snapshot.tasks.filter((task) => task.id !== taskId) });
   await window.milagre.dismissOrchestratorTask(taskId);
+}
+
+export async function moveTask(taskId: string, column: BoardColumn) {
+  await window.milagre.moveOrchestratorTask(taskId, column);
+}
+
+const deleteKey = (taskId: string) => `orchestrator-task:${taskId}`;
+
+/** Takes the task off the board at once and deletes it with its Chat once the Undo toast's time is up. */
+export async function deleteTask(taskId: string) {
+  deleting.add(taskId);
+  apply(received);
+  undoHistory.record({
+    text: "Task deleted",
+    kind: "deleted",
+    undoneText: "Task restored",
+    undo: () => undoDelete(deleteKey(taskId)),
+    undoWindowMs: DELETE_UNDO_MS,
+  });
+  const undone = await deleteUndoWindow(deleteKey(taskId));
+  if (!undone) await window.milagre.deleteOrchestratorTask(taskId).catch((error: Error) => undoHistory.notify(`Couldn't delete the task: ${error.message}`));
+  deleting.delete(taskId);
+  apply(received);
 }
 
 export async function showTaskInSidebar(taskId: string, shown: boolean) {

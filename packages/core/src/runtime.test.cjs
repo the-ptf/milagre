@@ -136,6 +136,7 @@ test("page sharing RPCs validate the existing Chat and preserve the public confi
   await assert.rejects(runtime.invoke("artifact:share-page", [{ chatId, title: "Designs", acknowledgePublic: true }]), /at least one design/);
   await assert.rejects(runtime.invoke("artifact:page-shares", [{ chatId: `${project}#999999` }]), /existing Chat/);
   await assert.rejects(runtime.invoke("artifact:revoke-page-share", [{ chatId, id: "x".repeat(43) }]), /does not belong/);
+  await assert.rejects(runtime.invoke("artifact:set-page-share-paused", [{ chatId, id: "x".repeat(43), paused: true }]), /does not belong/);
   assert.equal(requests.length, 1);
   assert.equal(requests[0][1].method, "GET", "no public write occurred");
   assert.deepEqual(await runtime.invoke("artifact:all-page-shares"), []);
@@ -1116,6 +1117,29 @@ test("project:known offers every Project the Mac knows, past the recent list's t
   );
   assert.equal(known.at(-1).origin, "github.com/the-ptf/milagre-ade");
   assert.equal(known.at(-1).name, path.basename(project));
+});
+
+test("project:read opens a registered Project past the recent list's ten, as a paired computer picking it does", async (t) => {
+  const { project, make } = await fixture(t);
+  const first = make();
+  await first.openProject(project);
+  for (let index = 0; index < 10; index++) {
+    const folder = path.join(path.dirname(project), `other-${index}`);
+    await fs.mkdir(folder);
+    execFileSync("git", ["init", "-q", folder], { stdio: "ignore" });
+    await first.openProject(folder);
+  }
+  await first.close();
+  const runtime = make();
+  assert.ok(!(await runtime.invoke("project:recent")).some((item) => item.path === project));
+  const read = await runtime.invoke("project:read", [project]);
+  assert.equal(read.path, project);
+  assert.ok(read.state.sessions);
+  assert.ok(Array.isArray(await runtime.invoke("project:branches", [project])));
+  const stranger = path.join(path.dirname(project), "stranger");
+  await fs.mkdir(stranger);
+  execFileSync("git", ["init", "-q", stranger], { stdio: "ignore" });
+  await assert.rejects(runtime.invoke("project:read", [stranger]), /Open this project in Milagre first/);
 });
 
 test("linked Worktrees resolve to one registered Project without losing saved Chats", async (t) => {
@@ -2370,4 +2394,64 @@ test("a Milagre bug report reaches the user redacted, and the approved text is w
   assert.equal(await runtime.invoke("agent:answer-question", [args]), false);
   await runtime.invoke("agent:interrupt", [chatId]);
   await runtime.close();
+});
+
+test("subagent stop targets the selected child and asks before stopping a shared session", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  const runtime = make({
+    titleModels: {},
+    agentCli: async () => ({ command: "/fake" }),
+    createSession: agents.createSession,
+  });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  await runtime.invoke("chat:send", [
+    {
+      projectPath: project,
+      sessionId: chat.id,
+      body: "review",
+      provider: "claude",
+      model: "claude-opus-5-5",
+    },
+  ]);
+  for (let i = 0; i < 200 && !agents.sessions[0]; i++) await new Promise((r) => setTimeout(r, 10));
+  const session = agents.sessions[0];
+  session.options.emit({
+    type: "subagent-update",
+    agent: {
+      id: "child",
+      title: "Review",
+      status: "running",
+      background: true,
+      startedAt: 1,
+      updatedAt: Date.now(),
+      transcript: [],
+    },
+  });
+  for (let i = 0; i < 200 && !(await runtime.invoke("project:snapshot", [project])).state.sessions[chat.id].subagents?.length; i++)
+    await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(await runtime.invoke("subagent:stop", [chatId, "child"]), {
+    stopped: false,
+    requiresSessionStop: true,
+  });
+  assert.equal(session.closed, false);
+  await assert.rejects(runtime.invoke("subagent:stop", [chatId, "other", true]), /no longer running/i);
+  const calls = [];
+  session.canStopSubagent = (id) => id === "child";
+  session.stopSubagent = async (id) => calls.push(id);
+  assert.deepEqual(await runtime.invoke("subagent:stop", [chatId, "child"]), {
+    stopped: true,
+    requiresSessionStop: false,
+  });
+  assert.deepEqual(calls, ["child"]);
+  assert.equal(session.closed, false);
+  session.canStopSubagent = () => false;
+  session.stopsSubagents = () => true;
+  await assert.rejects(runtime.invoke("subagent:stop", [chatId, "child", true]), /isn't ready to stop yet/);
+  assert.equal(session.closed, false);
+  session.stopsSubagents = () => false;
+  assert.deepEqual(await runtime.invoke("subagent:stop", [chatId, "child", true]), { stopped: true, requiresSessionStop: false });
+  assert.equal(session.closed, true);
 });

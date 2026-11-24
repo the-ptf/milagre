@@ -22,7 +22,7 @@ const caller = (call: (method: string, args: unknown[]) => Promise<unknown>) => 
   call: async <T>(method: string, args: unknown[]) => (method === "artifact:sharing-status" ? { available: true } : await call(method, args)) as T,
 });
 
-test("opening page sharing only reads history; explicit publish acknowledges whole-page publication", async () => {
+test("opening page sharing only reads history; explicit publish acknowledges publishing the whole workspace", async () => {
   const calls: unknown[] = [];
   const store = createDesignPageSharing(
     caller(async (method, args) => {
@@ -33,9 +33,9 @@ test("opening page sharing only reads history; explicit publish acknowledges who
   );
   await store.refresh();
   await store.checkAvailability();
-  assert.deepEqual(calls, [["artifact:page-shares", [{ chatId: "project#chat" }]]]);
+  assert.deepEqual(calls, [["artifact:page-shares", [{ chatId: "project#chat", kind: "workspace" }]]]);
   await store.publish("  Designs  ");
-  assert.deepEqual(calls[1], ["artifact:share-page", [{ chatId: "project#chat", title: "Designs", acknowledgePublic: true }]]);
+  assert.deepEqual(calls[1], ["artifact:share-page", [{ chatId: "project#chat", kind: "workspace", title: "Designs", acknowledgePublic: true }]]);
   assert.deepEqual(store.getSnapshot().shares, [snapshot]);
 });
 
@@ -123,7 +123,7 @@ test("revoking a Chat page's link drops it so the next publish creates a new one
   fail = false;
   await store.revoke(snapshot.id);
   assert.deepEqual(store.getSnapshot().shares, []);
-  assert.deepEqual(calls.at(-1), ["artifact:revoke-page-share", [{ chatId: "a", id: snapshot.id }]]);
+  assert.deepEqual(calls.at(-1), ["artifact:revoke-page-share", [{ chatId: "a", id: snapshot.id, kind: "workspace" }]]);
 });
 
 test("publishing again replaces the Chat page's link with the updated one", async () => {
@@ -252,7 +252,7 @@ test("artifact snapshot requests keep their kind separate from designs", async (
       },
     },
     "project#chat",
-    "artifacts",
+    { kind: "artifacts" },
   );
   await store.refresh();
   await store.checkAvailability();
@@ -260,7 +260,7 @@ test("artifact snapshot requests keep their kind separate from designs", async (
   await store.revoke(snapshot.id);
   assert.deepEqual(calls, [
     ["artifact:page-shares", [{ chatId: "project#chat", kind: "artifacts" }]],
-    ["artifact:sharing-status", [{ kind: "artifacts" }]],
+    ["artifact:sharing-status", [{ kind: "artifacts", chatId: "project#chat" }]],
     [
       "artifact:share-page",
       [
@@ -274,4 +274,76 @@ test("artifact snapshot requests keep their kind separate from designs", async (
     ],
     ["artifact:revoke-page-share", [{ chatId: "project#chat", id: snapshot.id, kind: "artifacts" }]],
   ]);
+});
+
+test("one design's link carries its design id on every request", async () => {
+  const calls: unknown[] = [];
+  const store = createDesignPageSharing(
+    {
+      call: async <T>(method: string, args: unknown[]) => {
+        calls.push([method, args]);
+        return (
+          method === "artifact:sharing-status"
+            ? { available: true }
+            : method === "artifact:page-shares"
+              ? []
+              : { ...snapshot, kind: "design", designId: "login" }
+        ) as T;
+      },
+    },
+    "c",
+    { kind: "design", designId: "login" },
+  );
+  await store.refresh();
+  await store.checkAvailability();
+  await store.publish("Login");
+  assert.deepEqual(calls, [
+    ["artifact:page-shares", [{ chatId: "c", kind: "design", designId: "login" }]],
+    ["artifact:sharing-status", [{ kind: "design", designId: "login", chatId: "c" }]],
+    ["artifact:share-page", [{ chatId: "c", kind: "design", designId: "login", title: "Login", acknowledgePublic: true }]],
+  ]);
+});
+
+test("pausing and resuming a live link replaces it with the host's answer, and a failure keeps it", async () => {
+  const live = { ...snapshot, kind: "workspace" as const, live: true };
+  let fail = false;
+  const calls: unknown[] = [];
+  const store = createDesignPageSharing(
+    caller(async (method, args) => {
+      calls.push([method, args]);
+      if (method === "artifact:page-shares") return [live];
+      if (fail) throw new Error("Offline");
+      return { ...live, paused: (args[0] as { paused: boolean }).paused };
+    }),
+    "c",
+  );
+  await store.refresh();
+  await store.setPaused(live.id, true);
+  assert.deepEqual(calls.at(-1), ["artifact:set-page-share-paused", [{ chatId: "c", id: live.id, paused: true }]]);
+  assert.equal(store.getSnapshot().shares[0]!.paused, true);
+  assert.equal(store.getSnapshot().busy, null);
+  fail = true;
+  await store.setPaused(live.id, false);
+  assert.equal(store.getSnapshot().error, "Offline");
+  assert.equal(store.getSnapshot().shares[0]!.paused, true);
+});
+
+test("a quiet refresh picks up a live link's new state without showing loading or its failure", async () => {
+  let reads = 0;
+  const store = createDesignPageSharing(
+    caller(async () => {
+      reads++;
+      if (reads === 3) throw new Error("Offline");
+      return [{ ...snapshot, live: true, stale: reads === 2, lastError: reads === 2 ? "Upload failed" : undefined }];
+    }),
+    "c",
+  );
+  await store.refresh();
+  const states: boolean[] = [];
+  store.subscribe(() => states.push(store.getSnapshot().loading));
+  await store.refresh({ quiet: true });
+  assert.equal(store.getSnapshot().shares[0]!.stale, true);
+  await store.refresh({ quiet: true });
+  assert.equal(store.getSnapshot().error, "");
+  assert.equal(states.includes(true), false, "no Loading line");
 });

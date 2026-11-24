@@ -15,7 +15,12 @@ import { z } from "zod";
 import { designFontFamily, designFontFaces } from "./design-fonts.mjs";
 export {
   DESIGN_CATALOG_FAMILIES,
+  designAppleFamily,
+  designBundledFont,
   designCatalogFont,
+  designFontSubstitute,
+  designLocalFamily,
+  setDesignLocalFonts,
   designFontBuffers,
   designFontFamily,
   designFontFaces,
@@ -30,7 +35,23 @@ import { designIcons, designIconSuggestions } from "./design-icons.mjs";
 export { designIcons } from "./design-icons.mjs";
 export { DESIGN_INK, DESIGN_PLACEHOLDER, designDefaultFill } from "./design-paint.mjs";
 import { renderDesignSvg } from "./design-svg.mjs";
-import { designDefaultFill } from "./design-paint.mjs";
+import { DESIGN_INK, designDefaultFill } from "./design-paint.mjs";
+import { designColorProblem, designColorReferences, designDocumentForMode, resolveDesignColor } from "./design-tokens.mjs";
+import { designModesOf } from "./design-modes.mjs";
+import { designLucideIcon, designSymbolImage, designSymbolSyntax } from "./design-symbols.mjs";
+export {
+  DESIGN_SF_SYMBOL_LUCIDE,
+  designSymbolImage,
+  designSymbolLucide,
+  designSymbolName,
+  designSymbolStroke,
+  designSymbolsAvailable,
+  loadDesignSymbols,
+  setDesignSymbols,
+} from "./design-symbols.mjs";
+import { designPathGeometry, designPathProblem, designPathStroked, designPathStrokeShape } from "./design-path.mjs";
+export { designColorReferences, designDocumentForMode, resolveDesignColor } from "./design-tokens.mjs";
+export { DESIGN_MODES, DESIGN_MODE_LABELS, designHtmlForMode, designModesOf } from "./design-modes.mjs";
 import { synchronizeDesignComponents, designInstanceRoot, detachDesignInstance } from "./design-components.mjs";
 export { designLayout, designTextLayout } from "./design-layout.mjs";
 export { designWarnings, designWarningText, designDiagnostics } from "./design-lint.mjs";
@@ -45,21 +66,28 @@ function checkedDesignDocument(value, synchronize = true) {
     nodes.set(node.id, node);
   }
   const checkColor = (value, path) => {
-    if (value?.startsWith("$") && !Object.hasOwn(document.tokens ?? {}, value.slice(1)))
-      throw designError(`Color token "${value}" does not exist. Add it to tokens or the pinned kit.`, path);
+    const problem = value === undefined ? null : designColorProblem(document.tokens, value);
+    if (problem) throw designError(problem, path);
   };
+  for (const [name, value] of Object.entries(document.tokens ?? {})) checkColor(value, ["tokens", name]);
   checkColor(document.background, ["background"]);
   for (const node of document.nodes) {
     checkColor(node.fill, ["nodes", document.nodes.indexOf(node), "fill"]);
     checkColor(node.stroke, ["nodes", document.nodes.indexOf(node), "stroke"]);
     if (node.type === "icon") {
       if (!node.icon) throw new Error(`Icon layer "${node.id}" needs an icon name.`);
-      if (!Object.hasOwn(designIcons, node.icon))
-        throw new Error(`Unknown icon "${node.icon}" on layer "${node.id}". Did you mean ${designIconSuggestions(node.icon).join(", ")}?`);
+      if (node.icon.startsWith("sf:") ? !designSymbolSyntax(node.icon) : !Object.hasOwn(designIcons, node.icon))
+        throw new Error(
+          node.icon.startsWith("sf:")
+            ? `"${node.icon}" on layer "${node.id}" isn't an SF Symbol name: write sf: and the symbol's name, such as sf:heart.fill.`
+            : `Unknown icon "${node.icon}" on layer "${node.id}". Did you mean ${designIconSuggestions(node.icon).join(", ")}? Name an SF Symbol as sf:name.`,
+        );
       const unsupported = ["stroke", "radius", "text", "src"].filter((field) => node[field] !== undefined);
       if (unsupported.length)
         throw new Error(`Icon layer "${node.id}" can't use ${unsupported.join(", ")}. Use fill for its color and strokeWidth for its line weight.`);
     } else if (node.icon !== undefined) throw new Error(`Only icon layers use "icon"; "${node.id}" is a ${node.type}.`);
+    const pathProblem = designPathProblem(node);
+    if (pathProblem) throw designError(pathProblem, ["nodes", document.nodes.indexOf(node)]);
     const seen = new Set([node.id]);
     let parentId = node.parentId;
     while (parentId !== undefined) {
@@ -213,7 +241,7 @@ export function applyDesignOperations(document, operations, intent) {
       const next = { ...result.nodes[index], ...operation.patch };
       if (
         !Object.hasOwn(operation.patch, "textStyle") &&
-        ["fontFamily", "fontSize", "fontWeight", "lineHeight"].some((field) => Object.hasOwn(operation.patch, field))
+        ["fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing"].some((field) => Object.hasOwn(operation.patch, field))
       )
         delete next.textStyle;
       if (next.bindings && !Object.hasOwn(operation.patch, "bindings")) {
@@ -249,8 +277,9 @@ export function applyDesignOperations(document, operations, intent) {
   return resolved;
 }
 
+/** A color field as one CSS color in the default (light) mode; flatten a document with designDocumentForMode for another. */
 export function designColor(document, value, fallback = "transparent") {
-  return value?.startsWith("$") ? (document.tokens?.[value.slice(1)] ?? fallback) : (value ?? fallback);
+  return value === undefined ? fallback : (resolveDesignColor(document.tokens, value) ?? fallback);
 }
 
 export function designNodeAt(document, x, y) {
@@ -278,8 +307,8 @@ export function designNodeAt(document, x, y) {
 const escape = (value) =>
   String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 
-function nodeStyles(document, node, box, parentBox, parentNode) {
-  const background = node.type === "text" || node.type === "icon" ? "transparent" : designColor(document, node.fill, designDefaultFill(node));
+function nodeStyles(paint, node, box, parentBox, parentNode) {
+  const background = ["text", "icon", "path"].includes(node.type) ? "transparent" : paint(node.fill, designDefaultFill(node));
   const parentStroke = parentNode?.stroke ? (parentNode.strokeWidth ?? 1) : 0;
   return [
     "position:absolute",
@@ -291,16 +320,17 @@ function nodeStyles(document, node, box, parentBox, parentNode) {
     `background:${background}`,
     `opacity:${node.opacity ?? 1}`,
     `border-radius:${node.type === "ellipse" ? "50%" : `${node.radius ?? 0}px`}`,
-    `border:${node.stroke && node.type !== "icon" ? (node.strokeWidth ?? 1) : 0}px solid ${designColor(document, node.stroke)}`,
+    `border:${node.stroke && node.type !== "icon" && node.type !== "path" ? (node.strokeWidth ?? 1) : 0}px solid ${paint(node.stroke, "transparent")}`,
     "overflow:hidden",
     ...(node.type === "text"
       ? [
-          `color:${designColor(document, node.fill, designDefaultFill(node))}`,
+          `color:${paint(node.fill, designDefaultFill(node))}`,
           `font-size:${node.fontSize ?? 16}px`,
-          `font-family:${designFontFamily(node.fontFamily)}`,
+          `font-family:${designFontFamily(node.fontFamily, node.fontSize ?? 16)}`,
           `font-weight:${node.fontWeight ?? 400}`,
           `text-align:${node.textAlign ?? "left"}`,
           `line-height:${node.lineHeight ?? 1.35}`,
+          ...(node.letterSpacing ? [`letter-spacing:${node.letterSpacing}px`] : []),
           "font-kerning:none",
           "font-variant-ligatures:none",
           'font-feature-settings:"calt" 0',
@@ -324,7 +354,7 @@ function cachedTextLayout() {
   };
 }
 
-function designMarkup(document, bounds, textLayout, take) {
+function designMarkup(document, bounds, textLayout, take, paint = (value, fallback) => designColor(document, value, fallback)) {
   const nodes = new Map(document.nodes.map((node) => [node.id, node]));
   const children = new Map();
   for (const node of document.nodes) {
@@ -339,7 +369,7 @@ function designMarkup(document, bounds, textLayout, take) {
       const box = bounds.get(node.id);
       if (!box) continue;
       append(
-        `<div data-design-node="${escape(node.id)}" aria-label="${escape(node.name ?? node.id)}" style="${escape(nodeStyles(document, node, box, bounds.get(parentId), nodes.get(parentId)))}">`,
+        `<div data-design-node="${escape(node.id)}" aria-label="${escape(node.name ?? node.id)}" style="${escape(nodeStyles(paint, node, box, bounds.get(parentId), nodes.get(parentId)))}">`,
         node,
       );
       if (node.type === "text") {
@@ -352,10 +382,23 @@ function designMarkup(document, bounds, textLayout, take) {
           `<img src="${escape(node.src)}" alt="${escape(node.name ?? "")}" draggable="false" style="width:100%;height:100%;object-fit:cover;pointer-events:none"/>`,
           node,
         );
-      } else if (node.type === "icon") {
-        const color = escape(designColor(document, node.fill, designDefaultFill(node)));
+      } else if (node.type === "path") {
+        const geometry = designPathGeometry(node, box);
+        const strokeColor = node.stroke ?? (geometry.arc ? node.fill : undefined);
+        const stroke = designPathStroked(node) ? ` stroke="${escape(paint(strokeColor, DESIGN_INK))}" ${designPathStrokeShape(node, geometry)}` : "";
         append(
-          `<svg viewBox="0 0 24 24" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" fill="none" stroke="${color}" stroke-width="${node.strokeWidth ?? 2}" stroke-linecap="round" stroke-linejoin="round" color="${color}" aria-hidden="true">${designIcons[node.icon]}</svg>`,
+          `<svg viewBox="${geometry.viewBox}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><path d="${escape(geometry.d)}" fill="${geometry.arc ? "none" : escape(paint(node.fill, designDefaultFill(node)))}"${stroke}/></svg>`,
+          node,
+        );
+      } else if (node.type === "icon") {
+        const color = escape(paint(node.fill, designDefaultFill(node)));
+        const symbol = designSymbolImage(node);
+        const mask = symbol && `url(data:image/png;base64,${symbol.png}) center/contain no-repeat`;
+        const lucide = designLucideIcon(node);
+        append(
+          symbol
+            ? `<div aria-hidden="true" style="width:100%;height:100%;background:${color};-webkit-mask:${mask};mask:${mask}"></div>`
+            : `<svg viewBox="0 0 24 24" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" fill="${lucide.filled ? color : "none"}" stroke="${color}" stroke-width="${lucide.strokeWidth}" stroke-linecap="round" stroke-linejoin="round" color="${color}" aria-hidden="true">${lucide.markup}</svg>`,
           node,
         );
       }
@@ -367,17 +410,41 @@ function designMarkup(document, bounds, textLayout, take) {
   return parts.join("");
 }
 
+/** Colors that name tokens become CSS variables with one value per mode, so designHtmlForMode switches the saved page. */
+function modePaint(document) {
+  const modes = designModesOf(document);
+  const literal = (value, fallback) => designColor(document, value, fallback);
+  if (modes.length === 1) return { paint: literal, css: () => "" };
+  const names = new Map();
+  const paint = (value, fallback) => {
+    if (value === undefined || !designColorReferences(value).length) return literal(value, fallback);
+    if (!names.has(value)) names.set(value, `--c${names.size}`);
+    return `var(${names.get(value)})`;
+  };
+  const css = () =>
+    modes
+      .map((mode) => {
+        const values = [...names].map(([value, name]) => `${name}:${resolveDesignColor(document.tokens, value, mode) ?? "transparent"}`).join(";");
+        return `${mode === "light" ? ":root" : `:root[data-design-mode="${mode}"]`}{${values}}`;
+      })
+      .join("");
+  return { paint, css };
+}
+
 export function designHtml(value) {
   const document = validateDesignDocument(value);
   const textLayout = cachedTextLayout();
   const bounds = designLayout(document, textLayout);
   const fontFaces = designFontFaces(document);
   const take = designRenderBudget("HTML");
+  const { paint, css } = modePaint(document);
+  const background = escape(paint(document.background, "#ffffff"));
+  const markup = designMarkup(document, bounds, textLayout, take, paint);
   return (
     take(
-      `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=${document.width}, initial-scale=1"><style>html,body{margin:0;padding:0;width:${document.width}px;height:${document.height}px;overflow:hidden}body{background:${escape(designColor(document, document.background, "#ffffff"))}}*{box-sizing:border-box}#design-root{position:relative;width:100%;height:100%}</style>${fontFaces ? `<style>${fontFaces}</style>` : ""}</head><body><main id="design-root">`,
+      `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=${document.width}, initial-scale=1"><style>${css()}html,body{margin:0;padding:0;width:${document.width}px;height:${document.height}px;overflow:hidden}body{background:${background}}*{box-sizing:border-box}#design-root{position:relative;width:100%;height:100%}</style>${fontFaces ? `<style>${fontFaces}</style>` : ""}</head><body><main id="design-root">`,
     ) +
-    designMarkup(document, bounds, textLayout, take) +
+    markup +
     take("</main></body></html>")
   );
 }
@@ -404,9 +471,10 @@ export function designLiveParts(value) {
  * embedFonts: false leaves Inter as a font-family reference, for callers that must stay small (a shared page of many designs).
  * onCanvasOnly: true leaves out layers wholly outside the screen, for the agent's rasterizer.
  * renderByteLimit: sharing uses Infinity; previews and exports keep the default render budget.
+ * mode: the color mode to draw (light, dark or contrast); modes a token leaves out use light.
  */
-export function designSvg(value, { embedFonts = true, onCanvasOnly = false, renderByteLimit } = {}) {
-  const document = validateDesignDocument(value);
+export function designSvg(value, { embedFonts = true, onCanvasOnly = false, renderByteLimit, mode = "light" } = {}) {
+  const document = designDocumentForMode(validateDesignDocument(value), mode);
   const textLayout = cachedTextLayout();
   return renderDesignSvg(
     document,

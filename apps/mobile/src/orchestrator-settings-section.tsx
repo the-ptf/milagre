@@ -1,12 +1,18 @@
 import { Text, View } from "react-native";
 import { router } from "expo-router";
-import type { OrchestratorMemory, OrchestratorSettings } from "@milagre/shared/orchestrator";
+import {
+  TASK_OUTCOMES,
+  TASK_OUTCOME_DESCRIPTION,
+  normalizeTaskOutcome,
+  type OrchestratorMemory,
+  type OrchestratorSettings,
+} from "@milagre/shared/orchestrator";
 import { space } from "./design-tokens";
 import { memorySummary } from "./orchestrator-memory-section";
 import { BoardSection, RolesSection } from "./orchestrator-roles-section";
 import { ComputersPreferences, ProjectsSection } from "./orchestrator-projects-section";
 import { useOrchestratorComputers, useOrchestratorProjects } from "./use-orchestrator-lists";
-import { dimmed, OrchestratorSection } from "./orchestrator-section";
+import { dimmed, OrchestratorSection, MenuRow } from "./orchestrator-section";
 import { useSession } from "./session";
 import { Group, Row } from "./settings-list";
 import { ErrorNotice, useStyles } from "./ui";
@@ -40,6 +46,17 @@ export function OrchestratorSettingsPage() {
         settings={settings}
         models={session.models}
         save={save}
+        completion={
+          <Group title="Completion" inset={0}>
+            <MenuRow
+              title="Required outcome"
+              subtitle={TASK_OUTCOME_DESCRIPTION}
+              value={TASK_OUTCOMES.find((option) => option.value === settings.outcome)?.label ?? "PR created"}
+              sections={[{ items: TASK_OUTCOMES.map((option) => ({ id: option.value, title: option.label, checked: option.value === settings.outcome })) }]}
+              onSelect={(value) => save({ outcome: normalizeTaskOutcome(value) })}
+            />
+          </Group>
+        }
         computers={computers?.length ? <ComputersPreferences settings={settings} computers={computers} save={save} /> : null}
       />
       <View pointerEvents={settings.enabled ? "auto" : "none"} style={[{ gap: space.section }, dimmed(settings.enabled)]}>

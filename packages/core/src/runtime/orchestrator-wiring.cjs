@@ -7,6 +7,7 @@ const { createAutopilot } = require("../orchestrator/autopilot.cjs");
 const { createMemorySync } = require("../orchestrator/memory-sync.cjs");
 const { createTaskImages } = require("../orchestrator/images.cjs");
 const { createTaskSweep } = require("../orchestrator/task-sweep.cjs");
+const { createTaskTools } = require("../orchestrator/task-tools.cjs");
 const { SWEEP_MS } = require("../done-sweep.cjs");
 const { ROUTE_SCHEMA } = require("../orchestrator/router.cjs");
 const { claudeModel, codexModel } = require("../git-text.cjs");
@@ -46,10 +47,12 @@ function routerModels({ agentCli, clientVersion }) {
   };
 }
 
+/** An undefined field is removed: a state patch can't carry undefined, so the Chat's viewers would keep the old value. */
 function withTaskChat(state, sessionId, orchestrator) {
   const session = state.sessions[sessionId];
   if (!session) return state;
-  return { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, orchestrator: { ...session.orchestrator, ...orchestrator } } } };
+  const merged = Object.fromEntries(Object.entries({ ...session.orchestrator, ...orchestrator }).filter(([, value]) => value !== undefined));
+  return { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, orchestrator: merged } } };
 }
 
 function markTaskChat(updateProject, projectPath, sessionId, orchestrator) {
@@ -114,6 +117,11 @@ function registerOrchestrator(
       chatKey,
       stop: (key) => stopChat(key),
       archive: (projectPath, sessionId) => archiveChat(projectPath, sessionId),
+      deleteChat: (projectPath, sessionId) => commands.get("chat:delete")({}, projectPath, sessionId),
+      placeChat: async (projectPath, sessionId, column) => {
+        await commands.get("chat:patch")({}, projectPath, sessionId, { done: column === "done" });
+        await markTaskChat(updateProject, projectPath, sessionId, { column: column === "done" ? undefined : column });
+      },
       routerCall: (router) => routerCall(router),
       memoryCall: (router) => routerCall(router, MEMORY_SCHEMA),
       remote,
@@ -143,6 +151,8 @@ function registerOrchestrator(
   commands.handle("orchestrator:task:project", (_event, taskId, projectPath) => orchestrator.pickProject(String(taskId), String(projectPath)));
   commands.handle("orchestrator:task:sidebar", (_event, taskId, shown) => orchestrator.showInSidebar(String(taskId), shown === true));
   commands.handle("orchestrator:task:undo", (_event, taskId) => orchestrator.undo(String(taskId)));
+  commands.handle("orchestrator:task:move", (_event, taskId, column) => orchestrator.move(String(taskId), String(column)));
+  commands.handle("orchestrator:task:delete", (_event, taskId) => orchestrator.remove(String(taskId)));
   commands.handle("orchestrator:task:reroute", (_event, taskId, change) => orchestrator.reroute(String(taskId), change ?? {}));
   commands.handle("orchestrator:task:dismiss", (_event, taskId) => orchestrator.dismiss(String(taskId)));
   commands.handle("orchestrator:memory:import", () => orchestrator.importMemory());
@@ -177,11 +187,17 @@ function registerOrchestrator(
       questionCall: (router) => routerCall(router, QUESTION_SCHEMA),
     },
   });
+  const taskTools = createTaskTools({
+    taskOf: (chatId) => states.states.get(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)]?.orchestrator ?? null,
+    mark: (chatId, patch) => markTaskChat(updateProject, projectOfKey(chatId), sessionIdFromKey(chatId), patch),
+  });
   const watcher = {
     observe(chatId, event) {
       autopilot.observe(chatId, event);
       orchestrator.observe(chatId, event);
+      taskTools.observe(chatId, event);
     },
+    tools: (chatId) => taskTools.definitions(chatId),
     close: () => autopilot.close(),
   };
   return { taskAccounts: taskAccountsFor({ states, accounts, routing, agentCli }), autopilot: watcher };

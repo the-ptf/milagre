@@ -1,6 +1,7 @@
 import { TranscriptDivider } from "./ui";
 import { GitForkIcon } from "@hugeicons/core-free-icons";
 import { MessageToolbar } from "./message-toolbar";
+import { SendLaunch } from "./send-launch";
 import { memo, useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
 import { Image, Pressable, Text, View, type ViewInstance } from "react-native";
 import { activityDuration, stepDisplayTitle, waitingStepIds } from "@milagre/shared/tool-activity";
@@ -13,7 +14,7 @@ import type { ChatMessage, ChatStep, LinkedContext, LimitResume } from "@milagre
 import { linkedContext, linkedHeading } from "@milagre/shared/linked-message";
 import { reportMarker } from "@milagre/shared/subchat-states";
 import { SubchatMarker } from "./subchat-marker";
-import { activitySummary, replyActivity, unspokenThought } from "@milagre/shared/reply-parts";
+import { activitySummary, loaderActivity, replyActivity, unspokenThought } from "@milagre/shared/reply-parts";
 import { FileChip } from "./file-chip";
 import { onlyImageMentions, promptParts, quoteKeys, splitQuotes } from "@milagre/shared/prompt-parts";
 import { isMentionOfFile, mentionedFile, mentionedFiles } from "@milagre/shared/prompt-mentions";
@@ -239,6 +240,49 @@ function ActivityRow({
     </Pressable>
   );
 }
+function ReplyActivity({
+  reply,
+  text,
+  steps,
+  run,
+  waitingIds,
+  openActivity,
+  media,
+  basePath,
+  credits,
+}: {
+  reply: ReturnType<typeof replyActivity>;
+  text: string;
+  steps: ChatStep[];
+  run?: AgentRun;
+  waitingIds: string[];
+  openActivity: (stepId?: string) => void;
+  media: MediaSource;
+  basePath?: string;
+  credits?: number;
+}) {
+  const [toolCallDisplay] = useToolCallDisplay();
+  if (toolCallDisplay === "full")
+    return reply.activity.map((entry, index) =>
+      entry.type === "step" ? (
+        <ToolRow key={entry.step.id} step={entry.step} live={!!run} waiting={waitingIds.includes(entry.step.id)} onPress={() => openActivity(entry.step.id)} />
+      ) : (
+        <MessageActions key={`text-${index}`} text={entry.text} markdown>
+          {(openActions, swap) =>
+            swap(<Markdown text={entry.text} media={media} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />)
+          }
+        </MessageActions>
+      ),
+    );
+  const held = run && !run.questions.length ? loaderActivity(text, steps, waitingIds) : [];
+  const shown = reply.activity.flatMap((entry) => (entry.type === "step" && !held.includes(entry.step) ? [entry.step] : []));
+  const only = shown.length === 1 && reply.activity.every((entry) => entry.type === "step") ? shown[0] : undefined;
+  if (only) return <ToolRow key={only.id} step={only} live={!!run} waiting={waitingIds.includes(only.id)} onPress={() => openActivity(only.id)} />;
+  if (!shown.length) return null;
+  const live = !!run && !held.length && (!reply.answer.trim() || shown.some((step) => step.status === "running"));
+  return <ActivityRow steps={shown} live={live} waitingIds={waitingIds} onPress={() => openActivity()} credits={credits} />;
+}
+
 function LinkedHeader({ context, onOpenChat }: { context: LinkedContext; onOpenChat?: (chatKey: string) => void }) {
   const { colors } = useTheme();
   const { text, chat } = linkedHeading(context);
@@ -332,7 +376,6 @@ export const ChatReply = memo(function ChatReply({
   const { colors, textPx } = useTheme();
   const styles = useStyles();
   const { userQuoted, userText, userImages, userParts } = useUserPrompt(message, run, basePath, chats);
-  const [toolCallDisplay] = useToolCallDisplay();
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
   const openActivity = (stepId?: string) => onActivity(message ? String(message.id) : "run", stepId);
   const text = run?.text ?? message?.body ?? "";
@@ -396,7 +439,7 @@ export const ChatReply = memo(function ChatReply({
     const parts = userParts;
     const lineHeight = Math.round(textPx * 1.4667);
     return (
-      <View style={{ alignSelf: "flex-end", alignItems: "flex-end", gap: 6, maxWidth: "88%" }}>
+      <SendLaunch clientMessageId={message.clientMessageId} style={{ alignSelf: "flex-end", alignItems: "flex-end", gap: 6, maxWidth: "88%" }}>
         <Photos message={message} media={media} />
         {message.files
           ?.filter((file) => !inline.has(file) && !message.images?.some((image) => image.path === file || image.sourcePath === file))
@@ -471,7 +514,7 @@ export const ChatReply = memo(function ChatReply({
           )
         )}
         <MessageToolbar text={userText} message={message} onFork={onFork} align="end" />
-      </View>
+      </SendLaunch>
     );
   }
   const marker = linked && message?.role === "assistant" && !run ? reportMarker(linked) : null;
@@ -483,43 +526,17 @@ export const ChatReply = memo(function ChatReply({
       {reply.setup.map((step) => (
         <ToolRow key={step.id} step={step} live={!!run} waiting={waitingIds.includes(step.id)} onPress={() => openActivity(step.id)} />
       ))}
-      {toolCallDisplay === "full" ? (
-        reply.activity.map((entry, index) =>
-          entry.type === "step" ? (
-            <ToolRow
-              key={entry.step.id}
-              step={entry.step}
-              live={!!run}
-              waiting={waitingIds.includes(entry.step.id)}
-              onPress={() => openActivity(entry.step.id)}
-            />
-          ) : (
-            <MessageActions key={`text-${index}`} text={entry.text} markdown>
-              {(openActions, swap) =>
-                swap(<Markdown text={entry.text} media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />)
-              }
-            </MessageActions>
-          ),
-        )
-      ) : reply.activity.length === 1 && reply.activity[0]?.type === "step" ? (
-        <ToolRow
-          key={reply.activity[0].step.id}
-          step={reply.activity[0].step}
-          live={!!run}
-          waiting={waitingIds.includes(reply.activity[0].step.id)}
-          onPress={() => openActivity(reply.activity[0]!.type === "step" ? reply.activity[0]!.step.id : undefined)}
-        />
-      ) : (
-        reply.activity.length > 0 && (
-          <ActivityRow
-            steps={reply.activity.flatMap((entry) => (entry.type === "step" ? [entry.step] : []))}
-            live={!!run}
-            waitingIds={waitingIds}
-            onPress={() => openActivity()}
-            credits={message?.credits}
-          />
-        )
-      )}
+      <ReplyActivity
+        reply={reply}
+        text={text}
+        steps={allSteps}
+        run={run}
+        waitingIds={waitingIds}
+        openActivity={openActivity}
+        media={savedMedia}
+        basePath={basePath}
+        credits={message?.credits}
+      />
       <ViewedImages steps={reply.viewedImages} media={savedMedia} open={open} />
       {reply.images.map((step) => (
         <View key={step.id} style={{ gap: 6 }}>

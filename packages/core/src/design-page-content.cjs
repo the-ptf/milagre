@@ -1,8 +1,29 @@
-const { validateDesignDocument, designColor } = require("@milagre/shared/design");
+const {
+  validateDesignDocument,
+  designColor,
+  designFontSubstitute,
+  designSymbolName,
+  designSymbolLucide,
+  designSymbolStroke,
+} = require("@milagre/shared/design");
+
+const publicIcon = (node) => {
+  const name = designSymbolName(node.icon);
+  if (!name) return {};
+  return { icon: designSymbolLucide(name).icon, strokeWidth: node.strokeWidth ?? designSymbolStroke(node.fontWeight) };
+};
+
+const publicFamily = (fontFamily) => {
+  const substitute = designFontSubstitute(fontFamily);
+  if (!substitute) return fontFamily;
+  const rest = fontFamily.split(",").slice(1);
+  return [substitute, ...rest.filter((family) => !designFontSubstitute(family))].join(",");
+};
 
 function publicPageContent(snapshot) {
   return {
     schemaVersion: snapshot.schemaVersion,
+    ...(snapshot.kind === "workspace" ? { kind: "workspace", ...(snapshot.page ? { page: snapshot.page } : {}) } : {}),
     title: snapshot.title,
     designs: snapshot.designs.map(({ title, group, document: input, interactive }) => {
       if (interactive)
@@ -44,6 +65,8 @@ function publicPageContent(snapshot) {
               ...(node.parentId ? { parentId: ids.get(node.parentId) } : {}),
               ...(node.fill ? { fill: literal(node.fill) } : {}),
               ...(node.stroke ? { stroke: literal(node.stroke) } : {}),
+              ...(node.fontFamily ? { fontFamily: publicFamily(node.fontFamily) } : {}),
+              ...publicIcon(node),
             };
           }),
         },

@@ -167,6 +167,7 @@ function useDemoTask(t: number): OrchestratorTask {
     () => ({
       id: "tour",
       prompt: PROMPT,
+      outcome: "pull-request",
       title: "Rest timer skips on the lock screen",
       projectPath: routing ? null : project,
       worktreeId: null,

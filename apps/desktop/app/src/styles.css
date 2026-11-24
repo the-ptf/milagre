@@ -906,7 +906,8 @@ a {
   content-visibility: auto;
   contain-intrinsic-size: auto 160px;
 }
-[data-measuring] [data-slot="message"] {
+[data-measuring] [data-slot="message"],
+[data-slot="message"][data-send-launch] {
   content-visibility: visible;
 }
 
@@ -1181,6 +1182,24 @@ a {
   -webkit-text-fill-color: var(--ink);
   background: transparent;
   text-decoration: none;
+}
+
+.progress-sweep {
+  animation: progress-sweep calc(1.3s * var(--motion-scale)) cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-sweep {
+    left: 30%;
+    animation: none;
+  }
+}
+@keyframes progress-sweep {
+  from {
+    left: -40%;
+  }
+  to {
+    left: 100%;
+  }
 }
 
 @keyframes sweep-band {

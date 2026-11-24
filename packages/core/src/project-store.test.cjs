@@ -278,3 +278,11 @@ test("suggestions stay live but never persist or restore across a host restart",
   assert.equal(restored.suggestion, undefined);
   assert.equal(restored.suggestionTurnId, undefined);
 });
+
+test("Chats saved under Ollama's provider id load as Pi Chats", async (t) => {
+  const projectPath = await tempProject(t);
+  await saveProjectState(projectPath, { next_id: 3, sessions: { 1: { id: 1, provider: "ollama" }, 2: { id: 2, provider: "claude" } }, messages: [] });
+  const { sessions } = await require("./project-store.cjs").readProjectState(projectPath);
+  assert.equal(sessions[1].provider, "pi");
+  assert.equal(sessions[2].provider, "claude");
+});

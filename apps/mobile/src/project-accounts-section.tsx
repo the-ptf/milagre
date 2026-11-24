@@ -1,3 +1,4 @@
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
@@ -221,7 +222,7 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
         ) : effective?.message ? (
           <Text style={[styles.caption, { paddingLeft: 32 }]}>{effective.message}</Text>
         ) : null}
-        {effective && !missing && effective.state !== "ready" && (effective.id !== "default" || group.provider !== "kiro") ? (
+        {effective && !missing && effective.state !== "ready" && (effective.id !== "default" || providerCapabilities(group.provider).addAccounts) ? (
           <View style={{ paddingLeft: 32 }}>
             <ListRow
               compact

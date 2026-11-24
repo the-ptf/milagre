@@ -7,6 +7,19 @@ const permissionMode = z.enum(["ask", "auto", "full"]);
 const callerOf = (connectionId) => (connectionId.startsWith("agent:") ? connectionId.slice(6) : undefined);
 const inProjectScope = (scope, projectPath) => scope.projectPaths === "*" || scope.projectPaths.includes(projectPath);
 
+function dictationTools(read, act, host) {
+  return [
+    read("dictation_vocabulary", "List this Project's saved dictation corrections.", projectInput, host.dictationCorrections),
+    act(
+      "dictation_correct",
+      "Save how a spoken phrase is spelled in this Project. An empty spelling removes it.",
+      "create",
+      { ...projectInput, heard: z.string().min(1).max(128), spelling: z.string().max(128) },
+      host.setDictationCorrection,
+    ),
+  ];
+}
+
 function managementToolGroups({ host, operations, grantChatProject = () => {} }) {
   return ["projects", "worktrees", "chats"].map((id) => ({
     id,
@@ -45,7 +58,8 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
         readOnly: false,
         capability,
         run: async (args) => {
-          await permit(args.projectPath);
+          if (args.projectPath) await permit(args.projectPath);
+          assertActive();
           const result = await execute(args);
           assertActive();
           return JSON.stringify(result);
@@ -89,9 +103,10 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
             "project_set_account",
             "Choose a saved provider Account for all Chats in a Project, as its model picker does. accountId null follows the computer default; use an ID from project_accounts to pin an Account. Running turns and background tasks keep their existing Account. This does not restart or send a message to any Chat, or change a named Link's independent Accounts.",
             "create",
-            { ...projectInput, provider: z.enum(["claude", "codex", "antigravity", "kiro"]), accountId: z.string().min(1).max(128).nullable() },
+            { ...projectInput, provider: z.enum(["claude", "codex", "antigravity", "kiro", "pi"]), accountId: z.string().min(1).max(128).nullable() },
             (args) => host.setProjectAccount(args, assertActive),
           ),
+          ...dictationTools(read, act, host),
           ...orchestratorTools({ read, act, host, assertActive }),
           read(
             "project_list",
@@ -207,7 +222,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
           {
             ...chatInput,
             prompt: z.string().trim().min(1).max(100000),
-            provider: z.enum(["claude", "codex", "antigravity", "kiro"]).optional(),
+            provider: z.enum(["claude", "codex", "antigravity", "kiro", "pi"]).optional(),
             model: z.string().min(1).max(300).optional(),
             effort: z.enum(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]).optional(),
             permissionMode: permissionMode.optional(),

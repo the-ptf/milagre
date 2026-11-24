@@ -2,6 +2,7 @@ const { CodexRpc } = require("./codex-rpc.cjs");
 const { hasToken } = require("./antigravity-install.cjs");
 const { queryAntigravityModels } = require("./antigravity-model-list.cjs");
 const { listKiroModels } = require("./kiro-model-list.cjs");
+const { listPiModels } = require("./pi-profile.cjs");
 const { ANTIGRAVITY_AGENT_OPTIONS, ANTIGRAVITY_FAMILY_COPY, antigravityFamilies } = require("@milagre/shared/antigravity-models");
 const { agentEnvironment } = require("./command.cjs");
 
@@ -160,7 +161,7 @@ function createModelCache({
   cli,
   cwd,
   clientVersion,
-  list = { claude: listClaudeModels, codex: listCodexModels, antigravity: listAntigravityModels, kiro: listKiroModels },
+  list = { claude: listClaudeModels, codex: listCodexModels, antigravity: listAntigravityModels, kiro: listKiroModels, pi: listPiCliModels },
 }) {
   const cache = new Map();
   function lookup(provider) {
@@ -188,15 +189,33 @@ function createModelCache({
       ...(!status?.problem && status?.command ? { command: status.command, args: status.args, harness: status.harness, env: status.env, clientVersion } : {}),
     });
   };
+  // Pi's local models are whatever Ollama has pulled, read each time so a new pull shows at once.
+  const piList = async () => {
+    const status = await cli("pi").catch(() => null);
+    if (!status || status.problem || !status.command) return null;
+    const models = await list.pi({ command: status.command, cwd, clientVersion, ...(status.env ? { env: status.env } : {}) }).catch(() => null);
+    return models?.length ? models : null;
+  };
   const read = async () => {
-    const [claude, codex, antigravityList, kiro] = await Promise.all([lookup("claude"), lookup("codex"), antigravity(), list.kiro ? lookup("kiro") : null]);
-    return { claude, codex, antigravity: antigravityList, kiro };
+    const [claude, codex, antigravityList, kiro, pi] = await Promise.all([
+      lookup("claude"),
+      lookup("codex"),
+      antigravity(),
+      list.kiro ? lookup("kiro") : null,
+      list.pi ? piList() : null,
+    ]);
+    return { claude, codex, antigravity: antigravityList, kiro, pi };
   };
   read.invalidate = (provider) => {
     cache.delete(provider);
     if (provider === "antigravity") forgetAntigravityModels();
+    if (provider === "pi") listPiModels.invalidate();
   };
   return read;
+}
+
+async function listPiCliModels({ command, env = process.env } = {}) {
+  return (await listPiModels({ command, profile: env.PI_CODING_AGENT_DIR, env })).models;
 }
 
 module.exports = {

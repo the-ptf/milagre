@@ -196,9 +196,19 @@ async function checks() {
     await until("window.dictation.phase === 'idle'");
     assert.deepEqual(await evaluate("window.cancelled"), ["large-v3-turbo"], "cancelling the take cancels its download");
     assert.equal(await evaluate("window.dictation.error"), null, "a cancelled download is not an error");
+    await evaluate("void window.dictation.start({selection:{start:0,end:0}}, () => true)");
+    await until("window.dictation.phase === 'downloading'");
+    await evaluate("window.finishDownload()");
+    await until("window.dictation.phase === 'idle'");
+    assert.equal(
+      await evaluate("window.pendingStreams.length"),
+      await evaluate("window.streamCountBeforeDownload"),
+      "releasing during setup downloads the model without opening the mic",
+    );
+    await evaluate("window.modelMissing = true");
     const deliveredBefore = await evaluate("window.delivered.length");
     await evaluate("void window.dictation.start({selection:{start:0,end:0}})");
-    await until("window.dictation.phase === 'downloading' && window.downloads.length === 2");
+    await until("window.dictation.phase === 'downloading' && window.downloads.length === 3");
     await evaluate("window.finishDownload()");
     await until("window.dictation.phase === 'recording' && window.dictation.partial.text === 'Corrija o Milagre.'");
     await evaluate("void window.dictation.stop()");

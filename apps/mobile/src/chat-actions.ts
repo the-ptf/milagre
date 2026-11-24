@@ -25,6 +25,7 @@ export function chatMenu(
   doneable = true,
   snoozeMinutes?: number,
   snoozePresets?: readonly SnoozePreset[],
+  library = false,
 ): MenuSection[] {
   const snooze = doneable && snoozeMinutes !== undefined ? snoozeMenuSection(chat, snoozeMinutes, snoozePresets) : null;
   return [
@@ -35,6 +36,7 @@ export function chatMenu(
             items: [
               { id: "copy-path", title: "Copy path", systemImage: "doc.on.doc", disabled: !worktree?.path },
               { id: "copy-branch", title: "Copy branch name", systemImage: "arrow.triangle.branch", disabled: !worktree?.name },
+              ...(library ? [{ id: "design-library", title: "Design library", systemImage: "books.vertical" }] : []),
             ],
           },
         ]

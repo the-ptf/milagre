@@ -13,6 +13,8 @@ export function IconButton({
   label,
   icon,
   onPress,
+  onLongPress,
+  longPressLabel,
   disabled = false,
   filled = false,
   fill,
@@ -24,6 +26,8 @@ export function IconButton({
   label: string;
   icon: IconData;
   onPress: () => void;
+  onLongPress?: () => void;
+  longPressLabel?: string;
   disabled?: boolean;
   filled?: boolean;
   fill?: ColorValue;
@@ -48,6 +52,15 @@ export function IconButton({
         tap();
         onPress();
       }}
+      onLongPress={
+        onLongPress &&
+        (() => {
+          tap();
+          onLongPress();
+        })
+      }
+      accessibilityActions={onLongPress ? [{ name: "longpress", label: longPressLabel }] : undefined}
+      onAccessibilityAction={onLongPress}
       style={({ pressed }) => [
         { width: size, height: size, borderRadius: radius.full, alignItems: "center", justifyContent: "center", backgroundColor: background },
         pressStyle({ pressed, disabled, filled }),

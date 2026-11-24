@@ -11,7 +11,9 @@ export type LiveSignal =
   | "token-usage"
   | "keybindings"
   | "pulls"
-  | "orchestrator";
+  | "library"
+  | "orchestrator"
+  | "provider-updates";
 export const isLiveSignal = (type: unknown): type is LiveSignal =>
   type === "btw" ||
   type === "runs" ||
@@ -25,7 +27,9 @@ export const isLiveSignal = (type: unknown): type is LiveSignal =>
   type === "token-usage" ||
   type === "keybindings" ||
   type === "pulls" ||
-  type === "orchestrator";
+  type === "library" ||
+  type === "orchestrator" ||
+  type === "provider-updates";
 type LiveEvents = { open: unknown; message: { data?: unknown }; error: { message?: string }; close: unknown };
 export type LiveSocket = {
   addEventListener<K extends keyof LiveEvents>(type: K, listener: (event: LiveEvents[K]) => void): void;
@@ -147,6 +151,7 @@ export type SyncOptions = {
   links?: () => void;
   designs?: () => void;
   pulls?: () => void;
+  library?: () => void;
   liveStatus?: (open: boolean) => void;
   onError: (error: Error) => void;
   active: () => boolean;
@@ -164,6 +169,7 @@ export function syncProject({
   links,
   designs,
   pulls,
+  library,
   liveStatus,
   onError,
   active,
@@ -239,6 +245,7 @@ export function syncProject({
         else if (signal === "links") links?.();
         else if (signal === "designs") designs?.();
         else if (signal === "pulls") pulls?.();
+        else if (signal === "library") library?.();
         else if (signal === "runs" || signal === "project") void pull(signal);
       },
       onStatus: (next) => {

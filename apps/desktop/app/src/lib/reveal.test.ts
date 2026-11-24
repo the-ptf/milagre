@@ -25,6 +25,7 @@ test("project menu actions", () => {
       ["reveal", "Reveal in Finder"],
       ["copy-path", "Copy path"],
       ["copy-name", "Copy name"],
+      ["design-library", "Design library"],
       ["settings", "Project settings"],
     ],
   );

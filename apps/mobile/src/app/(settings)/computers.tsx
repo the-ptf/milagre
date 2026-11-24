@@ -9,7 +9,9 @@ import { phoneName } from "../../phone-name-native";
 import { statusLine, isDesktopComputer } from "../../computer-actions";
 import { useComputerStatus, useRouteChanges } from "../../use-computer-status";
 import { Icon } from "../../icons";
-import { EmptyState, ErrorNotice, Group, HeaderButton, ListRow, PageScroll, RowCheckbox, pressStyle, useStyles } from "../../ui";
+import { EmptyState, ErrorNotice, Group, HeaderButton, ListRow, PageScroll, RowCheckbox, Segmented, pressStyle, useStyles } from "../../ui";
+import { lanRoutes } from "../../routes-native";
+import { ComputerMap, hostMachine, useComputersView } from "../../computer-map";
 import { lineHeight, radius, type } from "../../design-tokens";
 import { useTheme } from "../../theme";
 
@@ -23,6 +25,8 @@ export default function ComputersScreen() {
   const reachability = useComputerStatus(hosts);
   useRouteChanges(hosts);
   const [error, setError] = useState("");
+  const [view, setView] = useComputersView();
+  const here = Platform.OS === "ios" ? (Platform.isPad ? "This iPad" : "This iPhone") : "This phone";
   return (
     <>
       <Stack.Screen options={{ title: "Computers" }} />
@@ -36,7 +40,27 @@ export default function ComputersScreen() {
         )}
       </Stack.Toolbar>
       <PageScroll>
-        {hosts.length > 0 ? (
+        {hosts.length > 0 && (
+          <Segmented
+            label="Show computers as"
+            value={view}
+            options={[
+              { value: "map", title: "Map" },
+              { value: "list", title: "List" },
+            ]}
+            onChange={(next) => setView(next === "list" ? "list" : "map")}
+          />
+        )}
+        {hosts.length > 0 && view === "map" ? (
+          <ComputerMap
+            hubName={phoneName || here}
+            hubLabel={here}
+            machines={hosts.map((host) =>
+              hostMachine(host, reachability[host.id] ?? "checking", { lan: lanRoutes.kind(host.id) === "lan", address: lanRoutes.address(host.id) }),
+            )}
+            onOpen={(id) => router.push({ pathname: "/computer", params: { id } })}
+          />
+        ) : hosts.length > 0 ? (
           <View style={[styles.card, { paddingVertical: 0, paddingHorizontal: 0, gap: 0 }]}>
             {hosts.map((host, index) => {
               const state = reachability[host.id] ?? "checking";
@@ -93,7 +117,7 @@ export default function ComputersScreen() {
           </EmptyState>
         )}
         {error ? <ErrorNotice message={error} /> : null}
-        <Group title={Platform.OS === "ios" ? (Platform.isPad ? "This iPad" : "This iPhone") : "This phone"}>
+        <Group title={here}>
           <ListRow title="Name on computers" icon={SmartPhone01Icon} value={phoneName || undefined} chevron={false} />
         </Group>
       </PageScroll>

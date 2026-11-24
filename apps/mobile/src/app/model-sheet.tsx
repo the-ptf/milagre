@@ -1,5 +1,5 @@
-import { pickerProviders, providerName } from "@milagre/shared/providers";
-import { contextWindowFor, effortFor } from "@milagre/shared/model-options";
+import { installableProviders, pickerProviders, providerName } from "@milagre/shared/providers";
+import { contextWindowFor, effortFor, modelMatches } from "@milagre/shared/model-options";
 import { formatTokens } from "@milagre/shared/usage";
 import { formatCredits } from "@milagre/shared/kiro-models";
 import { effortCopy } from "@milagre/shared/model-copy";
@@ -7,26 +7,29 @@ import { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
-import { Cancel01Icon, FlashIcon, Tick02Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
-import type { ModelProvider } from "@milagre/shared/model";
+import { Add01Icon, Cancel01Icon, FlashIcon, Search01Icon, Tick02Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
+import type { AgentCliStatus, ModelProvider } from "@milagre/shared/model";
 import { useComposer, useSession } from "../session";
 import { PermissionChip, useChatPermissionMode } from "../agent-controls";
 import { modelsFor, selectedModel, afterSheet, type TurnPreferences } from "../turn-options";
 import { Icon, ProviderLogo } from "../icons";
 import { EffortSlider } from "../effort-slider";
+import { InstallOffer } from "../install-offer";
 import { UltracodeFatality } from "../ultracode-fatality";
 import { ultraRumble } from "../ultra-haptics";
 import { useUltracodeFatality } from "../ultracode-fatality-setting";
-import { CheckRow, Chip, CircleButton, InlineError, SectionLabel, SheetHeader, pressStyle, useSheetBottomInset, useStyles } from "../ui";
-import { lineHeight, radius, type } from "../design-tokens";
+import { CheckRow, Chip, CircleButton, Field, InlineError, SectionLabel, SheetHeader, pressStyle, useSheetBottomInset, useStyles } from "../ui";
+import { lineHeight, radius, space, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
-function contextLabel(model: { provider: ModelProvider; id: string }) {
+const SEARCH_FROM = 12;
+
+function contextLabel(model: { provider: ModelProvider; id: string; contextWindow?: number }) {
   const size = contextWindowFor(model);
   return size ? formatTokens(size) : undefined;
 }
 
-function metaOf(model: { provider: ModelProvider; id: string; credits?: number }) {
+function metaOf(model: { provider: ModelProvider; id: string; credits?: number; contextWindow?: number }) {
   if (model.credits) return { label: formatCredits(model.credits), spoken: `${formatCredits(model.credits)} the credits Auto would use` };
   const label = contextLabel(model);
   return label ? { label, spoken: `${label} context window` } : null;
@@ -46,6 +49,13 @@ export default function ModelSheet() {
   const model = selectedModel(draft.provider, draft.model, session.models);
   const models = modelsFor(draft.provider, session.models);
   if (!models.some((item) => item.id === model.id)) models.unshift(model);
+  const [query, setQuery] = useState("");
+  const installable = installableProviders(session.cliStatus);
+  const [adding, setAdding] = useState(false);
+  // Pi can list hundreds of hosted models (OpenRouter alone), so a long list gets a search and provider headings.
+  const searchable = models.length > SEARCH_FROM;
+  const shown = searchable ? models.filter((item) => modelMatches(item, query)) : models;
+  const grouped = new Set(shown.map((item) => item.group).filter(Boolean)).size > 1;
   const effort = effortFor(model, draft.effort);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
   const [closing, setClosing] = useState(false);
@@ -96,71 +106,90 @@ export default function ModelSheet() {
             leading={<CircleButton label="Cancel" icon={Cancel01Icon} onPress={() => close(false)} />}
             trailing={<CircleButton label="Done" icon={Tick02Icon} filled onPress={() => close(true)} />}
           />
-          <ScrollView
-            horizontal
-            accessibilityRole="tablist"
-            showsHorizontalScrollIndicator={false}
-            style={{ backgroundColor: colors.page }}
-            contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 }}
-          >
-            {pickerProviders(session.cliStatus, initial.provider, draft.provider).map((provider) => {
-              const on = provider === draft.provider;
-              const problem = session.cliStatus?.[provider] && session.cliStatus[provider].state !== "ready";
-              return (
-                <Chip
-                  key={provider}
-                  role="tab"
-                  label={providerName(provider)}
-                  selected={on}
-                  onPress={() => setDraft((current) => ({ ...current, provider, model: "", fastMode: false, ultracode: false }))}
-                  leading={<ProviderLogo provider={provider} size={16} inverted={on} />}
-                  trailing={problem ? <View style={{ width: 6, height: 6, borderRadius: radius.full, backgroundColor: colors.orange }} /> : undefined}
-                />
-              );
-            })}
-          </ScrollView>
+          <ProviderChips
+            providers={pickerProviders(session.cliStatus, initial.provider, draft.provider)}
+            provider={adding ? null : draft.provider}
+            cliStatus={session.cliStatus}
+            canAdd={installable.length > 0}
+            adding={adding}
+            onProviderChange={(provider) => {
+              setAdding(false);
+              setQuery("");
+              setDraft((current) => ({ ...current, provider, model: "", fastMode: false, ultracode: false }));
+            }}
+            onAdd={() => setAdding(true)}
+          />
         </View>
-        <View accessibilityRole="radiogroup" accessibilityLabel="Model" style={{ paddingHorizontal: 16 }}>
-          {busy && <Text style={[styles.caption, { paddingBottom: 8 }]}>Changes apply to your next message. This turn keeps its settings.</Text>}
-          {cli && cli.state !== "ready" ? (
-            <InlineError warning message={cli.message || `${providerName(draft.provider)} is ${cli.state}.`} style={{ paddingBottom: 8 }} />
-          ) : null}
-          {models.map((item, index) => (
-            <View key={item.id}>
-              {index > 0 && <View style={styles.separator} />}
-              <CheckRow
-                title={item.name}
-                subtitle={item.description || undefined}
-                checked={item.id === model.id}
-                onPress={() => setDraft((current) => ({ ...current, model: item.id }))}
-                leading={<ProviderLogo provider={item.provider} size={16} />}
-                accessory={
-                  metaOf(item) ? (
-                    <Text
-                      accessibilityLabel={metaOf(item)?.spoken}
-                      style={{
-                        color: colors.ink3,
-                        fontSize: type.caption2,
-                        lineHeight: lineHeight.caption2,
-                        fontWeight: "500",
-                        fontVariant: ["tabular-nums"],
-                        borderWidth: 1,
-                        borderColor: colors.lineStrong,
-                        borderRadius: radius.chip,
-                        borderCurve: "continuous",
-                        paddingHorizontal: 4,
-                        paddingVertical: 2,
-                        overflow: "hidden",
-                      }}
-                    >
-                      {metaOf(item)?.label}
-                    </Text>
-                  ) : undefined
-                }
+        {adding ? (
+          <View style={{ paddingHorizontal: 16, gap: 12 }}>
+            {installable.map((provider) => (
+              <InstallOffer key={provider} provider={provider} />
+            ))}
+          </View>
+        ) : (
+          <View accessibilityRole="radiogroup" accessibilityLabel="Model" style={{ paddingHorizontal: 16 }}>
+            {busy && <Text style={[styles.caption, { paddingBottom: 8 }]}>Changes apply to your next message. This turn keeps its settings.</Text>}
+            {cli && cli.state !== "ready" ? (
+              <InlineError warning message={cli.message || `${providerName(draft.provider)} is ${cli.state}.`} style={{ paddingBottom: 8 }} />
+            ) : null}
+            {searchable && (
+              <Field
+                label="Search models"
+                hideLabel
+                placeholder="Search models"
+                value={query}
+                onChangeText={setQuery}
+                returnKeyType="search"
+                autoCapitalize="none"
+                autoCorrect={false}
+                leading={<Icon icon={Search01Icon} tone="ink3" size={16} />}
+                containerStyle={{ paddingBottom: space.md }}
               />
-            </View>
-          ))}
-        </View>
+            )}
+            {shown.length === 0 && <Text style={[styles.caption, { paddingVertical: 8 }]}>No models found</Text>}
+            {shown.map((item, index) => (
+              <View key={item.id}>
+                {grouped && item.group !== shown[index - 1]?.group ? (
+                  <SectionLabel flush style={{ paddingTop: index > 0 ? 16 : 0 }}>
+                    {item.group ?? ""}
+                  </SectionLabel>
+                ) : (
+                  index > 0 && <View style={styles.separator} />
+                )}
+                <CheckRow
+                  title={item.name}
+                  subtitle={item.description || undefined}
+                  checked={item.id === model.id}
+                  onPress={() => setDraft((current) => ({ ...current, model: item.id }))}
+                  leading={<ProviderLogo provider={item.provider} size={16} />}
+                  accessory={
+                    metaOf(item) ? (
+                      <Text
+                        accessibilityLabel={metaOf(item)?.spoken}
+                        style={{
+                          color: colors.ink3,
+                          fontSize: type.caption2,
+                          lineHeight: lineHeight.caption2,
+                          fontWeight: "500",
+                          fontVariant: ["tabular-nums"],
+                          borderWidth: 1,
+                          borderColor: colors.lineStrong,
+                          borderRadius: radius.chip,
+                          borderCurve: "continuous",
+                          paddingHorizontal: 4,
+                          paddingVertical: 2,
+                          overflow: "hidden",
+                        }}
+                      >
+                        {metaOf(item)?.label}
+                      </Text>
+                    ) : undefined
+                  }
+                />
+              </View>
+            ))}
+          </View>
+        )}
       </ScrollView>
       <View
         onLayout={(event) => setPanelHeight(event.nativeEvent.layout.height)}
@@ -299,5 +328,54 @@ function SettingTile({
         <Text style={styles.caption}>{detail}</Text>
       </View>
     </Pressable>
+  );
+}
+
+/** The provider chips under the sheet's title, and an Add chip that offers an opt-in agent that isn't installed. */
+function ProviderChips({
+  providers,
+  provider: current,
+  cliStatus,
+  canAdd,
+  adding,
+  onProviderChange,
+  onAdd,
+}: {
+  providers: ModelProvider[];
+  provider: ModelProvider | null;
+  cliStatus: AgentCliStatus | null | undefined;
+  canAdd: boolean;
+  adding: boolean;
+  onProviderChange: (provider: ModelProvider) => void;
+  onAdd: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <ScrollView
+      horizontal
+      accessibilityRole="tablist"
+      showsHorizontalScrollIndicator={false}
+      style={{ backgroundColor: colors.page }}
+      contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 }}
+    >
+      {providers.map((provider) => {
+        const on = provider === current;
+        const problem = cliStatus?.[provider] && cliStatus[provider].state !== "ready";
+        return (
+          <Chip
+            key={provider}
+            role="tab"
+            label={providerName(provider)}
+            selected={on}
+            onPress={() => onProviderChange(provider)}
+            leading={<ProviderLogo provider={provider} size={16} inverted={on} />}
+            trailing={problem ? <View style={{ width: 6, height: 6, borderRadius: radius.full, backgroundColor: colors.orange }} /> : undefined}
+          />
+        );
+      })}
+      {canAdd && (
+        <Chip role="tab" label="Add" selected={adding} onPress={onAdd} leading={<Icon icon={Add01Icon} size={16} tone={adding ? "onInk" : "ink2"} />} />
+      )}
+    </ScrollView>
   );
 }

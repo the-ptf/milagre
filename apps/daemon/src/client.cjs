@@ -12,6 +12,7 @@ const SLOW_METHODS = Object.freeze({
   "computers:add": 12 * 60 * 1000,
   "computers:invoke": 30 * 60 * 1000,
   "artifact:share-page": 420000,
+  "artifact:set-page-share-paused": 420000,
   "artifact:revoke-page-share": 120000,
   "artifact:revoke-saved-page-share": 120000,
   "git:commit": 330000,

@@ -1,4 +1,15 @@
-import { autopilotPending, boardColumn, taskLimitText, type BoardColumn, type BoardPullRequest, type OrchestratorTask } from "@milagre/shared/orchestrator";
+import {
+  autopilotPending,
+  boardColumn,
+  placedColumn,
+  taskBlockedText,
+  taskLimitText,
+  taskOutcomeDetail,
+  type BoardColumn,
+  type BoardPullRequest,
+  type OrchestratorTask,
+} from "@milagre/shared/orchestrator";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { AgentModels, AgentSession, ChatMessage, ModelProvider } from "@milagre/shared/model";
 import { MODEL_CATALOG } from "@milagre/shared/model-options";
@@ -43,20 +54,27 @@ export function boardItem(task: OrchestratorTask, chat: TaskChat | undefined, pu
   const done = !!chat.chat.done_at || !!chat.chat.archived;
   const autopilot = NEEDS_YOU.has(mark) ? autopilotPending(task, chat.run, now) : null;
   const limit = chat.run ? null : taskLimitText(task, new Date(now));
+  const blocked = taskBlockedText(chat.chat, Boolean(chat.run));
+  const needsYou = (NEEDS_YOU.has(mark) && !autopilot) || state.kind === "failed" || state.kind === "stopped" || Boolean(limit) || Boolean(blocked);
+  const active = Boolean(chat.run) || chatActivity(chat.chat, undefined).activity === "background";
+  const column = boardColumn({
+    done,
+    needsYou,
+    active,
+    outcome: task.outcome,
+    pullRequest,
+    placed: placedColumn(chat.chat),
+    finished: !chat.run && (chat.chat.summary?.lastOutcome === "completed" || (chat.chat.summary?.count ?? chat.messages?.length ?? 0) > 1),
+  });
   return {
     ...base,
     inSidebar: chat.chat.orchestrator?.hidden === false,
-    column: boardColumn({
-      done,
-      needsYou: (NEEDS_YOU.has(mark) && !autopilot) || Boolean(limit),
-      pullRequest,
-      finished: state.kind === "done" || state.kind === "stopped",
-    }),
+    column,
     kind: "chat",
     mark: autopilot ? null : mark,
     detail: autopilot
       ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
-      : (limit ?? state.detail),
+      : (blocked ?? limit ?? (!needsYou && (column === "needs" || column === "review") ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),
   };
 }
 

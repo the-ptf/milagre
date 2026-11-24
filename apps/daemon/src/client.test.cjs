@@ -4,6 +4,7 @@ const { deadlineFor } = require("./client.cjs");
 
 test("slow mutations get the time core allows them, others keep the default", () => {
   assert.equal(deadlineFor("artifact:share-page", 30000), 420000);
+  assert.equal(deadlineFor("artifact:set-page-share-paused", 30000), 420000, "resuming a live link publishes at once");
   assert.equal(deadlineFor("artifact:revoke-page-share", 30000), 120000);
   assert.equal(deadlineFor("artifact:revoke-saved-page-share", 30000), 120000);
   assert.equal(deadlineFor("git:push", 30000), 330000);

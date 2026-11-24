@@ -22,7 +22,11 @@ import {
   Settings01Icon,
   HardDriveIcon,
   KanbanIcon,
+  LibraryIcon,
 } from "@hugeicons/core-free-icons";
+import { UI_COPY } from "@milagre/shared/model-copy";
+import { composerDictationActions } from "../lib/dictation-shortcut";
+import { lastDictation } from "../lib/last-dictation";
 import { filterCommands, type Command } from "../lib/commands";
 import { recentCommandIds, recentCommands, rememberCommand, rememberedId } from "../lib/recent-commands";
 import { useShortcutHints } from "../lib/shortcut-hints";
@@ -52,6 +56,7 @@ const icons = {
   message: BubbleChatSearchIcon,
   reload: Refresh01Icon,
   routines: TimeScheduleIcon,
+  library: LibraryIcon,
   canvas: FlowConnectionIcon,
   usage: ChartColumnIcon,
   newChat: PencilEdit02Icon,
@@ -83,7 +88,7 @@ function Label({ command }: { command: Command }) {
 }
 
 export function CommandPalette({
-  commands,
+  commands: providedCommands,
   searchMessages,
   searchMessagesAsync,
   onStartChat,
@@ -97,6 +102,16 @@ export function CommandPalette({
   onClose: () => void;
   onError: (message: string) => void;
 }) {
+  const [dictationCommands] = useState<Command[]>(() => {
+    const target = composerDictationActions();
+    const items: Command[] = [];
+    if (target?.insertLast && lastDictation())
+      items.push({ id: "insert-last-dictation", group: UI_COPY.currentChat, icon: "copy", label: "Insert last dictation", run: target.insertLast });
+    if (target?.vocabulary)
+      items.push({ id: "dictation-vocabulary", group: UI_COPY.currentChat, icon: "settings", label: "Project dictation vocabulary", run: target.vocabulary });
+    return items;
+  });
+  const commands = [...providedCommands, ...dictationCommands];
   const [query, setQuery] = useState("");
   const showHints = useShortcutHints();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -129,7 +144,7 @@ export function CommandPalette({
   const messages = commandMatches.length || !typed ? [] : searchMessages ? searchMessages(query) : searchHost && found.query === query ? found.commands : [];
   const searched = [...matches, ...messages];
   const searching = !commandMatches.length && !searchMessages && searchHost && found.query !== query;
-  const results: Command[] =
+  const matchesToShow: Command[] =
     searched.length || searching || !onStartChat || !query.trim()
       ? searched
       : [
@@ -141,6 +156,13 @@ export function CommandPalette({
             run: () => onStartChat(query.trim()),
           },
         ];
+  const groups = new Map<string, Command[]>();
+  for (const command of matchesToShow) {
+    const group = groups.get(command.group);
+    if (group) group.push(command);
+    else groups.set(command.group, [command]);
+  }
+  const results = Array.from(groups.values()).flat();
   const selected = results.find((command) => command.id === selectedId) ?? results[0];
   const selectedIndex = selected ? results.indexOf(selected) : -1;
 
@@ -265,38 +287,36 @@ export function CommandPalette({
         {showHints && <ShortcutKeys shortcut="esc" />}
       </div>
       <ScrollArea id={listId} role="listbox" aria-label="Commands" className="pt-1.5 pr-0 pb-2 pl-1.5 [--scroll-fade-size:16px]">
-        {Array.from(new Set(results.map((command) => command.group))).map((group) => (
+        {Array.from(groups, ([group, items]) => (
           <div key={group} role="group" aria-label={group} className="pb-1.5 last:pb-0">
             <div aria-hidden="true">
               <MenuLabel className="pl-2.5">{group}</MenuLabel>
             </div>
-            {results
-              .filter((command) => command.group === group)
-              .map((command) => (
-                <div
-                  key={command.id}
-                  id={`${listId}-${results.indexOf(command)}`}
-                  role="option"
-                  aria-selected={command.id === selected?.id}
-                  onPointerMove={() => setSelectedId(command.id)}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => close(command)}
-                  // MenuRow's metrics; the highlight follows the selection (pointer or arrows), so there's no separate hover.
-                  className={`flex min-h-8 w-full cursor-default items-center gap-2 rounded-inline px-2 text-13 font-medium text-ink active:bg-hover-2 ${command.id === selected?.id ? "bg-hover-2" : ""} ${command.hint && command.id === selected?.id ? "py-1.5" : ""}`}
-                >
-                  <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
-                    <Icon icon={icons[command.icon]} size={16} />
+            {items.map((command) => (
+              <div
+                key={command.id}
+                id={`${listId}-${results.indexOf(command)}`}
+                role="option"
+                aria-selected={command.id === selected?.id}
+                onPointerMove={() => setSelectedId(command.id)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => close(command)}
+                // MenuRow's metrics; the highlight follows the selection (pointer or arrows), so there's no separate hover.
+                className={`flex min-h-8 w-full cursor-default items-center gap-2 rounded-inline px-2 text-13 font-medium text-ink active:bg-hover-2 ${command.id === selected?.id ? "bg-hover-2" : ""} ${command.hint && command.id === selected?.id ? "py-1.5" : ""}`}
+              >
+                <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
+                  <Icon icon={icons[command.icon]} size={16} />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate">
+                    <Label command={command} />
                   </span>
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate">
-                      <Label command={command} />
-                    </span>
-                    {command.hint && command.id === selected?.id && <span className="truncate text-12 font-normal text-ink-3">{command.hint}</span>}
-                  </span>
-                  {command.detail && <span className="max-w-[45%] truncate text-11 text-ink-3">{command.detail}</span>}
-                  {command.keybinding && <CommandKeys command={command.keybinding} hints={showHints} />}
-                </div>
-              ))}
+                  {command.hint && command.id === selected?.id && <span className="truncate text-12 font-normal text-ink-3">{command.hint}</span>}
+                </span>
+                {command.detail && <span className="max-w-[45%] truncate text-11 text-ink-3">{command.detail}</span>}
+                {command.keybinding && <CommandKeys command={command.keybinding} hints={showHints} />}
+              </div>
+            ))}
           </div>
         ))}
         {!results.length && !searching && <EmptyState size="compact" title={`No results for “${query}”`} />}

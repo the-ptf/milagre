@@ -50,6 +50,7 @@ const remoteProjects = {
 window.remoteProjects = remoteProjects;
 window.remoteHiddenCalls = 0;
 window.sent = [];
+window.created = [];
 // Each computer's bridge, as main would answer it: keys already name the computer.
 const projectsOf = (id) => Object.values(remoteProjects).filter((project) => project.path.startsWith(id + "|"));
 // A host that numbers states says which state a read carries; the window keeps reads from now on from that number.
@@ -99,7 +100,15 @@ const remote = (id) => new Proxy({
   readUsage: async (scope) => { window.usageReads.push([id, scope]); return remoteUsage(id); },
   // A computer answers with its own list; this Mac's must not become it.
   forgetProject: async (key) => ((window.forgotten ??= []).push(key), projectsOf(id).filter((project) => project.path !== key).map(({ path, name }) => ({ path, name }))),
-  sendMessage: async (request) => (window.sent.push(request), { sessionId: 4 }),
+  sendMessage: async (request) => (window.sent.push(request), { sessionId: request.sessionId ?? 4 }),
+  createWorktree: async (request) => {
+    window.created.push(request);
+    const project = await projectAt(request.projectPath);
+    const id = 9 + window.created.length;
+    project.state.worktrees[id] = { id, name: "tree-" + id, path: "/remote/tree-" + id, project_id: 1 };
+    project.state.sessions[id] = { id, worktree_id: id, agent_name: "Claude", provider: "claude", status: "Idle", title: "Tree " + id };
+    return { project, worktreeId: id };
+  },
 }, { get(target, key) { return target[key] ?? (String(key).startsWith("on") ? () => () => {} : async () => null); } });
 const remotes = { "c-atlas": remote("c-atlas"), "c-studio": remote("c-studio"), "c-new": remote("c-new") };
 let localRecent = [{ path: "/work/milagre-ade", name: "milagre-ade" }];
@@ -565,18 +574,72 @@ async function browserChecks() {
     );
     assert.equal(await evaluate(`window.sent.length`), 0, "restarting while offline keeps the message local, in its Chat");
     await screenshot("offline-queued-after-restart");
+    const typeInto = (selector, text, enter) =>
+      evaluate(`(() => {
+        const field = document.querySelector(${JSON.stringify(selector)});
+        if (field instanceof HTMLTextAreaElement) Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(field, ${JSON.stringify(text)});
+        else field.value = ${JSON.stringify(text)};
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...${JSON.stringify(enter)} }));
+      })()`);
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "N", modifiers: ["meta", "shift"] });
+    await waitFor(`!!document.querySelector('dialog[open][data-new-worktree-box] textarea')`);
+    await typeInto("dialog[data-new-worktree-box] textarea", "Prune old snapshots", { metaKey: true });
+    await waitFor(`document.querySelector('dialog[open][data-new-worktree-box] [role="status"]')?.textContent === "1 started"`);
+    assert.equal(await evaluate(`document.querySelector('dialog[data-new-worktree-box] textarea').value`), "", "the box empties for the next one");
+    assert.ok(await evaluate(`document.querySelector('[data-chat-pane]').textContent.includes('Rotate the nightly backups.')`), "the open Chat stays");
+    await evaluate(`document.querySelector('dialog[open]').dispatchEvent(new Event('cancel', { cancelable: true }))`);
+    await waitFor(`!document.querySelector('dialog[open]')`);
+    await evaluate(`document.querySelector('[aria-label="New chat in notes"]').click()`);
+    await waitFor(
+      `!document.querySelector('[data-chat-pane]')?.textContent.includes('Rotate the nightly backups.') && !!document.querySelector('[data-prompt-editor]')`,
+    );
+    await typeInto("[data-prompt-editor]", "Index the notes", { metaKey: true });
+    await waitFor(`document.querySelector('[data-prompt-editor]').value === ""`);
+    assert.equal(await evaluate(`window.sent.length + window.created.length`), 0, "offline, both wait in the outbox");
+    console.log("PASS: offline, ⌘Enter in the new worktree box and in a new Chat queue a new worktree each and stay");
+    await evaluate(
+      `[...document.querySelectorAll('[data-sidebar-scope="c-studio|/Users/s/homelab"] [data-chat-id] button')].find((b) => b.textContent.includes('Backup rotation')).click()`,
+    );
+    await waitFor(`document.querySelector('[data-chat-pane]')?.textContent.includes('Rotate the nightly backups.')`);
     await evaluate(
       `window.setComputers(window.computerList.map((c) => c.id === 'c-studio' ? { ...c, state: 'online', route: 'relay', lastSeen: Date.now() } : c))`,
     );
     await waitFor(`!document.querySelector('[data-offline-chip]') && !document.querySelector('[data-prompt-editor]').hasAttribute('aria-disabled')`);
-    await waitFor(`window.sent.length === 1 && !document.querySelector('[data-outbox-state]') && !document.querySelector('[data-offline-composer]')`);
+    await waitFor(`window.sent.length === 3 && !document.querySelector('[data-outbox-state]') && !document.querySelector('[data-offline-composer]')`);
     assert.equal(await evaluate(`window.sent[0].body`), "Queued while studio sleeps");
+    assert.deepEqual(await evaluate(`window.created.map((request) => [request.projectPath, request.prompt])`), [
+      ["c-studio|/Users/s/homelab", "Prune old snapshots"],
+      ["c-studio|/Users/s/notes", "Index the notes"],
+    ]);
+    assert.deepEqual(
+      await evaluate(`window.sent.slice(1).map((request) => [request.body, request.sessionId, request.worktreeId])`),
+      [
+        ["Prune old snapshots", 10, 10],
+        ["Index the notes", 11, 11],
+      ],
+      "back online, each goes to its own new worktree",
+    );
     await evaluate(
       `(() => { const box = document.querySelector('[data-prompt-editor]'); box.value = "Keep 8 dailies"; box.dispatchEvent(new Event("input", { bubbles: true })); box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); })()`,
     );
-    await waitFor(`window.sent.length === 2`);
+    await waitFor(`window.sent.length === 4`);
     assert.equal(await evaluate(`window.sent[0].projectPath`), "c-studio|/Users/s/homelab", "the send goes to studio's bridge, with the key main strips");
     console.log("PASS: back online, the composer sends to that computer");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "N", modifiers: ["meta", "shift"] });
+    await waitFor(`!!document.querySelector('dialog[open][data-new-worktree-box] textarea')`);
+    await typeInto("dialog[data-new-worktree-box] textarea", "Check the UPS battery", {});
+    await waitFor(`window.sent.length === 5 && !document.querySelector('dialog[open]')`);
+    assert.deepEqual(await evaluate(`window.created.at(-1)?.projectPath`), "c-studio|/Users/s/homelab");
+    assert.deepEqual(await evaluate(`[window.sent[4].body, window.sent[4].sessionId, window.sent[4].projectPath]`), [
+      "Check the UPS battery",
+      12,
+      "c-studio|/Users/s/homelab",
+    ]);
+    await waitFor(
+      `document.querySelector('[data-sidebar-scope="c-studio|/Users/s/homelab"] [aria-current="page"]')?.textContent.includes('Check the UPS battery')`,
+    );
+    console.log("PASS: online, Enter in the new worktree box starts it on that computer and opens it");
 
     await evaluate(`window.setComputers(window.computerList.filter((c) => c.id !== 'c-studio'))`);
     await waitFor(`!document.querySelector('[data-sidebar-scope="c-studio|/Users/s/homelab"]') && !document.querySelector('[data-offline-chip]')`);

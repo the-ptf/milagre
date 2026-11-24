@@ -92,12 +92,23 @@ async function startFakeBridge(t) {
   };
 }
 
+/** What the phone app and a paired desktop do with the room's `gone` notice: hang up, here with the code it names. */
+function hangUpOnNotice(ws, data) {
+  let notice = null;
+  try {
+    notice = JSON.parse(data.toString());
+  } catch {}
+  if (notice?.t === "gone" && Number.isInteger(notice.code)) ws.close(notice.code, String(notice.reason ?? ""));
+  else ws.close();
+}
+
 function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(random), name, kind, caps }) {
   const ws = new WebSocket(`${relayUrl}/v1/phone?id=${identity.hostId}`);
   const inbox = [];
   const waiters = [];
   const closed = new Promise((resolve) => ws.on("close", (code, reason) => resolve({ code, reason: reason.toString() })));
-  ws.on("message", (data) => {
+  ws.on("message", (data, isBinary) => {
+    if (!isBinary) return hangUpOnNotice(ws, data);
     phone.rawFrames += 1;
     const bytes = new Uint8Array(data);
     const waiter = waiters.shift();
@@ -286,7 +297,8 @@ function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(ra
       ws.terminate();
     }
   }
-  ws.on("message", (data) => {
+  ws.on("message", (data, isBinary) => {
+    if (!isBinary) return hangUpOnNotice(ws, data);
     const bytes = new Uint8Array(data);
     if (channel) take(bytes);
     else if (onReply) onReply(bytes);

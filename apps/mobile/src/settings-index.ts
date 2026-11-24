@@ -209,6 +209,8 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     title: "Fix-up model",
     keywords: "correction automatic haiku codex gemini kiro",
   },
+  { page: "voice", title: "Enable dictation", keywords: "voice microphone hide disable speech to text shortcut" },
+  { page: "voice", title: "Spoken symbols", keywords: "dictation backticks inline code insert newline" },
   {
     page: "voice",
     title: "Fix names with AI",
@@ -220,6 +222,11 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "voice send insert mic",
   },
 
+  {
+    page: "computers",
+    title: "Show computers as",
+    keywords: "map list routes lan tailscale network",
+  },
   {
     page: "computers",
     title: "Name on computers",
@@ -341,6 +348,7 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   { page: "orchestrator-settings", title: "When no Project fits", group: "Routing", keywords: "ask me best guess" },
   { page: "orchestrator-settings", title: "Account", group: "Routing", keywords: "least used today project's account limit" },
   { page: "orchestrator-settings", title: "Use other computers", group: "Computers", keywords: "load balancing room cpu memory" },
+  { page: "orchestrator-settings", title: "Required outcome", group: "Completion", keywords: "done pull request PR created merged agent finished" },
   { page: "orchestrator-settings", title: "Answer threads for me", group: "Autopilot", keywords: "autopilot ask me first off approvals questions" },
   {
     page: "orchestrator-settings",
@@ -415,6 +423,7 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   { page: "token-usage", title: "Period", keywords: "range days week month" },
   { page: "token-usage", title: "Show", keywords: "cost tokens metric" },
 
+  { page: "accounts", title: "Computer", keywords: "paired other remote mac machine manage accounts" },
   {
     page: "accounts",
     title: "Switch accounts at usage limits",
@@ -445,6 +454,13 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "linear status started",
   },
 
+  {
+    page: "phone-sharing",
+    title: "iPhones on a cable",
+    group: "Simulators",
+    description: "Chats list the paired iPhones on this computer's cable next to its simulators.",
+    keywords: "baguette physical real device iphone usb",
+  },
   {
     page: "phone-sharing",
     title: "Published pages",

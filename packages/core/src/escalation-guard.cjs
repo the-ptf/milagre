@@ -6,7 +6,7 @@ const ONLY_READS =
   "This turn only tells the human about a waiting Subchat: you can read, and use chat_respond on the requests you were woken for. Everything else waits for the human's next message.";
 const REPLY_NOW = "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.";
 
-const GUARDED_PROVIDERS = new Set(["claude", "codex", "antigravity", "kiro"]);
+const GUARDED_PROVIDERS = new Set(["claude", "codex", "antigravity", "kiro", "pi"]);
 const canEscalate = (provider) => GUARDED_PROVIDERS.has(provider);
 
 // Claude Code's own reads. Bash isn't one: a command can do anything.

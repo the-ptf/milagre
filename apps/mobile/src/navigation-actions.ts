@@ -318,6 +318,10 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
     }
     const client = clientOf(hostId);
     const copy = copyOf(hostId, projectPath);
+    if (action === "design-library") {
+      onNavigate({ pathname: "/design-library", params: { hostId, path: projectPath, name: copy?.project.name || projectPath.split("/").at(-1) } }, true);
+      return;
+    }
     if (!copy || !client) return;
     const isCurrent = hostId === currentHostId;
     if (action === "link-with" || action === "link-remove") {
@@ -415,6 +419,10 @@ function projectActions(ctx: NavigationActionsContext, open: ReturnType<typeof o
     }
     if (action === "copy") {
       await Clipboard.setStringAsync(projectPath);
+      return;
+    }
+    if (action === "design-library") {
+      onNavigate({ pathname: "/design-library", params: { hostId, path: projectPath, name } }, true);
       return;
     }
     const client = clientOf(hostId);

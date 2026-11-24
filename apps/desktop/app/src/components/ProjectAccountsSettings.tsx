@@ -1,3 +1,4 @@
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { ModelProvider, ProjectAccountScope, ProjectAccountsSnapshot } from "@milagre/shared/model";
@@ -172,13 +173,13 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
                 ? "The assigned account is unavailable. Choose another saved account."
                 : `${effective!.email || effective!.label} · ${statusLabel(effective!.state)}`}
             </p>
-            {needsSignIn && (effective!.id !== "default" || group.provider !== "kiro") && (
+            {needsSignIn && (effective!.id !== "default" || providerCapabilities(group.provider).addAccounts) && (
               <Button
                 variant="link"
                 size={24}
                 className="-mr-2"
                 disabled={busy || signingIn}
-                onClick={() => void act(() => window.milagre.accountAction("login", group.provider, effective!.id))}
+                onClick={() => void act(() => bridgeForKey(scope).accountAction("login", group.provider, effective!.id))}
               >
                 Re-authenticate
               </Button>
@@ -186,7 +187,14 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
           </div>
         )}
         {effective?.state === "signing-in" && effective.signInUrl && (
-          <SignInCode provider={group.provider} accountId={effective.id} url={effective.signInUrl} onDone={() => void load()} className="pl-7" />
+          <SignInCode
+            bridge={bridgeForKey(scope)}
+            provider={group.provider}
+            accountId={effective.id}
+            url={effective.signInUrl}
+            onDone={() => void load()}
+            className="pl-7"
+          />
         )}
         {effective?.message && !missing && (
           <p role="status" className="pl-7 text-12 text-ink-3">

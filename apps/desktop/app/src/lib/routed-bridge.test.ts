@@ -51,6 +51,8 @@ const ALLOWED: Record<string, string[]> = {
     "pickOrchestratorProject",
     "rerouteOrchestratorTask",
     "undoOrchestratorTask",
+    "moveOrchestratorTask",
+    "deleteOrchestratorTask",
     "dismissOrchestratorTask",
     "showOrchestratorTaskInSidebar",
     "importOrchestratorMemory",
@@ -104,7 +106,8 @@ const ALLOWED: Record<string, string[]> = {
     "setPhoneLan",
     "resetPhoneAccess",
   ],
-  "components/settings/LimitAutoSwitchSetting.tsx": ["readLimitAutoSwitch", "readLimitResumeAtReset", "saveLimitResumeAtReset", "saveLimitAutoSwitch"],
+  // This Mac's own paired devices and how they reach it, drawn on its computer map.
+  "components/settings/ThisMacMap.tsx": ["listDevices", "getPhoneStatus", "onPhoneStatus"],
   "components/settings/LinearSettings.tsx": [
     "readLinearEnabled",
     "readLinearStatus",
@@ -116,21 +119,24 @@ const ALLOWED: Record<string, string[]> = {
   ],
   "components/settings/MainSyncSettings.tsx": ["readMainSyncDefault", "saveMainSyncDefault", "onMainSyncStatus"],
   "components/settings/ProjectSettings.tsx": ["listRecentProjects", "setProjectHidden"],
-  "components/SidebarNav.tsx": ["listRecentProjects", "listNamedLinks", "listProjects", "revealInFolder", "setProjectHidden", "updateNamedLink"],
+  "components/SidebarNav.tsx": ["listRecentProjects", "listNamedLinks", "listProjects", "setProjectHidden", "updateNamedLink"],
+  // Reveal in Finder shows only for this computer's own Projects.
+  "components/sidebar/project-menu.ts": ["revealInFolder"],
   // This Mac's own Projects and Links in the new-chat Project picker and computer chip; other computers' come through their bridges.
   "lib/project-copies.ts": ["listRecentProjects", "listNamedLinks"],
   // Canvas Links are this Mac's own, like the canvas.
   "components/sidebar/SidebarLinks.tsx": ["onLinksChanged"],
   "components/LinkWorkspace.tsx": ["syncNotifications", "revealInFolder"],
   "components/ComputerAllowPrompt.tsx": ["onDevicesPending", "listPendingDevices", "allowDevice", "denyDevice"],
-  "components/ProviderUpdateNotice.tsx": ["getProviderUpdates", "updateCli"],
-  "components/UpdateNotice.tsx": ["onUpdateState", "getUpdateState", "installUpdate", "checkForUpdates"],
+  // The update pill updates this computer's own app and CLIs.
+  "components/UpdateNotice.tsx": ["onUpdateState", "getUpdateState", "installUpdate", "checkForUpdates", "getProviderUpdates", "updateCli", "onCliProgress"],
   "components/UpdateReleaseNotes.tsx": ["getUpdateReleaseNotes"],
   // The Dock or taskbar icon is this computer's own.
   "components/settings/AppIconPicker.tsx": ["getAppIcon", "setAppIcon"],
   // Onboarding's import card: what T3 Code, Paseo or Orca left on this Mac, and the Project it opens after importing.
   "components/OnboardingImport.tsx": ["scanImports", "openProjectAt"],
-  "components/AccountsSettings.tsx": ["getCliStatus", "listAccounts", "onAccountsChanged", "accountAction", "submitAccountCode", "onCliProgress", "updateCli"],
+  // Installing Antigravity runs on this Mac only; a paired computer's status comes through bridgeFor.
+  "components/AccountsSettings.tsx": ["onCliProgress", "updateCli"],
   // First launch on this Mac, before any Project or computer: its own agents, folders and agent history, and whether it
   // knows a Project (a returning user skips the intro).
   "components/Onboarding.tsx": [
@@ -147,7 +153,7 @@ const ALLOWED: Record<string, string[]> = {
     "createProject",
     "setUpGit",
   ],
-  "components/ProjectAccountsSettings.tsx": ["listAccountScopes", "onAccountsChanged", "accountAction"],
+  "components/ProjectAccountsSettings.tsx": ["listAccountScopes", "onAccountsChanged"],
   "components/CanvasView.tsx": [
     // Canvas belongs to this Mac; retry its snapshot when this Mac's host reconnects.
     "onRuntimeConnection",

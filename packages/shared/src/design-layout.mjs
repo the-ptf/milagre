@@ -1,6 +1,7 @@
 import { designFontMetrics } from "./design-font-metrics.mjs";
 import { DESIGN_EXTRA_CHARACTERS } from "./design-font-characters.mjs";
 import { designCatalogFont, designUsesInter, nearestDesignWeight } from "./design-fonts.mjs";
+import { designLocalFace } from "./design-local-fonts.mjs";
 
 const bounded = (value, minimum = 0) => Math.max(1, minimum, Math.min(16000, value));
 const round = (value) => Math.round(value * 1000) / 1000;
@@ -10,7 +11,7 @@ const graphemes = (text) =>
   /^[ -~]*$/.test(text) ? text.split("") : segmenter ? Array.from(segmenter.segment(text), (item) => item.segment) : Array.from(text);
 
 const extraPoints = Array.from(DESIGN_EXTRA_CHARACTERS, (character) => character.codePointAt(0));
-const catalogMetrics = new Map();
+const catalogMetrics = new WeakMap();
 
 /** A catalog family's advances in the shape of the measured table: 95 ASCII advances per weight, extras by code point. */
 function catalogTable(entry) {
@@ -26,13 +27,23 @@ function catalogTable(entry) {
   return table;
 }
 
+function localTable(face) {
+  let table = catalogMetrics.get(face);
+  if (!table) {
+    table = catalogTable({ advances: { [face.weight]: face.advances } });
+    catalogMetrics.set(face, table);
+  }
+  return table;
+}
+
 /**
- * Inter, the catalog families, Arial, Georgia, Times New Roman and Courier New are measured; other fonts use the
- * closest generic metrics.
+ * Inter, the catalog families, installed families the host loaded, Arial, Georgia, Times New Roman and Courier New are
+ * measured; other fonts use the closest generic metrics.
  */
 export function designTextLayout(node, width = Infinity) {
   const family = (node.fontFamily ?? "Inter").toLowerCase();
-  const catalog = designUsesInter(node.fontFamily) ? undefined : designCatalogFont(node.fontFamily);
+  const local = designLocalFace(node);
+  const catalog = local ? { local } : designUsesInter(node.fontFamily) ? undefined : designCatalogFont(node.fontFamily);
   const kind = designUsesInter(node.fontFamily)
     ? "inter"
     : catalog
@@ -44,7 +55,7 @@ export function designTextLayout(node, width = Infinity) {
           : /georgia|(?<!sans-)serif/.test(family)
             ? "serif"
             : "sans";
-  const measured = catalog ? catalogTable(catalog) : designFontMetrics[kind];
+  const measured = local ? localTable(local) : catalog ? catalogTable(catalog) : designFontMetrics[kind];
   const requested = node.fontWeight ?? 400;
   const weight = nearestDesignWeight(
     Object.keys(measured)
@@ -54,8 +65,10 @@ export function designTextLayout(node, width = Infinity) {
   );
   const metrics = measured[weight];
   const size = node.fontSize ?? 16;
+  const tracking = node.letterSpacing ?? 0;
   const advances = new Map();
-  const advance = (character) => {
+  const advance = (character) => glyphAdvance(character) + tracking;
+  const glyphAdvance = (character) => {
     if (advances.has(character)) return advances.get(character);
     const point = character.codePointAt(0);
     const measuredExtra = measured.extra && String.fromCodePoint(point) === character ? measured.extra[weight]?.[point] : undefined;

@@ -3,6 +3,7 @@ const { promisify } = require("node:util");
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const { createHash } = require("node:crypto");
 const { parseLsof } = require("./agents/ports.cjs");
 
 // capture. Only Chromium browser processes started with --remote-debugging-port qualify; a browser
@@ -31,7 +32,7 @@ function parseProcesses(output) {
     processes.push({ pid, ppid });
     const port = PORT_ARG.exec(args);
     if (port && !/(?:^|\s)--type=/.test(args) && Number(port[1]) <= 65535 && candidates.length < MAX_CANDIDATES)
-      candidates.push({ pid, port: Number(port[1]) });
+      candidates.push({ pid, port: Number(port[1]), process: createHash("sha256").update(args).digest("hex").slice(0, 16) });
   }
   return { processes, candidates };
 }
@@ -73,29 +74,50 @@ async function readJson(fetcher, url, limit) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+/** Each candidate's loopback DevTools listener by pid. `lsof` runs only for processes not seen listening yet: a process keeps its port for life. */
+function createListeners() {
+  let known = new Map();
+  const keyOf = (candidate) => `${candidate.pid} ${candidate.process}`;
+  return async (candidates, run) => {
+    const unknown = candidates.filter((candidate) => !known.has(keyOf(candidate)));
+    let rows = [];
+    if (unknown.length) {
+      try {
+        rows = parseLsof((await run("lsof", ["-nP", "-a", "-p", unknown.map((item) => item.pid).join(","), "-iTCP", "-sTCP:LISTEN", "-F", "pcn"])).stdout);
+      } catch (error) {
+        rows = parseLsof(error?.stdout ?? "");
+      }
+    }
+    const found = new Map();
+    const next = new Map();
+    for (const candidate of candidates) {
+      const listener =
+        known.get(keyOf(candidate)) ??
+        rows.find((row) => row.pid === candidate.pid && LOOPBACK.has(row.address) && (candidate.port === 0 || row.port === candidate.port));
+      if (!listener) continue;
+      found.set(candidate.pid, listener);
+      next.set(keyOf(candidate), listener);
+    }
+    known = next;
+    return found;
+  };
+}
+
 function createBrowserAdapter(options = {}) {
   const execFile = options.execFile ?? promisify(execFileCallback);
   const fetcher = options.fetch ?? fetch;
   const Socket = options.WebSocket ?? WebSocket;
   const channels = new Set();
+  const listenersOf = createListeners();
 
   async function discover() {
     const run = (command, args) => execFile(command, args, { timeout: 5000, maxBuffer: 8 * 1024 * 1024, encoding: "utf8" });
     const { processes, candidates } = parseProcesses((await run("ps", ["-axwwo", "pid=,ppid=,args="])).stdout);
+    const listeners = await listenersOf(candidates, run);
     if (!candidates.length) return { processes, browsers: [] };
-    let listeners = [];
-    try {
-      listeners = parseLsof(
-        (await run("lsof", ["-nP", "-a", "-p", candidates.map((item) => item.pid).join(","), "-iTCP", "-sTCP:LISTEN", "-F", "pcn"])).stdout,
-      );
-    } catch (error) {
-      listeners = parseLsof(error?.stdout ?? "");
-    }
     const browsers = await Promise.all(
       candidates.map(async (candidate) => {
-        const listener = listeners.find(
-          (row) => row.pid === candidate.pid && LOOPBACK.has(row.address) && (candidate.port === 0 || row.port === candidate.port),
-        );
+        const listener = listeners.get(candidate.pid);
         if (!listener) return null;
         const host = LOOPBACK.get(listener.address),
           base = `http://${host}:${listener.port}`;

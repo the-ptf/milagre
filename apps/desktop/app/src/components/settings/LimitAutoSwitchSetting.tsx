@@ -1,10 +1,13 @@
 import { SettingCheckbox } from "../primitives/Checkbox";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { useEffect, useState } from "react";
+import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
+import { bridgeFor } from "../../lib/computer-bridge";
 import { Group, Row } from "./SettingsGroup";
 
-// Accounts > Switch accounts at usage limits: Mac-owned (core), so a Chat can switch while no window is open.
-export function LimitAutoSwitchSetting() {
+// Accounts > Switch accounts at usage limits: owned by the computer's host, so a Chat can switch while no window is open.
+export function LimitAutoSwitchSetting({ computerId = LOCAL_COMPUTER }: { computerId?: string }) {
+  const bridge = bridgeFor(computerId);
   // null until read.
   const [autoSwitch, setAutoSwitch] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -14,7 +17,7 @@ export function LimitAutoSwitchSetting() {
   useEffect(() => {
     let live = true;
     void Promise.resolve()
-      .then(() => window.milagre.readLimitResumeAtReset())
+      .then(() => bridge.readLimitResumeAtReset())
       .then(
         (value) => {
           if (live && typeof value?.resumeAtReset === "boolean") setResumeAtReset(value.resumeAtReset);
@@ -25,13 +28,13 @@ export function LimitAutoSwitchSetting() {
     return () => {
       live = false;
     };
-  }, []);
+  }, [bridge]);
   async function changeResume(next: boolean) {
     if (savingResume) return;
     setSavingResume(true);
     setResumeError(null);
     try {
-      setResumeAtReset((await window.milagre.saveLimitResumeAtReset(next)).resumeAtReset);
+      setResumeAtReset((await bridge.saveLimitResumeAtReset(next)).resumeAtReset);
     } catch (failure) {
       setResumeError(ipcErrorMessage(failure));
     } finally {
@@ -41,7 +44,7 @@ export function LimitAutoSwitchSetting() {
   useEffect(() => {
     let live = true;
     Promise.resolve()
-      .then(() => window.milagre.readLimitAutoSwitch())
+      .then(() => bridge.readLimitAutoSwitch())
       .then(
         (value) => live && setAutoSwitch(value?.autoSwitch === true),
         () => live && setAutoSwitch(false),
@@ -49,12 +52,12 @@ export function LimitAutoSwitchSetting() {
     return () => {
       live = false;
     };
-  }, []);
+  }, [bridge]);
   async function change(next: boolean) {
     setError(null);
     setAutoSwitch(next);
     try {
-      setAutoSwitch((await window.milagre.saveLimitAutoSwitch(next)).autoSwitch);
+      setAutoSwitch((await bridge.saveLimitAutoSwitch(next)).autoSwitch);
     } catch (failure) {
       setAutoSwitch(!next);
       setError(ipcErrorMessage(failure));

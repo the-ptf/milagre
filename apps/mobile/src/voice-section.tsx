@@ -2,7 +2,15 @@ import { Platform, Text, View } from "react-native";
 import { router } from "expo-router";
 import { DICTATION_FIX_MODELS, DICTATION_LANGUAGES, whisperModelFor, type DictationFixModel } from "@milagre/shared/dictation";
 import { DICTATION_ACTION_OPTIONS } from "@milagre/shared/voice-dictation";
-import { useDictationAction, useDictationFixModel, useDictationFixUp, useDictationLanguage, useDictationModel } from "./chat-display-setting";
+import {
+  useDictationEnabled,
+  useDictationSymbols,
+  useDictationAction,
+  useDictationFixModel,
+  useDictationFixUp,
+  useDictationLanguage,
+  useDictationModel,
+} from "./chat-display-setting";
 import { ChoiceCards, DictationPreview } from "./chat-display-choices";
 import { ListRow, Toggle, showActions, useStyles } from "./ui";
 import { radius, space } from "./design-tokens";
@@ -12,10 +20,16 @@ export function VoiceSection() {
   const [dictation] = useDictationLanguage();
   const speechModel = whisperModelFor("phone", useDictationModel()[0]);
   const [dictationAction, setDictationAction] = useDictationAction();
+  const [enabled, setEnabled] = useDictationEnabled();
+  const [symbols, setSymbols] = useDictationSymbols();
   const [fixUp, setFixUp] = useDictationFixUp();
   const [fixModel, setFixModel] = useDictationFixModel();
   return (
     <View style={{ gap: space.md }}>
+      <View style={styles.card}>
+        <Toggle title="Enable dictation" selected={enabled} onPress={() => setEnabled(!enabled)} />
+        <Text style={styles.caption}>Show the microphone and enable dictation on this device.</Text>
+      </View>
       <Text style={styles.section}>When dictation finishes</Text>
       <ChoiceCards
         compact
@@ -54,6 +68,8 @@ export function VoiceSection() {
         </View>
       )}
       <View style={[styles.card, { gap: 4, marginTop: 8 }]}>
+        <Toggle title="Spoken symbols" selected={symbols} onPress={() => setSymbols(!symbols)} />
+        <Text style={styles.caption}>{'Say "backtick npm test backtick" for inline code or "insert newline" for a line break.'}</Text>
         <Toggle title="Fix names with AI" selected={fixUp} onPress={() => setFixUp(!fixUp)} />
       </View>
       {fixUp && (

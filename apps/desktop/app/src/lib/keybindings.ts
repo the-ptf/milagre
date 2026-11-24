@@ -4,6 +4,7 @@ import {
   commandForEvent,
   defaultKeybindings,
   hasCommandModifier,
+  keyFromEvent,
   keyLabelFor,
   primaryKeyFor,
   type CompiledRule,
@@ -74,8 +75,8 @@ export function shortcutCommand(event: KeyEventLike): KeybindingCommandId | null
   const context = keyContext();
   const command = commandForEvent(compiled, event, context, isMac);
   if (!command || !context.editableFocus) return command;
-  const rule = compiled.findLast((item) => item.command === command);
-  return rule && hasCommandModifier(rule.key) ? command : null;
+  const pressed = keyFromEvent(event, isMac);
+  return pressed && hasCommandModifier(pressed) ? command : null;
 }
 
 export function shortcutLabel(rules: readonly KeybindingRule[], command: KeybindingCommandId): string | undefined {

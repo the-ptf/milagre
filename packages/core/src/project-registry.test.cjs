@@ -190,3 +190,127 @@ test("resolveProject opens a folder outside Git as its own Project, but never a 
     await fs.rm(folder, { recursive: true, force: true });
   }
 });
+
+test("a write checks an entry's Git identity again once its repository changed, and keeps entries that didn't", async (t) => {
+  const root = await fixture(t);
+  const kept = await repository(root, "kept", { coordination: false });
+  const bare = await repository(root, "bare", { coordination: false });
+  const unlinked = await repository(root, "unlinked", { coordination: false });
+  const registry = createProjectRegistry(path.join(root, "userData", "project-registry.json"), { roots: [] });
+  for (const folder of [kept.main, bare.main, unlinked.main]) await registry.add(await resolveProject(folder));
+  const keptId = (await resolveProject(kept.main)).id;
+  const paths = async () => (await registry.snapshot()).projects.map((entry) => entry.path).sort();
+  await registry.setPosition(keptId, { x: 1, y: 1 });
+  assert.deepEqual(await paths(), [bare.main, kept.main, unlinked.main].sort());
+  git(bare.main, "config", "core.bare", "true");
+  await registry.setPosition(keptId, { x: 2, y: 2 });
+  assert.deepEqual(await paths(), [kept.main, unlinked.main].sort(), "a changed Git config is read again");
+  await fs.rm(path.join(unlinked.main, ".git"), { recursive: true });
+  await registry.setPosition(keptId, { x: 3, y: 3 });
+  assert.deepEqual(await paths(), [kept.main], "a removed .git is noticed");
+});
+
+function countingResolve() {
+  const calls = [];
+  return {
+    calls,
+    resolve: async (folder) => {
+      calls.push(folder);
+      return resolveProject(folder);
+    },
+  };
+}
+
+test("a write runs no Git for a Project whose repository didn't change since the last confirmed check", async (t) => {
+  const root = await fixture(t);
+  const { main } = await repository(root, "kept", { coordination: false });
+  const { calls, resolve } = countingResolve();
+  const registry = createProjectRegistry(path.join(root, "userData", "project-registry.json"), { roots: [], resolve });
+  await registry.add(await resolveProject(main));
+  const id = (await resolveProject(main)).id;
+  await registry.setPosition(id, { x: 1, y: 1 });
+  await registry.setPosition(id, { x: 2, y: 2 });
+  assert.deepEqual(calls, [main]);
+});
+
+test("a Project dropped while Git couldn't run stays once opened again", async (t) => {
+  const root = await fixture(t);
+  const proj = await repository(root, "proj", { coordination: false });
+  const notes = await repository(root, "notes", { coordination: false });
+  let outage = false;
+  const resolve = async (folder) => {
+    if (outage) throw new Error("spawn git ENOENT");
+    return resolveProject(folder);
+  };
+  const registry = createProjectRegistry(path.join(root, "userData", "project-registry.json"), { roots: [], resolve });
+  const names = async () => (await registry.snapshot()).projects.map((entry) => entry.name).sort();
+  await registry.add(await resolveProject(notes.main));
+  await registry.pruneLinks({});
+  await registry.add(await resolveProject(proj.main));
+  outage = true;
+  await registry.pruneLinks({});
+  assert.deepEqual(await names(), ["notes"], "dropped as on main; notes was confirmed and nothing about it changed");
+  outage = false;
+  await registry.add(await resolveProject(proj.main));
+  assert.deepEqual(await names(), ["notes", "proj"]);
+  await registry.pruneLinks({});
+  assert.deepEqual(await names(), ["notes", "proj"], "a failed check isn't remembered");
+});
+
+test("a plain folder Project is dropped once a folder above it becomes a repository", async (t) => {
+  const root = await fixture(t);
+  const parent = path.join(root, "parent");
+  const plain = path.join(parent, "notes");
+  await fs.mkdir(plain, { recursive: true });
+  const other = await repository(root, "other", { coordination: false });
+  const registry = createProjectRegistry(path.join(root, "userData", "project-registry.json"), { roots: [] });
+  for (const folder of [plain, other.main]) await registry.add(await resolveProject(folder));
+  const otherId = (await resolveProject(other.main)).id;
+  await registry.setPosition(otherId, { x: 1, y: 1 });
+  git(parent, "init", "-q");
+  await registry.setPosition(otherId, { x: 2, y: 2 });
+  assert.deepEqual(
+    (await registry.snapshot()).projects.map((entry) => entry.name),
+    ["other"],
+  );
+});
+
+test("a Project owned by another user, whose answer depends on safe.directory, is checked with Git on every write", async (t) => {
+  const root = await fixture(t);
+  const owned = await repository(root, "owned", { coordination: false });
+  const { calls, resolve } = countingResolve();
+  const registry = createProjectRegistry(path.join(root, "userData", "project-registry.json"), { roots: [], resolve });
+  await registry.add(await resolveProject(owned.main));
+  const id = (await resolveProject(owned.main)).id;
+  const geteuid = process.geteuid;
+  t.after(() => {
+    process.geteuid = geteuid;
+  });
+  process.geteuid = () => geteuid() + 1;
+  await registry.setPosition(id, { x: 1, y: 1 });
+  await registry.setPosition(id, { x: 2, y: 2 });
+  assert.equal(calls.length, 2);
+});
+
+test("a case-only rename on a case-insensitive volume is checked again, as Git sees the new name", async (t) => {
+  const root = await fixture(t);
+  await fs.writeFile(path.join(root, "probe"), "");
+  const insensitive = await fs.stat(path.join(root, "PROBE")).then(
+    () => true,
+    () => false,
+  );
+  if (!insensitive) return t.skip("the temporary folder is case-sensitive");
+  const { main } = await repository(root, "Proj", { coordination: false });
+  const other = await repository(root, "other", { coordination: false });
+  const registry = createProjectRegistry(path.join(root, "userData", "project-registry.json"), { roots: [] });
+  for (const folder of [main, other.main]) await registry.add(await resolveProject(folder));
+  const otherId = (await resolveProject(other.main)).id;
+  await registry.setPosition(otherId, { x: 1, y: 1 });
+  await fs.rename(main, `${main}-moving`);
+  await fs.rename(`${main}-moving`, path.join(path.dirname(main), "proj"));
+  await registry.setPosition(otherId, { x: 2, y: 2 });
+  assert.deepEqual(
+    (await registry.snapshot()).projects.map((entry) => entry.path),
+    [other.main],
+  );
+});

@@ -2,7 +2,7 @@ const path = require("node:path");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const { originId } = require("@milagre/shared/project-origin");
 const { realpathSync, existsSync } = require("node:fs");
-const { withDetails } = require("../project-content.cjs");
+const { withDetails, loadSubagent } = require("../project-content.cjs");
 const { chatPage, chatSearch } = require("../chat-pages.cjs");
 const { dbFile: chatDbFile, readChatRows } = require("../chat-db.cjs");
 const { createProjectFinder } = require("../project-finder.cjs");
@@ -162,14 +162,17 @@ function registerChatReads({
   openProject,
   projectName,
   projectsWithGit,
+  projectRegistry,
   readProject,
   recentProjects,
   scopeStates,
   states,
   withKind,
 }) {
+  const listed = async (projectPath) =>
+    (await recentProjects().list()).some((item) => item.path === projectPath) || (await projectRegistry().list()).some((item) => item.path === projectPath);
   commands.handle("project:read", async (_event, projectPath, read) => {
-    const known = chatsHome.isHome(projectPath) ? await chatsHome.exists() : (await recentProjects().list()).some((item) => item.path === projectPath);
+    const known = chatsHome.isHome(projectPath) ? await chatsHome.exists() : await listed(projectPath);
     if (!known) throw new Error("Open this project in Milagre first.");
     const project = withKind(await readProject(projectPath));
     if (read?.state !== false) return project;
@@ -225,7 +228,7 @@ function registerChatReads({
   commands.handle("chat:subagent", async (_event, scope, chatId, agentId) => {
     const agent = (await readScope(scope)).sessions?.[chatId]?.subagents?.find((item) => item.id === agentId);
     if (!agent) throw new Error("That subagent is no longer in this Chat.");
-    return agent;
+    return loadSubagent(agent);
   });
   commands.handle("project:chat-image", (_event, projectPath, requested) => chats.images.resolve(projectPath, requested));
   commands.handle("project:worktree-paths", async (_event, projectPath) => {
@@ -332,6 +335,7 @@ function registerProjects({
     openProject,
     projectName,
     projectsWithGit,
+    projectRegistry,
     readProject,
     recentProjects,
     scopeStates,

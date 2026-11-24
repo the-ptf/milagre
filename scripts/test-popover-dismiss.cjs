@@ -168,7 +168,7 @@ async function browserChecks() {
       );
       await screenshot(`model-picker-tab-${index + 1}`);
     }
-    const tabs = `[...document.querySelectorAll('[data-picker-panel] [data-provider-tabs] > button')].map((tab) => tab.getAttribute('aria-label')).join()`;
+    const tabs = `[...document.querySelectorAll('[data-picker-panel] [data-provider-tabs] > button:not([data-add-provider])')].map((tab) => tab.getAttribute('aria-label')).join()`;
     await evaluate(`window.setCliStatus((current) => ({ ...current, antigravity: { state: 'missing', message: 'Antigravity is not installed.' } }))`);
     await waitFor(`${tabs} === "Codex,Claude,Antigravity,Kiro"`);
     await click(model);
@@ -177,6 +177,20 @@ async function browserChecks() {
     await screenshot("model-picker-missing-hidden");
     await evaluate(`window.setCliStatus((current) => ({ ...current, antigravity: { state: 'ready' } }))`);
     await waitFor(`${tabs} === "Codex,Claude,Antigravity,Kiro"`);
+    // Pi is opt-in: no tab while its status is unknown or missing; a missing Pi is offered behind "+" instead.
+    assert.equal(await evaluate(`!!document.querySelector('[data-add-provider]')`), false, "Nothing is offered while Pi's status is unknown");
+    await evaluate(`window.setCliStatus((current) => ({ ...current, pi: { state: 'missing', message: 'Pi is not installed.' } }))`);
+    await click(model);
+    await click(model);
+    await click("[data-add-provider]");
+    await waitFor(`document.querySelector('[data-install-offer="pi"]')?.textContent.includes("npm install -g @earendil-works/pi-coding-agent")`);
+    assert.equal(await evaluate(`${tabs}`), "Codex,Claude,Antigravity,Kiro", "A missing Pi gets no provider tab");
+    await screenshot("model-picker-install-pi");
+    await click("[data-picker-panel] [data-provider-tabs] > button:nth-child(1)");
+    await evaluate(`window.setCliStatus((current) => ({ ...current, pi: { state: 'ready' } }))`);
+    await click(model);
+    await click(model);
+    await waitFor(`${tabs} === "Codex,Claude,Antigravity,Kiro,Pi" && !document.querySelector('[data-add-provider]')`);
     await click("[data-picker-panel] input");
     assert.equal(await panels(), 1, "Pressing inside the picker keeps it open");
     await click("[data-prompt-editor]");

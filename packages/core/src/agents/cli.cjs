@@ -9,8 +9,9 @@ const { KIRO_ACP_ARGS, kiroAgentFor } = require("./kiro-acp.cjs");
 //           (its package.json `claudeCodeVersion`); 2.0.77 rejects the SDK's --effort flag outright.
 //   antigravity  Antigravity, which Milagre installs itself (antigravity-install.cjs). It is never asked for
 //   kiro    2.34.2, the release whose v3 engine Milagre's ACP use was verified against (docs/providers.md).
+//   pi      Pi 1.5.0 (@earendil-works/pi-coding-agent), the first with agent_settled and registerMcpServer.
 // `--version` prints "2.1.287 (Claude Code)", "codex-cli 0.160.0" and "kiro-cli 2.34.2".
-const MIN_VERSIONS = { claude: "2.1.288", codex: "0.160.0", kiro: "2.34.2" };
+const MIN_VERSIONS = { claude: "2.1.288", codex: "0.160.0", kiro: "2.34.2", pi: "1.5.0" };
 const VERSION_TIMEOUT_MS = 10_000;
 
 function parseVersion(text) {

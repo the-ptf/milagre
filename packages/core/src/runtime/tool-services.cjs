@@ -2,6 +2,7 @@ const path = require("node:path");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { createChatSimulators } = require("../chat-simulators.cjs");
+const { providerName } = require("@milagre/shared/providers");
 
 function createDeviceTools({ options, dataDir, emit, commands, existingChat, chatWorktrees, agents, scopeStates }) {
   const { createComputerUseSettings, createComputerUse, agentDesktopBinary, runCli } = require("../computer-use.cjs");
@@ -33,11 +34,13 @@ function createDeviceTools({ options, dataDir, emit, commands, existingChat, cha
       directory: path.join(dataDir, "simlock"),
       log: (message, fields) => console.warn(`Simlock: ${message}`, fields),
     });
+  const { createBaguette, withBaguette } = require("../baguette.cjs");
+  const baguette = options.baguette ?? createBaguette();
   const simulators = createChatSimulators({
     simulators:
       options.simulators ??
       require("../simulators.cjs").createSimulators({
-        adapter: require("../simlock-channel.cjs").withSimlock(require("../simulators-helper.cjs").createSimulatorAdapter(), simlock),
+        adapter: withBaguette(require("../simlock-channel.cjs").withSimlock(require("../simulators-helper.cjs").createSimulatorAdapter(), simlock), baguette),
       }),
     file: path.join(dataDir, "simulator-attachments.json"),
     validateChat: existingChat("attaching a simulator"),
@@ -88,6 +91,7 @@ function createDeviceTools({ options, dataDir, emit, commands, existingChat, cha
     await existingChat("viewing its screen")(request.chatId);
     return frame;
   });
+  commands.handle("baguette:status", () => baguette.detect());
   commands.handle("simlock:settings:read", () => simlockSettings.read());
   commands.handle("simlock:settings:save", (_context, patch) => simlockSettings.save(patch));
   commands.handle("simlock:identity", (_context, request) => simlock.identity(request ?? {}));
@@ -103,9 +107,10 @@ function createDeviceTools({ options, dataDir, emit, commands, existingChat, cha
   return { computerUseSettings, computerUseScreen, computerUse, simlockSettings, simlock, simulators, leaseSimlock, releaseSimlock };
 }
 
-function createDesignTools({ options, dataDir, commands, existingChat, scopeStates }) {
+function createDesignTools({ options, dataDir, emit, commands, existingChat, scopeStates }) {
   const { createChatArtifacts } = require("../chat-artifacts.cjs");
-  const { createDesignKits } = require("../design-kits.cjs");
+  const { createDesignKits, designKitToolDefinitions } = require("../design-kits.cjs");
+  const { createDesignLibrary, withDesignLibrary, designLibraryToolDefinitions } = require("../design-library.cjs");
   const designKits = createDesignKits({
     directory: path.join(dataDir, "design-kits"),
     projectForChat: async (chatId) => {
@@ -117,7 +122,31 @@ function createDesignTools({ options, dataDir, commands, existingChat, scopeStat
     directory: path.join(dataDir, "artifacts"),
     validateChat: existingChat("showing a design"),
     readKit: (request) => designKits.read(request),
+    onChange: ({ chatId }) => designPageSharing().changed(chatId),
   });
+  const designLibrary = createDesignLibrary({
+    directory: path.join(dataDir, "design-library"),
+    projectForChat: async (chatId) => {
+      await existingChat("using the Project library")(chatId);
+      return projectOfKey(chatId);
+    },
+    projectForPath: async (projectPath) => {
+      if (!scopeStates().has(projectPath)) throw new Error("Open this project in Milagre first.");
+      return projectPath;
+    },
+    chatInfo: async (chatId) => {
+      const session = (await scopeStates().get(projectOfKey(chatId)))?.sessions[sessionIdFromKey(chatId)];
+      return { title: session?.title || session?.generatedTitle, agent: session?.provider ? providerName(session.provider) : undefined };
+    },
+    artifacts,
+    readKit: (request) => designKits.readProject(request),
+    onChange: ({ project }) => emit("design-library:changed", { projectPath: project }),
+  });
+  const designs = withDesignLibrary(artifacts, designLibrary);
+  commands.handle("design-library:list", (_context, request) => designLibrary.list(request));
+  commands.handle("design-library:add", (_context, request) => designLibrary.add(request));
+  commands.handle("design-library:update", (_context, request) => designLibrary.update(request));
+  commands.handle("design-library:rename-page", (_context, request) => designLibrary.renamePage(request));
   let pageSharing;
   const designPageSharing = () =>
     (pageSharing ??= require("../design-page-sharing.cjs").createDesignPageSharing({
@@ -136,15 +165,26 @@ function createDesignTools({ options, dataDir, commands, existingChat, scopeStat
   commands.handle("artifact:revoke-saved-page-share", (_context, request) => designPageSharing().revokeSaved(request));
   commands.handle("artifact:share-page", (_context, request) => designPageSharing().publish(request));
   commands.handle("artifact:revoke-page-share", (_context, request) => designPageSharing().revoke(request));
+  commands.handle("artifact:set-page-share-paused", (_context, request) => designPageSharing().setPaused(request));
+  setImmediate(() =>
+    designPageSharing()
+      .resumeStale()
+      .catch((error) => console.warn("Milagre couldn't retry live page links:", error.message)),
+  );
   commands.handle("designs:enabled:read", () => ({ enabled: true }));
   commands.handle("designs:enabled:save", () => ({ enabled: true }));
-  commands.handle("artifact:get", (_context, request) => artifacts.get(request));
+  commands.handle("artifact:get", (_context, request) => designs.get(request));
   commands.handle("artifact:asset", (_context, request) => artifacts.asset(request));
   commands.handle("artifact:list", (_context, request) => artifacts.list(request));
-  commands.handle("artifact:delete", (_context, request) => artifacts.deleteDesign(request));
+  commands.handle("artifact:delete", (_context, request) => designs.deleteDesign(request));
   commands.handle("artifact:add-comments", (_context, request) => artifacts.addComments(request));
   commands.handle("artifact:comments", (_context, request) => artifacts.comments(request));
-  return { designKits, artifacts };
+  return {
+    designKits,
+    artifacts: designs,
+    designToolDefinitions: (chatId) => [...designKitToolDefinitions(chatId, designKits), ...designLibraryToolDefinitions(chatId, designLibrary)],
+    closePageSharing: () => Promise.all([pageSharing?.close(), designLibrary.close()]),
+  };
 }
 
 const PAGE_COMMENTS_PER_SEND = 50;
@@ -269,7 +309,7 @@ function createToolServices({ options, dataDir, emit, commands, existingChat, ag
     return worktree?.path ? [{ path: worktree.path, label: path.basename(worktree.path) }] : [];
   }
   const devices = createDeviceTools({ options, dataDir, emit, commands, existingChat, chatWorktrees, agents, scopeStates });
-  const design = createDesignTools({ options, dataDir, commands, existingChat, scopeStates });
+  const design = createDesignTools({ options, dataDir, emit, commands, existingChat, scopeStates });
   const { pageComments } = createPageComments({
     dataDir,
     commands,
@@ -304,6 +344,7 @@ function createToolServices({ options, dataDir, emit, commands, existingChat, ag
       browserTools.panelForwarders.closeAll(),
       design.artifacts.close(),
       design.designKits.close(),
+      design.closePageSharing(),
       pageComments.close(),
       terminals.dispose(),
     ]);

@@ -2,6 +2,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { Cancel01Icon, Image01Icon, Mic01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { useSettings } from "../../lib/settings";
 import { NOTICE_SECONDS } from "@milagre/shared/voice-dictation";
 import { IMAGE_ERRORS, IMAGE_TYPES, MAX_ATTACHMENT_BYTES } from "@milagre/shared/limits";
 import type { AgentQuestion, QuestionAnswers, QuestionImages, QuestionRequest } from "../../model";
@@ -302,59 +303,7 @@ function OrdinaryQuestionCard({
               />
               {!question.secret && (
                 <span className="-my-1 flex shrink-0 items-center gap-0.5">
-                  <span className="relative flex shrink-0">
-                    {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}
-                    {dictation.download ? (
-                      <button
-                        type="button"
-                        aria-label={`Downloading speech model, ${Math.round((dictation.download.received / dictation.download.total) * 100)}%. Cancel`}
-                        onClick={dictation.cancel}
-                        className="flex size-6 items-center justify-center rounded-full text-ink"
-                      >
-                        <DownloadRing size={24} progress={dictation.download.received / dictation.download.total}>
-                          <DroppingArrow size={14} well={20} />
-                        </DownloadRing>
-                      </button>
-                    ) : dictating ? (
-                      <span data-dictation-capsule className="flex h-6 items-center gap-1 rounded-full bg-hover">
-                        <button
-                          type="button"
-                          aria-label="Discard dictation"
-                          title="Discard dictation"
-                          onClick={dictation.cancel}
-                          className="flex size-6 items-center justify-center rounded-full text-ink-2 transition-colors hover:text-ink"
-                        >
-                          <Icon icon={Cancel01Icon} size={14} />
-                        </button>
-                        {dictation.phase === "recording" ? (
-                          <button
-                            ref={(node) => {
-                              // oxlint-disable-next-line react/immutability -- the hook's meter ref, as the composer sets it: useDictation writes --level on it each frame.
-                              dictation.meter.current = node;
-                            }}
-                            type="button"
-                            aria-label="Stop dictation"
-                            title="Stop dictation"
-                            onClick={() => void dictation.stop()}
-                            className="relative flex size-6 items-center justify-center rounded-full"
-                          >
-                            <span
-                              aria-hidden
-                              className="absolute inset-0.5 rounded-full bg-red/25 motion-safe:transition-transform motion-safe:duration-75"
-                              style={{ transform: "scale(calc(1 + var(--level, 0) * 0.38))" }}
-                            />
-                            <span aria-hidden className="relative block size-2.5 rounded-inline bg-red" />
-                          </button>
-                        ) : (
-                          <span aria-hidden className="flex size-6 items-center justify-center">
-                            <span className="block size-4 rounded-full border-2 border-line border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
-                          </span>
-                        )}
-                      </span>
-                    ) : (
-                      <IconButton label="Dictate" icon={Mic01Icon} size={24} disabled={!pending} onClick={() => startDictation(question)} />
-                    )}
-                  </span>
+                  <QuestionMicrophone dictation={dictation} pending={pending} onStart={() => startDictation(question)} />
                   <input
                     ref={fileRef}
                     type="file"
@@ -412,5 +361,61 @@ function OrdinaryQuestionCard({
         )}
       </AnimatePresence>
     </motion.section>
+  );
+}
+
+function QuestionMicrophone({ dictation, pending, onStart }: { dictation: ReturnType<typeof useDictation>; pending: boolean; onStart(): void }) {
+  if (!useSettings().dictationEnabled) return null;
+  return (
+    <span className="relative flex shrink-0">
+      {dictation.error && <DictationNotice error={dictation.error} onOpenSettings={dictation.openSettings} />}
+      {dictation.download ? (
+        <button
+          type="button"
+          aria-label={`Downloading speech model, ${Math.round((dictation.download.received / dictation.download.total) * 100)}%. Cancel`}
+          onClick={dictation.cancel}
+          className="flex size-6 items-center justify-center rounded-full text-ink"
+        >
+          <DownloadRing size={24} progress={dictation.download.received / dictation.download.total}>
+            <DroppingArrow size={14} well={20} />
+          </DownloadRing>
+        </button>
+      ) : dictation.phase !== "idle" ? (
+        <span data-dictation-capsule className="flex h-6 items-center gap-1 rounded-full bg-hover">
+          <button
+            type="button"
+            aria-label="Discard dictation"
+            title="Discard dictation"
+            onClick={dictation.cancel}
+            className="flex size-6 items-center justify-center rounded-full text-ink-2 transition-colors hover:text-ink"
+          >
+            <Icon icon={Cancel01Icon} size={14} />
+          </button>
+          {dictation.phase === "recording" ? (
+            <button
+              ref={dictation.setMeter}
+              type="button"
+              aria-label="Stop dictation"
+              title="Stop dictation"
+              onClick={() => void dictation.stop()}
+              className="relative flex size-6 items-center justify-center rounded-full"
+            >
+              <span
+                aria-hidden
+                className="absolute inset-0.5 rounded-full bg-red/25 motion-safe:transition-transform motion-safe:duration-75"
+                style={{ transform: "scale(calc(1 + var(--level, 0) * 0.38))" }}
+              />
+              <span aria-hidden className="relative block size-2.5 rounded-inline bg-red" />
+            </button>
+          ) : (
+            <span aria-hidden className="flex size-6 items-center justify-center">
+              <span className="block size-4 rounded-full border-2 border-line border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
+            </span>
+          )}
+        </span>
+      ) : (
+        <IconButton label="Dictate" icon={Mic01Icon} size={24} disabled={!pending} onClick={onStart} />
+      )}
+    </span>
   );
 }

@@ -79,6 +79,7 @@ createRoot(document.getElementById('root')).render(<SessionProvider><Screen /></
 `;
 const native = `
 import React from 'react';
+export const Alert = { alert: () => {}, prompt: () => {} };
 export const AppState = { currentState: 'active', addEventListener: () => ({ remove() {} }) };
 export const Platform = { OS: 'ios' };
 export const StyleSheet = { create: value => value, hairlineWidth: 1 };

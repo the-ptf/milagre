@@ -3,7 +3,6 @@ import { ipcErrorMessage } from "@milagre/shared/result";
 import { DotBackground } from "../components/DotBackground";
 import { Notice as NoticeCard } from "../components/Notice";
 import { PersistenceNotices, type UnsavedScope } from "../components/PersistenceNotice";
-import { ProviderUpdateNotice } from "../components/ProviderUpdateNotice";
 import { Button } from "../components/primitives/Button";
 import { Dialog } from "../components/primitives/Dialog";
 import { InlineError } from "../components/primitives/InlineError";
@@ -83,22 +82,15 @@ export function HostNotices({
   restartingHost,
   setRestartingHost,
   setNotice,
-  onSettings,
-  onProvidersUpdated,
 }: {
   scopes: UnsavedScope[];
   hostConnection: RuntimeConnection;
   restartingHost: boolean;
   setRestartingHost: (restarting: boolean) => void;
   setNotice: (notice: string) => void;
-  onSettings: () => void;
-  onProvidersUpdated: () => void;
 }) {
   return (
     <>
-      <div className="pointer-events-none absolute bottom-5 right-5 z-50 max-w-[calc(100%-40px)] [&>*]:pointer-events-auto no-drag">
-        <ProviderUpdateNotice onSettings={onSettings} onUpdated={onProvidersUpdated} />
-      </div>
       <PersistenceNotices scopes={scopes}>
         {hostConnection.connected && hostConnection.hostOutdated && (
           <NoticeCard

@@ -35,6 +35,7 @@
     "src/use-account-usage.ts",
     "src/token-usage.ts",
     "src/new-chat-glance.ts",
+    "src/computer-map.ts",
     "src/settings-search.ts",
     "src/main-sync.ts",
     "src/auto-update.ts",
@@ -46,6 +47,7 @@
     "src/local-mcp.ts",
     "src/use-local-mcp.ts",
     "src/use-provider-updates.ts",
+    "src/provider-update-view.ts",
     "src/linear.ts",
     "src/chat-row.ts",
     "src/subchats.ts",
@@ -146,6 +148,7 @@
     "./model": "./src/model.ts",
     "./token-usage": "./src/token-usage.ts",
     "./new-chat-glance": "./src/new-chat-glance.ts",
+    "./computer-map": "./src/computer-map.ts",
     "./settings-search": "./src/settings-search.ts",
     "./subagent-glance": {
       "types": "./src/subagent-glance.d.mts",
@@ -273,6 +276,10 @@
       "types": "./src/kiro-models.d.mts",
       "default": "./src/kiro-models.mjs"
     },
+    "./pi-models": {
+      "types": "./src/pi-models.d.mts",
+      "default": "./src/pi-models.mjs"
+    },
     "./host-computer": {
       "types": "./src/host-computer.d.mts",
       "default": "./src/host-computer.mjs"
@@ -373,6 +380,7 @@
     "./mcp": "./src/mcp.ts",
     "./local-mcp": "./src/local-mcp.ts",
     "./use-provider-updates": "./src/use-provider-updates.ts",
+    "./provider-update-view": "./src/provider-update-view.ts",
     "./use-local-mcp": "./src/use-local-mcp.ts",
     "./linear": "./src/linear.ts",
     "./skill-catalog": "./src/skill-catalog.ts",
@@ -396,6 +404,12 @@
       "default": "./src/design-page.mjs"
     },
     "./design-schemas": "./src/design-schemas.mjs",
+    "./design-font-file": "./src/design-font-file.mjs",
+    "./design-modes": {
+      "types": "./src/design-modes.d.mts",
+      "default": "./src/design-modes.mjs"
+    },
+    "./design-font-characters": "./src/design-font-characters.mjs",
     "./design": {
       "types": "./src/design.d.mts",
       "default": "./src/design.mjs"
@@ -403,6 +417,10 @@
     "./design-draft": {
       "types": "./src/design-draft.d.mts",
       "default": "./src/design-draft.mjs"
+    },
+    "./design-build": {
+      "types": "./src/design-build.d.mts",
+      "default": "./src/design-build.mjs"
     },
     "./genui": "./src/genui.ts",
     "./file-link": {

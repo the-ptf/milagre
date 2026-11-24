@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+    <title>Milagre simulator bench</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
+        background: #202020;
+      }
+      #tile {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        width: 74vw;
+        height: 74vw;
+        transform: translate(-50%, -50%);
+        background: #e00000;
+      }
+      #bar {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 12vw;
+        background: #000;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="bar"></div>
+    <div id="tile"></div>
+    <script>
+      const palette = ["#e00000", "#00b000", "#0030ff", "#ffffff"];
+      const tile = document.getElementById("tile");
+      const bar = document.getElementById("bar");
+      let index = 0;
+      const flip = (event) => {
+        event.preventDefault();
+        index = (index + 1) % palette.length;
+        tile.style.background = palette[index];
+      };
+      document.addEventListener("touchstart", flip, { passive: false });
+      document.addEventListener("mousedown", flip);
+      if (new URLSearchParams(location.search).get("mode") === "animate") {
+        bar.style.display = "block";
+        const tick = (now) => {
+          document.body.style.background = `hsl(${(now * 0.18) % 360} 80% 45%)`;
+          bar.style.transform = `translateX(${((now % 1000) / 1000) * 88}vw)`;
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }
+    </script>
+  </body>
+</html>

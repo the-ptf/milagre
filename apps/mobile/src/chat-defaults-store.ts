@@ -1,3 +1,4 @@
+import { currentModelId, currentProvider } from "@milagre/shared/providers";
 import type { ModelProvider } from "@milagre/shared/model";
 import type { TurnPreferences } from "./turn-options";
 
@@ -59,10 +60,11 @@ export function createChatDefaultsStore(storage: Storage) {
       });
     },
     readModel(): ModelDefaults | null {
-      const saved = read(modelKey);
+      const stored = read(modelKey);
+      const saved = stored ? { ...stored, provider: currentProvider(stored.provider), model: currentModelId(stored.model) } : stored;
       if (
         !saved ||
-        !(["claude", "codex", "antigravity", "kiro"] as ModelProvider[]).includes(saved.provider) ||
+        !(["claude", "codex", "antigravity", "kiro", "pi"] as ModelProvider[]).includes(saved.provider) ||
         typeof saved.model !== "string" ||
         typeof saved.effort !== "string"
       )

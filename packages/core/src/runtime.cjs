@@ -18,11 +18,8 @@ const { migrateImages } = require("./project-content.cjs");
 const { ensureProjectIgnore } = require("./project-ignore.cjs");
 const { decodeImages } = require("./image-input.cjs");
 const { KeepAwake } = require("./keep-awake.cjs");
-const { ClaudeSession } = require("./agents/claude-provider.cjs");
-const { CodexSession, recoverCodexSubagents } = require("./agents/codex-provider.cjs");
-const { AcpSession } = require("./agents/acp-session.cjs");
-const { antigravityAcp } = require("./agents/antigravity-acp.cjs");
-const { kiroAcp } = require("./agents/kiro-acp.cjs");
+const { recoverCodexSubagents } = require("./agents/codex-provider.cjs");
+const { createProviderSession } = require("./runtime/provider-sessions.cjs");
 const { recoverAntigravitySubagents } = require("./agents/antigravity-subagents.cjs");
 const { loadLoginEnvironment } = require("./agents/environment.cjs");
 const { failedWith, hostNetworkInstructions, loginMessage } = require("./agents/events.cjs");
@@ -159,7 +156,6 @@ function createRuntime(options) {
   const handlers = commands;
   const { simulatorToolDefinitions } = require("./chat-simulators.cjs");
   const { artifactToolDefinitions, htmlArtifactToolDefinitions, artifactCommentToolDefinitions } = require("./chat-artifacts.cjs");
-  const { designKitToolDefinitions } = require("./design-kits.cjs");
   const { pageCommentToolDefinitions } = require("./chat-page-comments.cjs");
   const existingChat = (action) => async (chatId) => {
     const scope = projectOfKey(chatId),
@@ -189,7 +185,7 @@ function createRuntime(options) {
     simulators,
     leaseSimlock,
     releaseSimlock,
-    designKits,
+    designToolDefinitions,
     artifacts,
     pageComments,
     agentProcesses,
@@ -214,7 +210,7 @@ function createRuntime(options) {
   async function readStoredState(projectPath) {
     await ownProject(projectPath);
     try {
-      return await readProjectState(projectPath);
+      return await readProjectState(projectPath, { unloadSubagents: lazy });
     } catch (error) {
       if (error.code === "ENOENT") return null;
       throw error;
@@ -262,9 +258,7 @@ function createRuntime(options) {
     dataDir,
     persistenceChanged: (linkId, state) => broadcastProjectState(scopeKey({ kind: "link", linkId }), state),
     active: (linkId, chat) => busyChat(chatKey(scopeKey({ kind: "link", linkId }), chat)),
-    lazyMessages: lazy
-      ? { ...lazyMessages, unloaded: (linkId, state) => broadcastProjectState(scopeKey({ kind: "link", linkId }), state) }
-      : { idleMs: Infinity, sweepMs: 0 },
+    lazyMessages: lazy ? { ...lazyMessages, unloaded: (linkId, state) => broadcastProjectState(scopeKey({ kind: "link", linkId }), state) } : null,
   });
   const states = new ProjectStates({
     read: async (projectPath) => {
@@ -439,9 +433,8 @@ function createRuntime(options) {
       return;
     }
     for (const watcher of [routines, babysitWatch, autopilot]) watcher?.observe(chatId, event);
-    if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type))
-      void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type)) {
+      void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
       chatSecrets?.cancel(chatId);
       bugReports?.cancel(chatId);
     }
@@ -484,13 +477,7 @@ function createRuntime(options) {
       options.createSession ??
       ((provider, options) => {
         const withMcp = { ...options, mcpExtras: () => mcp.forSession(provider, options.accountId ?? "default") };
-        return provider === "codex"
-          ? new CodexSession({ ...withMcp, clientVersion: version })
-          : provider === "antigravity"
-            ? new AcpSession({ ...withMcp, clientVersion: version, config: antigravityAcp })
-            : provider === "kiro"
-              ? new AcpSession({ ...withMcp, clientVersion: version, config: kiroAcp })
-              : new ClaudeSession({ ...withMcp, defaultConfigDir: accounts.directory("claude", "default") });
+        return createProviderSession(provider, withMcp, { version, claudeConfigDir: () => accounts.directory("claude", "default") });
       }),
     linkedFor: (chatId) => linked.forChat(chatId),
     onTurnStarted: () => ports.wake(),
@@ -1263,6 +1250,7 @@ function createRuntime(options) {
       (await advisorStore.read(chatId)).some((record) => record.completions?.some((result) => ["pending", "sending"].includes(result.delivery))),
     extraTools: (chatId) => [
       ...planTools.definitions(chatId),
+      ...(autopilot?.tools(chatId) ?? []),
       ...chatSecrets.definitions(chatId),
       ...bugReports.definitions(chatId),
       ...simulatorToolDefinitions(chatId, simulators),
@@ -1296,7 +1284,7 @@ function createRuntime(options) {
       ...(existsSync(path.join(__dirname, "design-mcp-tools.cjs"))
         ? []
         : artifactToolDefinitions(chatId, artifacts).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name))),
-      ...designKitToolDefinitions(chatId, designKits),
+      ...designToolDefinitions(chatId),
       ...localMcp.agentTools(chatId).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name)),
       ...htmlArtifactToolDefinitions(chatId, artifacts, undefined, {
         roots: () =>

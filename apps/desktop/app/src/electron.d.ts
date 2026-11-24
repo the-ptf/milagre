@@ -12,6 +12,7 @@ import type {
   OrchestratorSettings,
   OrchestratorSnapshot,
   OrchestratorTask,
+  BoardColumn,
 } from "@milagre/shared/orchestrator";
 import type { DoneSettings } from "@milagre/shared/done";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
@@ -285,7 +286,7 @@ export type CanvasSnapshot = {
 
 export type CliProgress =
   | { provider: ModelProvider; phase: "download"; received: number; total: number }
-  | { provider: ModelProvider; phase: "extract" | "validate" | "done" };
+  | { provider: ModelProvider; phase: "install" | "extract" | "validate" | "done" };
 
 export type MilagreBridge = {
   /** `source` is the page's Chat and files, which its `assets/<name>` references load from that Chat's computer. */
@@ -297,6 +298,8 @@ export type MilagreBridge = {
   simulators: SimulatorApi;
   /** Experimental: agents operate desktop apps on this computer (Settings › This Mac). */
   computerUse: import("@milagre/shared/computer-use").ComputerUseApi;
+  /** Whether this computer found Baguette, which lists and streams its iPhones on a cable. */
+  baguette: import("@milagre/shared/simulator").BaguetteApi;
   /** Experimental: devices leased from a Simlock pool (Settings › Phone & sharing). */
   simlock: import("@milagre/shared/simulator").SimlockApi;
   browsers: BrowserApi;
@@ -331,7 +334,14 @@ export type MilagreBridge = {
   readSkill: (projectPath: string, file: string) => Promise<string>;
   /** The words a dictated message about this folder likely holds, for the recognizer. */
   /** `scope` and `chatId` name the Chat dictated into: the names its last turns used join the words. */
-  dictationContext: (request: { cwd: string; chatTitle?: string; scope?: string; chatId?: number }) => Promise<{ terms: string[] }>;
+  dictationCorrections: (cwd: string) => Promise<import("@milagre/shared/dictation").VocabularyCorrection[]>;
+  setDictationCorrection: (cwd: string, heard: string, spelling: string) => Promise<void>;
+  dictationContext: (request: {
+    cwd: string;
+    chatTitle?: string;
+    scope?: string;
+    chatId?: number;
+  }) => Promise<{ terms: string[]; corrections?: import("@milagre/shared/dictation").VocabularyCorrection[] }>;
   /** A dictated message with misheard names fixed by a small model of the Chat's agent; as dictated when none answers. */
   /** Claude Haiku's fix-up of a finished take's misheard names (the Chat's agent's small model when Claude can't answer). */
   polishDictation: (request: {
@@ -468,6 +478,8 @@ export type MilagreBridge = {
   pickOrchestratorProject: (taskId: string, projectPath: string) => Promise<OrchestratorTask | null>;
   showOrchestratorTaskInSidebar: (taskId: string, shown: boolean) => Promise<OrchestratorTask | null>;
   undoOrchestratorTask: (taskId: string) => Promise<null>;
+  moveOrchestratorTask: (taskId: string, column: BoardColumn) => Promise<unknown>;
+  deleteOrchestratorTask: (taskId: string) => Promise<null>;
   rerouteOrchestratorTask: (taskId: string, change: { projectPath?: string; role?: string }) => Promise<OrchestratorTask | null>;
   dismissOrchestratorTask: (taskId: string) => Promise<null>;
   importOrchestratorMemory: () => Promise<OrchestratorMemory>;
@@ -781,7 +793,8 @@ export type MilagreBridge = {
   getCliStatus: (scopeKey?: string) => Promise<AgentCliStatus>;
   /** Runs update for the specified CLI agent and refreshes status. */
   getProviderUpdates: () => Promise<import("@milagre/shared/model").ProviderUpdate[]>;
-  updateCli: (provider: ModelProvider, targetVersion?: string) => Promise<{ ok: boolean; version?: string; error?: string; status?: CliStatus }>;
+  updateCli: (provider: ModelProvider, targetVersion?: string) => Promise<{ ok: boolean; version?: string; error?: string; log?: string; status?: CliStatus }>;
+  stopSubagent: (chatId: string, id: string, stopSession?: boolean) => Promise<{ stopped: boolean; requiresSessionStop: boolean }>;
   stopAdvisor: (chatId: string, id: string) => Promise<Subagent>;
   retryAdvisor: (chatId: string, id: string) => Promise<Subagent>;
   /** Where Antigravity's install stands while `updateCli("antigravity")` runs: download bytes, then extract, validate, done. */

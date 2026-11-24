@@ -77,6 +77,19 @@ export interface MessageScrollerProps extends ComponentPropsWithRef<"div"> {
 
 const END_SLACK = 16;
 
+function useAtEndReport(onAtEndChange: ((atEnd: boolean) => void) | undefined) {
+  const last = useRef<boolean | null>(null);
+  const callback = useRef(onAtEndChange);
+  useEffect(() => {
+    callback.current = onAtEndChange;
+  }, [onAtEndChange]);
+  return useCallback((atEnd: boolean | null) => {
+    if (last.current === atEnd) return;
+    last.current = atEnd;
+    if (atEnd !== null) callback.current?.(atEnd);
+  }, []);
+}
+
 export const MessageFollowContext = createContext<{ readonly current: boolean } | null>(null);
 
 export const TRANSCRIPT_SHOWN_EVENT = "milagre:transcript-shown";
@@ -328,21 +341,17 @@ export function MessageScroller({
     });
   }, []);
 
-  const atEndRef = useRef<boolean | null>(null);
-  const atEndChangeRef = useRef(onAtEndChange);
-  useEffect(() => {
-    atEndChangeRef.current = onAtEndChange;
-  }, [onAtEndChange]);
+  const reportAtEnd = useAtEndReport(onAtEndChange);
   const updateJumpToBottom = useCallback(() => {
     const viewport = viewportRef.current;
-    if (!viewport) return;
+    if (!viewport?.isConnected) {
+      reportAtEnd(null);
+      return;
+    }
     const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
     setShowJumpToBottom(distance > followThreshold);
-    const atEnd = distance <= END_SLACK;
-    if (atEndRef.current === atEnd) return;
-    atEndRef.current = atEnd;
-    atEndChangeRef.current?.(atEnd);
-  }, [followThreshold]);
+    reportAtEnd(distance <= END_SLACK);
+  }, [followThreshold, reportAtEnd]);
 
   const handleScroll = useCallback(() => {
     const viewport = viewportRef.current;

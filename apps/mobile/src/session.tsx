@@ -33,6 +33,7 @@ import { pendingChatSessionId, type PendingChat } from "@milagre/shared/chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { noteChatProjectOpening, prefetchChatPage } from "./chat-pages";
 import { pullRequestsChanged } from "./pr-status";
+import { designLibraryChanged } from "./design-library";
 import { ComposerProvider } from "./composer";
 
 export { useComposer, useComposerDrafts } from "./composer";
@@ -689,9 +690,7 @@ function useSessionState() {
     }
   }, [client, projectPath, runsStore]);
   /** Poll quickly for a while after the user acts, so a new turn shows up before its first event arrives. */
-  const expectActivity = () => {
-    busyUntil.current = Date.now() + 15000;
-  };
+  const expectActivity = (): void => void (busyUntil.current = Date.now() + 15000);
   const { refresh: refreshDesigns, connectionChanged: designsConnectionChanged } = designs;
   // The bridge's live socket says when to fetch; polling is the fallback while it is down or the bridge predates it.
   useEffect(() => {
@@ -709,6 +708,7 @@ function useSessionState() {
       links: () => void refreshLinks(client),
       designs: () => void refreshDesigns(),
       pulls: () => pullRequestsChanged(client),
+      library: () => designLibraryChanged(client),
       liveStatus: designsConnectionChanged,
       onError: (error) => setError(error.message),
       active: () => AppState.currentState === "active",
@@ -848,7 +848,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   return (
     <SessionContext.Provider value={session}>
       <PendingChatsProvider snapshot={session.snapshot} hostId={session.client?.url}>
-        <ComposerProvider>{children}</ComposerProvider>
+        <ComposerProvider cliStatus={session.cliStatus}>{children}</ComposerProvider>
       </PendingChatsProvider>
     </SessionContext.Provider>
   );

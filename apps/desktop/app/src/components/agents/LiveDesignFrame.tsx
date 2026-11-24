@@ -129,7 +129,7 @@ function LiveWork({
         data-painted={painted || undefined}
         data-layers={live.document?.nodes.length ?? 0}
         className="absolute inset-0 overflow-hidden rounded-card border-2 bg-paper"
-        style={{ borderColor: color, opacity: painted ? 1 : 0 }}
+        style={{ borderColor: color, opacity: painted || live.blank ? 1 : 0 }}
       >
         <LiveFrame parts={parts} appeared={live.changed} title={live.title ?? "Design"} onPainted={onPainted} />
       </div>
@@ -161,7 +161,7 @@ function LiveWork({
         note={waiting ? "Designing…" : undefined}
       />
       <span role="status" className="sr-only">
-        {name} is {live.kind === "replay" ? "changing" : "designing"} {live.title ?? "a design"}
+        {name} is {live.kind === "replay" && !live.blank ? "changing" : "designing"} {live.title ?? "a design"}
       </span>
     </>
   );

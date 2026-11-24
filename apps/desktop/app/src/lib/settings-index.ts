@@ -47,7 +47,7 @@ export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle repositories folder import migrate t3 paseo orca",
   "this-mac": "computer resources memory disk drive other computers add computer computer use",
   usage: "token tokens cost spend dollars analytics estimated",
-  accounts: "sign in login claude codex antigravity profile per project link usage limits",
+  accounts: "sign in login claude codex antigravity kiro pi ollama openrouter local models profile per project link usage limits",
   appearance: "theme dark light mode font size colors look",
   chat: "messages transcript reasoning tool calls follow-up queue steer",
   voice: "dictation speech whisper microphone language transcribe",
@@ -57,7 +57,7 @@ export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   notifications: "alerts sounds chimes push routines unread runs",
   connections: "linear issues integrations babysit pull requests",
   mcp: "servers tools model context protocol milagre mcp",
-  devices: "phone pairing computers remote qr published pages share simlock simulators reset access",
+  devices: "phone pairing computers remote qr published pages share simlock baguette iphone simulators reset access",
   experimental: "church experimental beta labs orchestrator",
   about: "version update privacy support",
 };
@@ -290,6 +290,8 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Dictation",
     keywords: "correction automatic haiku codex gemini kiro",
   },
+  { page: "voice", title: "Enable dictation", group: "Dictation", keywords: "voice microphone hide disable speech to text shortcut" },
+  { page: "voice", title: "Spoken symbols", group: "Dictation", keywords: "dictation backticks inline code insert newline" },
   {
     page: "voice",
     title: "Fix names with AI",
@@ -446,6 +448,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "concise normal length verbose",
   },
 
+  { page: "accounts", title: "Computer", keywords: "paired other remote mac machine manage accounts" },
   {
     page: "accounts",
     title: "Add account",
@@ -620,6 +623,14 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   { page: "devices", title: "Simulators" },
   {
     page: "devices",
+    title: "iPhones on a cable",
+    group: "Simulators",
+    description:
+      "Chats list the paired iPhones on this computer's cable next to its simulators, to watch and touch. Through Baguette, which Milagre doesn't install.",
+    keywords: "baguette physical real device iphone usb",
+  },
+  {
+    page: "devices",
     title: "Simlock devices",
     group: "Simulators",
     description:
@@ -635,6 +646,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "share public links revoke",
   },
 
+  {
+    page: "this-mac",
+    title: "Show computers as",
+    description:
+      "A map of the phones and computers around this one and the route each uses (LAN, Tailscale or the relay), or a list with their memory and disk.",
+    keywords: "map list routes relay lan tailscale network devices",
+  },
   {
     page: "this-mac",
     title: "Drive other computers",
@@ -667,6 +685,8 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   { page: "experimental", title: "Color", group: "Orchestrator", keywords: "mascot pebble" },
   { page: "experimental", title: "Account", group: "Orchestrator", keywords: "least used project account" },
   { page: "experimental", title: "Memory", group: "Orchestrator", keywords: "notes" },
+  { page: "experimental", title: "Completion", group: "Orchestrator", keywords: "done required outcome pull request PR created merged agent finished" },
+  { page: "experimental", title: "Required outcome", group: "Orchestrator", keywords: "completion done pull request PR created merged agent finished" },
   { page: "experimental", title: "Board", group: "Orchestrator", keywords: "task chats sidebar" },
   { page: "experimental", title: "Turn on the Orchestrator", group: "Orchestrator", keywords: "enable" },
   { page: "experimental", title: "Mascot and shortcut", group: "Orchestrator", keywords: "pebble color shortcut" },

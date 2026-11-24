@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 import { validateDesignPageSnapshot, renderDesignPage } from "@milagre/shared/design-page";
 import { authorized, boundedBody, CHUNK_BYTES, createPageService, createQuotaService, digest, PAGE_TTL_MS, quotaLimits, routeRequest } from "./service.mjs";
+import { VIEWER_HEAD } from "./viewer.mjs";
 
 function memory() {
   const map = new Map();
@@ -355,7 +356,7 @@ test("one interactive Artifact publishes as a sandboxed page, updates in place a
   const html = await page.text();
   assert.match(html, /sandbox="allow-scripts"/);
   assert.match(html, /Explore/);
-  assert.doesNotMatch(html, /allow-same-origin|Canvas zoom/);
+  assert.doesNotMatch(html.replace(VIEWER_HEAD, ""), /allow-same-origin|Canvas zoom/);
   snapshot.artifacts[0].html = "<h1>Later edit</h1>";
   assert.equal((await f.send("PUT", snapshot)).status, 200);
   const updated = await (await f.send("GET")).text();
@@ -411,7 +412,27 @@ test("legacy snapshots gain previews without corrupting Unicode at chunk boundar
   f.storage.put("html:1", bytes.slice(CHUNK_BYTES));
   const rendered = await (await f.send("GET")).text();
   assert.ok(rendered.includes('<meta property="og:title" content="Old &amp; safe">'));
-  assert.equal(rendered.replace(/<meta (?:property|name)="(?:og:|twitter:|description)[^>]*>/g, "").replace(/<link rel="canonical"[^>]*>/g, ""), html);
+  assert.equal(
+    rendered
+      .replace(/<meta (?:property|name)="(?:og:|twitter:|description)[^>]*>/g, "")
+      .replace(/<link rel="canonical"[^>]*>/g, "")
+      .replace(VIEWER_HEAD, ""),
+    html,
+  );
+});
+
+test("every read carries the current viewer in its head, old snapshots included, without changing what is stored", async () => {
+  const html =
+    '<!doctype html><html><head><title>Old | Milagre Designs</title><style>#viewport{}</style></head><body><main id="viewport"><div id="canvas"></div></main><script>old()</script></body></html>';
+  const f = await fixture();
+  const bytes = new TextEncoder().encode(html);
+  f.storage.put("meta", { hash: "legacy", chunks: 1 });
+  f.storage.put("html:0", bytes);
+  const rendered = await (await f.send("GET")).text();
+  assert.equal(rendered.split(VIEWER_HEAD).length, 2, "one viewer");
+  assert.ok(rendered.indexOf(VIEWER_HEAD) < rendered.indexOf("</head>"), "the viewer loads in the head");
+  assert.deepEqual(f.storage.get("html:0"), bytes);
+  assert.doesNotMatch(VIEWER_HEAD.slice(VIEWER_HEAD.indexOf("<script>") + 8, -"</script>".length), /<\/script/i, "the viewer can't close its own script");
 });
 
 test("the public preview image supports GET and HEAD without accessing snapshot storage", async () => {
@@ -798,6 +819,27 @@ test("an Artifact page's files upload before the snapshot that names them, count
   assert.equal(f.bucket.objects.size, 0);
   assert.equal(f.active(), 0);
   assert.equal((await f.upload(b)).status, 410, "a revoked page takes no more files");
+});
+
+test("a workspace page's files follow the same rules as an Artifact's: missing ones refused, kept while named, then dropped", async () => {
+  const f = await filesFixture();
+  const a = { name: "a.png", ...f.file(new Uint8Array(1200).fill(5)) };
+  const workspace = (assets) => {
+    const [page] = f.snapshot(assets).artifacts;
+    return { schemaVersion: 1, kind: "workspace", title: "Work", designs: [], page: { ...page, html: `<p>Work</p>${page.html}` } };
+  };
+  const early = await f.send("PUT", workspace([a]));
+  assert.equal(early.status, 409);
+  assert.deepEqual(await early.json(), { missing: [a.hash] });
+  assert.equal((await f.upload(a)).status, 201);
+  assert.equal((await f.send("PUT", workspace([a]))).status, 201);
+  const page = await f.send("GET", undefined, { Authorization: "" });
+  const html = await page.text();
+  assert.match(html, /<title>Work \| Milagre Designs<\/title>/);
+  assert.match(html, new RegExp(`<iframe class="live"[^>]*srcdoc="[^"]*/s/${f.id}/files/${a.hash}`));
+  assert.deepEqual([...f.bucket.objects.keys()], [`pages/${f.id}/${a.hash}`], "readers get the file from the bucket by its page and hash");
+  assert.equal((await f.send("PUT", workspace([]))).status, 200);
+  assert.deepEqual(f.bucket.deleted, [`pages/${f.id}/${a.hash}`]);
 });
 
 test("a file uploaded for a publication that never came is removed after an hour, refunding its bytes", async () => {

@@ -7,6 +7,7 @@ const { inspectCli, parseVersion, isAtLeast, MIN_VERSIONS } = require("./cli.cjs
 const { lastLine } = require("./events.cjs");
 const { cliName } = require("@milagre/shared/providers");
 const { installDirs, mergePath, refreshInstallPath, resolveExecutable } = require("./environment.cjs");
+const { installChannel, isHomebrew, brewArgs, channelRelease, downloadSize, watchBrewDownload } = require("./cli-channel.cjs");
 
 // The official installers download a whole release, which takes longer than an npm or self update.
 const UPDATE_TIMEOUT_MS = 120_000;
@@ -21,6 +22,24 @@ const WINDOWS_INSTALLERS = {
   codex: "irm https://chatgpt.com/codex/install.ps1 | iex",
 };
 const INSTALLER_ENV = { CODEX_NON_INTERACTIVE: "1" };
+const BREW_ENV = { HOMEBREW_NO_ENV_HINTS: "1", NONINTERACTIVE: "1" };
+const LOG_LINES = 8;
+
+const outputTail = (result) =>
+  `${result.stdout}\n${result.stderr}`
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .slice(-LOG_LINES)
+    .join("\n")
+    .slice(-2000);
+const brewFailure = (result) =>
+  result.stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .findLast((line) => line.startsWith("Error: ")) ||
+  lastLine(result.stderr) ||
+  result.error;
 
 // Windows PowerShell from System32, never one found on PATH: a Project must not supply the program that installs.
 function windowsPowerShell(env = process.env) {
@@ -144,6 +163,9 @@ async function upgradeRelease(name, deps) {
   let status = await inspect(name);
   if (satisfied(status)) return { ok: true, version: status.version };
   const windows = (deps.platform || process.platform) === "win32";
+  const channel = windows ? { kind: "other" } : (deps.channelOf ?? installChannel)(name, status.command);
+  if (isHomebrew(channel)) return upgradeWithHomebrew(name, channel, deps, satisfied);
+  deps.onProgress?.({ phase: "install" });
   // Codex may come from npm, bun, pnpm or Homebrew. A plain `npm install -g` can land in another prefix than the
   const codex = !windows && name === "codex" && status.command ? status.command : null;
   const commands =
@@ -155,6 +177,7 @@ async function upgradeRelease(name, deps) {
       : [...(codex ? [[codex, ["update"]]] : []), ["npm", ["install", "-g", "@openai/codex@latest"]]];
   const firstDirs = codex ? [path.dirname(codex)] : [];
   let failure;
+  let log;
   for (const [program, args] of commands) {
     if (windows) {
       const file = await resolve(program);
@@ -165,7 +188,8 @@ async function upgradeRelease(name, deps) {
         : `${program} is not installed on PATH.`;
     } else {
       const result = await runCommand([shellQuote(program), ...args].join(" "), execImpl, firstDirs);
-      failure = result.error;
+      failure = result.error ? lastLine(result.stderr) || result.error : failure;
+      log = result.error ? outputTail(result) : log;
       if (name === "claude") linkVersion();
     }
     status = await inspect(name);
@@ -178,11 +202,49 @@ async function upgradeRelease(name, deps) {
       status.problem ||
       failure ||
       `The installed ${name}${status.command ? ` at ${status.command}` : ""} is still ${status.version ?? "unavailable"}. Version ${targetVersion} could not be activated.`,
+    ...(log ? { log } : {}),
+  };
+}
+
+// Homebrew owns the binary on PATH, so only Homebrew may replace it: an npm install there fails with EEXIST.
+async function upgradeWithHomebrew(name, channel, deps, satisfied) {
+  const { targetVersion, inspect = inspectCli, execImpl = exec, onProgress, release = channelRelease, sizeOf = downloadSize, watch = watchBrewDownload } = deps;
+  const url =
+    channel.kind === "homebrew-cask"
+      ? await release(name, channel).then(
+          (found) => found.url,
+          () => null,
+        )
+      : null;
+  const total = url ? await sizeOf(url) : null;
+  let stop = () => {};
+  if (url && total) {
+    onProgress?.({ phase: "download", received: 0, total });
+    stop = watch({ url, total, onProgress: (progress) => onProgress?.(progress) });
+  } else onProgress?.({ phase: "install" });
+  const command = [channel.brew, ...brewArgs(channel)].map(shellQuote).join(" ");
+  const result = await runCommand(command, execImpl, [path.dirname(channel.brew)], { timeout: INSTALLER_TIMEOUT_MS, extraEnv: BREW_ENV });
+  stop();
+  const status = await inspect(name);
+  if (satisfied(status)) return { ok: true, version: status.version };
+  const log = outputTail(result);
+  return {
+    ok: false,
+    version: status.version,
+    error: result.error
+      ? brewFailure(result)
+      : `Homebrew didn't install ${cliName(name)} ${targetVersion}. ${cliName(name)} is still ${status.version ?? "unavailable"}.`,
+    ...(log ? { log } : {}),
   };
 }
 
 async function runCliUpdate(name, deps = {}) {
   if (name === "antigravity") return updateAntigravity(deps);
+  if (name === "pi")
+    return {
+      ok: false,
+      error: "Pi is installed and updated outside Milagre: `npm install -g @earendil-works/pi-coding-agent` installs it, `pi update self` updates it.",
+    };
   if (name === "kiro")
     return { ok: false, error: "Kiro CLI is installed and updated outside Milagre: `brew install --cask kiro-cli` installs it, `kiro-cli update` updates it." };
   if (deps.targetVersion) {
@@ -198,8 +260,10 @@ async function runCliUpdate(name, deps = {}) {
   // A CLI that is there updates itself; one that isn't comes from the official installer, then npm.
   const installed = Boolean(status.command);
   const installer = [UNIX_INSTALLERS[name], { timeout: INSTALLER_TIMEOUT_MS, extraEnv: INSTALLER_ENV }];
-  const commands =
-    name === "claude"
+  const channel = installed ? (deps.channelOf ?? installChannel)(name, status.command) : { kind: "other" };
+  const commands = isHomebrew(channel)
+    ? [[[channel.brew, ...brewArgs(channel)].map(shellQuote).join(" "), { timeout: INSTALLER_TIMEOUT_MS, extraEnv: BREW_ENV }]]
+    : name === "claude"
       ? installed
         ? [["claude install --force latest"], installer, ["claude update"]]
         : [installer]
