@@ -3,6 +3,7 @@ import { qualifyKey } from "@milagre/shared/chat-scopes";
 import type { AgentRun, AgentRuns } from "@milagre/shared/agent-runs";
 import { chatPullRequests, ownsWorktree } from "@milagre/shared/chats";
 import { chatActivity } from "@milagre/shared/chat-activity";
+import { DONE_DEFAULTS, doneCountdown } from "@milagre/shared/done";
 import {
   autopilotPending,
   boardColumn,
@@ -31,6 +32,7 @@ export type TaskCard = {
   pullRequest: BoardPullRequest;
   detail: string;
   inSidebar: boolean;
+  countdown: string | null;
 };
 
 type SessionStates = Record<string, { sessions?: Record<string, unknown>; worktrees?: Record<string, { path: string }> } | undefined>;
@@ -53,7 +55,7 @@ export function taskSession(task: OrchestratorTask, states: SessionStates): Agen
 }
 
 function pending(task: OrchestratorTask, kind: TaskCardKind, column: BoardColumn, detail: string): TaskCard {
-  return { task, key: null, column, kind, session: undefined, run: undefined, state: null, pullRequest: null, detail, inSidebar: false };
+  return { task, key: null, column, kind, session: undefined, run: undefined, state: null, pullRequest: null, detail, inSidebar: false, countdown: null };
 }
 
 /** The state of a task Chat's pull requests, from its Project's snapshot; an unread one counts as open. */
@@ -67,7 +69,11 @@ function taskPullRequest(task: OrchestratorTask, session: AgentSession | undefin
   return prs.length ? pullRequestState(prs.map((pr) => pr.state)) : refs.length ? "open" : null;
 }
 
-function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns, now: number, snapshots: Snapshots): TaskCard {
+function doneCardCountdown(column: BoardColumn, session: AgentSession | undefined, retentionHours: number, now: number): string | null {
+  return column === "done" && session ? doneCountdown(session, retentionHours, now) : null;
+}
+
+function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns, now: number, snapshots: Snapshots, retentionHours: number): TaskCard {
   if (task.state === "routing") return pending(task, "deciding", "running", "Picking the Project, model and account…");
   if (task.state === "needs-project") return pending(task, "pick-project", "needs", "Which Project is this for?");
   if (task.state === "failed") return pending(task, "failed", "needs", task.error ?? "Couldn't start this task");
@@ -103,11 +109,20 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
       ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
       : (blocked ?? limit ?? (!needsYou && (column === "needs" || column === "review") ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),
     inSidebar: session ? !session.orchestrator?.hidden : false,
+    countdown: doneCardCountdown(column, session, retentionHours, now),
   };
 }
 
-export function boardCards(tasks: readonly OrchestratorTask[], states: SessionStates, runs: AgentRuns, now: number, snapshots: Snapshots = {}): TaskCard[] {
-  return tasks.toSorted((a, b) => b.createdAt - a.createdAt).map((task) => taskCard(task, states, runs, now, snapshots));
+/** `retentionHours`: how long the host keeps a Done Chat before archiving it, for the countdown on Done cards. */
+export function boardCards(
+  tasks: readonly OrchestratorTask[],
+  states: SessionStates,
+  runs: AgentRuns,
+  now: number,
+  snapshots: Snapshots = {},
+  retentionHours: number = DONE_DEFAULTS.retentionHours,
+): TaskCard[] {
+  return tasks.toSorted((a, b) => b.createdAt - a.createdAt).map((task) => taskCard(task, states, runs, now, snapshots, retentionHours));
 }
 
 export function cardsIn(cards: readonly TaskCard[], column: BoardColumn, projectPath: string | null = null): TaskCard[] {

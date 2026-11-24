@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { activeRoles, type BoardColumn, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { useComputers } from "./computers";
+import { useDoneSettings } from "./done-settings";
 import { boardCards, boardCounts, taskProjectPaths } from "./orchestrator-board";
 import { useRuns } from "./agent-runs-store";
 import { useOrchestratorNames } from "./orchestrator-names";
@@ -20,12 +21,16 @@ export function useOrchestratorBoard() {
   const paths = taskProjectPaths(orchestrator.tasks);
   const { states } = useScopeStates(orchestrator.settings.enabled && paths.length > 0, paths);
   const pullRequests = useTaskPullRequests(paths, orchestrator.settings.enabled);
+  const { retentionHours } = useDoneSettings().settings;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), TICK_MS);
     return () => window.clearInterval(timer);
   }, []);
-  const derived = useMemo(() => boardCards(orchestrator.tasks, states, runs, now, pullRequests), [orchestrator.tasks, states, runs, now, pullRequests]);
+  const derived = useMemo(
+    () => boardCards(orchestrator.tasks, states, runs, now, pullRequests, retentionHours),
+    [orchestrator.tasks, states, runs, now, pullRequests, retentionHours],
+  );
   const [moved, setMoved] = useState<Readonly<Record<string, { column: BoardColumn; from: BoardColumn }>>>({});
   const forget = (taskId: string) =>
     setMoved((previous) => {

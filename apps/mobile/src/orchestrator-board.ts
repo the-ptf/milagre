@@ -10,6 +10,7 @@ import {
   type OrchestratorTask,
 } from "@milagre/shared/orchestrator";
 import { chatActivity } from "@milagre/shared/chat-activity";
+import { DONE_DEFAULTS, doneCountdown } from "@milagre/shared/done";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { AgentModels, AgentSession, ChatMessage, ModelProvider } from "@milagre/shared/model";
 import { MODEL_CATALOG } from "@milagre/shared/model-options";
@@ -36,12 +37,20 @@ export type BoardItem = {
   detail: string;
   pullRequest: PullRequestState;
   inSidebar: boolean;
+  countdown: string | null;
 };
 
 const NEEDS_YOU = new Set<ChatMark>(["question", "waiting", "interrupted", "failed"]);
 
-export function boardItem(task: OrchestratorTask, chat: TaskChat | undefined, pullRequest: PullRequestState, now: number): BoardItem {
-  const base = { task, pullRequest, inSidebar: false };
+/** `retentionHours`: how long the task's computer keeps a Done Chat before archiving it, for the countdown on Done cards. */
+export function boardItem(
+  task: OrchestratorTask,
+  chat: TaskChat | undefined,
+  pullRequest: PullRequestState,
+  now: number,
+  retentionHours: number = DONE_DEFAULTS.retentionHours,
+): BoardItem {
+  const base = { task, pullRequest, inSidebar: false, countdown: null };
   if (task.state === "routing") return { ...base, column: "running", kind: "deciding", mark: null, detail: "Deciding where this goes…" };
   if (task.state === "needs-project")
     return { ...base, column: "needs", kind: "needs-project", mark: null, detail: task.reason.project ?? "No Project fits. Pick one to start." };
@@ -69,6 +78,7 @@ export function boardItem(task: OrchestratorTask, chat: TaskChat | undefined, pu
   return {
     ...base,
     inSidebar: chat.chat.orchestrator?.hidden === false,
+    countdown: column === "done" ? doneCountdown(chat.chat, retentionHours, now) : null,
     column,
     kind: "chat",
     mark: autopilot ? null : mark,
