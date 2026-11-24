@@ -16,6 +16,7 @@ import {
   type BoardPullRequest,
   type OrchestratorTask,
 } from "@milagre/shared/orchestrator";
+import { boardPullRequestMark, type BoardPullRequestMark } from "@milagre/shared/pr-blockers";
 import { subchatState, type SubchatKind } from "@milagre/shared/subchat-states";
 import type { AgentSession, PullRequestSnapshot } from "../model";
 
@@ -30,6 +31,7 @@ export type TaskCard = {
   run: AgentRun | undefined;
   state: SubchatKind | null;
   pullRequest: BoardPullRequest;
+  pullRequestMark: BoardPullRequestMark | null;
   detail: string;
   inSidebar: boolean;
   countdown: string | null;
@@ -55,18 +57,39 @@ export function taskSession(task: OrchestratorTask, states: SessionStates): Agen
 }
 
 function pending(task: OrchestratorTask, kind: TaskCardKind, column: BoardColumn, detail: string): TaskCard {
-  return { task, key: null, column, kind, session: undefined, run: undefined, state: null, pullRequest: null, detail, inSidebar: false, countdown: null };
+  return {
+    task,
+    key: null,
+    column,
+    kind,
+    session: undefined,
+    run: undefined,
+    state: null,
+    pullRequest: null,
+    pullRequestMark: null,
+    detail,
+    inSidebar: false,
+    countdown: null,
+  };
 }
 
-/** The state of a task Chat's pull requests, from its Project's snapshot; an unread one counts as open. */
-function taskPullRequest(task: OrchestratorTask, session: AgentSession | undefined, states: SessionStates, snapshots: Snapshots): BoardPullRequest {
+/** The state of a task Chat's pull requests, from its Project's snapshot; an unread one counts as open but has no mark yet. */
+function taskPullRequest(
+  task: OrchestratorTask,
+  session: AgentSession | undefined,
+  states: SessionStates,
+  snapshots: Snapshots,
+): { pullRequest: BoardPullRequest; pullRequestMark: BoardPullRequestMark | null } {
   const refs = session?.summary?.pullRequests ?? [];
   const scope = taskScope(task);
   const path = session && scope ? states[scope]?.worktrees?.[String(session.worktree_id)]?.path : undefined;
   const snapshot = scope ? snapshots[scope] : undefined;
   const owned = session ? ownsWorktree(scope ? states[scope] : undefined, session.id, task.projectPath) : false;
   const prs = path && snapshot ? chatPullRequests(refs, snapshot.chats[path] ?? {}, owned ? (snapshot.worktrees[path] ?? undefined) : undefined) : [];
-  return prs.length ? pullRequestState(prs.map((pr) => pr.state)) : refs.length ? "open" : null;
+  return {
+    pullRequest: prs.length ? pullRequestState(prs.map((pr) => pr.state)) : refs.length ? "open" : null,
+    pullRequestMark: boardPullRequestMark(prs),
+  };
 }
 
 function doneCardCountdown(column: BoardColumn, session: AgentSession | undefined, retentionHours: number, now: number): string | null {
@@ -86,7 +109,7 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
   const blocked = taskBlockedText(session, Boolean(run));
   const needsYou = (state.kind === "needs-you" && !autopilot) || state.kind === "failed" || state.kind === "stopped" || Boolean(limit) || Boolean(blocked);
   const active = Boolean(run) || chatActivity(session, undefined).activity === "background";
-  const pullRequest = taskPullRequest(task, session, states, snapshots);
+  const { pullRequest, pullRequestMark } = taskPullRequest(task, session, states, snapshots);
   const column = boardColumn({
     outcome: task.outcome,
     active,
@@ -105,6 +128,7 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
     run,
     state: autopilot ? "working" : blocked ? "needs-you" : state.kind,
     pullRequest,
+    pullRequestMark,
     detail: autopilot
       ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
       : (blocked ?? limit ?? (!needsYou && (column === "needs" || column === "review") ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),

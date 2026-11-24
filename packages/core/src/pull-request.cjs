@@ -175,17 +175,21 @@ function fromGraphql(node) {
 const PULL_REQUEST_FIELDS = "number url state title isDraft reviewDecision mergeStateStatus commits(last:1){nodes{commit{statusCheckRollup{state}}}}";
 
 function checksState(rollup) {
-  if (typeof rollup === "string") return ROLLUP_FAILED.has(rollup) ? "failed" : RUNNING_STATES.has(rollup) ? "running" : undefined;
+  if (typeof rollup === "string")
+    return ROLLUP_FAILED.has(rollup) ? "failed" : RUNNING_STATES.has(rollup) ? "running" : rollup === "SUCCESS" ? "passed" : undefined;
   if (!Array.isArray(rollup)) return undefined;
   let running = false;
+  let seen = false;
   for (const check of rollup) {
     if (!check || typeof check !== "object") continue;
     const outcome = typeof check.conclusion === "string" ? check.conclusion : typeof check.state === "string" ? check.state : "";
+    if (!outcome && typeof check.status !== "string") continue;
+    seen = true;
     if (FAILED_CONCLUSIONS.has(outcome)) return "failed";
     const done = typeof check.status === "string" ? check.status === "COMPLETED" : !RUNNING_STATES.has(outcome);
     if (!done) running = true;
   }
-  return running ? "running" : undefined;
+  return running ? "running" : seen ? "passed" : undefined;
 }
 
 const OPEN_LIMIT = 20;

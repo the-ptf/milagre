@@ -17,6 +17,7 @@ import { sinceLabel, type TaskCard } from "../../lib/orchestrator-board";
 import { routeLabel } from "../../lib/orchestrator-names";
 import { deleteTask, dismissTask, pickTaskProject, rerouteTask, showTaskInSidebar } from "../../lib/orchestrator-store";
 import { useMotionScale } from "../../lib/ease";
+import { PR_ICONS, PR_TONES } from "../../lib/pr-look";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
@@ -26,6 +27,7 @@ import { ProjectAvatar } from "../primitives/ProjectAvatar";
 import { Select } from "../primitives/Select";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { SweepText } from "../primitives/SweepText";
+import Tooltip from "../primitives/Tooltip";
 import { ProviderLogo } from "../ProviderLogo";
 import { SplitPicker } from "./SplitPicker";
 
@@ -63,6 +65,15 @@ export function StatusMark({ card }: { card: TaskCard }) {
       <span className="flex size-3.5 shrink-0 items-center justify-center">
         <span className={`size-2 rounded-full ${failed(card) ? "bg-red" : "bg-orange"}`} />
       </span>
+    );
+  const mark = card.column === "review" || card.column === "done" ? card.pullRequestMark : null;
+  if (mark)
+    return (
+      <Tooltip label={mark.label} asChild>
+        <span className={`flex shrink-0 ${PR_TONES[mark.tone]}`} role="img" aria-label={mark.label} data-pr-mark={mark.icon}>
+          <Icon icon={PR_ICONS[mark.icon]} size={14} />
+        </span>
+      </Tooltip>
     );
   if (card.column === "review" && card.pullRequest === "open")
     return (

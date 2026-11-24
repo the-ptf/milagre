@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  boardPullRequestMark,
   isBlockerDismissed,
   pullRequestAction,
   pullRequestBlockers,
@@ -125,4 +126,24 @@ test("a Chat's row lists blocked, open, merged, then closed PRs", () => {
     ordered.map((entry) => entry.number),
     [4, 3, 2, 1],
   );
+});
+
+test("a board card's PR mark names merged, closed, draft and each CI state, and stays absent without a PR", () => {
+  const base = { number: 5, title: "", url: "https://github.com/example/repo/pull/5", readyToMerge: false, hasConflicts: false } as const;
+  const mark = (fields: object) => boardPullRequestMark([{ ...base, state: "OPEN", ...fields }]);
+  assert.equal(boardPullRequestMark([]), null);
+  assert.deepEqual(mark({ state: "MERGED" }), { icon: "merged", tone: "purple", label: "Pull request #5 merged" });
+  assert.deepEqual(mark({ state: "CLOSED" }), { icon: "closed", tone: "ink3", label: "Pull request #5 closed without merging" });
+  assert.deepEqual(mark({ isDraft: true, checks: "failed" }), { icon: "draft", tone: "ink3", label: "Draft pull request #5" });
+  assert.deepEqual(mark({ checks: "failed" }), { icon: "failed", tone: "red", label: "Pull request #5 open, CI failed" });
+  assert.deepEqual(mark({ checks: "running" }), { icon: "checking", tone: "orange", label: "Pull request #5 open, checks running" });
+  assert.deepEqual(mark({ checks: "passed" }), { icon: "passed", tone: "green", label: "Pull request #5 open, checks passed" });
+  assert.deepEqual(mark({}), { icon: "open", tone: "green", label: "Pull request #5 open" });
+});
+
+test("a board card marks its open PR ahead of a merged one", () => {
+  const base = { title: "", readyToMerge: false, hasConflicts: false } as const;
+  const merged = { ...base, number: 1, url: "https://github.com/example/repo/pull/1", state: "MERGED" } as const;
+  const open = { ...base, number: 2, url: "https://github.com/example/repo/pull/2", state: "OPEN", checks: "running" } as const;
+  assert.equal(boardPullRequestMark([merged, open])?.label, "Pull request #2 open, checks running");
 });

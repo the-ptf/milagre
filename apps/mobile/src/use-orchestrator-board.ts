@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { chatPullRequests, ownsWorktree } from "@milagre/shared/chats";
 import { pullRequestState, type OrchestratorTask } from "@milagre/shared/orchestrator";
+import { boardPullRequestMark } from "@milagre/shared/pr-blockers";
 import { allComputers, useComputerViews } from "./all-computers";
 import { retentionOf, useDoneRetention } from "./done-retention";
 import { taskHost } from "./orchestrator-actions";
@@ -91,7 +92,14 @@ export function useOrchestratorBoard(tasks: readonly OrchestratorTask[]) {
       joined.map((entry) => {
         const found = entry.prPath && entry.at ? status[entry.at]?.[entry.prPath] : undefined;
         const prs = found ? chatPullRequests(entry.prRefs, found.found, entry.owned ? found.branch : undefined) : [];
-        return boardItem(entry.task, entry.chat, pullRequestState(prs.map((pr) => pr.state)), now, entry.at ? retentionOf(doneHours, entry.at) : undefined);
+        return boardItem(
+          entry.task,
+          entry.chat,
+          pullRequestState(prs.map((pr) => pr.state)),
+          now,
+          entry.at ? retentionOf(doneHours, entry.at) : undefined,
+          boardPullRequestMark(prs),
+        );
       }),
     [joined, status, now, doneHours],
   );

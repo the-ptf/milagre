@@ -299,6 +299,20 @@ test("a task's PR reads from its Project's snapshot and meets the recorded outco
   assert.deepEqual([card("pull-request", prSnapshot("CLOSED")).column, card("pull-request", prSnapshot("CLOSED")).pullRequest], ["needs", "closed"]);
 });
 
+test("a done card carries its PR's state and CI as a mark; one without a PR has none", () => {
+  const snapshot = (pr: object) => ({ "/p/app": { worktrees: {}, chats: { "/w/four": { [PR_URL]: { number: 7, url: PR_URL, ...pr } } }, pending: false } });
+  const card = (pr?: object) => boardCards([task("t1")], withPr as never, {}, NOW, (pr ? snapshot(pr) : undefined) as never)[0]!;
+  assert.deepEqual(
+    [card({ state: "OPEN", checks: "passed" }).column, card({ state: "OPEN", checks: "passed" }).pullRequestMark?.label],
+    ["done", "Pull request #7 open, checks passed"],
+  );
+  assert.equal(card({ state: "MERGED" }).pullRequestMark?.icon, "merged");
+  assert.equal(card({ state: "OPEN", checks: "failed" }).pullRequestMark?.icon, "failed");
+  assert.equal(card().pullRequestMark, null, "unread yet: no mark");
+  const marked = { "/p/app": { sessions: { 1: { id: 1, done_at: NOW - 10, summary: { lastOutcome: "completed" } } } } };
+  assert.equal(boardCards([task("t1")], marked, {}, NOW)[0]!.pullRequestMark, null);
+});
+
 test("a Done card counts down to when the host archives its Chat, as the sidebar's Done list does", () => {
   const hour = 3_600_000;
   const states = {
