@@ -105,7 +105,7 @@ import { useLinear } from "./components/useLinear";
 import { useWorktreeLinearIssues } from "./components/useWorktreeLinearIssues";
 import { issueFirstMessage, restoredDraft, type LinearIssue } from "@milagre/shared/linear";
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
-import { chatPullRequests, pullRequestRefsCache } from "./lib/chat-pull-requests";
+import { chatPullRequests, ownBranchPullRequest, pullRequestRefsCache } from "./lib/chat-pull-requests";
 import { associatedPullRequest } from "@milagre/shared/chats";
 import { usePastedImages } from "./components/usePastedImages";
 import { DotBackground } from "./components/DotBackground";
@@ -813,7 +813,7 @@ function App() {
             ? (selectedSession.summary.pullRequests ?? NO_REFS)
             : readPullRequestRefs(chatKey(project.path, selectedSession.id), messagesBySession.get(selectedSession.id) ?? NO_MESSAGES),
           chatPrs[selectedWorktree.path] ?? {},
-          pullRequests[selectedWorktree.path] ?? undefined,
+          ownBranchPullRequest(state, selectedSession.id, project.path, pullRequests[selectedWorktree.path]),
         )
       : [];
   const pullRequestBlockerAction = pullRequestAction(selectedPullRequests, dismissedBlockers);
@@ -871,7 +871,7 @@ function App() {
               ? chatPullRequests(
                   session.summary ? (summary.pullRequests ?? NO_REFS) : readPullRequestRefs(chatKey(project?.path ?? "", session.id), sessionMessages),
                   chatPrs[worktree.path] ?? {},
-                  pullRequests[worktree.path] ?? undefined,
+                  ownBranchPullRequest(state, session.id, project?.path, pullRequests[worktree.path]),
                 )
               : [],
           failed: Boolean(failed) || summary.lastOutcome === "failed",

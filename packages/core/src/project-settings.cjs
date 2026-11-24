@@ -84,6 +84,21 @@ function createProjectSettings(file) {
   }
 
   return {
+    async getDictationCorrections(projectPath) {
+      const entry = (await read({ strict: true })).projects[path.resolve(projectPath)];
+      return Array.isArray(entry?.dictationCorrections) ? entry.dictationCorrections : [];
+    },
+    async setDictationCorrection(projectPath, heard, spelling) {
+      if (typeof heard !== "string" || !heard.trim() || heard.length > 128 || typeof spelling !== "string" || spelling.length > 128)
+        throw new Error("Use a phrase and spelling of up to 128 characters each.");
+      await update(projectPath, (entry) => {
+        const items = (entry.dictationCorrections ?? []).filter((item) => item.heard.toLowerCase() !== heard.trim().toLowerCase());
+        if (spelling.trim()) items.unshift({ heard: heard.trim(), spelling: spelling.trim() });
+        if (items.length > 150) throw new Error("This Project already has 150 corrections.");
+        if (items.length) entry.dictationCorrections = items;
+        else delete entry.dictationCorrections;
+      });
+    },
     async getGit(projectPath) {
       return (await read({ strict: true })).projects[path.resolve(projectPath)]?.git ?? {};
     },

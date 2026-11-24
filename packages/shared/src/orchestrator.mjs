@@ -371,7 +371,14 @@ export function taskOutcomeDetail(outcome, pullRequest) {
 }
 
 /** A finished turn waits for the task's recorded outcome; marking the Chat Done accepts the task as it is. */
-export function boardColumn({ done, needsYou, pullRequest, finished = false, active = false, outcome = "reply" }) {
+/** The column the owner moved a task Chat to by hand, which holds until its next turn starts; Done is the Chat's own Done mark. */
+export function placedColumn(session) {
+  const column = session?.orchestrator?.column;
+  return column && column !== "done" && BOARD_COLUMNS.includes(column) && !session.archived ? column : null;
+}
+
+export function boardColumn({ done, needsYou, pullRequest, finished = false, active = false, outcome = "reply", placed = null }) {
+  if (placed) return placed;
   if (needsYou) return "needs";
   if (active) return "running";
   if (done) return "done";
@@ -402,6 +409,7 @@ export function taskDoneAt(session, busy = false) {
 /** Whether a task leaves the board: its Chat is archived or gone, or it has been Done as long as a Done Chat stays in the sidebar. */
 export function taskSwept(session, { busy = false, retentionHours, now = Date.now(), outcome = "reply" }) {
   if (!session || session.archived) return true;
+  if (placedColumn(session)) return false;
   const doneAt = outcome === "reply" ? taskDoneAt(session, busy) : (session.done_at ?? null);
   if (doneAt === null) return false;
   const due = doneDueAt({ done_at: doneAt }, retentionHours);

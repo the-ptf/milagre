@@ -14,6 +14,7 @@ import { PromptText } from '/src/components/PromptText';
 import { MODEL_CATALOG, capabilityFor } from '/src/model';
 import '/src/styles.css';
 import { updateSettings } from '/src/lib/settings';
+import { defaultKeybindings } from '@milagre/shared/keybindings';
 window.updateSettings = updateSettings;
 const noop = () => {};
 window.sent = [];
@@ -27,6 +28,7 @@ window.milagre = { readContextSettings: async () => window.contextSettings, onCo
   ...['milagre','milagre-advisor','milagre-committee','milagre-help'].map(name => ({ name, description: 'Milagre orchestration and help', scope: 'bundled', provider: 'milagre', path: '/skills/' + name + '/SKILL.md' })),
   { name: 'plugin:review-code', description: 'Review code', scope: 'user', provider: 'codex', path: '/skills/review/SKILL.md' },
 ], warnings: [] }) };
+window.milagre.readKeybindings = async () => ({ path: '', issues: [], rules: [...defaultKeybindings(), { key: 'd', command: 'dictation.toggle' }] });
 function Fixture() {
   const [draft, setDraft] = useState('');
   const [root, setRoot] = useState('/fixture');
@@ -337,6 +339,16 @@ async function browserChecks() {
     await delay(100);
     const keyDown = "window.dispatchEvent(new KeyboardEvent('keydown',{key:' ',code:'Space',altKey:true,bubbles:true,cancelable:true}))";
     const keyUp = "window.dispatchEvent(new KeyboardEvent('keyup',{key:' ',code:'Space',altKey:true,bubbles:true,cancelable:true}))";
+    await evaluate("window.updateSettings({dictationEnabled:false})");
+    await waitFor("!document.querySelector('[aria-label=Dictate]')");
+    await evaluate(keyDown);
+    await evaluate(keyUp);
+    assert.equal(await evaluate("window.micStarts || 0"), 0, "disabling the microphone also disables the shortcut");
+    await evaluate("window.updateSettings({dictationEnabled:true})");
+    await waitFor("!!document.querySelector('[aria-label=Dictate]')");
+    await evaluate(`${editor}.focus()`);
+    await evaluate(`${editor}.dispatchEvent(new KeyboardEvent('keydown',{key:'d',code:'KeyD',bubbles:true,cancelable:true}))`);
+    assert.equal(await evaluate("window.micStarts || 0"), 0, "a plain dictation binding still types in the composer");
     await evaluate(keyDown);
     await waitFor("window.micStarts === 1");
     await evaluate(keyUp);
@@ -375,44 +387,16 @@ async function browserChecks() {
     await evaluate(
       "window.deliverTranscript('open miracle', {selection:{start:0,end:0}}, {model:'GPT-6 Luna',text:new Promise(resolve=>{window.finishCorrection=resolve})})",
     );
-    await waitFor("!!document.querySelector('[data-dictation-processing]')");
-    assert.equal(await evaluate("document.querySelector('[data-dictation-processing]').getAttribute('aria-busy')"), "true");
+    await waitFor(`${editor}.value === 'open miracle'`);
+    const readyMic = "document.querySelector('[data-promptbar] [aria-label=Dictate]')";
+    assert.equal(await evaluate(`${readyMic}.hasAttribute('aria-busy') || !!${readyMic}.querySelector('.spinner-ring')`), false);
     assert.equal(await evaluate("!!document.querySelector('[data-dictation-status]')"), false, "AI correction adds no status row");
     assert.equal(await evaluate(`${editor}.isContentEditable`), true, "the draft remains editable during correction");
     assert.equal(await evaluate("document.querySelector('[aria-label=Send]').disabled"), false, "Send stays available during correction");
-    assert.equal(
-      await evaluate("parseFloat(getComputedStyle(document.querySelector('[data-dictation-processing] .spinner-ring')).width)"),
-      28,
-      "the loading arc follows the mic button's border",
-    );
-    await evaluate("document.querySelector('[data-dictation-processing]').scrollIntoView({block:'nearest'})");
-    await screenshot("dictation-processing-before-hover");
-    const micPoint = await evaluate(
-      "(() => {const r=document.querySelector('[data-dictation-processing]').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()",
-    );
-    window.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 });
-    window.webContents.sendInputEvent({ type: "mouseMove", ...micPoint });
-    await evaluate(
-      "document.querySelector('[data-dictation-processing]').dispatchEvent(new PointerEvent('pointerover',{bubbles:true,relatedTarget:document.body}))",
-    );
+    await evaluate(`${readyMic}.scrollIntoView({block:'nearest'})`);
+    await evaluate(`${readyMic}.dispatchEvent(new PointerEvent('pointerover',{bubbles:true,relatedTarget:document.body}))`);
     await waitFor("[...document.querySelectorAll('[role=tooltip]')].some(node=>node.textContent.includes('Correcting names · GPT-6 Luna'))");
-    await screenshot("dictation-processing-tooltip");
-    window.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 });
-    for (const dark of [false, true]) {
-      await evaluate(`document.documentElement.classList.toggle('dark', ${dark})`);
-      await screenshot(dark ? "dictation-processing-dark" : "dictation-processing-light");
-    }
-    window.webContents.debugger.attach("1.3");
-    await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
-    assert.equal(
-      await evaluate("getComputedStyle(document.querySelector('[data-dictation-processing] .spinner-ring')).animationName"),
-      "reduced-motion-loading",
-      "reduced motion keeps a fading cue without rotation",
-    );
-    await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
-    window.webContents.debugger.detach();
     await evaluate("window.finishCorrection('open Milagre')");
-    await waitFor("!document.querySelector('[data-dictation-processing]')");
     await waitFor(`${editor}.value === 'open Milagre'`);
     assert.deepEqual(errors, []);
     console.log(

@@ -1,4 +1,14 @@
-export { pullRequestRefs, pullRequestRefsCache, chatPullRequests, createdPullRequestUrl, associatedPullRequest } from "./chat-pull-requests.mjs";
+export {
+  pullRequestRefs,
+  pullRequestRefsCache,
+  chatPullRequests,
+  createdPullRequestUrl,
+  associatedPullRequest,
+  ownsWorktree,
+  worktreeFree,
+  pushedBranches,
+  mergesCheckedOutBranch,
+} from "./chat-pull-requests.mjs";
 import { chatSummary, summarizeChat } from "./chat-summary.mjs";
 import { promptTitle } from "./prompt-parts.mjs";
 

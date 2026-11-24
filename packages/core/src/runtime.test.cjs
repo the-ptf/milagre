@@ -1119,6 +1119,29 @@ test("project:known offers every Project the Mac knows, past the recent list's t
   assert.equal(known.at(-1).name, path.basename(project));
 });
 
+test("project:read opens a registered Project past the recent list's ten, as a paired computer picking it does", async (t) => {
+  const { project, make } = await fixture(t);
+  const first = make();
+  await first.openProject(project);
+  for (let index = 0; index < 10; index++) {
+    const folder = path.join(path.dirname(project), `other-${index}`);
+    await fs.mkdir(folder);
+    execFileSync("git", ["init", "-q", folder], { stdio: "ignore" });
+    await first.openProject(folder);
+  }
+  await first.close();
+  const runtime = make();
+  assert.ok(!(await runtime.invoke("project:recent")).some((item) => item.path === project));
+  const read = await runtime.invoke("project:read", [project]);
+  assert.equal(read.path, project);
+  assert.ok(read.state.sessions);
+  assert.ok(Array.isArray(await runtime.invoke("project:branches", [project])));
+  const stranger = path.join(path.dirname(project), "stranger");
+  await fs.mkdir(stranger);
+  execFileSync("git", ["init", "-q", stranger], { stdio: "ignore" });
+  await assert.rejects(runtime.invoke("project:read", [stranger]), /Open this project in Milagre first/);
+});
+
 test("linked Worktrees resolve to one registered Project without losing saved Chats", async (t) => {
   const { project, make } = await fixture(t);
   execFileSync("git", ["-C", project, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "Initial"], {

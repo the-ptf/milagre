@@ -209,6 +209,8 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     title: "Fix-up model",
     keywords: "correction automatic haiku codex gemini kiro",
   },
+  { page: "voice", title: "Enable dictation", keywords: "voice microphone hide disable speech to text shortcut" },
+  { page: "voice", title: "Spoken symbols", keywords: "dictation backticks inline code insert newline" },
   {
     page: "voice",
     title: "Fix names with AI",

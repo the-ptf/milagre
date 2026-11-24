@@ -1,12 +1,13 @@
 import { chatKey } from "@milagre/shared/agent-runs";
 import { qualifyKey } from "@milagre/shared/chat-scopes";
 import type { AgentRun, AgentRuns } from "@milagre/shared/agent-runs";
-import { chatPullRequests } from "@milagre/shared/chats";
+import { chatPullRequests, ownsWorktree } from "@milagre/shared/chats";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { DONE_DEFAULTS, doneCountdown } from "@milagre/shared/done";
 import {
   autopilotPending,
   boardColumn,
+  placedColumn,
   pullRequestState,
   taskBlockedText,
   taskLimitText,
@@ -63,7 +64,8 @@ function taskPullRequest(task: OrchestratorTask, session: AgentSession | undefin
   const scope = taskScope(task);
   const path = session && scope ? states[scope]?.worktrees?.[String(session.worktree_id)]?.path : undefined;
   const snapshot = scope ? snapshots[scope] : undefined;
-  const prs = path && snapshot ? chatPullRequests(refs, snapshot.chats[path] ?? {}, snapshot.worktrees[path] ?? undefined) : [];
+  const owned = session ? ownsWorktree(scope ? states[scope] : undefined, session.id, task.projectPath) : false;
+  const prs = path && snapshot ? chatPullRequests(refs, snapshot.chats[path] ?? {}, owned ? (snapshot.worktrees[path] ?? undefined) : undefined) : [];
   return prs.length ? pullRequestState(prs.map((pr) => pr.state)) : refs.length ? "open" : null;
 }
 
@@ -91,6 +93,7 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
     done: Boolean(session?.done_at || session?.archived),
     needsYou,
     pullRequest,
+    placed: placedColumn(session),
     finished: !run && (state.kind === "stopped" || (state.kind === "done" && (Boolean(session?.summary?.lastOutcome) || (session?.summary?.count ?? 0) > 1))),
   });
   return {
@@ -168,11 +171,17 @@ export function gazeToward(from: { left: number; top: number; width: number; hei
   return reach < 1 ? { x: 0, y: 0 } : { x: dx / reach, y: dy / reach };
 }
 
-export function routeReason(task: Pick<OrchestratorTask, "reason" | "computer">, here: string): string {
+function accountReason(why: string | null, account?: string): string | null {
+  if (!account) return why;
+  if (!why) return `Uses ${account}`;
+  return `Uses ${account}: ${why.charAt(0).toLowerCase()}${why.slice(1)}`;
+}
+
+export function routeReason(task: Pick<OrchestratorTask, "reason" | "computer">, here: string, account?: string): string {
   const parts = [
     task.reason.project,
     task.reason.role,
-    task.reason.account,
+    accountReason(task.reason.account, account),
     task.reason.computer ?? (task.computer ? `Runs on ${task.computer}` : `Runs on ${here}`),
   ];
   return `${parts

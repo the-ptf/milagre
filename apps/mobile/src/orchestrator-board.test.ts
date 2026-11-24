@@ -123,3 +123,8 @@ test("a Done card counts down to when its computer archives the Chat, as the Don
   assert.equal(boardItem(task(), { chat: chat({ done_at: now }) }, null, now, 0).countdown, null, "with Never, nothing counts down");
   assert.equal(boardItem(task(), { chat: chat() }, "open", now, 8).countdown, null, "only Done cards count down");
 });
+
+test("a task the owner moved stays in that column on the phone too", () => {
+  const moved = chat({ summary: { count: 2, lastOutcome: "completed" } as never, orchestrator: { taskId: "t1", hidden: true, column: "running" } });
+  assert.equal(boardItem(task(), { chat: moved }, null, 0).column, "running");
+});

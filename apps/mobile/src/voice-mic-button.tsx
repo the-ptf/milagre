@@ -23,39 +23,27 @@ import { useReducedMotion } from "./motion";
 import type { DictationPhase } from "@milagre/shared/voice-dictation";
 
 export const MIC_SIZE = 44;
-const SIZE = 32;
 const CONTROL = 28;
 const CAPSULE_HEIGHT = 36;
 const HALO = 22;
 const HALO_SWELL = 0.6;
 
-export function VoiceMicButton({ onPress, processing = null }: { onPress: () => void; processing?: string | null }) {
-  const { colors } = useTheme();
-  const busy = processing !== null;
+export function VoiceMicButton({ onPress, onLongPress, processing = null }: { onPress: () => void; onLongPress?: () => void; processing?: string | null }) {
+  const correcting = processing !== null;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="Dictate"
-      accessibilityState={{ busy }}
-      accessibilityValue={busy ? { text: processing ? `Correcting names · ${processing}` : "Correcting names" } : undefined}
-      accessibilityHint={busy ? "Starts a new dictation and drops the pending correction" : undefined}
+      accessibilityValue={correcting ? { text: processing ? `Correcting names · ${processing}` : "Correcting names" } : undefined}
+      accessibilityHint={
+        correcting ? "Starts a new dictation and drops the pending correction" : onLongPress ? "Touch and hold for dictation options" : undefined
+      }
       accessibilityLiveRegion="polite"
+      onLongPress={onLongPress}
       onPress={onPress}
       style={({ pressed }) => ({ width: MIC_SIZE, height: MIC_SIZE, alignItems: "center", justifyContent: "center", ...pressStyle({ pressed }) })}
     >
-      <View
-        style={{
-          width: busy ? 36 : SIZE - 6,
-          height: busy ? 36 : SIZE - 6,
-          borderRadius: radius.full,
-          backgroundColor: busy ? colors.hover : undefined,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        {busy && <MicLoadingRing size={36} stroke={1.5} color={colors.accent} />}
-        <Icon icon={Mic01Icon} size={20} tone={busy ? "ink4" : "ink2"} />
-      </View>
+      <Icon icon={Mic01Icon} size={20} tone="ink2" />
     </Pressable>
   );
 }
@@ -219,7 +207,7 @@ function Capsule({ phase, level, onDiscard, onStop }: { phase: DictationPhase; l
   );
 }
 
-function MicLoadingRing({ size = 20, stroke = 2, color }: { size?: number; stroke?: number; color?: string }) {
+function MicLoadingRing() {
   const { colors, motionScale } = useTheme();
   const reducedMotion = useReducedMotion();
   const turn = useSharedValue(0);
@@ -239,7 +227,7 @@ function MicLoadingRing({ size = 20, stroke = 2, color }: { size?: number; strok
     };
   }, [motionScale, opacity, reducedMotion, turn]);
   const spin = useAnimatedStyle(() => ({ opacity: opacity.get(), transform: [{ rotate: `${turn.get() * 360}deg` }] }));
-  const RING = size;
+  const RING = 20;
   return (
     <>
       <Animated.View
@@ -249,8 +237,8 @@ function MicLoadingRing({ size = 20, stroke = 2, color }: { size?: number; strok
           width: RING,
           height: RING,
           borderRadius: RING / 2,
-          borderWidth: stroke,
-          borderColor: color ? colors.lineStrong : withAlpha(colors.ink3, 0.25),
+          borderWidth: 2,
+          borderColor: withAlpha(colors.ink3, 0.25),
         }}
       />
       <Animated.View
@@ -261,10 +249,10 @@ function MicLoadingRing({ size = 20, stroke = 2, color }: { size?: number; strok
             width: RING,
             height: RING,
             borderRadius: RING / 2,
-            borderWidth: stroke,
+            borderWidth: 2,
             borderColor: "transparent",
-            borderTopColor: color ?? colors.ink2,
-            borderRightColor: color ?? colors.ink2,
+            borderTopColor: colors.ink2,
+            borderRightColor: colors.ink2,
           },
           spin,
         ]}

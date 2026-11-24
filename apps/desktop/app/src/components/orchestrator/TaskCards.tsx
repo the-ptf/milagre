@@ -1,23 +1,26 @@
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import {
   CheckmarkCircle02Icon,
   ComputerIcon,
+  Delete02Icon,
   GitMergeIcon,
   GitPullRequestIcon,
   HourglassIcon,
   Image01Icon,
+  MoreHorizontalIcon,
   PanelLeftOpenIcon,
   Undo02Icon,
 } from "@hugeicons/core-free-icons";
-import { roleById, type OrchestratorRole, type OrchestratorTask } from "@milagre/shared/orchestrator";
+import { roleById, type BoardColumn, type OrchestratorRole, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import type { ModelProvider } from "../../model";
 import { sinceLabel, type TaskCard } from "../../lib/orchestrator-board";
 import { routeLabel } from "../../lib/orchestrator-names";
-import { dismissTask, pickTaskProject, rerouteTask, showTaskInSidebar } from "../../lib/orchestrator-store";
+import { deleteTask, dismissTask, pickTaskProject, rerouteTask, showTaskInSidebar } from "../../lib/orchestrator-store";
 import { useMotionScale } from "../../lib/ease";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
+import { MenuLabel, MenuRow, MenuSeparator, Popover } from "../primitives/Popover";
 import { useProjectImages } from "../../lib/project-images";
 import { ProjectAvatar } from "../primitives/ProjectAvatar";
 import { Select } from "../primitives/Select";
@@ -25,6 +28,15 @@ import { SpinnerRing } from "../primitives/SpinnerRing";
 import { SweepText } from "../primitives/SweepText";
 import { ProviderLogo } from "../ProviderLogo";
 import { SplitPicker } from "./SplitPicker";
+
+export const COLUMNS: { id: BoardColumn; name: string }[] = [
+  { id: "running", name: "Running" },
+  { id: "needs", name: "Needs you" },
+  { id: "review", name: "In review" },
+  { id: "done", name: "Done" },
+];
+
+export const TASK_DRAG_TYPE = "application/x-milagre-task";
 
 export type CardEnv = {
   color: string;
@@ -35,6 +47,7 @@ export type CardEnv = {
   projectName: (path: string | null) => string;
   accountLabel: (id: string | null) => string;
   computerName: (task: OrchestratorTask) => string;
+  onMove: (taskId: string, column: BoardColumn) => void;
 };
 
 const CARD = "group relative flex w-full shrink-0 flex-col gap-1.5 rounded-card border border-line bg-surface px-3 py-2.5 text-left transition-colors";
@@ -126,15 +139,69 @@ function CardTitle({ lead, title, images = 0 }: { lead: ReactNode; title: string
   );
 }
 
+function TaskMenu({
+  card,
+  anchor,
+  point,
+  env,
+  onClose,
+}: {
+  card: TaskCard;
+  anchor: RefObject<HTMLElement | null>;
+  point: { x: number; y: number } | null;
+  env: CardEnv;
+  onClose: () => void;
+}) {
+  const { task } = card;
+  const pick = (run: () => void) => {
+    onClose();
+    run();
+  };
+  return (
+    <span onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+      <Popover anchor={point ?? anchor} width={220} label="Task" onClose={onClose}>
+        <MenuLabel>Move to</MenuLabel>
+        {COLUMNS.map((column) => (
+          <MenuRow
+            key={column.id}
+            role="menuitemradio"
+            checked={column.id === card.column}
+            title={column.name}
+            onClick={() => pick(() => column.id !== card.column && env.onMove(task.id, column.id))}
+          />
+        ))}
+        <MenuSeparator />
+        <MenuRow
+          icon={card.inSidebar ? Undo02Icon : PanelLeftOpenIcon}
+          title={card.inSidebar ? "Keep it on the board only" : "Move to the sidebar"}
+          onClick={() => pick(() => void showTaskInSidebar(task.id, !card.inSidebar))}
+        />
+        <MenuRow icon={Delete02Icon} danger title="Delete task" onClick={() => pick(() => void deleteTask(task.id))} />
+      </Popover>
+    </span>
+  );
+}
+
 export function ChatCard({ card, env, onOpen }: { card: TaskCard; env: CardEnv; onOpen: (key: string) => void }) {
   const { task } = card;
   const open = () => card.key && onOpen(card.key);
   const role = roleById(env.roles, task.role);
+  const more = useRef<HTMLButtonElement>(null);
+  const [menu, setMenu] = useState<null | "button" | { x: number; y: number }>(null);
   return (
     <div
       role="button"
       tabIndex={0}
       data-task-card={task.id}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.setData(TASK_DRAG_TYPE, task.id);
+        event.dataTransfer.effectAllowed = "move";
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        setMenu({ x: event.clientX, y: event.clientY });
+      }}
       onClick={open}
       onKeyDown={(event: KeyboardEvent) => {
         if (event.key !== "Enter" && event.key !== " ") return;
@@ -166,17 +233,23 @@ export function ChatCard({ card, env, onOpen }: { card: TaskCard; env: CardEnv; 
           <CardTime card={card} now={env.now} />
         </span>
       </div>
-      <span className="absolute top-1.5 right-1.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+      <span
+        className={`absolute top-1.5 right-1.5 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 ${menu ? "opacity-100" : "opacity-0"}`}
+      >
         <IconButton
+          ref={more}
           size={24}
-          label={card.inSidebar ? "Keep it on the board only" : "Move to the sidebar"}
-          icon={card.inSidebar ? Undo02Icon : PanelLeftOpenIcon}
+          label="Move or delete"
+          icon={MoreHorizontalIcon}
+          aria-haspopup="menu"
+          aria-expanded={menu !== null}
           onClick={(event) => {
             event.stopPropagation();
-            void showTaskInSidebar(task.id, !card.inSidebar);
+            setMenu((value) => (value ? null : "button"));
           }}
         />
       </span>
+      {menu && <TaskMenu card={card} anchor={more} point={menu === "button" ? null : menu} env={env} onClose={() => setMenu(null)} />}
     </div>
   );
 }

@@ -134,7 +134,7 @@ function accountsBridge(invoke, listen) {
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
- * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readBabysitSettings" | "saveBabysitSettings" | "onBabysitSettings" | "readDoneSettings" | "saveDoneSettings" | "onDoneSettings" | "readOrchestrator" | "readOrchestratorProjects" | "readOrchestratorComputers" | "saveOrchestratorSettings" | "sendToOrchestrator" | "pickOrchestratorProject" | "showOrchestratorTaskInSidebar" | "undoOrchestratorTask" | "rerouteOrchestratorTask" | "dismissOrchestratorTask" | "importOrchestratorMemory" | "saveOrchestratorMemory" | "forgetOrchestratorMemory" | "onOrchestrator">}
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readBabysitSettings" | "saveBabysitSettings" | "onBabysitSettings" | "readDoneSettings" | "saveDoneSettings" | "onDoneSettings" | "readOrchestrator" | "readOrchestratorProjects" | "readOrchestratorComputers" | "saveOrchestratorSettings" | "sendToOrchestrator" | "pickOrchestratorProject" | "showOrchestratorTaskInSidebar" | "undoOrchestratorTask" | "moveOrchestratorTask" | "deleteOrchestratorTask" | "rerouteOrchestratorTask" | "dismissOrchestratorTask" | "importOrchestratorMemory" | "saveOrchestratorMemory" | "forgetOrchestratorMemory" | "onOrchestrator">}
  */
 function hostSettingsBridge(invoke, listen) {
   return {
@@ -152,6 +152,8 @@ function hostSettingsBridge(invoke, listen) {
     pickOrchestratorProject: (taskId, projectPath) => invoke("orchestrator:task:project", taskId, projectPath),
     showOrchestratorTaskInSidebar: (taskId, shown) => invoke("orchestrator:task:sidebar", taskId, shown),
     undoOrchestratorTask: (taskId) => invoke("orchestrator:task:undo", taskId),
+    moveOrchestratorTask: (taskId, column) => invoke("orchestrator:task:move", taskId, column),
+    deleteOrchestratorTask: (taskId) => invoke("orchestrator:task:delete", taskId),
     rerouteOrchestratorTask: (taskId, change) => invoke("orchestrator:task:reroute", taskId, change),
     dismissOrchestratorTask: (taskId) => invoke("orchestrator:task:dismiss", taskId),
     importOrchestratorMemory: () => invoke("orchestrator:memory:import"),
@@ -254,8 +256,7 @@ function makeBridge(invoke, listen, send) {
     onRuntimeConnection: (callback) => listen("runtime:connection", callback),
     onRuntimeSnapshot: (callback) => listen("runtime:snapshot", callback),
     getPathForFile: (file) => webUtils.getPathForFile(file),
-    readAttachment: (file) => invoke("attachment:preview", file),
-    readAttachmentChunk: (file, offset, version = "") => invoke("attachment:read", file, offset, version),
+    ...dictationAndAttachmentBridge(invoke),
     searchProjectFiles: (root, query) => invoke("project:files", root, query),
     listSkills: (projectPath) => invoke("skills:list", projectPath),
     readSkill: (projectPath, file) => invoke("skills:read", projectPath, file),
@@ -723,3 +724,16 @@ contextBridge.exposeInMainWorld("milagrePreferences", {
     ipcRenderer.on("preferences:changed", (_event, change) => listener(change));
   },
 });
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readAttachment" | "dictationCorrections" | "setDictationCorrection" | "readAttachmentChunk">}
+ */
+function dictationAndAttachmentBridge(invoke) {
+  return {
+    dictationCorrections: (cwd) => invoke("dictation:corrections", cwd),
+    setDictationCorrection: (cwd, heard, spelling) => invoke("dictation:correct", cwd, heard, spelling),
+    readAttachment: (file) => invoke("attachment:preview", file),
+    readAttachmentChunk: (file, offset, version = "") => invoke("attachment:read", file, offset, version),
+  };
+}

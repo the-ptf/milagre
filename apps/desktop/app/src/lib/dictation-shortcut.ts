@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { type DictationShortcutMode } from "@milagre/shared/dictation";
+import { getSettings } from "./settings";
 import { isModalOpen } from "./modal";
 import { shortcutCommand } from "./keybindings";
 
@@ -10,6 +11,8 @@ export type DictationShortcutTarget = {
   dictating: () => boolean;
   mode: () => DictationShortcutMode;
   start: () => void;
+  insertLast?: () => void;
+  vocabulary?: () => void;
   finish: () => void;
 };
 
@@ -34,12 +37,18 @@ function pickTarget<T extends { usedAt: number }>(
 }
 
 function current() {
+  if (!getSettings().dictationEnabled) return null;
   const active = document.activeElement;
   return pickTarget([...targets], {
     focused: (entry) => Boolean(active && entry.root()?.contains(active)),
     dictating: (entry) => entry.dictating(),
     visible: shown,
   });
+}
+
+export function composerDictationActions() {
+  const target = current();
+  return target && !target.dictating() ? target : null;
 }
 
 function onKeyDown(event: KeyboardEvent) {
@@ -87,6 +96,8 @@ export function useDictationShortcut(target: DictationShortcutTarget) {
       mode: () => latest.current.mode(),
       start: () => latest.current.start(),
       finish: () => latest.current.finish(),
+      insertLast: target.insertLast ? () => latest.current.insertLast?.() : undefined,
+      vocabulary: target.vocabulary ? () => latest.current.vocabulary?.() : undefined,
       usedAt: 0,
     };
     targets.add(entry);

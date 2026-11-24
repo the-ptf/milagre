@@ -158,7 +158,7 @@
             "skipComments": true
           }
         ],
-        "complexity": ["error", 407]
+        "complexity": ["error", 406]
       }
     },
     {
@@ -202,7 +202,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 509,
+            "max": 505,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -215,7 +215,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 347,
+            "max": 296,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -390,7 +390,7 @@
         "max-lines": [
           "error",
           {
-            "max": 963,
+            "max": 876,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -398,12 +398,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 851,
+            "max": 772,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 144]
+        "complexity": ["error", 134]
       }
     },
     {
@@ -545,19 +545,6 @@
       }
     },
     {
-      "files": ["apps/desktop/app/src/components/useDictation.ts"],
-      "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 253,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ]
-      }
-    },
-    {
       "files": ["apps/desktop/electron/floating-inbox.cjs"],
       "rules": {
         "max-lines-per-function": [
@@ -590,7 +577,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 372,
+            "max": 371,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -862,12 +849,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 552,
+            "max": 547,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 74]
+        "complexity": ["error", 71]
       }
     },
     {
@@ -1019,7 +1006,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1627,
+            "max": 1626,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1283,7 +1270,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 282,
+            "max": 276,
             "skipBlankLines": true,
             "skipComments": true
           }

@@ -56,6 +56,17 @@ function attachmentPrompt(body, files) {
   return files.length ? `${body}\n\nAttached files:\n${files.join("\n")}` : body;
 }
 
+function chatTools(chat, invoke) {
+  return {
+    ...require("./chat-branch-tools.cjs").createChatBranchHost({ chat, invoke }),
+    dictationCorrections: ({ projectPath }) => invoke("dictation:corrections", [projectPath]),
+    setDictationCorrection: async ({ projectPath, heard, spelling }) => {
+      await invoke("dictation:correct", [projectPath, heard, spelling]);
+      return { saved: Boolean(spelling.trim()) };
+    },
+  };
+}
+
 function createLocalMcpHost({
   invoke,
   projects,
@@ -334,7 +345,7 @@ function createLocalMcpHost({
       const result = await createWorktree({ localMcp: { operationId, assertActive } }, args);
       return { projectPath: args.projectPath, worktreeId: result.worktreeId, ...(result.setupNote ? { setupNote: result.setupNote } : {}) };
     },
-    ...require("./chat-branch-tools.cjs").createChatBranchHost({ chat, invoke }),
+    ...chatTools(chat, invoke),
     async createChat({ projectPath, worktreeId }, operationId, assertActive) {
       await project(projectPath);
       assertActive();

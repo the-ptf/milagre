@@ -370,7 +370,7 @@ const NavigationBody = memo(function NavigationBody({
         const current = row.hostId === currentHostId;
         return {
           ...row,
-          pullRequests: chatPullRequests(row.prRefs || [], status?.found || {}, status?.branch),
+          pullRequests: chatPullRequests(row.prRefs || [], status?.found || {}, row.ownsWorktree ? status?.branch : undefined),
           linearIssue: current && row.prPath ? linearIssues[row.prPath] : undefined,
           linked: current ? linkedLabels(links.links, worktreeForLinks(row.path, row.prPath), endNames).map((end) => end.label) : row.linked,
         };

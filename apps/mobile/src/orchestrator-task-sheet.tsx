@@ -1,21 +1,24 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { router } from "expo-router";
-import { ShuffleIcon, SidebarLeftIcon } from "@hugeicons/core-free-icons";
+import { ArrowMoveUpRightIcon, ShuffleIcon, SidebarLeftIcon } from "@hugeicons/core-free-icons";
 import { activeRoles, type OrchestratorSettings, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { Icon } from "./icons";
 import { allComputers } from "./all-computers";
 import { accountName, openTaskChat, taskChatKey, taskHost, useAccountNames } from "./orchestrator-actions";
-import { modelAndEffort, projectName, type BoardItem } from "./orchestrator-board";
+import { BOARD_TABS, modelAndEffort, projectName, type BoardItem } from "./orchestrator-board";
 import { TaskMark } from "./orchestrator-cards";
 import type { OrchestratorStore } from "./orchestrator-store";
+import { confirm } from "./confirm-store";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
 import { CheckRow, ErrorNotice, Group, ListRow, PageScroll, PillButton, PullDown, SectionLabel, useSheetBottomInset } from "./ui";
 import { useOrchestrator } from "./use-orchestrator";
 import { useOrchestratorBoard } from "./use-orchestrator-board";
 import { useOrchestratorProjects } from "./use-orchestrator-lists";
+
+const DELETE_MESSAGE = "This stops its agent and deletes its Chat. Its Worktree and branch stay.";
 
 type Projects = readonly { path: string; name?: string }[];
 
@@ -48,7 +51,6 @@ function RerouteMenu({
   settings: OrchestratorSettings;
   onPick: (id: string) => void;
 }) {
-  const { colors } = useTheme();
   const routable = projects.filter((project) => settings.projects[project.path]?.included !== false);
   return (
     <PullDown
@@ -78,21 +80,40 @@ function RerouteMenu({
       ]}
       onSelect={onPick}
     >
-      <View
-        style={{
-          minHeight: 52,
-          borderRadius: radius.full,
-          borderCurve: "continuous",
-          backgroundColor: colors.field,
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: space.md,
-        }}
-      >
-        <Icon icon={ShuffleIcon} tone="ink" size={18} />
-        <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>Re-route</Text>
-      </View>
+      <MenuPill icon={ShuffleIcon} title="Re-route" />
+    </PullDown>
+  );
+}
+
+function MenuPill({ icon, title }: { icon: typeof ShuffleIcon; title: string }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        minHeight: 52,
+        borderRadius: radius.full,
+        borderCurve: "continuous",
+        backgroundColor: colors.field,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: space.md,
+      }}
+    >
+      <Icon icon={icon} tone="ink" size={18} />
+      <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>{title}</Text>
+    </View>
+  );
+}
+
+function MoveMenu({ item, onPick }: { item: BoardItem; onPick: (column: string) => void }) {
+  return (
+    <PullDown
+      label="Move to"
+      sections={[{ items: BOARD_TABS.map((tab) => ({ id: tab.id, title: tab.label, checked: tab.id === item.column })) }]}
+      onSelect={(id) => id !== item.column && onPick(id)}
+    >
+      <MenuPill icon={ArrowMoveUpRightIcon} title="Move to" />
     </PullDown>
   );
 }
@@ -132,6 +153,7 @@ function Actions({ item, store, settings, projects }: { item: BoardItem; store: 
           />
         </>
       ) : null}
+      {item.kind === "chat" || item.kind === "remote" ? <MoveMenu item={item} onPick={(column) => act("orchestrator:task:move", [task.id, column])} /> : null}
       {item.kind !== "deciding" && item.column !== "done" ? <RerouteMenu task={task} projects={projects} settings={settings} onPick={reroute} /> : null}
       {live && key ? (
         <PillButton
@@ -151,6 +173,17 @@ function Actions({ item, store, settings, projects }: { item: BoardItem; store: 
       ) : null}
       {item.kind === "failed" || item.kind === "needs-project" || item.column === "done" ? (
         <PillButton title="Remove from board" size="large" variant="plain" muted onPress={() => act("orchestrator:task:dismiss", [task.id], true)} />
+      ) : null}
+      {item.kind === "chat" || item.kind === "loading" || item.kind === "remote" ? (
+        <PillButton
+          title="Delete task"
+          size="large"
+          variant="plain"
+          destructive
+          onPress={async () => {
+            if (await confirm(`Delete ${task.title}?`, DELETE_MESSAGE, "Delete")) act("orchestrator:task:delete", [task.id], true);
+          }}
+        />
       ) : null}
     </View>
   );
