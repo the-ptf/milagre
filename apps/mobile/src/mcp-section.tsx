@@ -113,7 +113,7 @@ export function McpSection() {
           ) : null}
         </View>
       ) : null}
-      {empty ? <EmptyState title="No MCP servers yet">Tap + to add one, or use the Claude or Codex CLI on your computer.</EmptyState> : null}
+      {empty ? <EmptyState title="No MCP servers in your accounts">Add servers in Connectors.</EmptyState> : null}
     </View>
   );
 }

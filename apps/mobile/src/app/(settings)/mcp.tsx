@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Platform, View } from "react-native";
-import { Stack, router } from "expo-router";
-import { Add01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
+import { Stack } from "expo-router";
+import { RefreshIcon } from "@hugeicons/core-free-icons";
 import { HeaderButton, SectionLabel, Segmented } from "../../ui";
 import { SettingsScroll } from "../../settings-find";
 import { McpSection } from "../../mcp-section";
@@ -9,7 +9,6 @@ import { ConnectorsSection } from "../../connectors-section";
 import { LocalMcpSection } from "../../local-mcp-section";
 import { useMcp } from "../../use-mcp";
 
-const add = () => router.push("/mcp-add");
 const VIEWS = [
   { value: "connectors", title: "Connectors" },
   { value: "mcp", title: "MCP servers" },
@@ -28,13 +27,6 @@ export default function McpScreen() {
           ) : (
             <Stack.Toolbar.View>
               <HeaderButton label="Refresh" icon={RefreshIcon} disabled={mcp.checking} onPress={() => void mcp.refresh()} />
-            </Stack.Toolbar.View>
-          )}
-          {Platform.OS === "ios" ? (
-            <Stack.Toolbar.Button icon="plus" accessibilityLabel="Add MCP server" onPress={add} />
-          ) : (
-            <Stack.Toolbar.View>
-              <HeaderButton label="Add MCP server" icon={Add01Icon} onPress={add} />
             </Stack.Toolbar.View>
           )}
         </Stack.Toolbar>

@@ -212,24 +212,6 @@ export const MCP_CATALOG: readonly McpCatalogEntry[] = [
   },
 ];
 
-export function searchMcpCatalog(query: string): readonly McpCatalogEntry[] {
-  const words = query.trim().toLowerCase().split(/\s+/);
-  return MCP_CATALOG.filter((entry) => words.every((word) => `${entry.name} ${entry.description}`.toLowerCase().includes(word)));
-}
-
-export function mcpCatalogDefinition(entry: McpCatalogEntry, token = ""): Extract<McpServerDefinition, { url: string }> {
-  const value = token.trim().replace(/^Bearer(?:\s+|$)/i, "");
-  if (entry.auth === "token" && (!value || /\s/.test(value) || value === MCP_SECRET_MASK)) throw new Error("Enter a valid personal access token.");
-  return { name: entry.id, type: "http", url: entry.url, headers: entry.auth === "token" ? { Authorization: `Bearer ${value}` } : {} };
-}
-
-export function mcpCatalogAuthHint(entry: McpCatalogEntry, remote: boolean): string {
-  if (entry.auth === "token") return "Use a personal access token with access to the repositories you want to work with.";
-  return remote
-    ? "After adding, finish sign-in in Milagre's MCP settings on the connected computer."
-    : `Your browser opens if ${entry.name} needs you to sign in. Choose the account and access to allow.`;
-}
-
 const PROVIDER_NAMES: Record<McpProvider, string> = { claude: "Claude", codex: "Codex", antigravity: "Antigravity", kiro: "Kiro", pi: "Pi" };
 
 function sourceOf(name: string, scope: McpScope): string {
@@ -301,25 +283,6 @@ export function groupMcpRows(checks: McpAccountCheck[]): { attention: McpRow[]; 
   };
 }
 
-const isConfigProvider = (provider: McpProvider): provider is "claude" | "codex" => provider === "claude" || provider === "codex";
-
-export function mcpRemoveTargets(row: McpRow): McpTarget[] {
-  const providers = row.chips.filter((chip) => chip.scope === "user" && isConfigProvider(chip.provider)).map((chip) => chip.provider as McpTarget);
-  return [...new Set<McpTarget>([...(row.everywhere ? (["everywhere"] as const) : []), ...providers])];
-}
-
-const TARGET_PLACES: Record<McpTarget, string> = { everywhere: "Everywhere", claude: "Claude’s config", codex: "Codex’s config" };
-export function mcpTargetPlaces(targets: McpTarget[]): string {
-  const places = targets.map((target) => TARGET_PLACES[target]);
-  return places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places[places.length - 1]}` : (places[0] ?? "");
-}
-
-export function mcpEditTarget(row: McpRow): McpTarget {
-  if (row.everywhere) return "everywhere";
-  const user = row.chips.filter((chip) => chip.scope === "user" && isConfigProvider(chip.provider));
-  return ((user.find((chip) => chip.accountId === "default") ?? user[0])?.provider as McpTarget | undefined) ?? "everywhere";
-}
-
 const STATE_COPY: Record<McpChipState, string> = {
   connected: "Connected",
   failed: "Failed",
@@ -357,19 +320,4 @@ export function mcpChipLine(chip: McpChip): string {
   if (chip.scope === "everywhere") parts.push("from Everywhere");
   if (chip.shadowedBy) parts.push(`uses ${PROVIDER_NAMES[chip.shadowedBy]}’s own`);
   return parts.join(" · ");
-}
-
-const NAME = /^[A-Za-z0-9_-]{1,64}$/;
-
-export function validateMcpServer(server: McpServerDefinition): string | null {
-  if (!NAME.test(server.name)) return "Use letters, numbers, - and _ only.";
-  if (server.name === "milagre") return "milagre is Milagre’s own server. Pick another name.";
-  if (server.type === "stdio") {
-    if (!server.command.trim()) return "Enter the command to run.";
-    if (Object.keys(server.env).some((key) => !key.trim())) return "Every variable needs a name.";
-    return null;
-  }
-  if (!/^https?:\/\/\S+$/.test(server.url)) return "Enter an http or https URL.";
-  if (Object.keys(server.headers).some((key) => !key.trim())) return "Every header needs a name.";
-  return null;
 }

@@ -4,6 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { connectorPresetInput, searchConnectorPresets, type ConnectorInput, type ConnectorPreset, type ConnectorSummary } from "@milagre/shared/connectors";
 import { ScrollArea } from "../primitives/ScrollArea";
+import { Segmented } from "../primitives/Segmented";
 import { ConnectorTile } from "./ConnectorTile";
 
 type Pair = { key: string; value: string };
@@ -60,7 +61,7 @@ function Catalog({ onChoose, onCustom }: { onChoose: (preset: ConnectorPreset) =
         <HugeiconsIcon icon={PlusSignIcon} size={16} strokeWidth={1.8} />
         <span>
           <span className="block text-13 font-medium">Custom connector</span>
-          <span className="block text-12 text-ink-2">Any MCP server with an https address.</span>
+          <span className="block text-12 text-ink-2">Any MCP server, by its https address or the command that starts it.</span>
         </span>
       </button>
     </div>
@@ -84,12 +85,150 @@ function Secret({ name, value, onChange }: { name: string; value: string; onChan
   );
 }
 
+function CommandFields({
+  command,
+  args,
+  pairs,
+  onCommand,
+  onArgs,
+  onPairs,
+}: {
+  command: string;
+  args: string;
+  pairs: Pair[];
+  onCommand: (value: string) => void;
+  onArgs: (value: string) => void;
+  onPairs: (pairs: Pair[]) => void;
+}) {
+  const shown = pairs.length ? pairs : [{ key: "", value: "" }];
+  return (
+    <>
+      <label className={label}>
+        Command
+        <input aria-label="Command" className={field} placeholder="npx" value={command} onChange={(event) => onCommand(event.target.value)} />
+        <span className="block font-normal text-ink-3">Runs once on the computer for every Chat, and stops when no Chat has used it for a while.</span>
+      </label>
+      <label className={label}>
+        Arguments (optional)
+        <textarea
+          aria-label="Arguments"
+          rows={3}
+          className={`${field} resize-y font-mono text-12`}
+          placeholder={"-y\n@scope/server"}
+          value={args}
+          onChange={(event) => onArgs(event.target.value)}
+        />
+        <span className="block font-normal text-ink-3">One per line.</span>
+      </label>
+      <div className="space-y-1">
+        <span className="block text-12 font-medium text-ink-2">Environment (optional)</span>
+        {shown.map((pair, index) => (
+          <div key={index} className="flex gap-2">
+            <input
+              aria-label="Variable"
+              className={`${pairField} w-[170px] shrink-0`}
+              placeholder="Variable"
+              value={pair.key}
+              onChange={(event) => onPairs(Object.assign([...shown], { [index]: { ...pair, key: event.target.value } }))}
+            />
+            <input
+              aria-label="Value"
+              type="password"
+              className={`${pairField} flex-1`}
+              placeholder="Value"
+              value={pair.value}
+              onChange={(event) => onPairs(Object.assign([...shown], { [index]: { ...pair, value: event.target.value } }))}
+            />
+            <button
+              type="button"
+              aria-label="Add a variable"
+              className={`flex size-9 shrink-0 items-center justify-center rounded-control border border-line-strong bg-surface text-ink-2 hover:bg-hover ${index === shown.length - 1 ? "" : "invisible"}`}
+              onClick={() => onPairs([...shown, { key: "", value: "" }])}
+            >
+              <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={1.75} color="currentColor" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function UrlExtras({
+  pairs,
+  onPairs,
+  clientId,
+  onClientId,
+  clientSecret,
+  onClientSecret,
+}: {
+  pairs: Pair[];
+  onPairs: (pairs: Pair[]) => void;
+  clientId: string;
+  onClientId: (value: string) => void;
+  clientSecret: string;
+  onClientSecret: (value: string) => void;
+}) {
+  const shown = pairs.length ? pairs : [{ key: "", value: "" }];
+  return (
+    <details className="space-y-3">
+      <summary className="cursor-pointer text-12 font-medium text-ink-2">Headers and OAuth app (optional)</summary>
+      <div className="space-y-1 pt-3">
+        <span className="block text-12 font-medium text-ink-2">Headers, for servers that take an API key</span>
+        {shown.map((pair, index) => (
+          <div key={index} className="flex gap-2">
+            <input
+              aria-label="Header"
+              className={`${pairField} w-[170px] shrink-0`}
+              placeholder="Header"
+              value={pair.key}
+              onChange={(event) => onPairs(Object.assign([...shown], { [index]: { ...pair, key: event.target.value } }))}
+            />
+            <input
+              aria-label="Value"
+              type="password"
+              className={`${pairField} flex-1`}
+              placeholder="Value"
+              value={pair.value}
+              onChange={(event) => onPairs(Object.assign([...shown], { [index]: { ...pair, value: event.target.value } }))}
+            />
+            <button
+              type="button"
+              aria-label="Add a header"
+              className={`flex size-9 shrink-0 items-center justify-center rounded-control border border-line-strong bg-surface text-ink-2 hover:bg-hover ${index === shown.length - 1 ? "" : "invisible"}`}
+              onClick={() => onPairs([...shown, { key: "", value: "" }])}
+            >
+              <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={1.75} color="currentColor" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <p className="text-12 text-ink-3">Only for a server that can't register Milagre by itself: the client ID and secret of the app you made for it.</p>
+      <label className={label}>
+        Client ID
+        <input
+          aria-label="Client ID"
+          autoComplete="off"
+          spellCheck={false}
+          className={field}
+          value={clientId}
+          onChange={(event) => onClientId(event.target.value)}
+        />
+      </label>
+      <Secret name="Client Secret" value={clientSecret} onChange={onClientSecret} />
+    </details>
+  );
+}
+
 export function ConnectorSheet({ onAdd, onClose }: { onAdd: (input: ConnectorInput) => Promise<ConnectorSummary>; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [step, setStep] = useState<"choose" | "preset" | "custom">("choose");
   const [preset, setPreset] = useState<ConnectorPreset | null>(null);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
+  const [kind, setKind] = useState<"url" | "command">("url");
+  const [command, setCommand] = useState("");
+  const [args, setArgs] = useState("");
   const [token, setToken] = useState("");
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
@@ -120,13 +259,15 @@ export function ConnectorSheet({ onAdd, onClose }: { onAdd: (input: ConnectorInp
     try {
       input = preset
         ? connectorPresetInput(preset, { name: name.trim(), token, clientId, clientSecret })
-        : {
-            name: name.trim(),
-            url: url.trim(),
-            headers: headersOf(pairs),
-            ...(clientId.trim() ? { clientId: clientId.trim() } : {}),
-            ...(clientSecret ? { clientSecret } : {}),
-          };
+        : kind === "command"
+          ? { name: name.trim(), command: command.trim(), args: args.split("\n").filter((arg) => arg.trim() !== ""), env: headersOf(pairs) }
+          : {
+              name: name.trim(),
+              url: url.trim(),
+              headers: headersOf(pairs),
+              ...(clientId.trim() ? { clientId: clientId.trim() } : {}),
+              ...(clientSecret ? { clientSecret } : {}),
+            };
     } catch (cause) {
       return setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -142,7 +283,6 @@ export function ConnectorSheet({ onAdd, onClose }: { onAdd: (input: ConnectorInp
     }
   };
   const title = step === "choose" ? "Add connector" : preset ? `Add ${preset.name}` : "Custom connector";
-  const shown = pairs.length ? pairs : [{ key: "", value: "" }];
   return createPortal(
     <dialog
       ref={dialog}
@@ -189,10 +329,29 @@ export function ConnectorSheet({ onAdd, onClose }: { onAdd: (input: ConnectorInp
                 <span className="block font-normal text-ink-3">Name each workspace, like Slack company A. Agents see it with the tools.</span>
               </label>
               {!preset && (
+                <Segmented
+                  label="Starts from"
+                  dataKey="connector-kind"
+                  value={kind}
+                  options={[
+                    { value: "url", label: "Address" },
+                    { value: "command", label: "Command" },
+                  ]}
+                  onChange={(value) => {
+                    setKind(value);
+                    setPairs([{ key: "", value: "" }]);
+                    setError("");
+                  }}
+                />
+              )}
+              {!preset && kind === "url" && (
                 <label className={label}>
                   Address
                   <input aria-label="Address" className={field} placeholder="https://" value={url} onChange={(event) => set(setUrl)(event.target.value)} />
                 </label>
+              )}
+              {!preset && kind === "command" && (
+                <CommandFields command={command} args={args} pairs={pairs} onCommand={set(setCommand)} onArgs={set(setArgs)} onPairs={setPairs} />
               )}
               {preset?.auth === "token" && (
                 <>
@@ -235,55 +394,15 @@ export function ConnectorSheet({ onAdd, onClose }: { onAdd: (input: ConnectorInp
               {preset?.auth === "browser" && (
                 <p className="text-13 text-ink-2">Your browser opens to sign in to {preset.name}. Choose the account and the access to allow.</p>
               )}
-              {!preset && (
-                <details className="space-y-3">
-                  <summary className="cursor-pointer text-12 font-medium text-ink-2">Headers and OAuth app (optional)</summary>
-                  <div className="space-y-1 pt-3">
-                    <span className="block text-12 font-medium text-ink-2">Headers, for servers that take an API key</span>
-                    {shown.map((pair, index) => (
-                      <div key={index} className="flex gap-2">
-                        <input
-                          aria-label="Header"
-                          className={`${pairField} w-[170px] shrink-0`}
-                          placeholder="Header"
-                          value={pair.key}
-                          onChange={(event) => setPairs(Object.assign([...shown], { [index]: { ...pair, key: event.target.value } }))}
-                        />
-                        <input
-                          aria-label="Value"
-                          type="password"
-                          className={`${pairField} flex-1`}
-                          placeholder="Value"
-                          value={pair.value}
-                          onChange={(event) => setPairs(Object.assign([...shown], { [index]: { ...pair, value: event.target.value } }))}
-                        />
-                        <button
-                          type="button"
-                          aria-label="Add a header"
-                          className={`flex size-9 shrink-0 items-center justify-center rounded-control border border-line-strong bg-surface text-ink-2 hover:bg-hover ${index === shown.length - 1 ? "" : "invisible"}`}
-                          onClick={() => setPairs([...shown, { key: "", value: "" }])}
-                        >
-                          <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={1.75} color="currentColor" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-12 text-ink-3">
-                    Only for a server that can't register Milagre by itself: the client ID and secret of the app you made for it.
-                  </p>
-                  <label className={label}>
-                    Client ID
-                    <input
-                      aria-label="Client ID"
-                      autoComplete="off"
-                      spellCheck={false}
-                      className={field}
-                      value={clientId}
-                      onChange={(event) => set(setClientId)(event.target.value)}
-                    />
-                  </label>
-                  <Secret name="Client Secret" value={clientSecret} onChange={set(setClientSecret)} />
-                </details>
+              {!preset && kind === "url" && (
+                <UrlExtras
+                  pairs={pairs}
+                  onPairs={setPairs}
+                  clientId={clientId}
+                  onClientId={set(setClientId)}
+                  clientSecret={clientSecret}
+                  onClientSecret={set(setClientSecret)}
+                />
               )}
               {error && (
                 <p role="alert" className="text-12 break-words text-red-ink">
@@ -300,7 +419,7 @@ export function ConnectorSheet({ onAdd, onClose }: { onAdd: (input: ConnectorInp
                   Cancel
                 </button>
                 <button type="submit" data-connector-submit className={`${footerButton} bg-ink font-semibold text-surface hover:opacity-90`} disabled={busy}>
-                  {busy ? "Adding…" : preset?.auth === "token" ? "Add connector" : "Add and sign in"}
+                  {busy ? "Adding…" : preset?.auth === "token" || (!preset && kind === "command") ? "Add connector" : "Add and sign in"}
                 </button>
               </div>
             </>

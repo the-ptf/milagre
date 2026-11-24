@@ -14,9 +14,8 @@ const { createAntigravity } = require("../agents/antigravity-install.cjs");
 const { refreshInstallPath } = require("../agents/environment.cjs");
 const { createLinear } = require("../linear/index.cjs");
 const { createLinearIssues } = require("../linear/issues.cjs");
-const { createLinearTools, linearToolDefinitions } = require("../linear/tools.cjs");
+const { createLinearTools } = require("../linear/tools.cjs");
 const { createConnectorsWiring } = require("./connectors-wiring.cjs");
-const { connectorToolDefinitions } = require("../connectors/tools.cjs");
 const { chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { resolveProject } = require("../project-identity.cjs");
 
@@ -77,11 +76,15 @@ function createAccountsWiring({ options, dataDir, emit, commands, version, envir
   commands.handle("mcp:signIn", (_event, name, targets) => mcp.signIn(String(name), Array.isArray(targets) ? targets : []));
   commands.handle("mcp:cancelSignIn", (_event, name) => mcp.cancelSignIn(String(name)));
 
+  let connectorsWiring = null;
   const linear = createLinear({
     dataDir,
     openWindow: (url) => emit("linear:sign-in-window", { url }),
     ...options.linear,
-    changed: () => emit("linear:status-changed", linear.status()),
+    changed: () => {
+      emit("linear:status-changed", linear.status());
+      connectorsWiring?.linearChanged();
+    },
   });
   commands.handle("linear:status", () => linear.status());
   commands.handle("linear:connect", (_event, value) => linear.connect({ window: value?.window === true }));
@@ -107,12 +110,11 @@ function createAccountsWiring({ options, dataDir, emit, commands, version, envir
       return {};
     }
   });
-  const connectors = createConnectorsWiring({ options, dataDir, emit, commands, version, mcp, mcpStore });
+  connectorsWiring = createConnectorsWiring({ options, dataDir, emit, commands, version, mcp, mcpStore, linear, linearTools });
   const integrations = {
     linearTools,
-    /** Linear's tools and the Connectors this provider Account may use, for a Chat's `milagre` tools. */
-    tools: (context) => [...(linear.enabled() ? linearToolDefinitions(linearTools) : []), ...connectorToolDefinitions(connectors, context)],
-    dispose: () => Promise.all([linear.dispose(), connectors.dispose()]),
+    tools: connectorsWiring.tools,
+    dispose: () => Promise.all([linear.dispose(), connectorsWiring.dispose()]),
   };
   return { antigravity, baseCli, accounts, routing, agentCli, mcp, linear, linearIssues, integrations, queueAccountMutation };
 }

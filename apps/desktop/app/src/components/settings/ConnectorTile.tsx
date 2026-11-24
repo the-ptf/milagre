@@ -1,7 +1,7 @@
-import { Globe02Icon } from "@hugeicons/core-free-icons";
+import { CommandLineIcon, Globe02Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "../primitives/Icon";
 
-export function ConnectorTile({ iconPath, warn = false }: { iconPath?: string; warn?: boolean }) {
+export function ConnectorTile({ iconPath, command = false, warn = false }: { iconPath?: string; command?: boolean; warn?: boolean }) {
   return (
     <span
       aria-hidden="true"
@@ -12,7 +12,7 @@ export function ConnectorTile({ iconPath, warn = false }: { iconPath?: string; w
           <path d={iconPath} />
         </svg>
       ) : (
-        <Icon icon={Globe02Icon} size={16} />
+        <Icon icon={command ? CommandLineIcon : Globe02Icon} size={16} />
       )}
     </span>
   );

@@ -1,6 +1,6 @@
 # Connectors
 
-A Connector is a remote MCP server the host signs in to once, so every provider and Account uses one sign-in instead of each Account holding its own. The host keeps the tokens and calls the server; agents reach its tools through `milagre`. Nothing passes through the relay or a Milagre server.
+A Connector is an MCP server the host connects to once, by address or by the command that starts it, so every provider and Account uses one sign-in instead of each Account holding its own. The host keeps the tokens and calls the server; agents reach its tools through `milagre`. Nothing passes through the relay or a Milagre server.
 
 ## Sign-in
 
@@ -14,13 +14,24 @@ A Connector is a remote MCP server the host signs in to once, so every provider 
 
 Tokens, client secrets and registrations live in `<dataDir>/connectors/secrets/<id>.json`, owner-only, like Linear's. `connectors.json` holds names, addresses, client IDs and the per-Account off list. Status and list answers never include a token or secret.
 
+## Command connectors
+
+A command connector (`connectors:add` with `command`, `args`, `env`) runs on the computer as one process every Chat shares, started on first use in the home folder with the host's environment plus its own variables, and stopped after 10 idle minutes (`idleMs`). Its variables live with the secrets and only their names leave the host. The tool list it last answered is saved in `<dataDir>/connectors/tools/`, so a restarted host offers its tools without starting it; the first call starts it again. A command that exits on start reports its last stderr line as the problem. A server that keeps per-session state (a browser, a folder) shares it across Chats.
+
+## Moving off Everywhere
+
+When the host starts it moves every Everywhere MCP server with an address or a command into Connectors, with its headers or environment, and keeps it off for the Accounts it was off for. `connectors:moved` lists what moved until the user dismisses the note. A Connector with the same name and target is reused; a different one gets a name ending in 2. SSE servers stay Everywhere. `connectors:move` moves one by hand.
+
+## Linear
+
+Milagre's own Linear sign-in shows as a built-in Connector (id `linear`, reserved) while a workspace is signed in. It keeps its GraphQL sign-in, so issue starts, Worktree issue links, In Progress moves and Routines triggers work as before; Available to decides which Accounts get the `linear_*` tools, stored in `connectors/builtin.json`. Add workspace and Sign out go through `linear:connect` and `linear:disconnect`. Linear's MCP server (`mcp.linear.app`) is a separate preset.
+
 ## Settings
 
 Settings › Connectors (the `mcp` section) is one page with a **Connectors | MCP servers** switch, on desktop and phone.
 
-- **Connectors** lists each Connector with its state, tool count and reach ("All accounts", "2 of 3 accounts"). A row opens **Available to**, one checkbox per provider Account, plus Sign in again, Sign out and Remove. Add connector offers the presets in `CONNECTOR_PRESETS` (`packages/shared/src/connectors.ts`: Slack, then the MCP catalog) or any address with optional headers or an OAuth app's client ID and secret.
-- Everywhere MCP servers with an address show under **Move to Connectors**; Move adds the Connector with the same headers and drops the Everywhere entry (`connectors:movable`, `connectors:move`). The server then needs one sign-in in Milagre instead of one per Account.
-- **MCP servers** is the per-Account MCP page and Milagre's own MCP, unchanged.
+- **Connectors** lists each Connector with its state, tool count and reach ("All accounts", "2 of 3 accounts"). A row opens **Available to**, one checkbox per provider Account, plus Sign in again, Sign out and Remove (Add workspace and Sign out for Linear; Remove only for a command). Add connector offers the presets in `CONNECTOR_PRESETS` (`packages/shared/src/connectors.ts`), an address with optional headers or an OAuth app's client ID and secret, or a command with arguments and environment.
+- **MCP servers** is read-only: the servers each Account's own config, Projects, plugins and claude.ai load, with their per-Account checkboxes and sign-in. New servers go in Connectors. The daemon keeps `mcp:save`, `mcp:saveUrl` and `mcp:remove` for the CLI and older apps.
 - The phone shows the same switch. It lists Connectors, changes Available to, signs out and removes; adding and signing in say to use the computer, because the browser returns to its loopback callback.
 
 ## Who can do what

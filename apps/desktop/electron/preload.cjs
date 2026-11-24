@@ -217,6 +217,8 @@ function connectorsBridge(invoke, listen) {
     tools: (id) => invoke("connectors:tools", id),
     movable: () => invoke("connectors:movable"),
     move: (name) => invoke("connectors:move", name),
+    moved: () => invoke("connectors:moved"),
+    dismissMoved: () => invoke("connectors:dismiss-moved"),
     onChanged: (callback) => listen("connectors:changed", callback),
   };
 }
@@ -364,10 +366,6 @@ function makeBridge(invoke, listen, send) {
     mcp: {
       accounts: () => invoke("mcp:accounts"),
       check: (provider, accountId) => invoke("mcp:check", provider, accountId),
-      definition: (name, target) => invoke("mcp:definition", name, target),
-      save: (def, target, previous) => invoke("mcp:save", def, target, previous ?? null),
-      saveUrl: (def, target, previous) => invoke("mcp:saveUrl", def, target, previous ?? null),
-      remove: (name, target) => invoke("mcp:remove", name, target),
       toggle: (provider, accountId, name, on) => invoke("mcp:toggle", provider, accountId, name, on),
       signIn: (name, accounts) => invoke("mcp:signIn", name, accounts),
       cancelSignIn: (name) => invoke("mcp:cancelSignIn", name),

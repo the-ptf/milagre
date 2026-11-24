@@ -18,7 +18,7 @@ import type { DoneSettings } from "@milagre/shared/done";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import type { KeybindingCommandId, KeybindingRule, KeybindingsState } from "@milagre/shared/keybindings";
 import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync";
-import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider, McpServerDefinition, McpTarget } from "@milagre/shared/mcp";
+import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider } from "@milagre/shared/mcp";
 import type { LocalMcpApi } from "@milagre/shared/local-mcp";
 import type { LinearIssue, LinearIssuesResult, LinearStatus } from "@milagre/shared/linear";
 import type { ConnectorInput, ConnectorMovable, ConnectorSummary, ConnectorTool, ConnectorUpdate } from "@milagre/shared/connectors";
@@ -519,10 +519,6 @@ export type MilagreBridge = {
   mcp: {
     accounts: () => Promise<McpAccount[]>;
     check: (provider: McpProvider, accountId: string) => Promise<McpAccountCheck>;
-    definition: (name: string, target: McpTarget) => Promise<McpServerDefinition | null>;
-    save: (def: McpServerDefinition, target: McpTarget, previous?: { name: string; target: McpTarget }) => Promise<void>;
-    saveUrl: (def: McpServerDefinition, target: McpTarget, previous?: { name: string; target: McpTarget }) => Promise<void>;
-    remove: (name: string, target: McpTarget) => Promise<void>;
     toggle: (provider: McpProvider, accountId: string, name: string, on: boolean) => Promise<void>;
     signIn: (name: string, accounts: { provider: McpProvider; accountId: string }[]) => Promise<{ started: true }>;
     cancelSignIn: (name: string) => Promise<void>;
@@ -541,6 +537,8 @@ export type MilagreBridge = {
     tools: (id: string) => Promise<ConnectorTool[]>;
     movable: () => Promise<ConnectorMovable[]>;
     move: (name: string) => Promise<ConnectorSummary>;
+    moved: () => Promise<string[]>;
+    dismissMoved: () => Promise<void>;
     onChanged: (callback: (event: { connectors: ConnectorSummary[] }) => void) => () => void;
   };
   localMcp: LocalMcpApi;

@@ -346,32 +346,6 @@
       }
     },
     {
-      "files": ["apps/desktop/app/src/components/McpServerSheet.tsx"],
-      "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 352,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ]
-      }
-    },
-    {
-      "files": ["apps/desktop/app/src/components/McpSettings.tsx"],
-      "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 305,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ]
-      }
-    },
-    {
       "files": ["apps/desktop/app/src/components/motion/MediaLightbox.tsx"],
       "rules": {
         "max-lines-per-function": [
@@ -577,7 +551,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 371,
+            "max": 367,
             "skipBlankLines": true,
             "skipComments": true
           }

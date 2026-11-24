@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Alert02Icon, ArrowDown01Icon, ArrowUp01Icon, CommandLineIcon, FolderGitIcon, Globe02Icon } from "@hugeicons/core-free-icons";
 import { mcpChipLine, mcpSummary, mcpTransportLine, type McpChip, type McpRow } from "@milagre/shared/mcp";
 import { providerName } from "@milagre/shared/providers";
@@ -88,19 +87,12 @@ export function McpServerRow({
   open,
   onToggleOpen,
   onSwitch,
-  onEdit,
-  onRemove,
-  removePlaces = "",
 }: {
   row: McpRow;
   open: boolean;
   onToggleOpen: () => void;
   onSwitch: (chip: McpChip, on: boolean) => void;
-  onEdit?: () => void;
-  onRemove?: () => void;
-  removePlaces?: string;
 }) {
-  const [confirming, setConfirming] = useState(false);
   const failed = row.chips.find((chip) => chip.state === "failed");
   const subtitle = failed ? `${providerName(failed.provider)}: ${failed.error ?? "Failed"}` : mcpTransportLine(row);
   return (
@@ -121,42 +113,6 @@ export function McpServerRow({
       {open && (
         <div className="px-4 pt-1 pb-3">
           <AccountLines row={row} onSwitch={onSwitch} />
-          {confirming && onRemove ? (
-            <div data-mcp-remove-question className="mt-1 flex min-h-11 items-center gap-2">
-              <span className="min-w-0 flex-1 text-12 text-ink">
-                Remove {row.name} from {removePlaces}? Chats stop loading it.
-              </span>
-              <Button variant="secondary" onClick={() => setConfirming(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="danger"
-                data-mcp-remove-confirm
-                onClick={() => {
-                  setConfirming(false);
-                  onRemove();
-                }}
-              >
-                Remove
-              </Button>
-            </div>
-          ) : (
-            (onEdit || onRemove) && (
-              <div className="mt-1 flex min-h-11 items-center gap-2">
-                <span className="min-w-0 flex-1 text-12 text-ink-3">{row.everywhere ? "Everywhere adds it to providers whose config lacks it." : ""}</span>
-                {onEdit && (
-                  <Button variant="secondary" data-mcp-edit onClick={onEdit}>
-                    Edit
-                  </Button>
-                )}
-                {onRemove && (
-                  <Button variant="danger-ghost" data-mcp-remove onClick={() => setConfirming(true)}>
-                    Remove
-                  </Button>
-                )}
-              </div>
-            )
-          )}
         </div>
       )}
     </div>

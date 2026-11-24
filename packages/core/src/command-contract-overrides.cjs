@@ -14,9 +14,21 @@ const object = (properties, required = Object.keys(properties), additionalProper
 const array = (items) => ({ type: "array", items });
 const p = (name, schema = s, optional = false) => ({ name, schema, optional });
 const request = (properties, required) => [p("request", object(properties, required))];
+const mcpTarget = { enum: ["codex", "claude", "everywhere"] };
+const mcpServer = {
+  anyOf: [
+    object({ name: s, type: { enum: ["http", "sse"] }, url: s, headers: object({}, [], s) }),
+    object({ name: s, type: { const: "stdio" }, command: s, args: array(s), env: object({}, [], s) }),
+  ],
+};
+const mcpPrevious = nullable(object({ name: s, target: mcpTarget }));
 const scope = [p("scope")],
   project = [p("projectPath")];
 module.exports = {
+  "mcp:definition": [p("name"), p("target", mcpTarget)],
+  "mcp:save": [p("def", mcpServer), p("target", mcpTarget), p("previous", mcpPrevious, true)],
+  "mcp:saveUrl": [p("def", mcpServer), p("target", mcpTarget), p("previous", mcpPrevious, true)],
+  "mcp:remove": [p("name"), p("target", mcpTarget)],
   "project:open": [p("folder"), p("options", object({ takeNotice: b }, []), true)],
   "chat:ports": [p("chatId")],
   "browser:open-page": request({ chatId: s, url: s }),

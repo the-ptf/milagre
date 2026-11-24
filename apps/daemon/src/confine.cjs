@@ -155,6 +155,8 @@ const PATHS = Object.freeze({
   "connectors:access": denied,
   "connectors:tools": denied,
   "connectors:movable": denied,
+  "connectors:moved": none,
+  "connectors:dismiss-moved": denied,
   "limits:auto-switch:read": none,
   "limits:auto-switch:save": denied,
   "limits:resume-at-reset:read": none,

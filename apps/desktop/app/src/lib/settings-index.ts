@@ -486,8 +486,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   { page: "usage", title: "Token mix", keywords: "input output cache tokens" },
 
   { page: "mcp", title: "Add connector", keywords: "slack linear notion sign in connect once every account" },
-  { page: "mcp", title: "MCP servers", keywords: "account servers tools stdio command model context protocol" },
-  { page: "mcp", title: "Add server", group: "MCP servers", keywords: "tool server install connect command stdio" },
+  { page: "mcp", title: "MCP servers", keywords: "account servers tools model context protocol sign in" },
   {
     page: "mcp",
     title: "Milagre MCP",

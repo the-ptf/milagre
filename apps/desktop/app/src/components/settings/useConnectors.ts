@@ -11,20 +11,23 @@ export function useConnectors(bridge: MilagreBridge = window.milagre) {
   const [connectors, setConnectors] = useState<ConnectorSummary[] | null>(null);
   const [accounts, setAccounts] = useState<McpAccount[]>([]);
   const [movable, setMovable] = useState<ConnectorMovable[]>([]);
+  const [moved, setMoved] = useState<string[]>([]);
   const [signingIn, setSigningIn] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
     setError("");
     try {
-      const [list, found, moves] = await Promise.all([
+      const [list, found, moves, movedHere] = await Promise.all([
         bridge.connectors.list(),
         bridge.mcp.accounts().catch(() => []),
         bridge.connectors.movable().catch(() => []),
+        bridge.connectors.moved().catch(() => []),
       ]);
       setConnectors(list);
       setAccounts(found);
       setMovable(moves);
+      setMoved(movedHere);
     } catch (cause) {
       setError(messageOf(cause));
     }
@@ -61,12 +64,18 @@ export function useConnectors(bridge: MilagreBridge = window.milagre) {
     connectors,
     accounts,
     movable,
+    moved,
     signingIn,
     error,
     refresh,
     signIn,
     add: async (input: ConnectorInput) => signInIfNeeded(await bridge.connectors.add(input)),
     cancelSignIn: () => run(() => bridge.connectors.cancelSignIn()),
+    dismissMoved: () =>
+      run(async () => {
+        await bridge.connectors.dismissMoved();
+        setMoved([]);
+      }),
     check: (id: string) => run(() => bridge.connectors.check(id)),
     signOut: (id: string) => run(() => bridge.connectors.signOut(id)),
     remove: (id: string) => run(() => bridge.connectors.remove(id)),

@@ -8,7 +8,17 @@ export type ConnectorState = "connected" | "signed-in" | "needs-sign-in" | "fail
 export type ConnectorSummary = {
   id: string;
   name: string;
+  /** `command` runs on the computer, one process shared by every Chat; `linear` is Milagre's own Linear sign-in. */
+  kind?: "url" | "command" | "linear";
   url: string;
+  command?: string;
+  args?: string[];
+  /** Names of the environment variables a command connector starts with; their values never leave the computer. */
+  env?: string[];
+  /** Linear workspaces signed in, for the built-in Linear connector. */
+  workspaces?: string[];
+  /** A command connector's process is running now. */
+  running?: boolean;
   /** Set for servers without dynamic client registration (Slack): the OAuth app Milagre signs in as. */
   clientId: string | null;
   hasClientSecret: boolean;
@@ -21,8 +31,26 @@ export type ConnectorSummary = {
   tools?: number;
 };
 
-export type ConnectorInput = { name: string; url: string; clientId?: string; clientSecret?: string; headers?: Record<string, string> };
-export type ConnectorUpdate = { name?: string; clientId?: string; clientSecret?: string; headers?: Record<string, string> };
+/** An address (`url`, with optional OAuth app or headers) or a `command` that starts the server on the computer. */
+export type ConnectorInput = {
+  name: string;
+  url?: string;
+  clientId?: string;
+  clientSecret?: string;
+  headers?: Record<string, string>;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+};
+export type ConnectorUpdate = {
+  name?: string;
+  clientId?: string;
+  clientSecret?: string;
+  headers?: Record<string, string>;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+};
 /** An Everywhere MCP server with an address, which can become a connector. */
 export type ConnectorMovable = { name: string; url: string };
 
@@ -129,6 +157,23 @@ export function connectorPresetInput(
 export const connectorAccessKey = (provider: McpProvider, accountId: string) => `${provider}:${accountId}`;
 export const connectorAllows = (connector: Pick<ConnectorSummary, "off">, provider: McpProvider, accountId: string) =>
   !connector.off.includes(connectorAccessKey(provider, accountId));
+
+/** The row's second line: the address's host, the command a command connector runs, or the Linear workspaces. */
+export function connectorSubtitle(connector: ConnectorSummary): string {
+  if (connector.kind === "command") return [connector.command, ...(connector.args ?? [])].join(" ");
+  if (connector.kind === "linear") return `Built in · ${connector.workspaces?.length ? connector.workspaces.join(", ") : "Linear"}`;
+  try {
+    return new URL(connector.url).host;
+  } catch {
+    return connector.url;
+  }
+}
+
+/** The note after Everywhere servers moved here on their own. */
+export function connectorMovedNote(names: readonly string[]): string {
+  const list = names.length > 2 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names.join(" and ");
+  return `${list} moved here from Everywhere. Each runs once on the computer for every Chat; sign in once where asked.`;
+}
 
 export function connectorStateLine(connector: ConnectorSummary): string {
   if (connector.state === "connected") return connector.tools === 1 ? "1 tool" : `${connector.tools ?? 0} tools`;

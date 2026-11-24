@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { Pressable, Text, View, type StyleProp, type TextStyle } from "react-native";
-import { Stack, router, useLocalSearchParams } from "expo-router";
-import { mcpChipLine, mcpEditTarget, mcpRemoveTargets, mcpTargetPlaces, mcpTransportLine } from "@milagre/shared/mcp";
+import { Stack, useLocalSearchParams } from "expo-router";
+import { mcpChipLine, mcpTransportLine } from "@milagre/shared/mcp";
 import { providerName } from "@milagre/shared/providers";
 import { useMcp } from "../../use-mcp";
-import { ErrorNotice, Group, PageScroll, PillButton, Toggle, pressStyle, useStyles } from "../../ui";
+import { ErrorNotice, Group, PageScroll, Toggle, pressStyle, useStyles } from "../../ui";
 import { lineHeight, type } from "../../design-tokens";
 import { useTheme } from "../../theme";
-import { confirm } from "../../confirm-store";
 
 export default function McpServerScreen() {
   const { name } = useLocalSearchParams<{ name: string }>();
@@ -15,7 +14,6 @@ export default function McpServerScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
   const [error, setError] = useState("");
-  const [removing, setRemoving] = useState(false);
   const { attention, user, other } = mcp.groups;
   const row = [...attention, ...user, ...other.flatMap((group) => group.rows)].find((item) => item.name === name);
   if (!row)
@@ -28,21 +26,6 @@ export default function McpServerScreen() {
       </>
     );
   const fail = (cause: unknown) => setError(cause instanceof Error ? cause.message : "Could not reach the computer.");
-  async function remove() {
-    if (!row || removing) return;
-    setRemoving(true);
-    setError("");
-    try {
-      const targets = mcpRemoveTargets(row);
-      if (!(await confirm(`Remove ${row.name}?`, `Removes it from ${mcpTargetPlaces(targets)}. Chats stop loading it.`, "Remove"))) return;
-      await mcp.remove(row.name, targets);
-      router.back();
-    } catch (cause) {
-      fail(cause);
-    } finally {
-      setRemoving(false);
-    }
-  }
   return (
     <>
       <Stack.Screen options={{ title: row.name }} />
@@ -76,16 +59,9 @@ export default function McpServerScreen() {
           })}
         </Group>
         {error ? <ErrorNotice message={error} /> : null}
-        {row.editable && row.transport === "url" ? (
-          <View style={{ gap: 12 }}>
-            <PillButton title="Edit" secondary onPress={() => router.push({ pathname: "/mcp-add", params: { name: row.name, target: mcpEditTarget(row) } })} />
-            <PillButton title="Remove" secondary destructive loading={removing} onPress={() => void remove()} />
-          </View>
-        ) : row.editable ? (
-          <Text style={[styles.muted, { paddingHorizontal: 4 }]}>Edit on your computer.</Text>
-        ) : (
-          <Text style={[styles.muted, { paddingHorizontal: 4 }]}>Set up outside Milagre. Change it where it is defined.</Text>
-        )}
+        <Text style={[styles.muted, { paddingHorizontal: 4 }]}>
+          {row.editable ? "Change it in its provider's config." : "Set up outside Milagre. Change it where it is defined."}
+        </Text>
       </PageScroll>
     </>
   );

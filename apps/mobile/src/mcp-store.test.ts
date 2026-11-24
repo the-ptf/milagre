@@ -133,19 +133,16 @@ const withServer = {
   servers: [{ name: "pencil", transport: "url", scope: "user", state: "connected", tools: 1, error: null, detail: null }],
 };
 
-test("writes go through the allowed methods and start a re-check", async () => {
+test("a switch goes through the allowed method and re-checks its account", async () => {
   const mac = fake((method) => (method === "mcp:accounts" ? [account] : method === "mcp:check" ? check : null));
   const store = createMcpStore(mac.client);
   await store.toggle(chip, "pencil", false);
-  await store.remove("pencil", ["everywhere", "claude"]);
-  await store.saveUrl({ name: "x", type: "http", url: "https://x.dev", headers: {} }, "claude");
   await tick();
   assert.deepEqual(
     mac.calls.filter((method) => method !== "mcp:accounts" && method !== "mcp:check"),
-    ["mcp:toggle", "mcp:remove", "mcp:remove", "mcp:saveUrl"],
+    ["mcp:toggle"],
   );
-  // The toggle re-checks only its account; remove and save refresh everything.
-  assert.equal(mac.calls.filter((method) => method === "mcp:accounts").length, 2);
+  assert.equal(mac.calls.filter((method) => method === "mcp:accounts").length, 0);
 });
 
 test("a toggle re-checks only the toggled account, not the whole list", async () => {
@@ -167,44 +164,6 @@ test("a toggle re-checks only the toggled account, not the whole list", async ()
   await tick();
   assert.deepEqual(checked, [["claude", "a"]]);
   assert.equal(mac.calls.filter((method) => method === "mcp:accounts").length, accountsBefore);
-});
-
-test("remove tries every config even when one fails, then reports the failures once", async () => {
-  const removed: unknown[][] = [];
-  const mac = fake((method, args) => {
-    if (method === "mcp:remove") {
-      if (args[1] === "claude") throw new Error("claude mcp remove failed");
-      removed.push(args);
-      return null;
-    }
-    return method === "mcp:accounts" ? [account] : check;
-  });
-  const store = createMcpStore(mac.client);
-  await assert.rejects(store.remove("pencil", ["everywhere", "claude", "codex"]), /Couldn’t remove pencil from Claude’s config\. claude mcp remove failed/);
-  assert.deepEqual(removed, [
-    ["pencil", "everywhere"],
-    ["pencil", "codex"],
-  ]);
-  await tick();
-  assert.equal(mac.calls.filter((method) => method === "mcp:accounts").length, 1, "the list re-checks after a partial failure");
-});
-
-test("writes resolve once the Mac took them, before the re-check finishes", async () => {
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => (release = resolve));
-  const mac = fake(async (method) => {
-    if (method === "mcp:accounts") {
-      await gate;
-      return [account];
-    }
-    return method === "mcp:check" ? check : null;
-  });
-  const store = createMcpStore(mac.client);
-  await store.saveUrl({ name: "x", type: "http", url: "https://x.dev", headers: {} }, "everywhere");
-  assert.equal(store.get().busy, true);
-  release();
-  await tick();
-  assert.equal(store.get().busy, false);
 });
 
 test("a switch shows its new value while the write runs, ignores a second flip, and keeps it after", async () => {

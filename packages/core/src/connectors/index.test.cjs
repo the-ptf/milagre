@@ -82,12 +82,13 @@ test("an expired access token refreshes without opening a browser", async (t) =>
       followInBrowser(url);
     },
   });
-  await connectors.add({ name: "Linear", url: server.url });
-  await connectors.signIn("linear");
+  const { id } = await connectors.add({ name: "Linear", url: server.url });
+  assert.equal(id, "linear_2", "linear belongs to Milagre's own Linear sign-in");
+  await connectors.signIn(id);
   assert.equal(opened, 1);
   server.expire();
-  await connectors.update("linear", { name: "Linear" });
-  const result = await connectors.call("linear", "echo", { text: "again" });
+  await connectors.update(id, { name: "Linear" });
+  const result = await connectors.call(id, "echo", { text: "again" });
   assert.equal(result.content[0].text, "echo: again");
   assert.equal(opened, 1);
   assert.ok(server.state.tokenRequests.some((request) => request.grant_type === "refresh_token"));
@@ -157,6 +158,47 @@ test("an API-key server connects with its headers, which never leave the compute
   await connectors.update("github", { headers: { "X-Api-Key": "wrong" } });
   assert.equal((await connectors.check("github")).state, "failed");
   await assert.rejects(connectors.add({ name: "Bad", url: server.url, headers: { "Bad Header": "x" } }), /header name/);
+});
+
+const STDIO = path.join(__dirname, "test-stdio-server.cjs");
+const starts = (file) => (fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n").filter(Boolean).length : 0);
+const until = async (condition) => {
+  while (!condition()) await new Promise((resolve) => setImmediate(resolve));
+};
+
+test("a command connector runs one shared process, stops when idle and offers saved tools without starting", async (t) => {
+  const { dataDir, connectors } = fixture(t, { idleMs: 20 });
+  const counter = path.join(dataDir, "starts.txt");
+  const added = await connectors.add({ name: "Paper", command: process.execPath, args: [STDIO, counter], env: { FAKE_USER: "u-48213" } });
+  assert.equal(added.kind, "command");
+  assert.equal(added.state, "connected");
+  assert.equal(added.tools, 1);
+  assert.deepEqual(added.env, ["FAKE_USER"]);
+  assert.equal(JSON.stringify(connectors.list()).includes("u-48213"), false);
+  const [first, second] = await Promise.all([connectors.call("paper", "whoami", {}), connectors.call("paper", "whoami", {})]);
+  assert.equal(first.content[0].text, "user=u-48213");
+  assert.equal(second.content[0].text, "user=u-48213");
+  assert.equal(starts(counter), 1, "every caller shares the first process");
+  await until(() => !connectors.get("paper").running);
+
+  const restarted = createConnectors({ dataDir, port: 0, idleMs: 20 });
+  t.after(() => restarted.dispose());
+  assert.deepEqual(
+    restarted.ready("claude", "a").map(({ tools }) => tools.map((tool) => tool.name)),
+    [["whoami"]],
+  );
+  assert.equal(starts(counter), 1, "a restarted host offers the saved tools without starting the command");
+  assert.equal((await restarted.call("paper", "whoami", {})).content[0].text, "user=u-48213");
+  assert.equal(starts(counter), 2);
+  await assert.rejects(restarted.signIn("paper"), /no sign-in/);
+});
+
+test("a command that fails to start says what it printed", async (t) => {
+  const { dataDir, connectors } = fixture(t);
+  const added = await connectors.add({ name: "Broken", command: process.execPath, args: [STDIO, path.join(dataDir, "c.txt"), "fail"] });
+  assert.equal(added.state, "failed");
+  assert.match(added.problem, /no license key found/);
+  await assert.rejects(connectors.add({ name: "Empty", command: "  " }), /command/);
 });
 
 test("names, ids and addresses", () => {

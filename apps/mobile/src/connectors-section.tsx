@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useFocusEffect } from "expo-router";
-import { Globe02Icon } from "@hugeicons/core-free-icons";
+import { CommandLineIcon, Globe02Icon } from "@hugeicons/core-free-icons";
 import {
   CONNECTORS_HINT,
   CONNECTORS_TITLE,
@@ -13,6 +13,8 @@ import {
   connectorPreset,
   connectorReach,
   connectorStateLine,
+  connectorMovedNote,
+  CONNECTOR_PRESETS,
   type ConnectorSummary,
 } from "@milagre/shared/connectors";
 import type { McpAccount } from "@milagre/shared/mcp";
@@ -26,7 +28,7 @@ const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : 
 
 function Tile({ connector }: { connector: ConnectorSummary }) {
   const { colors } = useTheme();
-  const iconPath = connectorPreset(connector)?.iconPath;
+  const iconPath = connector.kind === "linear" ? CONNECTOR_PRESETS.find((preset) => preset.id === "linear")?.iconPath : connectorPreset(connector)?.iconPath;
   return (
     <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       {iconPath ? (
@@ -34,7 +36,7 @@ function Tile({ connector }: { connector: ConnectorSummary }) {
           <Path d={iconPath} fill={colors.ink} />
         </Svg>
       ) : (
-        <Icon icon={Globe02Icon} tone="ink2" size={20} />
+        <Icon icon={connector.kind === "command" ? CommandLineIcon : Globe02Icon} tone="ink2" size={20} />
       )}
     </View>
   );
@@ -47,16 +49,19 @@ export function ConnectorsSection() {
   const [connectors, setConnectors] = useState<ConnectorSummary[] | null>(null);
   const [accounts, setAccounts] = useState<McpAccount[]>([]);
   const [open, setOpen] = useState<string | null>(null);
+  const [moved, setMoved] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     if (!client) return;
     try {
-      const [list, found] = await Promise.all([
+      const [list, found, movedHere] = await Promise.all([
         client.call<ConnectorSummary[]>("connectors:list", []),
         client.call<McpAccount[]>("mcp:accounts", []).catch(() => [] as McpAccount[]),
+        client.call<string[]>("connectors:moved", []).catch(() => [] as string[]),
       ]);
       setConnectors(list);
+      setMoved(movedHere);
       setAccounts(found);
       setError("");
     } catch (cause) {
@@ -90,6 +95,11 @@ export function ConnectorsSection() {
         </Text>
       </View>
       <InlineError message={error} />
+      {moved.length ? (
+        <Group inset={0}>
+          <ListRow title={connectorMovedNote(moved)} titleLines={4} chevron={false} value="Got it" onPress={() => act("connectors:dismiss-moved", [])} />
+        </Group>
+      ) : null}
       {connectors?.length ? (
         <Group inset={0}>
           {connectors.map((connector) => (
@@ -126,8 +136,10 @@ export function ConnectorsSection() {
             })}
           </Group>
           <Group inset={0}>
-            {selected.state !== "needs-sign-in" ? <ListRow title="Sign out" chevron={false} onPress={() => act("connectors:sign-out", [selected.id])} /> : null}
-            <ListRow title="Remove" destructive chevron={false} onPress={() => void remove(selected)} />
+            {selected.state !== "needs-sign-in" && selected.kind !== "command" ? (
+              <ListRow title="Sign out" chevron={false} onPress={() => act("connectors:sign-out", [selected.id])} />
+            ) : null}
+            {selected.kind !== "linear" ? <ListRow title="Remove" destructive chevron={false} onPress={() => void remove(selected)} /> : null}
           </Group>
         </>
       ) : null}

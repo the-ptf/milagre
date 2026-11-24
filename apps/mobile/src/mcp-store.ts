@@ -1,4 +1,4 @@
-import { mcpTargetPlaces, type McpAccount, type McpAccountCheck, type McpChip, type McpServerDefinition, type McpTarget } from "@milagre/shared/mcp";
+import type { McpAccount, McpAccountCheck, McpChip } from "@milagre/shared/mcp";
 import type { Live, LiveOptions } from "./live.ts";
 
 type McpEntry = { account: McpAccount; check: McpAccountCheck | null };
@@ -156,24 +156,6 @@ export function createMcpStore(initial: McpClient, appState?: McpAppState) {
       } finally {
         unpend(key);
       }
-    },
-    async remove(name: string, targets: McpTarget[]) {
-      const failed: { target: McpTarget; message: string }[] = [];
-      for (const target of targets) {
-        try {
-          await client.call("mcp:remove", [name, target]);
-        } catch (cause) {
-          failed.push({ target, message: cause instanceof Error ? cause.message : "Could not reach the computer." });
-        }
-      }
-      void refresh();
-      if (failed.length)
-        throw new Error(`Couldn’t remove ${name} from ${mcpTargetPlaces(failed.map((item) => item.target))}. ${failed.map((item) => item.message).join(" ")}`);
-    },
-    definition: (name: string, target: McpTarget) => client.call<McpServerDefinition | null>("mcp:definition", [name, target]),
-    async saveUrl(def: McpServerDefinition, target: McpTarget, previous?: { name: string; target: McpTarget }) {
-      await client.call("mcp:saveUrl", [def, target, previous ?? null]);
-      void refresh();
     },
   };
 }

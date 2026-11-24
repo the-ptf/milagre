@@ -28,6 +28,7 @@ function createConnectorStore({ dataDir }) {
     fs.writeFileSync(temp, JSON.stringify(value), { mode: 0o600 });
     fs.renameSync(temp, file);
   }
+  const toolsFile = (id) => path.join(root, "tools", `${id}.json`);
   const secretFile = (id) => {
     if (!isConnectorId(id)) throw new Error(`${JSON.stringify(String(id))} isn't a connector.`);
     return path.join(secretsDir, `${id}.json`);
@@ -48,7 +49,22 @@ function createConnectorStore({ dataDir }) {
     remove(id) {
       write(listFile, { connectors: list().filter((item) => item.id !== id) });
       fs.rmSync(secretFile(id), { force: true });
+      fs.rmSync(toolsFile(id), { force: true });
     },
+    /** `provider:accountId` keys a built-in Connector (Linear) is off for. */
+    readAccess: (id) => {
+      const value = read(path.join(root, "builtin.json"))?.[id]?.off;
+      return Array.isArray(value) ? value.filter((key) => typeof key === "string") : [];
+    },
+    saveAccess(id, off) {
+      write(path.join(root, "builtin.json"), { ...read(path.join(root, "builtin.json")), [id]: { off } });
+    },
+    /** Everywhere servers moved here automatically that the user hasn't dismissed the note about. */
+    readMoved: () => (Array.isArray(read(path.join(root, "moved.json"))) ? read(path.join(root, "moved.json")) : []),
+    saveMoved: (names) => write(path.join(root, "moved.json"), names),
+    /** The tool list the server last answered, so a command connector's tools are offered without starting it. */
+    readTools: (id) => (isConnectorId(id) && Array.isArray(read(toolsFile(id))) ? read(toolsFile(id)) : null),
+    saveTools: (id, tools) => isConnectorId(id) && write(toolsFile(id), tools),
     secrets(id) {
       const file = secretFile(id);
       return {

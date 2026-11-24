@@ -10,6 +10,9 @@ import {
   connectorPreset,
   connectorReach,
   connectorStateLine,
+  connectorSubtitle,
+  connectorMovedNote,
+  CONNECTOR_PRESETS,
   type ConnectorSummary,
 } from "@milagre/shared/connectors";
 import type { McpAccount } from "@milagre/shared/mcp";
@@ -28,13 +31,9 @@ import { ConnectorTile } from "./ConnectorTile";
 import { useConnectors, type ConnectorsState } from "./useConnectors";
 
 const card = "divide-y divide-line overflow-hidden rounded-card border border-line bg-surface";
-const hostOf = (url: string) => {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url;
-  }
-};
+const LINEAR_ICON = CONNECTOR_PRESETS.find((preset) => preset.id === "linear")?.iconPath;
+const iconOf = (connector: ConnectorSummary) => (connector.kind === "linear" ? LINEAR_ICON : connectorPreset(connector)?.iconPath);
+const toolPrefix = (connector: ConnectorSummary) => (connector.kind === "linear" ? "linear_" : `${connector.id}__`);
 
 function RowAction({ connector, state }: { connector: ConnectorSummary; state: ConnectorsState }) {
   if (state.signingIn === connector.id)
@@ -43,7 +42,7 @@ function RowAction({ connector, state }: { connector: ConnectorSummary; state: C
         Cancel
       </Button>
     );
-  if (connector.state === "needs-sign-in")
+  if (connector.state === "needs-sign-in" && connector.kind !== "command")
     return (
       <Button data-connector-sign-in={connector.id} disabled={state.signingIn !== null} onClick={() => void state.signIn(connector.id)}>
         Sign in
@@ -78,7 +77,8 @@ function ConnectorRow({ connector, state, open, onToggle }: { connector: Connect
   const [confirming, setConfirming] = useState(false);
   const failed = connector.state === "failed";
   const signingIn = state.signingIn === connector.id;
-  const subtitle = signingIn ? CONNECTOR_SIGNING_IN : failed ? connectorStateLine(connector) : hostOf(connector.url);
+  const subtitle = signingIn ? CONNECTOR_SIGNING_IN : failed ? connectorStateLine(connector) : connectorSubtitle(connector);
+  const signsIn = connector.kind !== "command" && connector.state !== "needs-sign-in";
   const summary =
     connector.state === "connected"
       ? `${connectorStateLine(connector)} · ${connectorReach(connector, state.accounts)}`
@@ -87,7 +87,7 @@ function ConnectorRow({ connector, state, open, onToggle }: { connector: Connect
     <div data-connector-row={connector.id} data-state={connector.state} data-open={open}>
       <div className="flex min-h-15 items-center gap-3 px-4 py-3">
         <button type="button" aria-expanded={open} onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-          <ConnectorTile iconPath={connectorPreset(connector)?.iconPath} warn={connector.state === "needs-sign-in"} />
+          <ConnectorTile iconPath={iconOf(connector)} command={connector.kind === "command"} warn={connector.state === "needs-sign-in"} />
           <span className="grid min-w-0 flex-1 gap-0.5">
             <span className="truncate text-13 font-semibold text-ink">{connector.name}</span>
             <span className={`truncate text-12 ${failed ? "text-red-ink" : "text-ink-3"}`}>{subtitle}</span>
@@ -119,26 +119,28 @@ function ConnectorRow({ connector, state, open, onToggle }: { connector: Connect
           ) : (
             <div className="mt-1 flex min-h-11 items-center gap-2">
               <span className="min-w-0 flex-1 truncate text-12 text-ink-3">
-                Tools read <code className="font-mono">{connector.id}__…</code> for agents
+                Tools read <code className="font-mono">{toolPrefix(connector)}…</code> for agents
               </span>
-              {connector.state !== "needs-sign-in" && (
+              {signsIn && (
                 <Button
                   variant="secondary"
                   data-connector-sign-in-again={connector.id}
                   disabled={state.signingIn !== null}
                   onClick={() => void state.signIn(connector.id)}
                 >
-                  Sign in again
+                  {connector.kind === "linear" ? "Add workspace" : "Sign in again"}
                 </Button>
               )}
-              {connector.state !== "needs-sign-in" && (
+              {signsIn && (
                 <Button variant="secondary" data-connector-sign-out={connector.id} onClick={() => state.signOut(connector.id)}>
                   Sign out
                 </Button>
               )}
-              <Button variant="danger-ghost" data-connector-remove={connector.id} onClick={() => setConfirming(true)}>
-                Remove
-              </Button>
+              {connector.kind !== "linear" && (
+                <Button variant="danger-ghost" data-connector-remove={connector.id} onClick={() => setConfirming(true)}>
+                  Remove
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -155,7 +157,7 @@ function MoveSection({ state }: { state: ConnectorsState }) {
       <div className={card}>
         {state.movable.map((server) => (
           <div key={server.name} data-connector-movable={server.name} className="flex min-h-15 items-center gap-3 px-4 py-3">
-            <ConnectorTile iconPath={connectorPreset(server)?.iconPath} />
+            <ConnectorTile iconPath={connectorPreset(server)?.iconPath} command={!server.url} />
             <span className="grid min-w-0 flex-1 gap-0.5">
               <span className="truncate text-13 font-semibold text-ink">{server.name}</span>
               <span className="truncate text-12 text-ink-3">Everywhere server. Move it to sign in once instead of once per account.</span>
@@ -189,6 +191,14 @@ function ConnectorsList({ title, tabs }: { title: string; tabs: ReactNode }) {
       </p>
       <div className="mt-6 space-y-6">
         <InlineError>{state.error}</InlineError>
+        {state.moved.length > 0 && (
+          <div data-connectors-moved className="flex items-start gap-3 rounded-card border border-line bg-surface px-4 py-3">
+            <p className="min-w-0 flex-1 text-13 text-ink-2">{connectorMovedNote(state.moved)}</p>
+            <Button variant="secondary" onClick={state.dismissMoved}>
+              Got it
+            </Button>
+          </div>
+        )}
         {state.connectors?.length ? (
           <div className={card}>
             {state.connectors.map((connector) => (

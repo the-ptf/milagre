@@ -109,7 +109,6 @@ export default function Layout() {
                               name="choice-sheet"
                               options={{ ...sheet, headerShown: true, headerBackVisible: false, sheetAllowedDetents: [0.75, 1], sheetInitialDetentIndex: 0 }}
                             />
-                            <Stack.Screen name="mcp-add" options={{ ...fullSheet, title: "Add MCP server" }} />
                             <Stack.Screen name="chime-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                             <Stack.Screen name="add-computer" options={fullSheet} />
                             <Stack.Screen name="pair" options={{ title: "Pairing" }} />
