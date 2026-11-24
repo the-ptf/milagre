@@ -150,6 +150,7 @@ const stubs = {
   "./project-search": "export const ProjectSearch = () => null;",
   "./snooze-setting": "export const useSnoozeMinutes = () => [60, () => {}]; export const useSnoozePresets = () => [[], () => {}];",
   "./chat-actions": "export const chatMenu = () => []; export const runChatAction = async () => {};",
+  "./settle-flight": "export const SettledCount = ({ count }) => <span>{count}</span>;",
   "./chat-swipe-row":
     "export const ChatSwipeRow = ({ children }) => children; export const hideRevealed = () => {}; export const ClosesLeftContext = { Provider: ({ children }) => children };",
   "./offline-tray": "export const WaitingLabel = () => null;",

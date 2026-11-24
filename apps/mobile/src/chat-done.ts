@@ -49,7 +49,7 @@ export async function markChatDone({ client, projectPath, chat, action, leave }:
   return true;
 }
 
-export async function snoozeChat({ client, projectPath, chat, action, leave }: Settle, until: number) {
+async function snoozeChat({ client, projectPath, chat, action, leave }: Settle, until: number) {
   const patch = (snoozed: number | false) => () => client.call("chat:patch", [projectPath, chat.id, { snoozed_until: snoozed }]);
   if (!(await action(patch(until)))) return;
   leave();
