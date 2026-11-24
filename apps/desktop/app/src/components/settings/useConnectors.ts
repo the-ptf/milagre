@@ -19,10 +19,16 @@ export function useConnectors(bridge: MilagreBridge = window.milagre) {
     setError("");
     try {
       const [list, found, moves, movedHere] = await Promise.all([
-        bridge.connectors.list(),
-        bridge.mcp.accounts().catch(() => []),
-        bridge.connectors.movable().catch(() => []),
-        bridge.connectors.moved().catch(() => []),
+        Promise.resolve().then(() => bridge.connectors.list()),
+        Promise.resolve()
+          .then(() => bridge.mcp.accounts())
+          .catch(() => []),
+        Promise.resolve()
+          .then(() => bridge.connectors.movable())
+          .catch(() => []),
+        Promise.resolve()
+          .then(() => bridge.connectors.moved())
+          .catch(() => []),
       ]);
       setConnectors(list);
       setAccounts(found);
@@ -35,7 +41,7 @@ export function useConnectors(bridge: MilagreBridge = window.milagre) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  useEffect(() => bridge.connectors.onChanged((event) => setConnectors(event.connectors)), [bridge]);
+  useEffect(() => bridge.connectors?.onChanged?.((event) => setConnectors(event.connectors)), [bridge]);
 
   const signIn = useCallback(
     async (id: string) => {

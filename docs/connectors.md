@@ -43,6 +43,8 @@ Settings › Connectors (the `mcp` section) is one page with a **Connectors | MC
 | `connectors:call` (runs a tool directly)                                     | yes                           | no                           |
 | `connectors:list`, `check`, `tools`, `access`, `sign-out`, `remove`          | yes                           | yes; a demo phone only lists |
 
+A paired computer's Settings page on another desktop lists its Connectors in the same rows, through that computer's bridge: Available to (with that computer's Accounts), Sign out and Remove work from there; Add, Edit and sign-in say to use that computer, and Linear's own settings stay on it. An older computer without Connectors shows a line asking to update it.
+
 The CLI gets every operation from the command contracts: `milagre connectors add --input @slack.json`, `milagre connectors sign-in --id slack_company_a`, `milagre connectors access --id slack_company_a --provider codex --account-id ID --on false`.
 
 ## How agents see them

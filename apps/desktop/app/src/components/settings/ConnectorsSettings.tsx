@@ -31,13 +31,16 @@ import { ConnectorEditSheet } from "./ConnectorEditSheet";
 import { ConnectorTile } from "./ConnectorTile";
 import { LinearSettings } from "./LinearSettings";
 import { useConnectors, type ConnectorsState } from "./useConnectors";
+import type { MilagreBridge } from "../../electron";
 
 const card = "divide-y divide-line overflow-hidden rounded-card border border-line bg-surface";
 const LINEAR_ICON = CONNECTOR_PRESETS.find((preset) => preset.id === "linear")?.iconPath;
 const iconOf = (connector: ConnectorSummary) => (connector.kind === "linear" ? LINEAR_ICON : connectorPreset(connector)?.iconPath);
 const toolPrefix = (connector: ConnectorSummary) => (connector.kind === "linear" ? "linear_" : `${connector.id}__`);
 
-function RowAction({ connector, state, onEdit }: { connector: ConnectorSummary; state: ConnectorsState; onEdit: () => void }) {
+function RowAction({ connector, state, onEdit, remote }: { connector: ConnectorSummary; state: ConnectorsState; onEdit: () => void; remote?: string }) {
+  if (remote && (connector.state === "needs-sign-in" || connector.state === "needs-app"))
+    return <span className="shrink-0 text-12 text-ink-3">On {remote}</span>;
   if (state.signingIn === connector.id)
     return (
       <Button variant="secondary" data-connector-cancel={connector.id} onClick={state.cancelSignIn}>
@@ -87,12 +90,15 @@ function ConnectorRow({
   open,
   onToggle,
   onEdit,
+  remote,
 }: {
   connector: ConnectorSummary;
   state: ConnectorsState;
   open: boolean;
   onToggle: () => void;
   onEdit: () => void;
+  /** Another computer's name: its connectors are routed and removed from here, but added, edited and signed in to there. */
+  remote?: string;
 }) {
   const [confirming, setConfirming] = useState(false);
   const failed = connector.state === "failed";
@@ -118,7 +124,7 @@ function ConnectorRow({
           </span>
           <Icon icon={open ? ArrowUp01Icon : ArrowDown01Icon} size={16} className="shrink-0 text-ink-3" />
         </button>
-        <RowAction connector={connector} state={state} onEdit={onEdit} />
+        <RowAction connector={connector} state={state} onEdit={onEdit} remote={remote} />
       </div>
       {open && (
         <div className="px-4 pt-1 pb-3">
@@ -126,11 +132,14 @@ function ConnectorRow({
             Available to
           </SectionLabel>
           <Access connector={connector} accounts={state.accounts} state={state} />
-          {connector.kind === "linear" && (
-            <div className="-mx-4 mt-2 border-t border-line">
-              <LinearSettings />
-            </div>
-          )}
+          {connector.kind === "linear" &&
+            (remote ? (
+              <p className="py-2 text-12 text-ink-3">Linear's settings are on {remote}.</p>
+            ) : (
+              <div className="-mx-4 mt-2 border-t border-line">
+                <LinearSettings />
+              </div>
+            ))}
           {confirming ? (
             <div data-connector-remove-question className="mt-1 flex min-h-11 items-center gap-2">
               <span className="min-w-0 flex-1 text-12 text-ink">Remove {connector.name}? Chats lose its tools and Milagre signs out of it.</span>
@@ -146,7 +155,7 @@ function ConnectorRow({
               <span className="min-w-0 flex-1 truncate text-12 text-ink-3">
                 Tools read <code className="font-mono">{toolPrefix(connector)}…</code> for agents
               </span>
-              {signsIn && (
+              {signsIn && !remote && (
                 <Button
                   variant="secondary"
                   data-connector-sign-in-again={connector.id}
@@ -161,7 +170,7 @@ function ConnectorRow({
                   Sign out
                 </Button>
               )}
-              {connector.kind !== "linear" && (
+              {connector.kind !== "linear" && !remote && (
                 <Button variant="secondary" data-connector-edit={connector.id} onClick={onEdit}>
                   Edit
                 </Button>
@@ -285,5 +294,37 @@ export function ConnectorsSettings({ title = CONNECTORS_TITLE }: { title?: strin
       <h2 className="mt-8 px-1 text-12 font-medium text-ink-3">Milagre MCP</h2>
       <LocalMcpSettings bridge={window.milagre} />
     </>
+  );
+}
+
+/** Another paired computer's Connectors, on its Settings page: route and remove them here; add, edit and sign in on that computer. */
+export function RemoteConnectors({ bridge, name }: { bridge: MilagreBridge; name: string }) {
+  const state = useConnectors(bridge);
+  const [open, setOpen] = useState<string | null>(null);
+  return (
+    <div data-remote-connectors className="space-y-2">
+      <p className="px-1 text-12 text-ink-3">
+        Choose which of {name}'s accounts use each one. Add connectors and sign in on {name}.
+      </p>
+      {state.error && !state.connectors ? <p className="px-1 text-12 text-ink-3">Update Milagre on {name} to see its connectors here.</p> : null}
+      {state.connectors ? <InlineError>{state.error}</InlineError> : null}
+      {state.connectors?.length ? (
+        <div className={card}>
+          {state.connectors.map((connector) => (
+            <ConnectorRow
+              key={connector.id}
+              connector={connector}
+              state={state}
+              remote={name}
+              open={open === connector.id}
+              onToggle={() => setOpen(open === connector.id ? null : connector.id)}
+              onEdit={() => {}}
+            />
+          ))}
+        </div>
+      ) : (
+        state.connectors && <p className="px-1 text-12 text-ink-3">No connectors on {name} yet.</p>
+      )}
+    </div>
   );
 }

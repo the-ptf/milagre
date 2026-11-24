@@ -6,6 +6,7 @@ import { ipcErrorMessage } from "@milagre/shared/result";
 import { useEffect, useState } from "react";
 import { routeLine, seenAgo, useComputers, useHiddenComputers } from "../../lib/computers";
 import { bridgeFor } from "../../lib/computer-bridge";
+import { RemoteConnectors } from "./ConnectorsSettings";
 import { setComputerHidden } from "../../lib/hidden-projects";
 import { Group, Row } from "./SettingsGroup";
 import { ComputerResourceList } from "./ComputerResources";
@@ -180,6 +181,12 @@ export function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () 
           </div>
         )}
       </Group>
+      {computer.state === "online" && (
+        <section data-computer-connectors className="mt-6 space-y-2">
+          <h2 className="px-1 text-12 font-medium text-ink-3">Connectors</h2>
+          <RemoteConnectors key={`connectors-${id}`} bridge={bridgeFor(id)} name={computer.name} />
+        </section>
+      )}
       {computer.state === "online" && (
         <section data-computer-mcp className="mt-6">
           <h2 className="px-1 text-12 font-medium text-ink-3">MCP servers</h2>
