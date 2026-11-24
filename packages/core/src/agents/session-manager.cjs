@@ -133,7 +133,7 @@ class SessionManager {
       // An ACP agent's companion binary and launch arguments, from its resolved install (Antigravity only).
       ...(request.harness ? { harness: request.harness } : {}),
       ...(request.args ? { args: request.args } : {}),
-      linked: this.linkedFor(chatId),
+      linked: this.linkedFor(chatId, { provider, accountId }),
       emit: (event) => this.forward(chatId, entry, event),
     });
     this.sessions.set(chatId, entry);

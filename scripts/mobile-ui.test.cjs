@@ -14680,7 +14680,7 @@ test("phones keep the native Settings stack without an iPad dismissal surface", 
 // Settings with every import faked; `state` is read on each render, so a test can change the Mac or the Linear answer.
 function loadSettings(state) {
   return load("app/(settings)/settings.tsx", {
-    react: { useState: () => [state.linear ?? null, (value) => (state.set ??= []).push(value)], useCallback: (fn) => fn },
+    react: { useState: (value) => [value, () => {}], useCallback: (fn) => fn },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": {
       View: "View",
@@ -14693,7 +14693,6 @@ function loadSettings(state) {
     "expo-router": {
       Stack: { Screen: "Screen", Toolbar: Object.assign(() => null, { Button: "Button", View: "View" }) },
       router: { push: (target) => (state.pushed ??= []).push(target), navigate: (target) => (state.pushed ??= []).push(target) },
-      useFocusEffect: (fn) => (state.focus ??= []).push(fn),
     },
     "@hugeicons/core-free-icons": {},
     "@milagre/shared/chat-display": { chatListLabel: (value) => (value === "list" ? "One list" : "Grouped by Project") },
@@ -14754,22 +14753,7 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
   assert.equal(tile(alone, "Computers").props.value, "None paired");
   assert.equal(tile(alone, "Routines").props.disabled, true);
   assert.equal(tile(alone, "Routines").props.value, "No computer connected");
-  // Integrations shows Linear for a Mac that answers for it; an older Mac that answers null shows no value.
-  state.client = { url: "http://studio", call: async () => ({ enabled: false }) };
-  state.focus = [];
-  SettingsView({ onOpen() {} });
-  state.focus.at(-1)();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(state.set.at(-1).client, state.client);
-  assert.equal(state.set.at(-1).enabled, false);
-  state.client = { url: "http://studio", call: async () => null };
-  SettingsView({ onOpen() {} });
-  state.focus.at(-1)();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(state.set.at(-1), null);
-  assert.ok(settingsGroups(SettingsView({ onOpen() {} })).some((group) => group.rows.some(([title, value]) => title === "Integrations" && value === "")));
   state.client = { url: "http://studio", call: async () => ({ enabled: true }) };
-  state.linear = { client: state.client, enabled: true };
   state.recent = [{ path: "/work/milagre", name: "milagre" }];
   const opened = [];
   const tree = SettingsView({ onOpen: (page) => opened.push(page) });
@@ -14795,16 +14779,10 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
           ["Accounts", ""],
           ["Usage", ""],
           ["Skills", ""],
-          ["MCP servers", ""],
+          ["Connectors", ""],
         ],
       ],
-      [
-        "Code on Studio",
-        [
-          ["Worktrees", ""],
-          ["Integrations", "Linear"],
-        ],
-      ],
+      ["Code on Studio", [["Worktrees", ""]]],
       [
         "Studio",
         [
@@ -14841,7 +14819,6 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
     "skills",
     "mcp",
     "worktrees",
-    "connections",
     "phone-sharing",
     "this-mac",
     "experimental",
@@ -14887,14 +14864,13 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
     assert.ok(find(rendered, (n) => n.type === name));
     return rendered;
   };
-  page("app/(settings)/worktrees.tsx", "Worktrees", "mac-settings-sections", "MainSyncSection");
   page("app/(settings)/models.tsx", "Models", "context-settings-section", "ContextSettingsSection");
   page("app/(settings)/voice.tsx", "Voice", "voice-section", "VoiceSection");
-  // Integrations: Linear, then the Babysit PRs row.
-  const integrations = page("app/(settings)/connections.tsx", "Integrations", "linear-section", "LinearSection", {
+  // Worktrees: main sync, import, then the Babysit PRs row.
+  const worktrees = page("app/(settings)/worktrees.tsx", "Worktrees", "mac-settings-sections", "MainSyncSection", {
     "../mac-feature-row": { MacFeatureRow: "MacFeatureRow" },
   });
-  assert.equal(find(integrations, (n) => n.type === "MacFeatureRow").props.href, "/babysit-prs");
+  assert.equal(find(worktrees, (n) => n.type === "MacFeatureRow").props.href, "/babysit-prs");
   // Phone & sharing: iPhones on a cable and Simlock devices, then Designs and artifacts.
   const sharing = page("app/(settings)/phone-sharing.tsx", "Phone & sharing", "published-pages-section", "PublishedPagesSection", {
     "../mac-feature-row": { MacFeatureRow: "MacFeatureRow" },
@@ -15305,7 +15281,7 @@ test("mobile Device notes serializes taps, retains confirmed values and ignores 
   await settle();
 });
 
-test("mobile Integrations shows a Babysit PRs row that opens its page, hidden for an older Mac", async () => {
+test("mobile Worktrees shows a Babysit PRs row that opens its page, hidden for an older Mac", async () => {
   const react = hookHost();
   const focused = [];
   const pushed = [];
@@ -17229,6 +17205,11 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
         records[0] = { ...records[0], revokedAt: "now" };
         return;
       }
+      if (method === "connectors:list")
+        return [
+          { id: "slack_work", name: "Slack work" },
+          { id: "linear", name: "Linear" },
+        ];
       throw Error("Unexpected method " + method);
     },
   };
@@ -17264,11 +17245,27 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
     render(),
     (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "All Projects",
   ).props.onPress();
+  await settle();
+  const connectorRow = (label) =>
+    find(render(), (node) => node.type === "Pressable" && node.props.accessibilityRole === "checkbox" && node.props.accessibilityLabel === label);
+  assert.equal(
+    find(render(), (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "No connectors").props
+      .accessibilityState.checked,
+    true,
+  );
+  assert.equal(connectorRow("Slack work"), undefined);
+  find(
+    render(),
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "Choose connectors",
+  ).props.onPress();
+  assert.ok(connectorRow("Linear"));
+  connectorRow("Slack work").props.onPress();
   find(render(), (node) => node.type === "PillButton" && node.props.title === "Enable Codex CLI").props.onPress();
   await settle();
   assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, true);
-  assert.ok(find(render(), (node) => node.type === "Text" && node.props.children === "All Projects · Read only"));
+  assert.ok(find(render(), (node) => node.type === "Text" && node.props.children === "All Projects · Read only · 1 connector"));
   assert.equal(calls.find((call) => call.method === "local-mcp:enableClient").args[1].grants.projects.projectPaths, "*");
+  assert.deepEqual(calls.find((call) => call.method === "local-mcp:enableClient").args[1].grants.connectors, { ids: ["slack_work"], capabilities: ["use"] });
   find(
     render(),
     (node) => node.type === "Pressable" && node.props.accessibilityRole === "button" && node.props.accessibilityLabel === "Set up Codex CLI",
@@ -17283,6 +17280,7 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
   assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, true);
   assert.deepEqual(calls.findLast((call) => call.method === "local-mcp:enableClient").args[1].grants, {
     designs: { chatId: "/project#2", designIds: "*", capabilities: ["read"] },
+    connectors: { ids: ["slack_work"], capabilities: ["use"] },
   });
   find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.onPress();
   await settle();
@@ -22640,144 +22638,6 @@ test("inline HTML reports loading until layout, times out with Retry, and reject
     pages.every((file) => !file.exists),
     true,
   );
-});
-
-function mcpAddHost({ params = {}, saveUrl = async () => {}, definition = async () => null } = {}) {
-  const hooks = hookHost({ effects: true });
-  let backs = 0;
-  const Screen = load("app/mcp-add.tsx", {
-    react: hooks,
-    "react-native-svg": { default: "Svg", Path: "Path" },
-    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
-    "react-native": { ActivityIndicator: "ActivityIndicator", Pressable: "Pressable", Text: "Text", View: "View", Linking: { openURL: async () => {} } },
-    "expo-router": { Stack: { Screen: "Screen" }, router: { back: () => backs++, dismissTo: () => backs++ }, useLocalSearchParams: () => params },
-    "@hugeicons/core-free-icons": { Cancel01Icon: {}, Tick02Icon: {} },
-    "@milagre/shared/mcp": require("../packages/shared/src/mcp.ts"),
-    "../icons": { Icon: "Icon" },
-    "../mcp-headers": load("mcp-headers.ts", { "@milagre/shared/mcp": require("../packages/shared/src/mcp.ts") }),
-    "../use-mcp": { useMcp: () => ({ saveUrl, definition }) },
-    "../ui": {
-      CheckRow: "CheckRow",
-      CircleButton: "CircleButton",
-      Field: "Field",
-      Group: "Group",
-      IconButton: "IconButton",
-      ListRow: "ListRow",
-      PageScroll: "PageScroll",
-      SheetHeader: "SheetHeader",
-      pressStyle: () => ({}),
-      tap() {},
-    },
-  }).default;
-  const render = () => {
-    hooks.begin();
-    return Screen();
-  };
-  return {
-    render,
-    backs: () => backs,
-    field: (label) => find(render(), (n) => n.type === "Field" && n.props.label === label),
-    // The header's Close and Save are CircleButtons, the catalog's services ListRows, the rest plain Pressables.
-    button: (label) =>
-      find(
-        render(),
-        (n) =>
-          (n.type === "Pressable" && (n.props.accessibilityLabel === label || n.props.children?.props?.children === label)) ||
-          (n.type === "CircleButton" && n.props.label === label) ||
-          (n.type === "ListRow" && n.props.title === label),
-      ),
-  };
-}
-
-test("MCP catalog selects official configuration and keeps tokens out of other services", async () => {
-  const saved = [];
-  const host = mcpAddHost({ saveUrl: async (...args) => saved.push(args) });
-  assert.equal(host.button("Add"), undefined);
-  host.field("Search services").props.onChangeText("NOtIon");
-  assert.ok(host.button("Notion"));
-  assert.equal(host.button("GitHub"), undefined);
-  host.field("Search services").props.onChangeText("missing-service");
-  assert.ok(host.button("Custom MCP"));
-  host.field("Search services").props.onChangeText("");
-  host.button("GitHub").props.onPress();
-  assert.equal(host.field("URL"), undefined);
-  assert.equal(host.field("Personal access token").props.secureTextEntry, true);
-  host.button("Add").props.onPress();
-  assert.equal(saved.length, 0);
-  assert.ok(find(host.render(), (n) => n.props?.accessibilityRole === "alert"));
-  host.field("Personal access token").props.onChangeText("test-token");
-  host.button("All services").props.onPress();
-  host.button("GitHub").props.onPress();
-  assert.equal(host.field("Personal access token").props.value, "");
-  host.field("Personal access token").props.onChangeText("test-token");
-  host.button("All services").props.onPress();
-  host.button("Notion").props.onPress();
-  host.button("Add").props.onPress();
-  await new Promise(setImmediate);
-  assert.deepEqual(saved, [[{ name: "notion", type: "http", url: "https://mcp.notion.com/mcp", headers: {} }, "everywhere", undefined]]);
-  assert.equal(host.backs(), 1);
-});
-
-test("MCP token save reports failure, blocks duplicate submits, and allows retry", async () => {
-  const pending = deferred();
-  let attempt = 0;
-  const saved = [];
-  const host = mcpAddHost({
-    saveUrl: async (...args) => {
-      saved.push(args);
-      if (++attempt === 1) await pending.promise;
-    },
-  });
-  host.button("GitHub").props.onPress();
-  host.field("Personal access token").props.onChangeText("Bearer test-token");
-  host.button("Add").props.onPress();
-  // While saving, Add gives way to a spinner, so nothing can submit twice.
-  assert.equal(host.button("Add"), undefined);
-  assert.ok(find(host.render(), (n) => n.type === "ActivityIndicator"));
-  assert.equal(saved.length, 1);
-  pending.reject(new Error("Connection lost"));
-  await new Promise(setImmediate);
-  assert.equal(host.backs(), 0);
-  assert.match(find(host.render(), (n) => n.props?.accessibilityRole === "alert").props.children, /Connection lost/);
-  assert.equal(host.field("Personal access token").props.value, "Bearer test-token");
-  host.button("Add").props.onPress();
-  await new Promise(setImmediate);
-  assert.equal(saved[1][0].headers.Authorization, "Bearer test-token");
-  assert.equal(host.backs(), 1);
-});
-
-test("editing an MCP bypasses the catalog and preserves masked headers", async () => {
-  let saved;
-  const host = mcpAddHost({
-    params: { name: "docs", target: "codex" },
-    definition: async () => ({ name: "docs", type: "sse", url: "https://docs.example/sse", headers: { Authorization: "••••••" } }),
-    saveUrl: async (...args) => {
-      saved = args;
-    },
-  });
-  host.render();
-  await new Promise(setImmediate);
-  assert.equal(host.button("GitHub"), undefined);
-  assert.equal(host.field("Name").props.value, "docs");
-  host.button("Save").props.onPress();
-  await new Promise(setImmediate);
-  assert.deepEqual(JSON.parse(JSON.stringify(saved)), [
-    { name: "docs", type: "sse", url: "https://docs.example/sse", headers: { Authorization: "••••••" } },
-    "codex",
-    { name: "docs", target: "codex" },
-  ]);
-});
-
-test("MCP save without a connected computer rejects instead of closing as saved", async () => {
-  const hooks = hookHost();
-  const { useMcp } = load("use-mcp.ts", {
-    react: { ...hooks, useSyncExternalStore: (_subscribe, snapshot) => snapshot() },
-    "react-native": { AppState: {} },
-    "@milagre/shared/mcp": require("../packages/shared/src/mcp.ts"),
-    "./mcp-store": { MCP_IDLE: { entries: null, error: "", pending: {}, busy: false } },
-    "./session": { useSession: () => ({ client: null }) },
-  });
-  await assert.rejects(useMcp().saveUrl({ name: "docs", type: "http", url: "https://docs.example/mcp", headers: {} }, "everywhere"), /Connect to a computer/);
 });
 
 test("an iPad dictation shortcut reaches one focused composer and ignores unavailable fields", () => {

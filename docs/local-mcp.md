@@ -6,6 +6,8 @@ The endpoint binds to `127.0.0.1` only. Neither LAN nor relay exposes MCP. The e
 
 Choose explicit Projects or All Projects (`projectPaths: "*"`, which includes Projects opened later) with read access, or allow Worktree/Chat creation and task startup. A separate Designs-only connection binds one Chat and all or selected design IDs. It has no management or public publishing tools. HTML Artifacts and their comments are excluded. A Designs connection has no tools while its adapter is absent.
 
+Each client's editor also has a Connectors choice: No connectors (the default, also for every client set up before it existed), All connectors, or Choose connectors from the computer's list (`connectors:list`). A `connectors` grant adds the `connectors` tool group: the computer's connected [Connectors](connectors.md)' tools as `<id>__<tool>`, plus Milagre's `linear_*` tools when the grant names `linear` or `"*"` and Linear is on. The per-Account Available to lists don't apply here; they choose what agents inside Milagre get, and for an outside client the grant is the gate. A tool the server marks `readOnlyHint` is read-only, and calls go through the host's one sign-in. A Connectors-only connection is valid, and Restrict to read drops the Connectors.
+
 Automatic setup writes each credential into the client's private configuration. Milagre saves its SHA-256 hash, the grant and installation metadata. Client setup and status responses contain no credential. Turning a client off revokes access before removing the owned configuration entry. Saving scope changes for an already-configured client updates its grant in place while its owned configuration entry and credential remain valid; missing or replaced entries mint a fresh credential.
 
 For another client, turn on Custom MCP to reveal its setup and connection management. This section starts collapsed on desktop and phone. Closing it clears the one-time credential from the screen; existing grants are revoked through their Revoke action. Copy immediately after creating or replacing a credential; Milagre cannot retrieve it later. Revocation and expiration prevent further use. Do not put credentials in a repository or public design page. Listing connections never returns credentials.
@@ -68,7 +70,7 @@ On mobile use `client.call("local-mcp:create", [input])` and the existing clipbo
 
 The Designs entry point can also pass that same Designs-only input to `bridge.localMcp.enableClient("codex", input)` or `client.call("local-mcp:enableClient", ["codex", input])` to install it directly. This replaces that client's existing Milagre access. Use `create` for a separate connection that does not replace the client's current setup.
 
-The shared types are in `packages/shared/src/local-mcp.ts`. Grant keys are `projects`, `worktrees`, `chats` and `designs`; an omitted group gives no access. Management scopes contain `projectPaths` (`"*"` or `string[]`) and capabilities (`projects: read/create`, `worktrees: read/create`, `chats: read/create/start`). Designs scopes contain `chatId`, `designIds` and `read/write`. Tool arguments cannot modify permissions without user approval in the calling Chat.
+The shared types are in `packages/shared/src/local-mcp.ts`. Grant keys are `projects`, `worktrees`, `chats`, `designs` and `connectors`; an omitted group gives no access. Management scopes contain `projectPaths` (`"*"` or `string[]`) and capabilities (`projects: read/create`, `worktrees: read/create`, `chats: read/create/start`). Designs scopes contain `chatId`, `designIds` and `read/write`. Connectors scopes contain `ids` (`"*"` or Connector ids) and `use`. Tool arguments cannot modify permissions without user approval in the calling Chat.
 
 ## Tool registration and branch composition
 
@@ -83,6 +85,8 @@ The shared types are in `packages/shared/src/local-mcp.ts`. Grant keys are `proj
 ```
 
 Definitions keep `{name, description, input, readOnly, run}` and require `capability`. Inputs are strict Zod shapes. `assertActive()` rejects revoked/expired connections, changed grant revisions and disabled groups. Call it after awaited preparation and immediately before mutation. The registry also checks before invocation and before releasing results. Edits invalidate old definitions even if the new grant happens to contain the same capability; long-lived in-process agent tool lists consult `currentScope()` on each call so newly granted Projects take effect without restarting the session. The resource adapter still owns filtering and authorization by Project, Chat, design or comment identity.
+
+The `connectors` group is `connectorToolGroup` in `packages/core/src/connectors/tools.cjs`, built by `createConnectorsWiring` and registered through `integrations.connectorToolGroup`; agent connections never carry a `connectors` grant, since a Chat already gets its Account's Connectors in `milagre`.
 
 The Designs branch owns `packages/core/src/design-mcp-tools.cjs` and its `createDesignToolGroup({artifacts})` export. This branch intentionally does not duplicate that file, schemas, store, editor or publishing tools. `runtime.cjs` registers that export when present. Until the two branches are composed, design-only connection creation and isolation work, with zero design tools available.
 

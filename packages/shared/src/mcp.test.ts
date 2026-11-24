@@ -1,19 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  groupMcpRows,
-  MCP_CATALOG,
-  mcpCatalogDefinition,
-  mcpChipLine,
-  mcpEditTarget,
-  mcpRemoveTargets,
-  mcpTargetPlaces,
-  mcpSummary,
-  mcpTransportLine,
-  validateMcpServer,
-  type McpAccountCheck,
-  type McpServerReport,
-} from "./mcp.ts";
+import { groupMcpRows, mcpChipLine, mcpSummary, mcpTransportLine, type McpAccountCheck, type McpServerReport } from "./mcp.ts";
 
 const server = (over: Partial<McpServerReport>): McpServerReport => ({
   name: "pencil",
@@ -138,50 +125,4 @@ test("chip line reads tools, off, unchecked and shadowed", () => {
 test("a chip carries disabledBy from its report", () => {
   const [row] = groupMcpRows([check("codex", "default", [server({ state: "disabled", disabledBy: "provider" })])]).user;
   assert.equal(row.chips[0].disabledBy, "provider");
-});
-
-test("validation refuses unsafe names and missing fields", () => {
-  const url = { name: "linear", type: "http" as const, url: "https://mcp.linear.app/mcp", headers: {} };
-  assert.equal(validateMcpServer(url), null);
-  for (const name of ["", "my server", "a.b", "../x", "milagre"]) assert.ok(validateMcpServer({ ...url, name }), name);
-  assert.equal(validateMcpServer({ ...url, url: "ftp://x" }), "Enter an http or https URL.");
-  assert.equal(validateMcpServer({ name: "x", type: "stdio", command: " ", args: [], env: {} }), "Enter the command to run.");
-  assert.equal(validateMcpServer({ ...url, headers: { "": "v" } }), "Every header needs a name.");
-});
-
-test("remove reaches Everywhere and every Claude or Codex config the row lives in", () => {
-  const [row] = groupMcpRows([
-    check("claude", "default", [server({})]),
-    check("claude", "work", [server({})]),
-    check("codex", "default", [server({})]),
-    check("antigravity", "default", [server({ scope: "everywhere" })]),
-  ]).user;
-  assert.deepEqual(mcpRemoveTargets(row), ["everywhere", "claude", "codex"]);
-  const [codexOnly] = groupMcpRows([check("codex", "default", [server({})]), check("claude", "default", [server({ scope: "project" })])]).user;
-  assert.deepEqual(mcpRemoveTargets(codexOnly), ["codex"]);
-});
-
-test("edit opens Everywhere, else the default account's provider, else the first user provider", () => {
-  const everywhere = groupMcpRows([check("claude", "default", [server({})]), check("antigravity", "default", [server({ scope: "everywhere" })])]).user[0];
-  assert.equal(mcpEditTarget(everywhere), "everywhere");
-  const defaultFirst = groupMcpRows([check("claude", "work", [server({})]), check("codex", "default", [server({})])]).user[0];
-  assert.equal(mcpEditTarget(defaultFirst), "codex");
-  const noDefault = groupMcpRows([check("claude", "work", [server({})])]).user[0];
-  assert.equal(mcpEditTarget(noDefault), "claude");
-});
-
-test("remove targets read as the places they live", () => {
-  assert.equal(mcpTargetPlaces(["everywhere"]), "Everywhere");
-  assert.equal(mcpTargetPlaces(["claude", "codex"]), "Claude’s config and Codex’s config");
-  assert.equal(mcpTargetPlaces(["everywhere", "claude", "codex"]), "Everywhere, Claude’s config and Codex’s config");
-});
-
-test("catalog tokens are required, normalized, and never carried to a browser-auth service", () => {
-  const github = MCP_CATALOG.find((entry) => entry.id === "github")!;
-  const notion = MCP_CATALOG.find((entry) => entry.id === "notion")!;
-  for (const invalid of ["", "   ", "••••••", "Bearer ", "token\r\nInjected: header"]) {
-    assert.throws(() => mcpCatalogDefinition(github, invalid), /valid personal access token/);
-  }
-  assert.deepEqual(mcpCatalogDefinition(github, "  Bearer test-token  ").headers, { Authorization: "Bearer test-token" });
-  assert.deepEqual(mcpCatalogDefinition(notion, "test-token").headers, {});
 });

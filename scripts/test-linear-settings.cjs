@@ -1,4 +1,4 @@
-// Settings > Integrations > Linear in Electron: the switch reveals the connections, one row per workspace; Connect adds
+// The Linear connector's settings (Settings > Connectors, inside the Linear row) in Electron: the switch reveals the connections, one row per workspace; Connect adds
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -6,9 +6,9 @@ const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
-import React, { useState } from 'react';
+import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { SettingsNav, SettingsPanel } from '/src/components/Settings';
+import { LinearSettings } from '/src/components/settings/LinearSettings';
 import '/src/styles.css';
 let enabled = false;
 window.__moveToStarted = true;
@@ -21,7 +21,7 @@ const statusOf = (workspaces) =>
 // A Mac that predates workspaces sends its one connection without a list.
 const connected = { connected: true, viewer: acme.viewer, organization: acme.organization };
 window.milagre = {
-  // Integrations also shows the Babysit PRs row, which reads the host's babysitting settings.
+  // Worktrees shows the Babysit PRs row, which reads the host's babysitting settings.
   readBabysitSettings: async () => ({ enabled: false }),
   onBabysitSettings: () => () => {},
   listEditors: async () => [], listRecentProjects: async () => [], listProjects: async () => [],
@@ -50,12 +50,10 @@ window.__emitLinear = (next) => {
 window.__connectedStatus = connected;
 window.__connects = [];
 function Fixture() {
-  const [section, setSection] = useState('appearance');
   return (
-    <div style={{ display: 'flex', gap: 12, height: '100vh', padding: 12 }}>
-      <SettingsNav section={section} onSelect={setSection} onSelectProject={() => {}} onBack={() => {}} showProjectSettings={false} />
-      <main style={{ flex: 1, minWidth: 0 }}><SettingsPanel section={section} models={[]} update={null} /></main>
-    </div>
+    <main style={{ height: '100vh', padding: 12 }}>
+      <LinearSettings />
+    </main>
   );
 }
 createRoot(document.getElementById('root')).render(<Fixture />);
@@ -90,8 +88,6 @@ async function browserChecks() {
   const text = `document.querySelector('[data-linear-settings]').textContent`;
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Integrations')`);
-    await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Integrations').click()`);
     await waitFor(`!!${toggle}`);
     assert.equal(await evaluate(`!!${button("Connect")}`), false, "Connection hidden while the switch is off");
     await screenshot("off");
@@ -173,7 +169,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector('[data-linear-settings] .text-red')`), false, "no error shown");
     await screenshot("connected-elsewhere");
     assert.deepEqual(errors, []);
-    console.log("PASS: Settings > Integrations > Linear shows the connections only when on, adds workspaces through the browser and disconnects each");
+    console.log("PASS: Settings > Connectors > Linear shows the connections only when on, adds workspaces through the browser and disconnects each");
     app.exit(0);
   } catch (error) {
     console.error(error);

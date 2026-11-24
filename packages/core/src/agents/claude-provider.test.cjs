@@ -1336,15 +1336,41 @@ test("a Chat's linked tools are served in-process and allowed without Claude's o
     },
   });
   const events = [];
-  const linked = { tools: [{ name: "linked_overview", description: "Summary", input: {}, readOnly: true, run: async () => "summary of web" }] };
+  const connector = (name, readOnly) => ({
+    name: `slack_a__${name}`,
+    connector: "slack_a",
+    serverToolName: name,
+    description: `Slack A: ${name}`,
+    input: {},
+    readOnly,
+    run: async () => `${name} ran`,
+  });
+  const linked = {
+    tools: [
+      { name: "linked_overview", description: "Summary", input: {}, readOnly: true, run: async () => "summary of web" },
+      connector("search", true),
+      connector("send", false),
+    ],
+  };
   const session = new ClaudeSession({ cwd: "/repo", command: "/usr/local/bin/claude", linked, emit: (event) => events.push(event), loadSdk });
   t.after(() => session.close());
   await session.startTurn(TURN);
   await ended(events);
-  assert.deepEqual(sdk.calls.options.mcpServers, { milagre: { type: "sdk", name: "milagre", instance: {} } });
-  assert.deepEqual(sdk.calls.options.allowedTools, ["mcp__milagre__linked_overview"]);
+  assert.deepEqual(sdk.calls.options.mcpServers, {
+    milagre: { type: "sdk", name: "milagre", instance: {} },
+    slack_a: { type: "sdk", name: "slack_a", instance: {} },
+  });
+  assert.deepEqual(sdk.calls.options.allowedTools, ["mcp__milagre__linked_overview", "mcp__slack_a__search"]);
+  assert.equal(made[0].alwaysLoad, true);
+  assert.equal(made[0].tools.length, 1);
   assert.equal(made[0].tools[0].extras.annotations.readOnlyHint, true);
   assert.deepEqual(await made[0].tools[0].handler({}), { content: [{ type: "text", text: "summary of web" }], isError: false });
+  assert.equal(made[1].alwaysLoad, undefined, "connector tools stay deferred behind Claude's tool search");
+  assert.deepEqual(
+    made[1].tools.map((tool) => tool.name),
+    ["search", "send"],
+  );
+  assert.deepEqual(await made[1].tools[1].handler({}), { content: [{ type: "text", text: "send ran" }], isError: false });
 });
 
 test("Everywhere servers join mcpServers and off servers are toggled after init", async (t) => {

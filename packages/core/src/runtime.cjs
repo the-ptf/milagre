@@ -56,7 +56,6 @@ const { retireRunWorktree } = require("./routines/run-worktree.cjs");
 const { background: inBackgroundLane } = require("./process-lanes.cjs");
 const { emptyState, reconcileState, markDisconnectedSubagents, withWorktreeBases } = require("./project-state.cjs");
 const { migrateWorktreeChats } = require("./worktree-chats.cjs");
-const { linearToolDefinitions } = require("./linear/tools.cjs");
 const { ProjectStates } = require("./project-states.cjs");
 const { DiffRefresher } = require("./diff-refresh.cjs");
 const { chatKey, isTurnEnd, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
@@ -103,7 +102,7 @@ function createRuntime(options) {
   const NEEDS_USER_CHATS = 500;
   let closing = false;
   let btw;
-  let advisors;
+  let advisors, advisorStore;
   let advisorDelivery;
   const chatsHome = createChatsHome({ root: options.chatsHome ?? path.join(require("node:os").homedir(), ".milagre", "chats") });
   const withKind = (project) => (chatsHome.isHome(project.path) ? { ...project, kind: "chats" } : project);
@@ -479,7 +478,7 @@ function createRuntime(options) {
         const withMcp = { ...options, mcpExtras: () => mcp.forSession(provider, options.accountId ?? "default") };
         return createProviderSession(provider, withMcp, { version, claudeConfigDir: () => accounts.directory("claude", "default") });
       }),
-    linkedFor: (chatId) => linked.forChat(chatId),
+    linkedFor: (chatId, context) => linked.forChat(chatId, context),
     onTurnStarted: () => ports.wake(),
     hostInstructions: () => {
       try {
@@ -802,7 +801,7 @@ function createRuntime(options) {
     projectState: (projectPath) => projectStateReadOnly(projectPath),
     generateRunTitle: (request) => generateRunTitle(request, { models: titleModels(request.projectPath), isClosing: () => closing }),
     linearIssues: () => linearIssues,
-    linearTools: () => linearTools,
+    linearTools: () => integrations.linearTools,
     stopChat: (chatId) => stopChat(chatId),
     notifyWaiting: (notice) => options.notifyWaiting?.(notice),
     timers: options.routines,
@@ -936,7 +935,7 @@ function createRuntime(options) {
     review: (request) => setupReview.review(request),
   });
 
-  const { antigravity, baseCli, accounts, routing, agentCli, mcp, linear, linearIssues, linearTools, queueAccountMutation } = createAccountsWiring({
+  const { antigravity, baseCli, accounts, routing, agentCli, mcp, linear, linearIssues, integrations, queueAccountMutation } = createAccountsWiring({
     options,
     dataDir,
     emit,
@@ -1248,7 +1247,7 @@ function createRuntime(options) {
       })),
     pendingAdvisorResults: async (chatId) =>
       (await advisorStore.read(chatId)).some((record) => record.completions?.some((result) => ["pending", "sending"].includes(result.delivery))),
-    extraTools: (chatId) => [
+    extraTools: (chatId, context) => [
       ...planTools.definitions(chatId),
       ...(autopilot?.tools(chatId) ?? []),
       ...chatSecrets.definitions(chatId),
@@ -1297,8 +1296,8 @@ function createRuntime(options) {
       ...artifactCommentToolDefinitions(chatId, artifacts),
       ...require("./advisor-tools.cjs").advisorToolDefinitions(chatId, advisors),
       ...require("./link-worktree-tools.cjs").linkWorktreeToolDefinitions(chatId, createLinkWorktree),
-      ...(linear.enabled() ? linearToolDefinitions(linearTools) : []),
       ...routines.definitions(chatId),
+      ...integrations.tools(context ?? agents.sessions.get(chatId)),
     ],
     createMcpServer: ({ toolsFor }) => ({ url: (chatId) => localMcp.chatUrl(chatId, toolsFor), close: async () => {} }),
   });
@@ -1345,8 +1344,7 @@ function createRuntime(options) {
     isClosing: () => closing,
   });
   btw = require("./runtime/btw-wiring.cjs").createBtwWiring({ commands, existingChat, scopeStates, chats, agents, routing, linked, turnDefaults, emit });
-  const { advisorStore } = advisorServices;
-  ({ advisorDelivery, advisors } = advisorServices);
+  ({ advisorDelivery, advisors, advisorStore } = advisorServices);
   const linkWorkspaces = createLinkWorkspaces({
     store: linkStore,
     registry: projectRegistry(),
@@ -1542,6 +1540,7 @@ function createRuntime(options) {
     linkMembers,
     subchatEscalation: () => subchatEscalation,
     limitSwitch: () => limitSwitch,
+    integrations,
   });
 
   limitResume.start();
@@ -1600,7 +1599,7 @@ function createRuntime(options) {
   shutdown.close(() => btw.close());
   shutdown.close(() => advisorServices.close());
   shutdown.close(() => toolServices.close());
-  shutdown.close(() => linear.dispose());
+  shutdown.close(() => integrations.dispose());
   shutdown.close(() => Promise.allSettled(active));
   shutdown.close(() => attachmentTransfers.close());
   shutdown.close(() => {
@@ -1694,7 +1693,7 @@ function createRuntime(options) {
       }),
     unloadIdle: () => Promise.all([states.unloadIdle(), linkStore.unloadIdle()]).then(() => undefined),
     flush: async () => {
-      await linear.dispose();
+      await integrations.dispose();
       await Promise.allSettled(active);
       await attachmentTransfers.close();
       await scopeStates.flush();

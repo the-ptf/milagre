@@ -6,7 +6,7 @@ const { createLocalMcpOperations } = require("./local-mcp-operations.cjs");
 const { createLocalMcpServer } = require("./local-mcp-server.cjs");
 const { managementToolGroups } = require("./local-mcp-tools.cjs");
 
-function createLocalMcp({ dataDir, host, designGroup, agentScope, clientOptions, environmentReady = Promise.resolve(), emit = () => {} }) {
+function createLocalMcp({ dataDir, host, designGroup, connectorGroup, agentScope, clientOptions, environmentReady = Promise.resolve(), emit = () => {} }) {
   const directory = path.join(dataDir, "local-mcp");
   const store = createLocalMcpStore({ directory });
   const operations = createLocalMcpOperations({ directory });
@@ -64,6 +64,7 @@ function createLocalMcp({ dataDir, host, designGroup, agentScope, clientOptions,
   const registry = createLocalMcpRegistry({ connection });
   for (const group of managementToolGroups({ host, operations, grantChatProject })) registry.registerToolGroup(group);
   if (designGroup) registry.registerToolGroup(designGroup);
+  if (connectorGroup) registry.registerToolGroup(connectorGroup);
   const internal = new Map(),
     chatTokens = new Map();
   const server = createLocalMcpServer({

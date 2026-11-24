@@ -18,9 +18,10 @@ import type { DoneSettings } from "@milagre/shared/done";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import type { KeybindingCommandId, KeybindingRule, KeybindingsState } from "@milagre/shared/keybindings";
 import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync";
-import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider, McpServerDefinition, McpTarget } from "@milagre/shared/mcp";
+import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider } from "@milagre/shared/mcp";
 import type { LocalMcpApi } from "@milagre/shared/local-mcp";
 import type { LinearIssue, LinearIssuesResult, LinearStatus } from "@milagre/shared/linear";
+import type { ConnectorInput, ConnectorMovable, ConnectorSummary, ConnectorTool, ConnectorUpdate } from "@milagre/shared/connectors";
 import type {
   BackgroundTaskOutput,
   ProjectAccountScope,
@@ -518,17 +519,30 @@ export type MilagreBridge = {
   mcp: {
     accounts: () => Promise<McpAccount[]>;
     check: (provider: McpProvider, accountId: string) => Promise<McpAccountCheck>;
-    definition: (name: string, target: McpTarget) => Promise<McpServerDefinition | null>;
-    save: (def: McpServerDefinition, target: McpTarget, previous?: { name: string; target: McpTarget }) => Promise<void>;
-    saveUrl: (def: McpServerDefinition, target: McpTarget, previous?: { name: string; target: McpTarget }) => Promise<void>;
-    remove: (name: string, target: McpTarget) => Promise<void>;
     toggle: (provider: McpProvider, accountId: string, name: string, on: boolean) => Promise<void>;
     signIn: (name: string, accounts: { provider: McpProvider; accountId: string }[]) => Promise<{ started: true }>;
     cancelSignIn: (name: string) => Promise<void>;
     onChanged: (callback: (event: McpChangedEvent) => void) => () => void;
   };
+  connectors: {
+    list: () => Promise<ConnectorSummary[]>;
+    check: (id: string) => Promise<ConnectorSummary>;
+    add: (input: ConnectorInput) => Promise<ConnectorSummary>;
+    update: (id: string, patch: ConnectorUpdate) => Promise<ConnectorSummary>;
+    remove: (id: string) => Promise<void>;
+    signIn: (id: string) => Promise<ConnectorSummary>;
+    cancelSignIn: () => Promise<void>;
+    signOut: (id: string) => Promise<ConnectorSummary>;
+    setAccess: (id: string, provider: McpProvider, accountId: string, on: boolean) => Promise<ConnectorSummary>;
+    tools: (id: string) => Promise<ConnectorTool[]>;
+    movable: () => Promise<ConnectorMovable[]>;
+    move: (name: string) => Promise<ConnectorSummary>;
+    moved: () => Promise<string[]>;
+    dismissMoved: () => Promise<void>;
+    onChanged: (callback: (event: { connectors: ConnectorSummary[] }) => void) => () => void;
+  };
   localMcp: LocalMcpApi;
-  /** The Linear switch (Settings › Integrations › Linear) changed, on this Mac or from a phone. */
+  /** The Linear switch (Settings › Connectors › Linear) changed, on this Mac or from a phone. */
   onLinearEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   /** Assigned issues when query is empty, otherwise workspace matches (a key also finds that issue first). Never rejects. */
   listLinearIssues: (query?: string, options?: { fresh?: boolean; workspace?: string }) => Promise<LinearIssuesResult>;

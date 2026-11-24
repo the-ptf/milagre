@@ -349,7 +349,7 @@ function createLinkedWorktrees({
     }
   }
 
-  function toolsFor(chatId) {
+  function toolsFor(chatId, context) {
     if (!tools.has(chatId))
       tools.set(
         chatId,
@@ -372,13 +372,13 @@ function createLinkedWorktrees({
             : delegations,
         }),
       );
-    return chatTools(chatId, [...tools.get(chatId), ...extraTools(chatId)]);
+    return chatTools(chatId, [...tools.get(chatId), ...extraTools(chatId, context)]);
   }
 
   return {
     /** What a new agent session of the Chat gets: its tools, the MCP endpoint Codex reaches them at, and a way to say whether Codex took them. */
-    forChat: (chatId) => ({
-      tools: toolsFor(chatId),
+    forChat: (chatId, context) => ({
+      tools: toolsFor(chatId, context),
       url: () => mcp.url(chatId),
       toolsAvailable: (available) => setToolsAvailable(chatId, available),
     }),

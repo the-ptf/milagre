@@ -29,6 +29,12 @@ const SLOW_METHODS = Object.freeze({
   // Installing Antigravity downloads about 110 MB and unpacks it; a slow connection takes minutes.
   "agent:update-cli": 1200000,
   "linear:connect": 330000,
+  "connectors:sign-in": 330000,
+  "connectors:add": 45000,
+  "connectors:move": 45000,
+  "connectors:check": 45000,
+  "connectors:tools": 45000,
+  "connectors:call": 130000,
   "mcp:accounts": 45000,
   "mcp:check": 45000,
   "mcp:save": 45000,

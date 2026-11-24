@@ -33,9 +33,8 @@ const SOURCES: Record<keyof typeof SETTINGS_PAGES, string[]> = {
   usage: ["app/(settings)/usage.tsx", "usage-section.tsx"],
   "token-usage": ["app/(settings)/token-usage.tsx", "token-usage-section.tsx"],
   skills: ["app/(settings)/skills.tsx"],
-  mcp: ["app/(settings)/mcp.tsx", "mcp-section.tsx", "local-mcp-section.tsx"],
+  mcp: ["app/(settings)/mcp.tsx", "connectors-section.tsx", "mcp-section.tsx", "local-mcp-section.tsx", "linear-section.tsx", shared("linear.ts")],
   worktrees: ["app/(settings)/worktrees.tsx", "mac-settings-sections.tsx", shared("main-sync.ts"), shared("ade-import.ts")],
-  connections: ["app/(settings)/connections.tsx", "linear-section.tsx", shared("linear.ts")],
   "babysit-prs": ["app/(settings)/babysit-prs.tsx", "babysit-section.tsx"],
   "orchestrator-settings": [
     "app/(settings)/orchestrator-settings.tsx",
@@ -69,6 +68,11 @@ const NOT_INDEXED: Record<string, string> = {
   // A state of the page, not a setting.
   // Picks which platform's notes the catalogue's pages show; nothing is saved.
   "design-system: Platform": "a view switch on the catalogue, not a setting",
+  // Switches the Connectors page between its connectors and the MCP servers each account loads.
+  "mcp: Show": "a view switch on the page, not a setting",
+  // Actions on the connector picked above them, shown only while one is open.
+  "mcp: Sign out": "an action on the open connector, not a setting",
+  "mcp: Remove": "an action on the open connector, not a setting",
 };
 
 const read = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");

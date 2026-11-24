@@ -8,7 +8,7 @@ export type LinearStatus =
   | { connected: true; viewer: LinearViewer; organization: LinearOrganization; workspaces?: LinearWorkspace[] };
 
 export const LINEAR_TITLE = "Linear";
-export const LINEAR_HINT = "Start chats from Linear issues and see each Worktree's issue.";
+export const LINEAR_HINT = "Start chats from Linear issues and see each Worktree's issue. Choose which accounts get its tools in Connectors.";
 export const LINEAR_CONNECTING = "Finish signing in to Linear in your browser.";
 
 export const LINEAR_MOVE_TO_STARTED_TITLE = "Move issues to In Progress";

@@ -18,6 +18,12 @@ const LOCAL_ONLY = Object.freeze([
   "mcp:save",
   "mcp:signIn",
   "mcp:cancelSignIn",
+  "connectors:add",
+  "connectors:update",
+  "connectors:sign-in",
+  "connectors:cancel-sign-in",
+  "connectors:call",
+  "connectors:move",
 ]);
 const LOCAL_ONLY_PREFIXES = Object.freeze([
   "app:",

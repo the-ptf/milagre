@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   emptyLocalMcpDraft,
   localMcpClientConfig,
@@ -8,13 +8,16 @@ import {
   localMcpDraftFor,
   localMcpDraftValid,
   localMcpReadOnly,
+  localMcpWritable,
   setLocalMcpDraftKind,
+  toggleLocalMcpDraftConnector,
   toggleLocalMcpDraftProject,
   type LocalMcpClient,
   type LocalMcpDraft,
   type LocalMcpStatus,
 } from "@milagre/shared/local-mcp";
 import { useLocalMcp } from "@milagre/shared/use-local-mcp";
+import type { ConnectorSummary } from "@milagre/shared/connectors";
 import type { MilagreBridge } from "../electron";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { Checkbox } from "./primitives/Checkbox";
@@ -69,6 +72,7 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
           </label>
         )}
         <ScopeFields draft={draft} onChange={setDraft} status={local.status} />
+        <ConnectorFields draft={draft} onChange={setDraft} connectors={bridge.connectors} />
         <div className="flex gap-2">
           <Button type="submit" disabled={local.busy || !localMcpDraftValid(draft)}>
             {local.busy ? "Saving…" : client ? (client.enabled ? "Save access" : `Enable ${client.label}`) : "Create configuration"}
@@ -82,7 +86,7 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
   return (
     <section data-local-mcp className="mt-5 space-y-6">
       <p className="max-w-prose text-13 text-ink-2">
-        Connect your local tools to Milagre. Choose which Projects or Designs each app can access when you enable it.
+        Connect your local tools to Milagre. Choose which Projects, Designs and Connectors each app can use when you enable it.
       </p>
       <InlineError>{local.error}</InlineError>
       {!local.status && !local.error && (
@@ -192,7 +196,7 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
                 <ScrollArea chainScroll className="max-h-64 divide-y divide-line">
                   {custom.map((connection) => {
                     const active = !connection.revokedAt && !(connection.expiresAt && Date.parse(connection.expiresAt) <= local.checkedAt);
-                    const writable = Object.values(connection.grants).some((scope) => scope.capabilities.some((cap) => cap !== "read"));
+                    const writable = localMcpWritable(connection);
                     return (
                       <div key={connection.id} data-local-connection className="space-y-2 py-3">
                         <p className="text-13 text-ink">
@@ -308,6 +312,71 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
         {draft.kind === "designs" ? "Allow design edits" : "Allow creating Worktrees and Chats and starting tasks"}
       </label>
     </>
+  );
+}
+
+const connectorChoices = [
+  ["none", "No connectors"],
+  ["all", "All connectors"],
+  ["some", "Choose connectors"],
+] as const;
+function ConnectorFields({
+  draft,
+  onChange,
+  connectors,
+}: {
+  draft: LocalMcpDraft;
+  onChange: (draft: LocalMcpDraft) => void;
+  connectors: MilagreBridge["connectors"];
+}) {
+  const [list, setList] = useState<ConnectorSummary[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    connectors.list().then(
+      (items) => live && setList(items),
+      () => live && setList([]),
+    );
+    const off = connectors.onChanged((event) => setList(event.connectors));
+    return () => {
+      live = false;
+      off();
+    };
+  }, [connectors]);
+  return (
+    <fieldset className="space-y-2">
+      <legend className={FIELD_LABEL}>Connectors</legend>
+      <p className="text-12 text-ink-2">Lets this app use the tools of the Connectors on this computer, through Milagre.</p>
+      <RadioGroup
+        aria-label="Connectors"
+        orientation="horizontal"
+        value={draft.connectors}
+        onValueChange={(value) => onChange({ ...draft, connectors: value as LocalMcpDraft["connectors"] })}
+        className="grid-cols-[auto_auto_auto] justify-start gap-4 text-13 text-ink"
+      >
+        {connectorChoices.map(([value, label]) => (
+          <label key={value} className="flex items-center gap-2">
+            <RadioGroupItem value={value} aria-label={label} />
+            {label}
+          </label>
+        ))}
+      </RadioGroup>
+      {draft.connectors === "some" && (
+        <ScrollArea chainScroll className="max-h-44 space-y-2">
+          {list && !list.length && <p className="text-12 text-ink-2">Add a Connector in Settings › Connectors first.</p>}
+          {(list ?? []).map((connector) => (
+            <label key={connector.id} className="flex items-start gap-2 text-13 text-ink">
+              <Checkbox
+                aria-label={connector.name}
+                className="mt-1"
+                checked={draft.connectorIds.includes(connector.id)}
+                onCheckedChange={() => onChange(toggleLocalMcpDraftConnector(draft, connector.id))}
+              />
+              {connector.name}
+            </label>
+          ))}
+        </ScrollArea>
+      )}
+    </fieldset>
   );
 }
 

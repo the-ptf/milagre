@@ -1,7 +1,6 @@
 import { AccountsPage } from "./AccountsPage";
 import { SkillsSettings } from "./SkillsSettings";
-import { McpSettings } from "./McpSettings";
-import { LocalMcpSettings } from "./LocalMcpSettings";
+import { ConnectorsSettings } from "./settings/ConnectorsSettings";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -9,7 +8,6 @@ import {
   BubbleChatIcon,
   ChartColumnIcon,
   KeyboardIcon,
-  ConnectIcon,
   ChurchIcon,
   ComputerIcon,
   Globe02Icon,
@@ -53,7 +51,6 @@ import { ComputerSettings } from "./settings/ComputerSettings";
 import { AppearanceSettings } from "./settings/AppearanceSettings";
 import { MainSyncDefaultSetting, DetectRepositoriesSetting } from "./settings/MainSyncSettings";
 import { ProjectSettings } from "./settings/ProjectSettings";
-import { LinearSettings } from "./settings/LinearSettings";
 import { ChatSettings } from "./settings/ChatSettings";
 import { ExperimentalSettings } from "./settings/ExperimentalSettings";
 import { NotificationsSettings } from "./settings/NotificationsSettings";
@@ -76,7 +73,6 @@ export type SettingsSection =
   | "mcp"
   | "browser"
   | "worktrees"
-  | "connections"
   | "devices"
   | "this-mac"
   | "experimental"
@@ -106,7 +102,6 @@ const SECTIONS: Array<{
   { key: "mcp", label: SECTION_TITLES.mcp, icon: <Icon icon={Plug01Icon} />, group: "Agents" },
   { key: "browser", label: SECTION_TITLES.browser, icon: <Icon icon={Globe02Icon} />, group: "Agents" },
   { key: "worktrees", label: SECTION_TITLES.worktrees, icon: <Icon icon={FolderTreeIcon} />, group: "Code" },
-  { key: "connections", label: SECTION_TITLES.connections, icon: <Icon icon={ConnectIcon} />, group: "Code" },
   { key: "experimental", label: SECTION_TITLES.experimental, icon: <Icon icon={ChurchIcon} />, group: "footer" },
   { key: "about", label: SECTION_TITLES.about, icon: <Icon icon={InformationCircleIcon} />, group: "footer" },
 ];
@@ -117,7 +112,7 @@ const DEVICES_SECTION = { key: "devices" as const, label: SECTION_TITLES.devices
 const THIS_MAC_SECTION = { key: "this-mac" as const, label: SECTION_TITLES["this-mac"], icon: <Icon icon={LaptopIcon} /> };
 
 const ALL_SECTIONS = [...SECTIONS, DEVICES_SECTION, THIS_MAC_SECTION];
-const SELF_TITLED = new Set<SettingsSection>(["accounts", "mcp", "connections", "devices", "this-mac", "experimental"]);
+const SELF_TITLED = new Set<SettingsSection>(["accounts", "mcp", "worktrees", "devices", "this-mac", "experimental"]);
 const sectionTitle = (page: string) => ALL_SECTIONS.find((item) => item.key === page)?.label ?? page;
 
 export type SettingsProject = { path: string; name: string };
@@ -319,30 +314,15 @@ function ComputerDot({ tone }: { tone: keyof typeof DOT_COLOR }) {
   );
 }
 
-/** Integrations: services Milagre signs in to, and Babysit PRs, which opens its own page. */
-function IntegrationsSettings({ title }: { title?: string }) {
-  const [page, setPage] = useState<"integrations" | "babysit-prs">("integrations");
-  if (page === "babysit-prs") return <BabysitPrsSettings onBack={() => setPage("integrations")} />;
+/** Worktrees on every Project: how they follow main, and cleaning up the ones no Chat uses. Each Project's page sets its own. */
+function WorktreesSettings({ title }: { title?: string }) {
+  const [cleaning, setCleaning] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [babysitting, setBabysitting] = useState(false);
+  if (babysitting) return <BabysitPrsSettings onBack={() => setBabysitting(false)} />;
   return (
     <>
       <h1 className="text-22 font-semibold tracking-[-0.01em] text-ink">{title}</h1>
-      <p className="mt-1 text-13 text-ink-2">Services Milagre signs in to, so Chats can start from their issues and follow their pull requests.</p>
-      <Group title="Issue trackers">
-        <LinearSettings />
-      </Group>
-      <Group title="Pull requests">
-        <BabysitPrsRow onOpen={() => setPage("babysit-prs")} />
-      </Group>
-    </>
-  );
-}
-
-/** Worktrees on every Project: how they follow main, and cleaning up the ones no Chat uses. Each Project's page sets its own. */
-function WorktreesSettings() {
-  const [cleaning, setCleaning] = useState(false);
-  const [importing, setImporting] = useState(false);
-  return (
-    <>
       <Group title="Main branch">
         <MainSyncDefaultSetting />
       </Group>
@@ -360,6 +340,9 @@ function WorktreesSettings() {
             Review
           </button>
         </Row>
+      </Group>
+      <Group title="Pull requests">
+        <BabysitPrsRow onOpen={() => setBabysitting(true)} />
       </Group>
       {cleaning && <WorktreeCleanup bridge={window.milagre} computerName={null} onClose={() => setCleaning(false)} />}
       {importing && <ImportDialog bridge={window.milagre} onClose={() => setImporting(false)} />}
@@ -432,16 +415,9 @@ export function SettingsPanel({
           ) : (
             <p className="mt-6 text-13 text-ink-3">Open a project to see its skills.</p>
           ))}
-        {section === "mcp" && (
-          <>
-            <McpSettings title={title} />
-            <h2 className="mt-8 px-1 text-12 font-medium text-ink-3">Milagre MCP</h2>
-            <LocalMcpSettings bridge={window.milagre} />
-          </>
-        )}
+        {section === "mcp" && <ConnectorsSettings title={title} />}
         {section === "browser" && <BrowserSettings />}
-        {section === "connections" && <IntegrationsSettings title={title} />}
-        {section === "worktrees" && <WorktreesSettings />}
+        {section === "worktrees" && <WorktreesSettings title={title} />}
         {section === "devices" && <PhoneSharingPage title={title} />}
         {section === "this-mac" && <ThisMacPage title={title} onAddComputer={onAddComputer} />}
         {section === "experimental" && (

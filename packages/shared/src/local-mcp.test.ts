@@ -9,7 +9,9 @@ import {
   localMcpDraftFor,
   localMcpDraftValid,
   localMcpReadOnly,
+  localMcpWritable,
   setLocalMcpDraftKind,
+  toggleLocalMcpDraftConnector,
   toggleLocalMcpDraftProject,
 } from "./local-mcp.ts";
 
@@ -92,4 +94,34 @@ test("restricting grants removes writes without granting new resources or groups
   assert.deepEqual(JSON.parse(localMcpClientConfig({ connection: input, token: "one-time", url: "http://127.0.0.1:123/mcp" })).mcpServers.milagre.headers, {
     Authorization: "Bearer one-time",
   });
+});
+test("Connectors are opt-in per client, round-trip, and never count as Project writes", () => {
+  const base = { ...emptyLocalMcpDraft(), label: "Claude Desktop", kind: "all-projects" as const };
+  assert.equal(localMcpConfiguration(base).grants.connectors, undefined);
+  assert.deepEqual(localMcpConfiguration({ ...base, connectors: "all" }).grants.connectors, { ids: "*", capabilities: ["use"] });
+  const picked = toggleLocalMcpDraftConnector(toggleLocalMcpDraftConnector({ ...base, connectors: "some" }, "slack"), "linear");
+  assert.deepEqual(localMcpConfiguration(picked).grants.connectors, { ids: ["slack", "linear"], capabilities: ["use"] });
+  assert.equal(localMcpConfiguration({ ...base, connectors: "some" }).grants.connectors, undefined, "choosing none of them grants none");
+  const draft = localMcpDraftFor(localMcpConfiguration(picked));
+  assert.equal(draft.connectors, "some");
+  assert.deepEqual(draft.connectorIds, ["slack", "linear"]);
+  assert.equal(draft.write, false);
+  const only = { ...emptyLocalMcpDraft(), label: "Slack only", connectors: "all" as const };
+  assert.equal(localMcpDraftValid(only), true);
+  const config = localMcpConfiguration(only);
+  assert.deepEqual(config.grants, { connectors: { ids: "*", capabilities: ["use"] } });
+  const connection = { ...config, id: "c", revision: 1, createdAt: "now" };
+  assert.equal(localMcpDescription(connection), "connectors: use (all connectors)");
+  assert.equal(localMcpWritable(connection), false, "restricting a Connectors-only connection would leave nothing");
+  assert.equal(
+    localMcpClientDetail({ id: "claude-desktop", label: "Claude Desktop", configPath: "/tmp/c.json", enabled: true, state: "configured", connection }),
+    "All connectors",
+  );
+  const mixed = { ...localMcpConfiguration(picked), id: "m", revision: 1, createdAt: "now" };
+  assert.equal(
+    localMcpClientDetail({ id: "codex", label: "Codex CLI", configPath: "/tmp/c.toml", enabled: true, state: "configured", connection: mixed }),
+    "All Projects · Read only · 2 connectors",
+  );
+  assert.equal(localMcpWritable(mixed), true);
+  assert.equal(localMcpReadOnly(mixed).grants.connectors, undefined);
 });

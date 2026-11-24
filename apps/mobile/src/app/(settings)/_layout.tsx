@@ -31,7 +31,6 @@ export default function SettingsLayout() {
       <Stack.Screen name="computer-cleanup" options={{ title: "Clean up worktrees" }} />
       <Stack.Screen name="accounts" options={{ title: "Accounts" }} />
       <Stack.Screen name="browser-settings" options={{ title: "Browser" }} />
-      <Stack.Screen name="connections" options={{ title: "Integrations" }} />
       <Stack.Screen name="appearance" options={{ title: "Appearance" }} />
       <Stack.Screen name="chat-display" options={{ title: "Chat" }} />
       <Stack.Screen name="voice" options={{ title: "Voice" }} />

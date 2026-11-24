@@ -49,6 +49,21 @@ const remote = (id) => ({
       measuring: false,
     },
   }),
+  connectors: {
+    list: async () => [
+      { id: "slack", name: "Slack", kind: "url", url: "https://mcp.slack.com/mcp", clientId: "1.2", hasClientSecret: true, headers: [], off: [], state: "connected", tools: 30 },
+      { id: "notion", name: "Notion", kind: "url", url: "https://mcp.notion.com/mcp", clientId: null, hasClientSecret: false, headers: [], off: [], state: "needs-sign-in" },
+    ],
+    movable: async () => [],
+    moved: async () => [],
+    setAccess: async (...args) => (window.accessChanges.push([id, ...args]), null),
+    onChanged: () => () => {},
+  },
+  mcp: {
+    accounts: async () => [{ provider: "claude", accountId: "default", label: "atlas@example.com" }],
+    check: async (provider, accountId) => ({ provider, accountId, label: "atlas@example.com", problem: null, servers: [] }),
+    onChanged: () => () => {},
+  },
   readAutoUpdate: async () => ({ autoUpdate: false }),
   saveAutoUpdate: async (value) => (window.autoSaves.push([id, value]), { autoUpdate: value }),
   onAutoUpdate: () => () => {},
@@ -58,6 +73,7 @@ const remote = (id) => ({
   installHostUpdate: async () => (window.installs.push(id), (window.hostUpdate = { ...window.hostUpdate, status: "installing" })),
 });
 window.installs = [];
+window.accessChanges = [];
 window.hostUpdate = { status: "downloaded", version: "0.122.0", progress: 100, current: "0.121.0" };
 window.milagre = new Proxy({
   on: remote,
@@ -138,6 +154,14 @@ async function browserChecks() {
     assert.equal(await text('[data-connection="lan"] [data-connection-state]'), "In use");
     assert.match(await text('[data-connection="lan"]'), /ws:\/\/192\.168\.0\.24:8798, end-to-end encrypted/);
     assert.equal(await text('[data-connection="relay"] [data-connection-state]'), "Ready");
+    await waitFor(`document.querySelectorAll('[data-remote-connectors] [data-connector-row]').length === 2`);
+    assert.match(await text('[data-connector-row="notion"]'), /On atlas/, "signing in to another computer's connector happens there");
+    await evaluate(`document.querySelector('[data-connector-row="slack"] button[aria-expanded]').click()`);
+    await waitFor(`!!document.querySelector('[data-connector-access="slack:claude:default"]')`);
+    assert.equal(await evaluate(`!!document.querySelector('[data-connector-edit], [data-connector-sign-in-again], [data-connector-add]')`), false);
+    await evaluate(`document.querySelector('[data-connector-access="slack:claude:default"] [role="checkbox"]').click()`);
+    await waitFor(`window.accessChanges.length === 1`);
+    assert.deepEqual(await evaluate(`window.accessChanges[0]`), ["c-atlas", "slack", "claude", "default", false]);
     await waitFor(`document.querySelector('[data-computer-projects]')?.textContent.includes('2 Projects')`);
     assert.match(await text("[data-computer-projects]"), /atlas-web, infra\. Accounts and simulators stay on atlas\./);
     await waitFor(`!!document.querySelector('[data-computer-settings] [data-resource-meter=disk]')`);

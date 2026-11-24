@@ -22,7 +22,6 @@ const PAGES = new Set([
   "mcp",
   "browser",
   "worktrees",
-  "connections",
   "devices",
   "this-mac",
   "experimental",

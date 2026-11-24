@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import {
@@ -10,7 +10,9 @@ import {
   localMcpDraftFor,
   localMcpDraftValid,
   localMcpReadOnly,
+  localMcpWritable,
   setLocalMcpDraftKind,
+  toggleLocalMcpDraftConnector,
   toggleLocalMcpDraftProject,
   type LocalMcpApi,
   type LocalMcpClient,
@@ -18,6 +20,7 @@ import {
   type LocalMcpStatus,
 } from "@milagre/shared/local-mcp";
 import { useLocalMcp } from "@milagre/shared/use-local-mcp";
+import type { ConnectorSummary } from "@milagre/shared/connectors";
 import { useSession } from "./session";
 import { CheckRow, ErrorNotice, Field, InlineError, PillButton, pressStyle, Toggle, useStyles } from "./ui";
 
@@ -62,6 +65,18 @@ export function LocalMcpSection() {
   const [showConnections, setShowConnections] = useState(false);
   const [customOpen, setCustomOpen] = useState(false);
   const custom = local.status?.connections.filter((c) => !c.clientId) ?? [];
+  const [connectors, setConnectors] = useState<ConnectorSummary[] | null>(null);
+  useEffect(() => {
+    if (!client || !setup) return;
+    let live = true;
+    client.call<ConnectorSummary[]>("connectors:list", []).then(
+      (items) => live && setConnectors(items),
+      () => live && setConnectors([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [client, setup]);
   const open = (item?: LocalMcpClient) => {
     local.dismiss();
     setCopied(false);
@@ -81,6 +96,7 @@ export function LocalMcpSection() {
         </Text>
         {!item && <Field label="Connection name" value={draft.label} onChangeText={(label) => setDraft({ ...draft, label })} />}
         <ScopeFields draft={draft} onChange={setDraft} status={local.status} />
+        <ConnectorFields draft={draft} onChange={setDraft} connectors={connectors} />
         <PillButton
           title={local.busy ? "Saving…" : item ? (item.enabled ? "Save access" : `Enable ${item.label}`) : "Create configuration"}
           disabled={local.busy || !localMcpDraftValid(draft)}
@@ -91,7 +107,7 @@ export function LocalMcpSection() {
     );
   return (
     <View style={{ gap: 24 }}>
-      <Text style={styles.muted}>Connect your local tools to Milagre. Choose which Projects or Designs each app can access when you enable it.</Text>
+      <Text style={styles.muted}>Connect your local tools to Milagre. Choose which Projects, Designs and Connectors each app can use when you enable it.</Text>
       {local.error ? <ErrorNotice message={local.error} /> : null}
       {!local.status && !local.error ? <Text style={styles.muted}>Loading client settings…</Text> : null}
       <View>
@@ -183,7 +199,7 @@ export function LocalMcpSection() {
             {showConnections
               ? custom.map((connection) => {
                   const active = !connection.revokedAt && !(connection.expiresAt && Date.parse(connection.expiresAt) <= local.checkedAt);
-                  const writable = Object.values(connection.grants).some((scope) => scope.capabilities.some((cap) => cap !== "read"));
+                  const writable = localMcpWritable(connection);
                   return (
                     <View key={connection.id} style={{ gap: 8, paddingVertical: 8 }}>
                       <Text style={styles.text}>
@@ -270,6 +286,47 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
         checked={draft.write}
         onPress={() => onChange({ ...draft, write: !draft.write })}
       />
+    </>
+  );
+}
+const connectorChoices = [
+  ["none", "No connectors"],
+  ["all", "All connectors"],
+  ["some", "Choose connectors"],
+] as const;
+function ConnectorFields({
+  draft,
+  onChange,
+  connectors,
+}: {
+  draft: LocalMcpDraft;
+  onChange: (draft: LocalMcpDraft) => void;
+  connectors: ConnectorSummary[] | null;
+}) {
+  const styles = useStyles();
+  return (
+    <>
+      <Text style={styles.muted}>Connectors</Text>
+      <Text style={styles.muted}>Lets this app use the tools of the Connectors on your computer, through Milagre.</Text>
+      <View accessibilityRole="radiogroup" accessibilityLabel="Connectors">
+        {connectorChoices.map(([value, title]) => (
+          <CheckRow key={value} title={title} checked={draft.connectors === value} onPress={() => onChange({ ...draft, connectors: value })} />
+        ))}
+      </View>
+      {draft.connectors === "some" ? (
+        <>
+          {connectors && !connectors.length ? <Text style={styles.muted}>Add a Connector on your computer first.</Text> : null}
+          {(connectors ?? []).map((connector) => (
+            <CheckRow
+              key={connector.id}
+              kind="checkbox"
+              title={connector.name}
+              checked={draft.connectorIds.includes(connector.id)}
+              onPress={() => onChange(toggleLocalMcpDraftConnector(draft, connector.id))}
+            />
+          ))}
+        </>
+      ) : null}
     </>
   );
 }
