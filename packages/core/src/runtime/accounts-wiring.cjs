@@ -114,6 +114,7 @@ function createAccountsWiring({ options, dataDir, emit, commands, version, envir
   const integrations = {
     linearTools,
     tools: connectorsWiring.tools,
+    connectorToolGroup: connectorsWiring.toolGroup,
     dispose: () => Promise.all([linear.dispose(), connectorsWiring.dispose()]),
   };
   return { antigravity, baseCli, accounts, routing, agentCli, mcp, linear, linearIssues, integrations, queueAccountMutation };

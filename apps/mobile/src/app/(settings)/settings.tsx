@@ -1,6 +1,6 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Alert, Linking, Platform, Pressable, Text, View } from "react-native";
-import { Stack, router, useFocusEffect } from "expo-router";
+import { Stack, router } from "expo-router";
 import {
   Archive02Icon,
   ArrowRight01Icon,
@@ -9,7 +9,6 @@ import {
   BrowserIcon,
   Cancel01Icon,
   ComputerIcon,
-  ConnectIcon,
   Download04Icon,
   ChurchIcon,
   FolderTreeIcon,
@@ -230,21 +229,6 @@ export function SettingsView({
   const host = client ? session.hosts.find((saved) => saved.id === client.url) : undefined;
   const macName = host?.name || session.hostName || "Your computer";
   const projects = session.recent.filter((project) => !project.link);
-  const [linear, setLinear] = useState<{ client: typeof client; enabled: boolean } | null>(null);
-  useFocusEffect(
-    useCallback(() => {
-      setLinear(null);
-      if (!client) return;
-      let live = true;
-      client.call<{ enabled: boolean } | null>("linear:enabled:read", []).then(
-        (value) => live && setLinear(value ? { client, enabled: value.enabled === true } : null),
-        () => live && setLinear(null),
-      );
-      return () => {
-        live = false;
-      };
-    }, [client]),
-  );
   const status = updates.state.status;
   const update =
     status === "disabled"
@@ -339,13 +323,6 @@ export function SettingsView({
           </Group>
           <Group title={`Code on ${macName}`}>
             <Row title="Worktrees" icon={FolderTreeIcon} selected={selected === "worktrees"} onPress={() => onOpen("worktrees")} />
-            <Row
-              title="Integrations"
-              icon={ConnectIcon}
-              value={linear?.client === client ? (linear.enabled ? "Linear" : "Off") : undefined}
-              selected={selected === "connections"}
-              onPress={() => onOpen("connections")}
-            />
           </Group>
           <Group title={macName}>
             <Row title="Phone & sharing" icon={SmartphoneIcon} selected={selected === "phone-sharing"} onPress={() => onOpen("phone-sharing")} />

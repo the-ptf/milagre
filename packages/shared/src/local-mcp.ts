@@ -4,6 +4,8 @@ export type LocalMcpGrants = {
   worktrees?: { projectPaths: LocalMcpProjectPaths; capabilities: ("read" | "create")[] };
   chats?: { projectPaths: LocalMcpProjectPaths; capabilities: ("read" | "create" | "start")[] };
   designs?: { chatId: string; designIds: "*" | string[]; capabilities: ("read" | "write")[] };
+  /** The computer's Connectors whose tools this client may use, by id (`linear` for Milagre's Linear); omitted gives none. */
+  connectors?: { ids: "*" | string[]; capabilities: "use"[] };
 };
 export type LocalMcpConfiguration = { label: string; grants: LocalMcpGrants; expiresAt?: string };
 export type LocalMcpConnection = LocalMcpConfiguration & { id: string; revision: number; createdAt: string; revokedAt?: string; clientId?: string };
@@ -38,13 +40,25 @@ export type LocalMcpApi = {
 export function localMcpClientConfig(credential: LocalMcpCredential): string {
   return JSON.stringify({ mcpServers: { milagre: { url: credential.url, headers: { Authorization: `Bearer ${credential.token}` } } } }, null, 2);
 }
+const grantScope = (grant: NonNullable<LocalMcpGrants[keyof LocalMcpGrants]>): string =>
+  "projectPaths" in grant
+    ? grant.projectPaths === "*"
+      ? "all Projects"
+      : grant.projectPaths.join(", ")
+    : "ids" in grant
+      ? grant.ids === "*"
+        ? "all connectors"
+        : grant.ids.join(", ")
+      : `${grant.chatId}; ${grant.designIds === "*" ? "all designs" : grant.designIds.join(", ") || "no designs"}`;
 export function localMcpDescription(connection: LocalMcpConnection): string {
   return Object.entries(connection.grants)
-    .map(
-      ([group, grant]) =>
-        `${group}: ${grant.capabilities.join(", ")} (${"projectPaths" in grant ? (grant.projectPaths === "*" ? "all Projects" : grant.projectPaths.join(", ")) : `${grant.chatId}; ${grant.designIds === "*" ? "all designs" : grant.designIds.join(", ") || "no designs"}`})`,
-    )
+    .map(([group, grant]) => `${group}: ${grant.capabilities.join(", ")} (${grantScope(grant)})`)
     .join("; ");
+}
+/** Whether Restrict to read has something to take away and something to keep. */
+export function localMcpWritable(connection: LocalMcpConnection): boolean {
+  const grants = Object.values(connection.grants);
+  return grants.some((scope) => scope.capabilities.some((cap) => cap !== "read")) && grants.some((scope) => scope.capabilities.some((cap) => cap === "read"));
 }
 export type LocalMcpDraft = {
   label: string;
@@ -53,9 +67,30 @@ export type LocalMcpDraft = {
   chatId: string;
   designIds: string;
   write: boolean;
+  connectors: "none" | "all" | "some";
+  connectorIds: string[];
   baseGrants?: LocalMcpGrants;
 };
-export const emptyLocalMcpDraft = (): LocalMcpDraft => ({ label: "", kind: "projects", projectPaths: [], chatId: "", designIds: "*", write: false });
+export const emptyLocalMcpDraft = (): LocalMcpDraft => ({
+  label: "",
+  kind: "projects",
+  projectPaths: [],
+  chatId: "",
+  designIds: "*",
+  write: false,
+  connectors: "none",
+  connectorIds: [],
+});
+export function toggleLocalMcpDraftConnector(draft: LocalMcpDraft, id: string): LocalMcpDraft {
+  return { ...draft, connectorIds: draft.connectorIds.includes(id) ? draft.connectorIds.filter((item) => item !== id) : [...draft.connectorIds, id] };
+}
+const connectorGrant = (draft: LocalMcpDraft): LocalMcpGrants =>
+  draft.connectors === "all"
+    ? { connectors: { ids: "*", capabilities: ["use"] } }
+    : draft.connectors === "some" && draft.connectorIds.length
+      ? { connectors: { ids: draft.connectorIds, capabilities: ["use"] } }
+      : {};
+const hasConnectors = (draft: LocalMcpDraft) => Object.keys(connectorGrant(draft)).length > 0;
 export function setLocalMcpDraftKind(draft: LocalMcpDraft, kind: LocalMcpDraft["kind"]): LocalMcpDraft {
   const { baseGrants: _ignored, ...rest } = draft;
   return { ...rest, kind };
@@ -70,7 +105,7 @@ export function toggleLocalMcpDraftProject(draft: LocalMcpDraft, projectPath: st
 export function localMcpDraftValid(draft: LocalMcpDraft): boolean {
   if (!draft.label.trim()) return false;
   if (draft.kind === "designs") return draft.chatId.trim().length > 0;
-  if (draft.kind === "all-projects") return true;
+  if (draft.kind === "all-projects" || hasConnectors(draft)) return true;
   if (draft.baseGrants)
     return Object.values(draft.baseGrants).some((scope) =>
       Boolean(scope && "projectPaths" in scope && (scope.projectPaths === "*" || scope.projectPaths.length > 0)),
@@ -99,6 +134,7 @@ export function localMcpConfiguration(draft: LocalMcpDraft): LocalMcpConfigurati
               },
             }
           : {}),
+        ...connectorGrant(draft),
       },
     };
   }
@@ -119,18 +155,22 @@ export function localMcpConfiguration(draft: LocalMcpDraft): LocalMcpConfigurati
                       .filter(Boolean),
               capabilities: draft.write ? ["read", "write"] : ["read"],
             },
+            ...connectorGrant(draft),
           }
-        : {
-            projects: { projectPaths, capabilities: ["read"] },
-            worktrees: { projectPaths, capabilities: draft.write ? ["read", "create"] : ["read"] },
-            chats: { projectPaths, capabilities: draft.write ? ["read", "create", "start"] : ["read"] },
-          },
+        : projectPaths === "*" || projectPaths.length
+          ? {
+              projects: { projectPaths, capabilities: ["read"] },
+              worktrees: { projectPaths, capabilities: draft.write ? ["read", "create"] : ["read"] },
+              chats: { projectPaths, capabilities: draft.write ? ["read", "create", "start"] : ["read"] },
+              ...connectorGrant(draft),
+            }
+          : connectorGrant(draft),
   };
 }
 export function localMcpReadOnly(connection: LocalMcpConnection): LocalMcpConfiguration {
   const grants = Object.fromEntries(
     Object.entries(connection.grants)
-      .filter(([, scope]) => scope.capabilities.includes("read"))
+      .filter(([, scope]) => (scope.capabilities as string[]).includes("read"))
       .map(([group, scope]) => [group, { ...scope, capabilities: ["read"] }]),
   );
   return { label: connection.label, grants, ...(connection.expiresAt ? { expiresAt: connection.expiresAt } : {}) };
@@ -155,13 +195,18 @@ export function localMcpDraftFor(connection?: LocalMcpConfiguration): LocalMcpDr
   );
   const mixed = hasMixedProjectGrants(connection.grants);
   const allProjects = !designs && !mixed && projectScopes.length > 0 && projectScopes.every((scope) => scope.projectPaths === "*");
+  const connectors = connection.grants.connectors;
   return {
     label: connection.label,
     kind: designs ? "designs" : allProjects ? "all-projects" : "projects",
     chatId: designs?.chatId ?? "",
     designIds: designs?.designIds === "*" ? "*" : (designs?.designIds.join(", ") ?? "*"),
     projectPaths: [...new Set(projectScopes.flatMap((scope) => (scope.projectPaths === "*" ? [] : scope.projectPaths)))],
-    write: Object.values(connection.grants).some((scope) => scope.capabilities.some((cap) => cap !== "read")),
+    write: [connection.grants.projects, connection.grants.worktrees, connection.grants.chats, designs].some((scope) =>
+      scope?.capabilities.some((cap) => cap !== "read"),
+    ),
+    connectors: !connectors ? "none" : connectors.ids === "*" ? "all" : "some",
+    connectorIds: connectors && connectors.ids !== "*" ? [...connectors.ids] : [],
     ...(mixed ? { baseGrants: connection.grants } : {}),
   };
 }
@@ -177,6 +222,14 @@ export function localMcpClientDetail(client: LocalMcpClient): string {
         ? "All Projects"
         : draft.baseGrants
           ? "Custom Project scope"
-          : `${draft.projectPaths.length} ${draft.projectPaths.length === 1 ? "Project" : "Projects"}`;
-  return `${scope} · ${draft.write ? "Read and write" : "Read only"}`;
+          : draft.projectPaths.length
+            ? `${draft.projectPaths.length} ${draft.projectPaths.length === 1 ? "Project" : "Projects"}`
+            : "";
+  const connectors =
+    draft.connectors === "all"
+      ? "All connectors"
+      : draft.connectors === "some"
+        ? `${draft.connectorIds.length} ${draft.connectorIds.length === 1 ? "connector" : "connectors"}`
+        : "";
+  return [scope && `${scope} · ${draft.write ? "Read and write" : "Read only"}`, connectors].filter(Boolean).join(" · ");
 }

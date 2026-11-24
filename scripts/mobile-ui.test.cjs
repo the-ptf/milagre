@@ -14680,7 +14680,7 @@ test("phones keep the native Settings stack without an iPad dismissal surface", 
 // Settings with every import faked; `state` is read on each render, so a test can change the Mac or the Linear answer.
 function loadSettings(state) {
   return load("app/(settings)/settings.tsx", {
-    react: { useState: () => [state.linear ?? null, (value) => (state.set ??= []).push(value)], useCallback: (fn) => fn },
+    react: { useState: (value) => [value, () => {}], useCallback: (fn) => fn },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": {
       View: "View",
@@ -14693,7 +14693,6 @@ function loadSettings(state) {
     "expo-router": {
       Stack: { Screen: "Screen", Toolbar: Object.assign(() => null, { Button: "Button", View: "View" }) },
       router: { push: (target) => (state.pushed ??= []).push(target), navigate: (target) => (state.pushed ??= []).push(target) },
-      useFocusEffect: (fn) => (state.focus ??= []).push(fn),
     },
     "@hugeicons/core-free-icons": {},
     "@milagre/shared/chat-display": { chatListLabel: (value) => (value === "list" ? "One list" : "Grouped by Project") },
@@ -14754,22 +14753,7 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
   assert.equal(tile(alone, "Computers").props.value, "None paired");
   assert.equal(tile(alone, "Routines").props.disabled, true);
   assert.equal(tile(alone, "Routines").props.value, "No computer connected");
-  // Integrations shows Linear for a Mac that answers for it; an older Mac that answers null shows no value.
-  state.client = { url: "http://studio", call: async () => ({ enabled: false }) };
-  state.focus = [];
-  SettingsView({ onOpen() {} });
-  state.focus.at(-1)();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(state.set.at(-1).client, state.client);
-  assert.equal(state.set.at(-1).enabled, false);
-  state.client = { url: "http://studio", call: async () => null };
-  SettingsView({ onOpen() {} });
-  state.focus.at(-1)();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(state.set.at(-1), null);
-  assert.ok(settingsGroups(SettingsView({ onOpen() {} })).some((group) => group.rows.some(([title, value]) => title === "Integrations" && value === "")));
   state.client = { url: "http://studio", call: async () => ({ enabled: true }) };
-  state.linear = { client: state.client, enabled: true };
   state.recent = [{ path: "/work/milagre", name: "milagre" }];
   const opened = [];
   const tree = SettingsView({ onOpen: (page) => opened.push(page) });
@@ -14798,13 +14782,7 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
           ["Connectors", ""],
         ],
       ],
-      [
-        "Code on Studio",
-        [
-          ["Worktrees", ""],
-          ["Integrations", "Linear"],
-        ],
-      ],
+      ["Code on Studio", [["Worktrees", ""]]],
       [
         "Studio",
         [
@@ -14841,7 +14819,6 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
     "skills",
     "mcp",
     "worktrees",
-    "connections",
     "phone-sharing",
     "this-mac",
     "experimental",
@@ -14887,14 +14864,13 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
     assert.ok(find(rendered, (n) => n.type === name));
     return rendered;
   };
-  page("app/(settings)/worktrees.tsx", "Worktrees", "mac-settings-sections", "MainSyncSection");
   page("app/(settings)/models.tsx", "Models", "context-settings-section", "ContextSettingsSection");
   page("app/(settings)/voice.tsx", "Voice", "voice-section", "VoiceSection");
-  // Integrations: Linear, then the Babysit PRs row.
-  const integrations = page("app/(settings)/connections.tsx", "Integrations", "linear-section", "LinearSection", {
+  // Worktrees: main sync, import, then the Babysit PRs row.
+  const worktrees = page("app/(settings)/worktrees.tsx", "Worktrees", "mac-settings-sections", "MainSyncSection", {
     "../mac-feature-row": { MacFeatureRow: "MacFeatureRow" },
   });
-  assert.equal(find(integrations, (n) => n.type === "MacFeatureRow").props.href, "/babysit-prs");
+  assert.equal(find(worktrees, (n) => n.type === "MacFeatureRow").props.href, "/babysit-prs");
   // Phone & sharing: iPhones on a cable and Simlock devices, then Designs and artifacts.
   const sharing = page("app/(settings)/phone-sharing.tsx", "Phone & sharing", "published-pages-section", "PublishedPagesSection", {
     "../mac-feature-row": { MacFeatureRow: "MacFeatureRow" },
@@ -15305,7 +15281,7 @@ test("mobile Device notes serializes taps, retains confirmed values and ignores 
   await settle();
 });
 
-test("mobile Integrations shows a Babysit PRs row that opens its page, hidden for an older Mac", async () => {
+test("mobile Worktrees shows a Babysit PRs row that opens its page, hidden for an older Mac", async () => {
   const react = hookHost();
   const focused = [];
   const pushed = [];
@@ -17229,6 +17205,11 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
         records[0] = { ...records[0], revokedAt: "now" };
         return;
       }
+      if (method === "connectors:list")
+        return [
+          { id: "slack_work", name: "Slack work" },
+          { id: "linear", name: "Linear" },
+        ];
       throw Error("Unexpected method " + method);
     },
   };
@@ -17264,11 +17245,27 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
     render(),
     (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "All Projects",
   ).props.onPress();
+  await settle();
+  const connectorRow = (label) =>
+    find(render(), (node) => node.type === "Pressable" && node.props.accessibilityRole === "checkbox" && node.props.accessibilityLabel === label);
+  assert.equal(
+    find(render(), (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "No connectors").props
+      .accessibilityState.checked,
+    true,
+  );
+  assert.equal(connectorRow("Slack work"), undefined);
+  find(
+    render(),
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "Choose connectors",
+  ).props.onPress();
+  assert.ok(connectorRow("Linear"));
+  connectorRow("Slack work").props.onPress();
   find(render(), (node) => node.type === "PillButton" && node.props.title === "Enable Codex CLI").props.onPress();
   await settle();
   assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, true);
-  assert.ok(find(render(), (node) => node.type === "Text" && node.props.children === "All Projects · Read only"));
+  assert.ok(find(render(), (node) => node.type === "Text" && node.props.children === "All Projects · Read only · 1 connector"));
   assert.equal(calls.find((call) => call.method === "local-mcp:enableClient").args[1].grants.projects.projectPaths, "*");
+  assert.deepEqual(calls.find((call) => call.method === "local-mcp:enableClient").args[1].grants.connectors, { ids: ["slack_work"], capabilities: ["use"] });
   find(
     render(),
     (node) => node.type === "Pressable" && node.props.accessibilityRole === "button" && node.props.accessibilityLabel === "Set up Codex CLI",
@@ -17283,6 +17280,7 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
   assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, true);
   assert.deepEqual(calls.findLast((call) => call.method === "local-mcp:enableClient").args[1].grants, {
     designs: { chatId: "/project#2", designIds: "*", capabilities: ["read"] },
+    connectors: { ids: ["slack_work"], capabilities: ["use"] },
   });
   find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.onPress();
   await settle();

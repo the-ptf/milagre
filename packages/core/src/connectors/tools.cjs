@@ -44,9 +44,8 @@ function toolResult(result) {
   return { text, images };
 }
 
-function connectorToolDefinitions(connectors, context) {
-  if (!context?.provider || !context.accountId) return [];
-  return connectors.ready(context.provider, context.accountId).flatMap(({ connector, tools }) =>
+function definitionsOf(connectors, ready) {
+  return ready.flatMap(({ connector, tools }) =>
     tools.map((tool) => {
       const { input, wrapped } = inputOf(tool.inputSchema);
       return {
@@ -62,4 +61,40 @@ function connectorToolDefinitions(connectors, context) {
   );
 }
 
-module.exports = { connectorToolDefinitions, milagreToolName, serverToolName, toolResult };
+function connectorToolDefinitions(connectors, context) {
+  if (!context?.provider || !context.accountId) return [];
+  return definitionsOf(connectors, connectors.ready(context.provider, context.accountId));
+}
+
+/** Every connected Connector the ids name (`"*"` for all), whatever each Account's Available to says. */
+function grantedConnectorToolDefinitions(connectors, ids) {
+  return definitionsOf(
+    connectors,
+    connectors.ready().filter(({ connector }) => ids === "*" || ids.includes(connector.id)),
+  );
+}
+
+/**
+ * The local MCP endpoint's `connectors` group: an outside client gets the tools `granted(ids)` returns for its grant's ids.
+ * Available to is about provider Accounts inside Milagre; for an outside client the grant is the gate.
+ */
+function connectorToolGroup(granted) {
+  return {
+    id: "connectors",
+    enabled: () => true,
+    tools: ({ scope, assertActive }) =>
+      granted(scope.ids).map(({ name, description, input, readOnly, run }) => ({
+        name,
+        description,
+        input,
+        readOnly: readOnly === true,
+        capability: "use",
+        run: async (args) => {
+          assertActive();
+          return run(args);
+        },
+      })),
+  };
+}
+
+module.exports = { connectorToolDefinitions, grantedConnectorToolDefinitions, connectorToolGroup, milagreToolName, serverToolName, toolResult };

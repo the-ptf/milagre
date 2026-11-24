@@ -50,7 +50,6 @@ const SETTINGS_SHEET_PAGES = new Set([
   "computers",
   "computer",
   "accounts",
-  "connections",
   "appearance",
   "chat-display",
   "voice",

@@ -1,7 +1,7 @@
 const { createConnectors } = require("../connectors/index.cjs");
 const { createConnectorStore } = require("../connectors/store.cjs");
 const { createLinearConnector, LINEAR_ID } = require("../connectors/linear.cjs");
-const { connectorToolDefinitions } = require("../connectors/tools.cjs");
+const { connectorToolDefinitions, connectorToolGroup, grantedConnectorToolDefinitions } = require("../connectors/tools.cjs");
 
 const text = (value) => (typeof value === "string" ? value : undefined);
 const isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -98,6 +98,11 @@ function createConnectorsWiring({ options, dataDir, emit, commands, version, mcp
     connectors,
     /** Linear's tools and the Connectors this provider Account may use, for a Chat's `milagre` tools. */
     tools: (context) => [...(builtIn?.tools(context) ?? []), ...connectorToolDefinitions(connectors, context)],
+    /** The local MCP `connectors` group: outside clients get the Connectors, and Linear, their grant names. */
+    toolGroup: connectorToolGroup((ids) => [
+      ...(builtIn && (ids === "*" || ids.includes(LINEAR_ID)) ? builtIn.allTools() : []),
+      ...grantedConnectorToolDefinitions(connectors, ids),
+    ]),
     linearChanged: changed,
     dispose: () => connectors.dispose(),
   };

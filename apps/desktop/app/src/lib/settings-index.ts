@@ -35,7 +35,6 @@ export const SECTION_TITLES: Record<Exclude<SettingsSection, "project" | "comput
   mcp: "Connectors",
   browser: "Browser",
   worktrees: "Worktrees",
-  connections: "Integrations",
   devices: "Phone & sharing",
   "this-mac": `This ${computerNoun}`,
   experimental: "Church",
@@ -44,7 +43,8 @@ export const SECTION_TITLES: Record<Exclude<SettingsSection, "project" | "comput
 
 export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   general: "editor sidebar chat order chat list done archive snooze snooze options plan usage keep awake",
-  worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle repositories folder import migrate t3 paseo orca",
+  worktrees:
+    "babysit pull requests review ci conflicts main branch sync pull fast-forward storage clean up cleanup disk idle repositories folder import migrate t3 paseo orca",
   "this-mac": "computer resources memory disk drive other computers add computer computer use",
   usage: "token tokens cost spend dollars analytics estimated",
   accounts: "sign in login claude codex antigravity kiro pi ollama openrouter local models profile per project link usage limits",
@@ -55,8 +55,7 @@ export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   keybindings: "shortcuts keyboard keys hotkeys",
   browser: "links web sign-ins cookies",
   notifications: "alerts sounds chimes push routines unread runs",
-  connections: "linear issues integrations babysit pull requests",
-  mcp: "connectors connections integrations slack sign in servers tools model context protocol milagre mcp",
+  mcp: "connectors connections integrations linear issues slack sign in servers tools model context protocol milagre mcp",
   devices: "phone pairing computers remote qr published pages share simlock baguette iphone simulators reset access",
   experimental: "church experimental beta labs orchestrator",
   about: "version update privacy support",
@@ -525,6 +524,22 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "log out logins cookies sessions",
   },
 
+  { page: "mcp", title: LINEAR_TITLE, description: LINEAR_HINT, keywords: "issues tickets" },
+  {
+    page: "mcp",
+    title: LINEAR_MOVE_TO_STARTED_TITLE,
+    group: LINEAR_TITLE,
+    description: LINEAR_MOVE_TO_STARTED_HINT,
+    keywords: "linear status started",
+  },
+  {
+    page: "mcp",
+    title: LINEAR_ADD_WORKSPACE,
+    group: LINEAR_TITLE,
+    description: LINEAR_ADD_WORKSPACE_HINT,
+    keywords: "linear connect sign in",
+  },
+
   { page: "worktrees", title: "Main branch" },
   {
     page: "worktrees",
@@ -557,31 +572,9 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "storage disk space free worktrees delete old idle",
   },
 
-  { page: "connections", title: "Issue trackers" },
+  { page: "worktrees", title: "Pull requests" },
   {
-    page: "connections",
-    title: LINEAR_TITLE,
-    group: "Issue trackers",
-    description: LINEAR_HINT,
-    keywords: "issues tickets",
-  },
-  {
-    page: "connections",
-    title: LINEAR_MOVE_TO_STARTED_TITLE,
-    group: "Issue trackers",
-    description: LINEAR_MOVE_TO_STARTED_HINT,
-    keywords: "linear status started",
-  },
-  {
-    page: "connections",
-    title: LINEAR_ADD_WORKSPACE,
-    group: "Issue trackers",
-    description: LINEAR_ADD_WORKSPACE_HINT,
-    keywords: "linear connect sign in",
-  },
-  { page: "connections", title: "Pull requests" },
-  {
-    page: "connections",
+    page: "worktrees",
     title: "Babysit PRs",
     group: "Pull requests",
     description: "Watch every PR a Chat opens and fix review comments, failed checks and conflicts.",

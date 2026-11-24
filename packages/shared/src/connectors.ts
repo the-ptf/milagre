@@ -2,7 +2,8 @@ import { MCP_CATALOG, MCP_SECRET_MASK, type McpCatalogEntry, type McpProvider } 
 import { providerName } from "./providers.mjs";
 
 /** `signed-in` has a saved sign-in Milagre hasn't used yet this run; `connected` answered a tool list. */
-export type ConnectorState = "connected" | "signed-in" | "needs-sign-in" | "failed";
+/** `needs-app`: the server can't register Milagre by itself (Slack), so it needs the Client ID of an app made for it. */
+export type ConnectorState = "connected" | "signed-in" | "needs-sign-in" | "needs-app" | "failed";
 
 /** A remote MCP server Milagre signed in to once on this computer. `id` prefixes its tools for agents. */
 export type ConnectorSummary = {
@@ -179,6 +180,7 @@ export function connectorStateLine(connector: ConnectorSummary): string {
   if (connector.state === "connected") return connector.tools === 1 ? "1 tool" : `${connector.tools ?? 0} tools`;
   if (connector.state === "signed-in") return "Signed in";
   if (connector.state === "needs-sign-in") return "Needs sign-in";
+  if (connector.state === "needs-app") return "Needs its own app";
   return connector.problem ? `Failed: ${connector.problem}` : "Failed";
 }
 

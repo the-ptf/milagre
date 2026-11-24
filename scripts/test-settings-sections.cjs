@@ -301,7 +301,7 @@ async function browserChecks() {
     await openSection("Church");
     await waitFor(`${deviceNotes}?.getAttribute("aria-checked") === "false"`);
     await screenshot("experimental");
-    await openSection("Integrations");
+    await openSection("Worktrees");
     const babysitRow = `document.querySelector("main [data-babysit-prs-row]")`;
     await waitFor(`${babysitRow}?.textContent.includes("Off")`);
     assert.equal(
@@ -310,8 +310,8 @@ async function browserChecks() {
     );
     await evaluate(`${babysitRow}.click()`);
     await waitFor(`!!document.querySelector("main [data-babysit-prs-page] [role=checkbox]")`);
-    assert.equal(await evaluate(`document.querySelectorAll("main h1").length`), 1, "the page's title replaces Integrations'");
-    assert.equal(await evaluate(`document.querySelector("main h1").textContent`), "IntegrationsBabysit PRs");
+    assert.equal(await evaluate(`document.querySelectorAll("main h1").length`), 1, "the page's title replaces Worktrees'");
+    assert.equal(await evaluate(`document.querySelector("main h1").textContent`), "WorktreesBabysit PRs");
     assert.deepEqual(await switches(), ["Babysit new PRs", "Resolve threads it answered"]);
     assert.equal(
       await evaluate(
@@ -393,16 +393,16 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.activeElement?.getAttribute("aria-label")`), null, "Reset leaves the field");
     assert.equal(await evaluate("window.babysitSaves.length"), savesBeforeReset + 1, "only the reset saves, not the half-typed text");
     assert.equal(await evaluate(`!!document.querySelector('main input[aria-label="Your own rule"]')`), false, "reset turns Your own rule off");
-    await evaluate(`document.querySelector('main button[aria-label="Back to Integrations"]').click()`);
-    await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Integrations"`);
+    await evaluate(`document.querySelector('main button[aria-label="Back to Worktrees"]').click()`);
+    await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Worktrees"`);
     await evaluate(`${babysitRow}.click()`);
     await waitFor(`!!document.querySelector('main textarea[aria-label="Your instructions"]')`);
     await typeInto('main textarea[aria-label="Your instructions"]', "Report checks that fail outside this PR.");
-    await evaluate(`document.querySelector('main button[aria-label="Back to Integrations"]').click()`);
+    await evaluate(`document.querySelector('main button[aria-label="Back to Worktrees"]').click()`);
     await delay(100);
     assert.deepEqual(await evaluate("window.babysitSaves.at(-1)"), { instructions: "Report checks that fail outside this PR." });
-    await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Integrations"`);
-    assert.equal(await evaluate(`!!${babysitRow}`), true, "Back returns to Integrations");
+    await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Worktrees"`);
+    assert.equal(await evaluate(`!!${babysitRow}`), true, "Back returns to Worktrees");
     await openSection("Phone & sharing");
     await waitFor(`!!document.querySelector("main [data-slot=published-pages-setting]")`);
     await screenshot("milagre");
@@ -577,7 +577,7 @@ async function browserChecks() {
     console.log("PASS: Worktrees cleanup contains idle and busy Escape; Stop prevents the next removal; Settings still closes on its own Escape");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Church lists Floating inbox, Ultracode Fatality, Delegate, Device notes and New Chat stats; New Chat stats defaults off, persists opt-in/out and is found in Church; Integrations' Babysit PRs row opens a page that saves each change and goes Back; Phone & sharing holds Published pages; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; This Mac holds Drive other computers, off by default, telling main each time it flips; ⌘F focuses Search settings, whose results name the section and card and open the row lit up",
+      "PASS: Church lists Floating inbox, Ultracode Fatality, Delegate, Device notes and New Chat stats; New Chat stats defaults off, persists opt-in/out and is found in Church; Worktrees' Babysit PRs row opens a page that saves each change and goes Back; Phone & sharing holds Published pages; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; This Mac holds Drive other computers, off by default, telling main each time it flips; ⌘F focuses Search settings, whose results name the section and card and open the row lit up",
     );
     app.exit(0);
   } catch (error) {

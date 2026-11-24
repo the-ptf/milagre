@@ -27,7 +27,9 @@ import { McpSettings } from "../McpSettings";
 import { LocalMcpSettings } from "../LocalMcpSettings";
 import { Segmented } from "../primitives/Segmented";
 import { ConnectorSheet } from "./ConnectorSheet";
+import { ConnectorEditSheet } from "./ConnectorEditSheet";
 import { ConnectorTile } from "./ConnectorTile";
+import { LinearSettings } from "./LinearSettings";
 import { useConnectors, type ConnectorsState } from "./useConnectors";
 
 const card = "divide-y divide-line overflow-hidden rounded-card border border-line bg-surface";
@@ -35,7 +37,7 @@ const LINEAR_ICON = CONNECTOR_PRESETS.find((preset) => preset.id === "linear")?.
 const iconOf = (connector: ConnectorSummary) => (connector.kind === "linear" ? LINEAR_ICON : connectorPreset(connector)?.iconPath);
 const toolPrefix = (connector: ConnectorSummary) => (connector.kind === "linear" ? "linear_" : `${connector.id}__`);
 
-function RowAction({ connector, state }: { connector: ConnectorSummary; state: ConnectorsState }) {
+function RowAction({ connector, state, onEdit }: { connector: ConnectorSummary; state: ConnectorsState; onEdit: () => void }) {
   if (state.signingIn === connector.id)
     return (
       <Button variant="secondary" data-connector-cancel={connector.id} onClick={state.cancelSignIn}>
@@ -46,6 +48,12 @@ function RowAction({ connector, state }: { connector: ConnectorSummary; state: C
     return (
       <Button data-connector-sign-in={connector.id} disabled={state.signingIn !== null} onClick={() => void state.signIn(connector.id)}>
         Sign in
+      </Button>
+    );
+  if (connector.state === "needs-app")
+    return (
+      <Button data-connector-add-app={connector.id} onClick={onEdit}>
+        Add app
       </Button>
     );
   if (connector.state === "failed")
@@ -73,12 +81,24 @@ function Access({ connector, accounts, state }: { connector: ConnectorSummary; a
   ));
 }
 
-function ConnectorRow({ connector, state, open, onToggle }: { connector: ConnectorSummary; state: ConnectorsState; open: boolean; onToggle: () => void }) {
+function ConnectorRow({
+  connector,
+  state,
+  open,
+  onToggle,
+  onEdit,
+}: {
+  connector: ConnectorSummary;
+  state: ConnectorsState;
+  open: boolean;
+  onToggle: () => void;
+  onEdit: () => void;
+}) {
   const [confirming, setConfirming] = useState(false);
   const failed = connector.state === "failed";
   const signingIn = state.signingIn === connector.id;
   const subtitle = signingIn ? CONNECTOR_SIGNING_IN : failed ? connectorStateLine(connector) : connectorSubtitle(connector);
-  const signsIn = connector.kind !== "command" && connector.state !== "needs-sign-in";
+  const signsIn = connector.kind === "url" && connector.state !== "needs-sign-in" && connector.state !== "needs-app";
   const summary =
     connector.state === "connected"
       ? `${connectorStateLine(connector)} · ${connectorReach(connector, state.accounts)}`
@@ -98,7 +118,7 @@ function ConnectorRow({ connector, state, open, onToggle }: { connector: Connect
           </span>
           <Icon icon={open ? ArrowUp01Icon : ArrowDown01Icon} size={16} className="shrink-0 text-ink-3" />
         </button>
-        <RowAction connector={connector} state={state} />
+        <RowAction connector={connector} state={state} onEdit={onEdit} />
       </div>
       {open && (
         <div className="px-4 pt-1 pb-3">
@@ -106,6 +126,11 @@ function ConnectorRow({ connector, state, open, onToggle }: { connector: Connect
             Available to
           </SectionLabel>
           <Access connector={connector} accounts={state.accounts} state={state} />
+          {connector.kind === "linear" && (
+            <div className="-mx-4 mt-2 border-t border-line">
+              <LinearSettings />
+            </div>
+          )}
           {confirming ? (
             <div data-connector-remove-question className="mt-1 flex min-h-11 items-center gap-2">
               <span className="min-w-0 flex-1 text-12 text-ink">Remove {connector.name}? Chats lose its tools and Milagre signs out of it.</span>
@@ -128,12 +153,17 @@ function ConnectorRow({ connector, state, open, onToggle }: { connector: Connect
                   disabled={state.signingIn !== null}
                   onClick={() => void state.signIn(connector.id)}
                 >
-                  {connector.kind === "linear" ? "Add workspace" : "Sign in again"}
+                  Sign in again
                 </Button>
               )}
               {signsIn && (
                 <Button variant="secondary" data-connector-sign-out={connector.id} onClick={() => state.signOut(connector.id)}>
                   Sign out
+                </Button>
+              )}
+              {connector.kind !== "linear" && (
+                <Button variant="secondary" data-connector-edit={connector.id} onClick={onEdit}>
+                  Edit
                 </Button>
               )}
               {connector.kind !== "linear" && (
@@ -175,6 +205,7 @@ function MoveSection({ state }: { state: ConnectorsState }) {
 function ConnectorsList({ title, tabs }: { title: string; tabs: ReactNode }) {
   const state = useConnectors();
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<ConnectorSummary | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   return (
     <div data-connectors-page>
@@ -208,6 +239,7 @@ function ConnectorsList({ title, tabs }: { title: string; tabs: ReactNode }) {
                 state={state}
                 open={open === connector.id}
                 onToggle={() => setOpen(open === connector.id ? null : connector.id)}
+                onEdit={() => setEditing(connector)}
               />
             ))}
           </div>
@@ -220,7 +252,10 @@ function ConnectorsList({ title, tabs }: { title: string; tabs: ReactNode }) {
         )}
         <MoveSection state={state} />
       </div>
-      {adding && <ConnectorSheet onAdd={state.add} onClose={() => setAdding(false)} />}
+      {adding && <ConnectorSheet onAdd={state.add} onLinear={state.connectLinear} onClose={() => setAdding(false)} />}
+      {editing && (
+        <ConnectorEditSheet connector={editing} onSave={(patch, signIn) => state.update(editing.id, patch, signIn)} onClose={() => setEditing(null)} />
+      )}
     </div>
   );
 }

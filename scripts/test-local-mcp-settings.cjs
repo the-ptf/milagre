@@ -21,7 +21,7 @@ const localMcp = {
  revoke: async id=>{window.records=window.records.map(c=>c.id===id?{...c,revokedAt:'2026-10-13T00:00:00Z'}:c);},
 };
 document.documentElement.classList.add('dark');
-window.milagre={localMcp,connectors:{list:async()=>[],movable:async()=>[],onChanged:()=>()=>{}},mcp:{accounts:async()=>[],check:async()=>({servers:[]}),onChanged:()=>()=>{}},listAccounts:async()=>({providers:[]}),listRecentProjects:async()=>[],onAccountsChanged:()=>()=>{}};
+window.milagre={localMcp,connectors:{list:async()=>[['slack_work','Slack work'],['linear','Linear']].map(([id,name])=>({id,name,kind:'url',url:'https://example.com/mcp',clientId:null,hasClientSecret:false,headers:[],off:[],state:'connected',tools:2})),movable:async()=>[],onChanged:()=>()=>{}},mcp:{accounts:async()=>[],check:async()=>({servers:[]}),onChanged:()=>()=>{}},listAccounts:async()=>({providers:[]}),listRecentProjects:async()=>[],onAccountsChanged:()=>()=>{}};
 createRoot(document.getElementById('root')).render(<div style={{display:'flex',height:'100vh',padding:16,gap:16}}><SettingsNav section="mcp" onSelect={()=>{}} /><main className="bg-page rounded-2xl" style={{flex:1}}><SettingsPanel section="mcp" models={[]} /></main></div>);
 `;
 async function browserChecks() {
@@ -93,15 +93,25 @@ async function browserChecks() {
     win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Space" });
     await waitFor(`document.querySelector('form [role=checkbox][aria-label="Project"]').getAttribute('aria-checked')==='true'`);
     assert.equal(await evaluate(`document.activeElement.getAttribute('aria-label')`), "Project");
+    assert.equal(await evaluate(`document.querySelector('[role=radio][aria-label="No connectors"]').getAttribute('aria-checked')`), "true");
+    assert.equal(await evaluate(`!!document.querySelector('form [role=checkbox][aria-label="Slack work"]')`), false);
+    await evaluate(`document.querySelector('[role=radio][aria-label="Choose connectors"]').click()`);
+    await waitFor(`!!document.querySelector('form [role=checkbox][aria-label="Slack work"]')`);
+    assert.equal(await evaluate(`!!document.querySelector('form [role=checkbox][aria-label="Linear"]')`), true);
+    await evaluate(`document.querySelector('form [role=checkbox][aria-label="Slack work"]').click()`);
+    await waitFor(`document.querySelector('form [role=checkbox][aria-label="Slack work"]').getAttribute('aria-checked')==='true'`);
     await click("Enable Claude Code CLI");
     await waitFor(`document.querySelector('[data-local-client="claude-code"] [role=checkbox]').getAttribute('aria-checked')==='true'`);
     assert.deepEqual(await evaluate("window.created[0].grants.projects.projectPaths"), ["/test/project"]);
+    assert.deepEqual(await evaluate("window.created[0].grants.connectors"), { ids: ["slack_work"], capabilities: ["use"] });
+    assert.equal(await evaluate(`document.querySelector('[data-local-client="claude-code"]').textContent.includes('1 connector')`), true);
     await evaluate(`document.querySelector('[data-local-client="gemini"] [role=checkbox]').click()`);
     await waitFor(`!!document.querySelector('form')`);
     await evaluate(`document.querySelector('[role=radio][aria-label="All Projects"]').click()`);
     await click("Enable Gemini CLI");
     await waitFor(`document.querySelector('[data-local-client="gemini"] [role=checkbox]').getAttribute('aria-checked')==='true'`);
     assert.equal(await evaluate("window.created[1].grants.projects.projectPaths"), "*");
+    assert.equal(await evaluate("window.created[1].grants.connectors"), undefined);
     assert.equal(await evaluate(`document.querySelector('[data-local-client="gemini"]').textContent.includes('All Projects')`), true);
     await evaluate(`document.querySelector('[data-local-client="codex"] [role=checkbox]').click()`);
     await waitFor(`!!document.querySelector('form')`);

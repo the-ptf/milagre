@@ -385,9 +385,9 @@ export function BabysitPrsSettings({ onBack }: { onBack: () => void }) {
   return (
     <div data-babysit-prs-page>
       <div className="flex items-center gap-3">
-        <IconButton label="Back to Integrations" icon={ArrowLeft01Icon} onClick={onBack} />
+        <IconButton label="Back to Worktrees" icon={ArrowLeft01Icon} onClick={onBack} />
         <h1 className="flex min-w-0 items-center gap-2 text-22 font-semibold tracking-[-0.02em] text-ink">
-          <span className="text-ink-3">Integrations</span>
+          <span className="text-ink-3">Worktrees</span>
           <span className="text-ink-3">
             <Icon icon={ArrowRight01Icon} size={16} />
           </span>

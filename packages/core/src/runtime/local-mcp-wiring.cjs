@@ -37,6 +37,7 @@ function createLocalMcpWiring({
   linkMembers,
   subchatEscalation,
   limitSwitch,
+  integrations,
 }) {
   const designAdapter = path.join(__dirname, "..", "design-mcp-tools.cjs");
   const localMcpHost = require("../local-mcp-host.cjs").createLocalMcpHost({
@@ -96,6 +97,7 @@ function createLocalMcpWiring({
     environmentReady,
     clientOptions: options.localMcpClients,
     designGroup: existsSync(designAdapter) ? require(designAdapter).createDesignToolGroup({ artifacts }) : undefined,
+    connectorGroup: integrations.connectorToolGroup,
     agentScope: (chatId) => {
       const projectPath = projectOfKey(chatId);
       const state = isLinkScopeKey(projectPath) ? linkStore.cached(scopeFromKey(projectPath).linkId) : states.states.get(projectPath);

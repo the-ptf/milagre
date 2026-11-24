@@ -10,6 +10,7 @@ const accessKey = (provider, accountId) => `${provider}:${accountId}`;
 function createLinearConnector({ linear, linearTools, store }) {
   const off = () => store.readAccess(LINEAR_ID);
   const definitions = () => linearToolDefinitions(linearTools);
+  const allTools = () => (linear.enabled() ? definitions() : []);
   function summary() {
     const status = linear.status();
     if (!status.connected) return null;
@@ -34,7 +35,9 @@ function createLinearConnector({ linear, linearTools, store }) {
     id: LINEAR_ID,
     summary,
     allows: (context) => !context?.provider || !off().includes(accessKey(context.provider, context.accountId)),
-    tools: (context) => (linear.enabled() && !off().includes(accessKey(context?.provider, context?.accountId)) ? definitions() : []),
+    tools: (context) => (off().includes(accessKey(context?.provider, context?.accountId)) ? [] : allTools()),
+    /** The `linear_*` tools whatever Available to says, for an outside MCP client whose grant names Linear. */
+    allTools,
     setAccess(provider, accountId, on) {
       const next = new Set(off());
       if (on) next.delete(accessKey(provider, accountId));

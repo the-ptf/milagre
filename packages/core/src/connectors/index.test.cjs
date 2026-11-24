@@ -55,10 +55,12 @@ test("a server with dynamic registration signs in once and serves its tools", as
 test("a server without dynamic registration uses the pre-registered client id and secret", async (t) => {
   const server = await fake(t, { registration: false, clientSecret: "shh" });
   const { connectors } = fixture(t);
-  await assert.rejects(async () => {
-    await connectors.add({ name: "No client", url: server.url });
-    await connectors.signIn("no_client");
-  }, /registration/i);
+  await connectors.add({ name: "No client", url: server.url });
+  const handOff = await connectors.signIn("no_client");
+  assert.equal(handOff.state, "needs-app", "a server without dynamic registration asks for its app instead of failing");
+  const fixed = await connectors.update("no_client", { clientId: "preset-client", clientSecret: "shh" });
+  assert.equal(fixed.clientId, "preset-client");
+  assert.equal((await connectors.signIn("no_client")).state, "connected");
 
   const added = await connectors.add({ name: "Slack company A", url: server.url, clientId: "preset-client", clientSecret: "shh" });
   assert.equal(added.id, "slack_company_a");

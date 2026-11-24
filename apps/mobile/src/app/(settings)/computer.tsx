@@ -5,7 +5,6 @@ import {
   AiBrain01Icon,
   BookOpen01Icon,
   ChartColumnIcon,
-  ConnectIcon,
   FolderTreeIcon,
   LaptopIcon,
   Plug01Icon,
@@ -25,7 +24,7 @@ import { useTheme } from "../../theme";
 import { radius } from "../../design-tokens";
 import { presenceTone } from "@milagre/shared/chat-scopes";
 
-type MacPage = "models" | "accounts" | "usage" | "skills" | "mcp" | "worktrees" | "connections" | "phone-sharing" | "this-mac";
+type MacPage = "models" | "accounts" | "usage" | "skills" | "mcp" | "worktrees" | "phone-sharing" | "this-mac";
 
 export default function ComputerScreen() {
   const { colors } = useTheme();
@@ -108,7 +107,6 @@ export default function ComputerScreen() {
           <Row title="Skills" icon={BookOpen01Icon} disabled={connecting} onPress={() => void open("skills")} />
           <Row title="Connectors" icon={Plug01Icon} disabled={connecting} onPress={() => void open("mcp")} />
           <Row title="Worktrees" icon={FolderTreeIcon} disabled={connecting} onPress={() => void open("worktrees")} />
-          <Row title="Integrations" icon={ConnectIcon} disabled={connecting} onPress={() => void open("connections")} />
           <Row title="Phone & sharing" icon={SmartphoneIcon} disabled={connecting} onPress={() => void open("phone-sharing")} />
           <Row title="This computer" icon={LaptopIcon} disabled={connecting} onPress={() => void open("this-mac")} />
         </Group>

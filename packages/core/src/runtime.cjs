@@ -102,7 +102,7 @@ function createRuntime(options) {
   const NEEDS_USER_CHATS = 500;
   let closing = false;
   let btw;
-  let advisors;
+  let advisors, advisorStore;
   let advisorDelivery;
   const chatsHome = createChatsHome({ root: options.chatsHome ?? path.join(require("node:os").homedir(), ".milagre", "chats") });
   const withKind = (project) => (chatsHome.isHome(project.path) ? { ...project, kind: "chats" } : project);
@@ -1344,8 +1344,7 @@ function createRuntime(options) {
     isClosing: () => closing,
   });
   btw = require("./runtime/btw-wiring.cjs").createBtwWiring({ commands, existingChat, scopeStates, chats, agents, routing, linked, turnDefaults, emit });
-  const { advisorStore } = advisorServices;
-  ({ advisorDelivery, advisors } = advisorServices);
+  ({ advisorDelivery, advisors, advisorStore } = advisorServices);
   const linkWorkspaces = createLinkWorkspaces({
     store: linkStore,
     registry: projectRegistry(),
@@ -1541,6 +1540,7 @@ function createRuntime(options) {
     linkMembers,
     subchatEscalation: () => subchatEscalation,
     limitSwitch: () => limitSwitch,
+    integrations,
   });
 
   limitResume.start();

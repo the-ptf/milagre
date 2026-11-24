@@ -20,7 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import { Row } from "./SettingsGroup";
 import { SECONDARY_BUTTON } from "./settings-parts";
 
-// Settings › Integrations › Linear: the daemon keeps the switch (phones share it) and the Mac's connections, one per workspace.
+// Settings › Connectors › Linear: the daemon keeps the switch (phones share it) and the Mac's connections, one per workspace.
 export function LinearSettings() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   // null until read; a Mac that predates the switch sends none and has it on.

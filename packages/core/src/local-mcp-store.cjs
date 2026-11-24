@@ -18,6 +18,18 @@ const grantsSchema = z
         capabilities: capabilities(["read", "write"]),
       })
       .optional(),
+    connectors: z
+      .strictObject({
+        ids: z.union([
+          z.literal("*"),
+          z
+            .array(z.string().regex(/^[a-z][a-z0-9_]{0,63}$/))
+            .min(1)
+            .max(100),
+        ]),
+        capabilities: capabilities(["use"]),
+      })
+      .optional(),
   })
   .refine((value) => Object.keys(value).length > 0, "Select at least one tool group");
 const configurationSchema = z.strictObject({ label: z.string().trim().min(1).max(120), grants: grantsSchema, expiresAt: z.iso.datetime().optional() });

@@ -1173,3 +1173,74 @@ test("Full mode does not persist grants across a return to Ask, forgetProjectGra
   mcp.forgetProjectGrants(otherPath);
   assert.deepEqual(mcp.grantedProjects(caller), []);
 });
+
+test("outside clients get Connectors' tools only through a connectors grant, whatever Available to says", async (t) => {
+  const { createLocalMcp } = require("./local-mcp.cjs");
+  const { createConnectorsWiring } = require("./runtime/connectors-wiring.cjs");
+  const { startFakeMcp } = require("./connectors/test-helpers.cjs");
+  const dataDir = fixture(t);
+  const docs = await startFakeMcp({ requireAuth: false });
+  const wiki = await startFakeMcp({ requireAuth: false });
+  t.after(() => Promise.all([docs.close(), wiki.close()]));
+  const wired = createConnectorsWiring({
+    options: { connectors: { port: 0, moveEverywhere: false } },
+    dataDir,
+    emit() {},
+    version: "0",
+    commands: { handle() {} },
+    mcpStore: { read: () => ({ everywhere: [] }) },
+    mcp: {},
+    linear: { enabled: () => true, status: () => ({ connected: true, workspaces: [] }) },
+    linearTools: {},
+  });
+  t.after(() => wired.dispose());
+  await wired.connectors.add({ name: "Docs", url: docs.url });
+  await wired.connectors.add({ name: "Wiki", url: wiki.url });
+  wired.connectors.setAccess("docs", "codex", "a", false);
+  const mcp = createLocalMcp({
+    dataDir,
+    host: { projects: async () => [] },
+    connectorGroup: wired.toolGroup,
+    clientOptions: { home: dataDir, env: {}, platform: "darwin" },
+  });
+  t.after(() => mcp.close());
+  const rpc = async (credential, method, params = {}) => {
+    const response = await fetch(credential.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${credential.token}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+    return response.ok ? (await response.json()).result : { status: response.status };
+  };
+  const names = async (credential) => (await rpc(credential, "tools/list")).tools.map((tool) => tool.name).sort();
+  const connectorTools = (list) => list.filter((name) => name.includes("__") || name.startsWith("linear_"));
+  const projects = { projects: { projectPaths: "*", capabilities: ["read"] } };
+
+  const none = await mcp.create({ label: "No connectors", grants: projects });
+  assert.deepEqual(connectorTools(await names(none)), []);
+
+  const one = await mcp.create({ label: "Docs", grants: { connectors: { ids: ["docs"], capabilities: ["use"] } } });
+  assert.deepEqual(await names(one), ["docs__echo", "docs__post"]);
+  const called = await rpc(one, "tools/call", { name: "docs__echo", arguments: { text: "hi" } });
+  assert.notEqual(called.isError, true);
+  assert.equal(called.content[0].text, "echo: hi");
+  assert.deepEqual(docs.state.toolCalls.at(-1).arguments, { text: "hi" });
+  assert.equal(wiki.state.toolCalls.length, 0);
+
+  const all = await mcp.create({ label: "All", grants: { connectors: { ids: "*", capabilities: ["use"] } } });
+  const everything = await names(all);
+  for (const name of ["docs__echo", "wiki__echo", "wiki__post", "linear_issue"]) assert.ok(everything.includes(name), name);
+  assert.equal((await mcp.status()).groups.find((group) => group.id === "connectors").enabled, true);
+
+  await mcp.update(one.connection.id, { label: "Docs", grants: projects });
+  assert.deepEqual(connectorTools(await names(one)), []);
+  const refused = await rpc(one, "tools/call", { name: "docs__echo", arguments: { text: "again" } });
+  assert.equal(refused.isError, true);
+  assert.equal(docs.state.toolCalls.length, 1);
+
+  await mcp.revoke(all.connection.id);
+  assert.equal((await rpc(all, "tools/list")).status, 401);
+  assert.throws(() =>
+    require("./local-mcp-store.cjs").configurationSchema.parse({ label: "Empty", grants: { connectors: { ids: [], capabilities: ["use"] } } }),
+  );
+});

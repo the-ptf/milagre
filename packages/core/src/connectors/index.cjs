@@ -11,6 +11,9 @@ const CALLBACK_PORT = 47616;
 
 const messageOf = (error) => (error instanceof Error ? error.message : String(error));
 const needsSignIn = (error) => error instanceof UnauthorizedError || error?.code === "needs-sign-in";
+const needsApp = (error) => /dynamic client registration/i.test(messageOf(error));
+const failure = (error) =>
+  needsApp(error) ? { state: "needs-app" } : needsSignIn(error) ? { state: "needs-sign-in" } : { state: "failed", problem: messageOf(error) };
 const accessKey = (provider, accountId) => `${provider}:${accountId}`;
 const isCommand = (connector) => typeof connector.command === "string";
 const fromList = (tools) => ({ state: "connected", tools: tools.length, list: tools });
@@ -103,7 +106,7 @@ function createConnectors({
         store.saveTools(id, tools);
       } catch (error) {
         await drop(id);
-        health.set(id, needsSignIn(error) ? { state: "needs-sign-in" } : { state: "failed", problem: messageOf(error) });
+        health.set(id, failure(error));
       }
       changed();
       return summary(store.get(id) ?? connector);
@@ -199,7 +202,14 @@ function createConnectors({
       const connector = find(id);
       if (isCommand(connector)) throw new ConnectorError(`${connector.name} runs on this computer and has no sign-in.`, "invalid");
       return signIns.run(async (attempt) => {
-        await runSignIn({ attempt, connector, port, timeoutMs, providerFor, openBrowser, fetchImpl });
+        try {
+          await runSignIn({ attempt, connector, port, timeoutMs, providerFor, openBrowser, fetchImpl });
+        } catch (error) {
+          if (!needsApp(error)) throw error;
+          health.set(connector.id, { state: "needs-app" });
+          changed();
+          return summary(connector);
+        }
         await drop(connector.id);
         health.delete(connector.id);
         return check(connector.id);

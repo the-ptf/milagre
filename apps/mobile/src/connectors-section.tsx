@@ -19,6 +19,7 @@ import {
 } from "@milagre/shared/connectors";
 import type { McpAccount } from "@milagre/shared/mcp";
 import { confirm } from "./confirm-store";
+import { LinearSection } from "./linear-section";
 import { Icon } from "./icons";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
@@ -135,8 +136,9 @@ export function ConnectorsSection() {
               );
             })}
           </Group>
+          {selected.kind === "linear" ? <LinearSection /> : null}
           <Group inset={0}>
-            {selected.state !== "needs-sign-in" && selected.kind !== "command" ? (
+            {selected.kind === "url" && selected.state !== "needs-sign-in" && selected.state !== "needs-app" ? (
               <ListRow title="Sign out" chevron={false} onPress={() => act("connectors:sign-out", [selected.id])} />
             ) : null}
             {selected.kind !== "linear" ? <ListRow title="Remove" destructive chevron={false} onPress={() => void remove(selected)} /> : null}

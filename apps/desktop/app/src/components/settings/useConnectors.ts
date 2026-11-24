@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ConnectorInput, ConnectorMovable, ConnectorSummary } from "@milagre/shared/connectors";
+import type { ConnectorInput, ConnectorMovable, ConnectorSummary, ConnectorUpdate } from "@milagre/shared/connectors";
 import type { McpAccount, McpProvider } from "@milagre/shared/mcp";
 import type { MilagreBridge } from "../../electron";
 
@@ -77,6 +77,19 @@ export function useConnectors(bridge: MilagreBridge = window.milagre) {
         setMoved([]);
       }),
     check: (id: string) => run(() => bridge.connectors.check(id)),
+    /** Milagre's own Linear sign-in, from the Linear preset: turns Linear on and opens its sign-in window. */
+    connectLinear: async () => {
+      setError("");
+      await bridge.saveLinearEnabled(true);
+      await bridge.connectLinear({ window: true });
+      await refresh();
+    },
+    /** Saves an edit; a new app (Client ID) signs in right after. Rejects so the sheet can show the problem. */
+    update: async (id: string, patch: ConnectorUpdate, signInAfter: boolean) => {
+      setError("");
+      await bridge.connectors.update(id, patch);
+      if (signInAfter) void signIn(id);
+    },
     signOut: (id: string) => run(() => bridge.connectors.signOut(id)),
     remove: (id: string) => run(() => bridge.connectors.remove(id)),
     setAccess: (id: string, provider: McpProvider, accountId: string, on: boolean) => run(() => bridge.connectors.setAccess(id, provider, accountId, on)),

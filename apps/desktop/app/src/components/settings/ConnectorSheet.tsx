@@ -7,13 +7,9 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import { Segmented } from "../primitives/Segmented";
 import { ConnectorTile } from "./ConnectorTile";
 
-type Pair = { key: string; value: string };
-const field = "w-full rounded-control border border-line-strong bg-surface px-3 py-2 text-13 text-ink outline-none";
-const pairField = "min-w-0 rounded-control border border-transparent bg-field px-3 py-2 text-13 text-ink outline-none placeholder:text-ink-3";
-const footerButton = "rounded-control px-4 py-2 text-13 transition-colors disabled:opacity-40";
-const label = "block space-y-1.5 text-12 font-medium text-ink-2";
+import { CommandFields, Secret, UrlExtras, field, footerButton, headersOf, label, type Pair } from "./ConnectorFields";
+
 const authLabel = (preset: ConnectorPreset) => (preset.auth === "token" ? "Token" : preset.auth === "app" ? "Your app" : "Sign in");
-const headersOf = (pairs: Pair[]) => Object.fromEntries(pairs.filter((pair) => pair.key.trim() && pair.value).map((pair) => [pair.key.trim(), pair.value]));
 
 function Catalog({ onChoose, onCustom }: { onChoose: (preset: ConnectorPreset) => void; onCustom: () => void }) {
   const [search, setSearch] = useState("");
@@ -68,159 +64,30 @@ function Catalog({ onChoose, onCustom }: { onChoose: (preset: ConnectorPreset) =
   );
 }
 
-function Secret({ name, value, onChange }: { name: string; value: string; onChange: (value: string) => void }) {
+function LinearChoice({ onMcp }: { onMcp: () => void }) {
   return (
-    <label className={label}>
-      {name}
-      <input
-        type="password"
-        aria-label={name}
-        autoComplete="off"
-        spellCheck={false}
-        className={field}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
+    <div className="space-y-2">
+      <p className="text-13 text-ink-2">
+        Linear signs in with Milagre's own Linear app: Chats can start from issues, Worktrees show their issue, Routines follow Linear, and agents get its
+        tools.
+      </p>
+      <button type="button" data-connector-linear-mcp className="text-12 font-medium text-ink-2 hover:underline" onClick={onMcp}>
+        Use Linear's MCP server instead
+      </button>
+    </div>
   );
 }
 
-function CommandFields({
-  command,
-  args,
-  pairs,
-  onCommand,
-  onArgs,
-  onPairs,
+export function ConnectorSheet({
+  onAdd,
+  onLinear,
+  onClose,
 }: {
-  command: string;
-  args: string;
-  pairs: Pair[];
-  onCommand: (value: string) => void;
-  onArgs: (value: string) => void;
-  onPairs: (pairs: Pair[]) => void;
+  onAdd: (input: ConnectorInput) => Promise<ConnectorSummary>;
+  /** Milagre's own Linear sign-in, which the Linear preset uses instead of Linear's MCP server. */
+  onLinear: () => Promise<void>;
+  onClose: () => void;
 }) {
-  const shown = pairs.length ? pairs : [{ key: "", value: "" }];
-  return (
-    <>
-      <label className={label}>
-        Command
-        <input aria-label="Command" className={field} placeholder="npx" value={command} onChange={(event) => onCommand(event.target.value)} />
-        <span className="block font-normal text-ink-3">Runs once on the computer for every Chat, and stops when no Chat has used it for a while.</span>
-      </label>
-      <label className={label}>
-        Arguments (optional)
-        <textarea
-          aria-label="Arguments"
-          rows={3}
-          className={`${field} resize-y font-mono text-12`}
-          placeholder={"-y\n@scope/server"}
-          value={args}
-          onChange={(event) => onArgs(event.target.value)}
-        />
-        <span className="block font-normal text-ink-3">One per line.</span>
-      </label>
-      <div className="space-y-1">
-        <span className="block text-12 font-medium text-ink-2">Environment (optional)</span>
-        {shown.map((pair, index) => (
-          <div key={index} className="flex gap-2">
-            <input
-              aria-label="Variable"
-              className={`${pairField} w-[170px] shrink-0`}
-              placeholder="Variable"
-              value={pair.key}
-              onChange={(event) => onPairs(Object.assign([...shown], { [index]: { ...pair, key: event.target.value } }))}
-            />
-            <input
-              aria-label="Value"
-              type="password"
-              className={`${pairField} flex-1`}
-              placeholder="Value"
-              value={pair.value}
-              onChange={(event) => onPairs(Object.assign([...shown], { [index]: { ...pair, value: event.target.value } }))}
-            />
-            <button
-              type="button"
-              aria-label="Add a variable"
-              className={`flex size-9 shrink-0 items-center justify-center rounded-control border border-line-strong bg-surface text-ink-2 hover:bg-hover ${index === shown.length - 1 ? "" : "invisible"}`}
-              onClick={() => onPairs([...shown, { key: "", value: "" }])}
-            >
-              <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={1.75} color="currentColor" />
-            </button>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
-function UrlExtras({
-  pairs,
-  onPairs,
-  clientId,
-  onClientId,
-  clientSecret,
-  onClientSecret,
-}: {
-  pairs: Pair[];
-  onPairs: (pairs: Pair[]) => void;
-  clientId: string;
-  onClientId: (value: string) => void;
-  clientSecret: string;
-  onClientSecret: (value: string) => void;
-}) {
-  const shown = pairs.length ? pairs : [{ key: "", value: "" }];
-  return (
-    <details className="space-y-3">
-      <summary className="cursor-pointer text-12 font-medium text-ink-2">Headers and OAuth app (optional)</summary>
-      <div className="space-y-1 pt-3">
-        <span className="block text-12 font-medium text-ink-2">Headers, for servers that take an API key</span>
-        {shown.map((pair, index) => (
-          <div key={index} className="flex gap-2">
-            <input
-              aria-label="Header"
-              className={`${pairField} w-[170px] shrink-0`}
-              placeholder="Header"
-              value={pair.key}
-              onChange={(event) => onPairs(Object.assign([...shown], { [index]: { ...pair, key: event.target.value } }))}
-            />
-            <input
-              aria-label="Value"
-              type="password"
-              className={`${pairField} flex-1`}
-              placeholder="Value"
-              value={pair.value}
-              onChange={(event) => onPairs(Object.assign([...shown], { [index]: { ...pair, value: event.target.value } }))}
-            />
-            <button
-              type="button"
-              aria-label="Add a header"
-              className={`flex size-9 shrink-0 items-center justify-center rounded-control border border-line-strong bg-surface text-ink-2 hover:bg-hover ${index === shown.length - 1 ? "" : "invisible"}`}
-              onClick={() => onPairs([...shown, { key: "", value: "" }])}
-            >
-              <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={1.75} color="currentColor" />
-            </button>
-          </div>
-        ))}
-      </div>
-      <p className="text-12 text-ink-3">Only for a server that can't register Milagre by itself: the client ID and secret of the app you made for it.</p>
-      <label className={label}>
-        Client ID
-        <input
-          aria-label="Client ID"
-          autoComplete="off"
-          spellCheck={false}
-          className={field}
-          value={clientId}
-          onChange={(event) => onClientId(event.target.value)}
-        />
-      </label>
-      <Secret name="Client Secret" value={clientSecret} onChange={onClientSecret} />
-    </details>
-  );
-}
-
-export function ConnectorSheet({ onAdd, onClose }: { onAdd: (input: ConnectorInput) => Promise<ConnectorSummary>; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [step, setStep] = useState<"choose" | "preset" | "custom">("choose");
   const [preset, setPreset] = useState<ConnectorPreset | null>(null);
@@ -253,8 +120,22 @@ export function ConnectorSheet({ onAdd, onClose }: { onAdd: (input: ConnectorInp
     setPairs([{ key: "", value: "" }]);
     setError("");
   };
+  const builtInLinear = preset?.id === "linear";
   const submit = async () => {
     if (step === "choose" || busy) return;
+    if (builtInLinear) {
+      setBusy(true);
+      setError("");
+      try {
+        await onLinear();
+        onClose();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     let input: ConnectorInput;
     try {
       input = preset
@@ -323,11 +204,13 @@ export function ConnectorSheet({ onAdd, onClose }: { onAdd: (input: ConnectorInp
                 All services
               </button>
               {preset && <p className="text-13 text-ink-2">{preset.description}</p>}
-              <label className={label}>
-                Name
-                <input autoFocus aria-label="Name" className={field} value={name} onChange={(event) => set(setName)(event.target.value)} />
-                <span className="block font-normal text-ink-3">Name each workspace, like Slack company A. Agents see it with the tools.</span>
-              </label>
+              {!builtInLinear && (
+                <label className={label}>
+                  Name
+                  <input autoFocus aria-label="Name" className={field} value={name} onChange={(event) => set(setName)(event.target.value)} />
+                  <span className="block font-normal text-ink-3">Name each workspace, like Slack company A. Agents see it with the tools.</span>
+                </label>
+              )}
               {!preset && (
                 <Segmented
                   label="Starts from"
@@ -391,8 +274,18 @@ export function ConnectorSheet({ onAdd, onClose }: { onAdd: (input: ConnectorInp
                   <Secret name="Client Secret" value={clientSecret} onChange={set(setClientSecret)} />
                 </section>
               )}
-              {preset?.auth === "browser" && (
-                <p className="text-13 text-ink-2">Your browser opens to sign in to {preset.name}. Choose the account and the access to allow.</p>
+              {builtInLinear ? (
+                <LinearChoice
+                  onMcp={() => {
+                    choose(null);
+                    setName("Linear MCP");
+                    setUrl(preset.url);
+                  }}
+                />
+              ) : (
+                preset?.auth === "browser" && (
+                  <p className="text-13 text-ink-2">Your browser opens to sign in to {preset.name}. Choose the account and the access to allow.</p>
+                )
               )}
               {!preset && kind === "url" && (
                 <UrlExtras
@@ -419,7 +312,13 @@ export function ConnectorSheet({ onAdd, onClose }: { onAdd: (input: ConnectorInp
                   Cancel
                 </button>
                 <button type="submit" data-connector-submit className={`${footerButton} bg-ink font-semibold text-surface hover:opacity-90`} disabled={busy}>
-                  {busy ? "Adding…" : preset?.auth === "token" || (!preset && kind === "command") ? "Add connector" : "Add and sign in"}
+                  {busy
+                    ? "Adding…"
+                    : builtInLinear
+                      ? "Sign in to Linear"
+                      : preset?.auth === "token" || (!preset && kind === "command")
+                        ? "Add connector"
+                        : "Add and sign in"}
                 </button>
               </div>
             </>
