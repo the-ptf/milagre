@@ -147,5 +147,6 @@ test("a computer whose Milagre predates GitHub issues gets a message that says t
     "Update Milagre on this Project's computer to start Chats from GitHub issues.",
   );
   assert.equal(githubIssuesFailure("Command is not available from mobile"), "Update Milagre on this Project's computer to start Chats from GitHub issues.");
+  assert.equal(githubIssuesFailure(""), "Update Milagre on this Project's computer to start Chats from GitHub issues.", "no answer at all");
   assert.equal(githubIssuesFailure("offline"), "offline");
 });

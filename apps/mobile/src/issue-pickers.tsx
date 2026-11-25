@@ -53,6 +53,7 @@ export async function pickGithubIssue(client: Client, projectPath: string, onPic
     const result = await client
       .call<GithubIssuesResult>("github:issues", [{ projectPath, ...(query ? { query } : {}), fresh }])
       .catch((error: unknown) => Promise.reject(new Error(githubIssuesFailure(error instanceof Error ? error.message : error))));
+    if (!result) throw new Error(githubIssuesFailure(""));
     if ("error" in result) throw new Error(result.error);
     return result;
   };

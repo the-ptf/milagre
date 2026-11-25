@@ -15,10 +15,12 @@ const CLOSED_AS = new Set(["completed", "not_planned"]);
 export const GITHUB_ISSUE_TITLE = "Start from a GitHub issue";
 export const GITHUB_ISSUE_PLACEHOLDER = "Search issues or paste a link";
 
-/** What the picker says when the Project's computer can't list issues: an older Milagre there has no `github:issues`. */
+/** What the picker says when the Project's computer can't list issues; no answer, or none to `github:issues`, means an older Milagre there. */
 export function githubIssuesFailure(message) {
-  const text = String(message ?? "");
-  return /unknown command|not available from mobile/i.test(text) ? "Update Milagre on this Project's computer to start Chats from GitHub issues." : text;
+  const text = String(message ?? "").trim();
+  return !text || /unknown command|not available from mobile/i.test(text)
+    ? "Update Milagre on this Project's computer to start Chats from GitHub issues."
+    : text;
 }
 
 /** `owner/repo` for github.com, `host/owner/repo` for GitHub Enterprise: the form `gh --repo` takes. */

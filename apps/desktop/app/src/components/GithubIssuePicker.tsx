@@ -50,7 +50,7 @@ export function GithubIssuePicker({
         Promise.resolve()
           .then(() => bridgeForKey(projectKey).listGithubIssues(projectKey, text || undefined, { fresh }))
           .then(
-            (result) => show("error" in result ? { issues: [], error: result.error } : result),
+            (result) => show(!result ? { issues: [], error: githubIssuesFailure("") } : "error" in result ? { issues: [], error: result.error } : result),
             (error: unknown) => show({ issues: [], error: githubIssuesFailure(ipcErrorMessage(error)) }),
           );
       },

@@ -32,7 +32,7 @@ export function useGithubIssuesAvailable(
     client
       .call<GithubIssuesResult>("github:issues", [{ projectPath }])
       .then(
-        (result) => !("error" in result && HIDDEN.has(result.code)),
+        (result) => !!result && !("error" in result && HIDDEN.has(result.code)),
         () => false,
       )
       .then((available) => {

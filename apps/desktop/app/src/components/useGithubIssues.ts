@@ -21,7 +21,7 @@ export function useGithubIssueProject(projectKey: string | undefined, enabled: b
     Promise.resolve()
       .then(() => bridgeForKey(projectKey).listGithubIssues(projectKey))
       .then(
-        (result) => !("error" in result && HIDDEN.has(result.code)),
+        (result) => !!result && !("error" in result && HIDDEN.has(result.code)),
         () => false,
       )
       .then((available) => {
