@@ -100,6 +100,13 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await waitFor(`document.querySelector("[data-workspace-tabs]")`);
     await expectTabs(["chat:3*"], "the open Chat gets a tab");
+    assert.deepEqual(
+      await evaluate(
+        `[...document.querySelectorAll("[data-workspace-tabs] button")].filter((button) => !button.closest(".no-drag")).map((button) => button.getAttribute("aria-label"))`,
+      ),
+      [],
+      "every strip button sits in a no-drag area, so a mouse press reaches it instead of dragging the window",
+    );
     await evaluate(`window.show(1)`);
     await expectTabs(["chat:3", "chat:1*"], "opening another Chat of the Worktree adds its tab at the end");
     await evaluate(`window.show(2)`);
@@ -172,7 +179,7 @@ async function browserChecks() {
     await screenshot("draft");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Chat and Subchat tabs open, switch by click and digit, reorder by drag, close by middle click, ask before the main Chat, drop archived Chats and show a New Chat draft; Browser pages become tabs, unread when the agent opened them, and stage the page in front",
+      "PASS: Chat and Subchat tabs open, switch by click and digit, reorder by drag, close by middle click, ask before the main Chat, drop archived Chats and show a New Chat draft, keep every button clear of the window drag area; Browser pages become tabs, unread when the agent opened them, and stage the page in front",
     );
     app.exit(0);
   } catch (error) {
