@@ -142,3 +142,14 @@ test("offline message becomes Needs attention after adoption, preserves text, an
   assert.equal((f.requests.at(-1) as any).sessionId, 6);
   assert.equal((f.requests.at(-1) as any).body, "check these");
 });
+
+test("a queued Chat started from an issue keeps the prompt it was queued with for the host to replace", async () => {
+  for (const issue of [{ linearIssue: { key: "ENG-12" } }, { githubIssue: { repo: "acme/web", number: 12 } }]) {
+    const f = fixture();
+    const queued = f.get();
+    await f.update({ request: { ...queued.request, prompt: "Work on the issue", ...issue } });
+    await deliverOutbox(f.get(), f.update, f.transport);
+    const request = f.requests.at(-1) as OutboxItem["request"];
+    assert.equal(request.prompt, "Work on the issue", JSON.stringify(issue));
+  }
+});
