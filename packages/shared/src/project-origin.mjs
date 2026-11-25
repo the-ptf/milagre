@@ -49,3 +49,34 @@ export function groupByOrigin(choices) {
   }
   return groups;
 }
+
+/**
+ * A group's copies in the order to open them: the picked one, then each other copy that is not offline, this
+ * computer's first.
+ */
+export function copiesToTry(copies, picked, isHere) {
+  const others = copies.filter((copy) => copy !== picked && copy.online !== false && copy.offline !== true);
+  return [picked, ...others.toSorted((a, b) => Number(isHere(b)) - Number(isHere(a)))];
+}
+
+/**
+ * Opens the first copy that opens. `open` throws to move on to the next copy and returns undefined to stop (the person
+ * went somewhere else meanwhile). Each failure reads "computer: why", so one computer's refusal never hides which one.
+ */
+export async function openFirstCopy(copies, open, failure) {
+  const failures = [];
+  for (const copy of copies) {
+    try {
+      const opened = await open(copy);
+      return opened === undefined ? { copy: undefined, failures, stopped: true } : { copy, failures, stopped: false };
+    } catch (error) {
+      failures.push(failure(copy, error));
+    }
+  }
+  return { copy: undefined, failures, stopped: false };
+}
+
+export function copyOpenNotice(failures, openedOn) {
+  if (!failures.length) return null;
+  return openedOn ? `${failures.join(" ")} Opened it on ${openedOn} instead.` : failures.join(" ");
+}

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { LOCAL_COMPUTER, computerOfKey, unqualifyKey } from "@milagre/shared/chat-scopes";
 import { CHATS_GROUP_KEY, NO_PROJECT_LABEL, type ChatsHome, type ProjectKind } from "@milagre/shared/chats-home";
 import type { NamedProjectLink } from "@milagre/shared/model";
-import { groupByOrigin } from "@milagre/shared/project-origin";
+import { copiesToTry, groupByOrigin } from "@milagre/shared/project-origin";
 import { bridgeFor } from "./computer-bridge.ts";
 import { useComputers, useHiddenComputers } from "./computers.ts";
 import { useComputerScopes, type ComputerProject } from "./computer-scopes.ts";
@@ -43,6 +43,14 @@ export function pickedProjectKey(group: ProjectGroup, currentKey: string): strin
   const copy = preferredCopy(group.origin, first ? [first, ...rest] : [group]);
   rememberProjectComputer(copy);
   return copy.key;
+}
+
+export function otherCopyKeys(group: ProjectGroup, key: string): string[] {
+  const picked = group.copies.find((copy) => copy.key === key);
+  if (!picked) return [];
+  return copiesToTry(group.copies, picked, (copy) => copy.computerId === LOCAL_COMPUTER)
+    .slice(1)
+    .map((copy) => copy.key);
 }
 
 export function chatsGroup(homes: { computerId: string; computer: string; online?: boolean; home: ChatsHome }[]): ProjectGroup {

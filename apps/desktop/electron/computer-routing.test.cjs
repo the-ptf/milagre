@@ -106,6 +106,7 @@ test("a computer's events and results come back naming it", () => {
   assert.deepEqual(qualifyEvent(ID, "agent:cli-progress", { provider: "codex" }), { provider: "codex" });
 
   assert.deepEqual(qualifyResult(ID, "project:switch", { path: "/p", name: "p", state: {} }), { path: `${ID}|/p`, name: "p", state: {} });
+  assert.deepEqual(qualifyResult(ID, "canvas:open-project", { path: "/p", name: "p", state: {} }), { path: `${ID}|/p`, name: "p", state: {} });
   assert.deepEqual(qualifyResult(ID, "project:recent", [{ path: "/p", name: "p", hidden: true }]), [{ path: `${ID}|/p`, name: "p" }]);
   assert.deepEqual(qualifyResult(ID, "project:registry", [{ id: "/p/.git", path: "/p", name: "p" }]), [{ id: "/p/.git", path: `${ID}|/p`, name: "p" }]);
   assert.deepEqual(qualifyResult(ID, "link:list", [{ id: LINK, name: "L", projectIds: ["/p/.git"], hidden: true }]), [

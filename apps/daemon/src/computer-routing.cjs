@@ -140,6 +140,7 @@ const RESULTS = {
   "project:current": OPEN_PROJECT,
   "project:switch": OPEN_PROJECT,
   "project:read": OPEN_PROJECT,
+  "canvas:open-project": OPEN_PROJECT,
   "chats:home": OPEN_PROJECT,
   "chats:ensure": OPEN_PROJECT,
   "project:recent": PROJECT_LIST,

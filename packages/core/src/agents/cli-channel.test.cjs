@@ -19,6 +19,11 @@ test("the install channel comes from where the CLI's binary really lives", () =>
   assert.equal(installChannel("codex", "/x/bin/codex", resolvingTo("/x/lib/node_modules/@openai/codex/bin/codex.js")).kind, "npm");
   assert.equal(installChannel("claude", "/Users/me/.local/bin/claude", resolvingTo("/Users/me/.local/share/claude/versions/2.1.300")).kind, "installer");
   assert.equal(installChannel("codex", "/x/codex", resolvingTo("/x/codex")).kind, "other");
+  assert.equal(
+    installChannel("codex", "/Users/me/.local/share/mise/shims/codex", resolvingTo("/opt/homebrew/Cellar/mise/2026.11.14/bin/mise")).kind,
+    "other",
+    "a mise shim is mise's binary, so upgrading Homebrew's mise never updates Codex",
+  );
   assert.equal(installChannel("codex", "C:\\codex.cmd", { platform: "win32" }).kind, "other");
   assert.equal(installChannel("codex", null).kind, "other");
 });

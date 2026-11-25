@@ -213,9 +213,9 @@ export function ChatComposer({
     root,
   });
   const focusPrompt = usePromptFocus(root);
-  const moveDraft = useEvent((key: string, home?: Pick<ChatsHome, "exists">) => {
+  const moveDraft = useEvent((key: string, home?: Pick<ChatsHome, "exists">, others?: readonly string[]) => {
     root.current?.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
-    newChatChange?.(key, home);
+    newChatChange?.(key, home, others);
   });
   const compactionFeedback = useCompactionFeedback(
     messages.findLast((item) => compactionContext(item)),

@@ -6185,7 +6185,7 @@ test("the new Chat computer picker keeps its composer and draft through slow and
   await settle();
   assert.equal(host.params.hostId, "studio");
   assert.equal(host.field().value, "typed while connecting");
-  assert.ok(find(host.render(), (node) => node.type === "ErrorNotice" && node.props.message === "Computer unavailable"));
+  assert.ok(find(host.render(), (node) => node.type === "ErrorNotice" && node.props.message === "Mac: Computer unavailable"));
 });
 
 test("a superseded mobile Link open never commits the draft handoff, including when cached", async () => {

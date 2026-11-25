@@ -15,7 +15,7 @@ const stored = new Map<string, string>();
   dispatchEvent() {},
   matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 };
-const { chatsGroup, createChatsHomes, missingHomeAt, pickedProjectKey, pickerLinks, projectGroups, projectPickerRows, withHome } =
+const { chatsGroup, createChatsHomes, missingHomeAt, otherCopyKeys, pickedProjectKey, pickerLinks, projectGroups, projectPickerRows, withHome } =
   await import("./project-copies.ts");
 
 const STUDIO = "c-studio";
@@ -184,4 +184,19 @@ test("pickerLinks offers the Links the sidebar shows, by name", () => {
     pickerLinks(links).map((link) => link.id),
     ["a", "b"],
   );
+});
+
+test("picking a Project on several computers hands over the other online copies to try, this computer's first", () => {
+  const copy = (key: string, computerId: string, online = true) => ({
+    key,
+    name: "rd-events",
+    origin: "github.com/x/rd-events",
+    computerId,
+    computer: computerId,
+    online,
+  });
+  const deer = copy("deer|/rd-events", "deer");
+  const group = { ...deer, copies: [deer, copy("mbp|/rd-events", "mbp"), copy("off|/rd-events", "off", false), copy("/rd-events", "local")] };
+  assert.deepEqual(otherCopyKeys(group, "deer|/rd-events"), ["/rd-events", "mbp|/rd-events"]);
+  assert.deepEqual(otherCopyKeys(group, "gone"), []);
 });

@@ -7,7 +7,8 @@ const LOOKUP_TIMEOUT_MS = 8000;
 
 /**
  * How a CLI got onto this computer, read from where its binary really lives. Homebrew owns the file on PATH for its
- * casks and formulae, so npm can't overwrite it and the update has to come from Homebrew, at Homebrew's version.
+ * casks and formulae, so npm can't overwrite it and the update has to come from Homebrew, at Homebrew's version. A
+ * version manager's shim (mise links `codex` to its own binary) resolves into the manager's package, not the CLI's.
  */
 function installChannel(name, command, { realpath = fs.realpathSync, platform = process.platform, home = os.homedir() } = {}) {
   if (!command || platform === "win32") return { kind: "other" };
@@ -15,9 +16,10 @@ function installChannel(name, command, { realpath = fs.realpathSync, platform = 
   try {
     real = realpath(command);
   } catch {}
-  const cask = real.match(/^(.*)\/Caskroom\/([^/]+)\//);
+  const own = path.basename(real) === name;
+  const cask = own && real.match(/^(.*)\/Caskroom\/([^/]+)\//);
   if (cask) return { kind: "homebrew-cask", token: cask[2], brew: path.join(cask[1], "bin", "brew") };
-  const formula = real.match(/^(.*)\/Cellar\/([^/]+)\//);
+  const formula = own && real.match(/^(.*)\/Cellar\/([^/]+)\//);
   if (formula) return { kind: "homebrew-formula", token: formula[2], brew: path.join(formula[1], "bin", "brew") };
   if (PACKAGES[name] && real.includes(`/node_modules/${PACKAGES[name]}/`)) return { kind: "npm" };
   if (name === "claude" && real.startsWith(path.join(home, ".local/share/claude/"))) return { kind: "installer" };

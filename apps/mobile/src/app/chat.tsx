@@ -154,7 +154,7 @@ import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
 import { allComputers, chatsHomePath, useComputerViews, useNewChatProjects, useNoProjectChoice } from "../all-computers";
 import { isChatsHomeProject, JUST_CHAT_HEADING, NO_PROJECT_FOLDER, NO_PROJECT_LABEL, NO_PROJECT_LINE } from "@milagre/shared/chats-home";
-import { newChatLinks as linksOf, newChatProjectGroups, preferredCopy, type NewChatProject } from "../new-chat-project";
+import { newChatLinks as linksOf, newChatProjectGroups, openNewChatCopies, otherCopies, preferredCopy, type NewChatProject } from "../new-chat-project";
 import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "../project-icon";
 import { panelWorktree } from "../project-surfaces";
 import { besideState, closeBeside, openBeside, useBesideChat } from "../split-chats";
@@ -1130,41 +1130,41 @@ function ChatPane({
         const group = projectGroups[Number(id)];
         if (!group || group.copies.some(isOpenCopy)) return;
         const copy = preferredCopy(group, group.origin ? savedChatDefaults.readOriginComputer(group.origin) : null, client.url);
-        void switchProject(copy.hostId, copy.path);
+        void switchProject(copy.hostId, copy.path, otherCopies(group, copy, client.url));
       },
     });
   }
-  async function switchProject(hostId: string, projectPath: string) {
-    if (busy || (hostId === client.url && projectPath === project.path)) return;
-    const host = hostId === client.url ? null : allComputers.hostFor(hostId);
-    if (hostId !== client.url && !host) {
-      setError("This computer is no longer in your list.");
-      return;
-    }
+  async function switchProject(firstHostId: string, firstPath: string, others: readonly NewChatProject[] = []) {
+    if (busy || (firstHostId === client.url && firstPath === project.path)) return;
     setError("");
     setBusy(true);
-    const onOpen = (state: Snapshot) => {
-      const worktrees = Object.values(state.project.state.worktrees);
-      const starter = worktrees.find((item) => item.path === state.project.path) ?? worktrees[0];
-      if (!starter) throw new Error("This Project has no available Worktree.");
-      const destination = `${state.project.path}#new:${starter.id}`;
-      composer.setDrafts((current) => {
-        const { [chatId]: carried, ...rest } = current;
-        return { ...rest, [destination]: carried || current[destination] || "" };
-      });
-      composer.setQuotes((current) => {
-        const { [chatId]: carried, ...rest } = current;
-        return carried?.length ? { ...rest, [destination]: [...(current[destination] || []), ...carried] } : current;
-      });
-      const destinationParams = { ...params, hostId, projectPath: state.project.path, worktreeId: String(starter.id), prefill: undefined };
-      setArriving(destinationParams);
-      router.setParams(destinationParams);
-    };
-    try {
+    const openOne = async ({ hostId, path: projectPath }: { hostId: string; path: string }) => {
+      const host = hostId === client.url ? null : allComputers.hostFor(hostId);
+      if (hostId !== client.url && !host) throw new Error("This computer is no longer in your list.");
+      const onOpen = (state: Snapshot) => {
+        const worktrees = Object.values(state.project.state.worktrees);
+        const starter = worktrees.find((item) => item.path === state.project.path) ?? worktrees[0];
+        if (!starter) throw new Error("This Project has no available Worktree.");
+        const destination = `${state.project.path}#new:${starter.id}`;
+        composer.setDrafts((current) => {
+          const { [chatId]: carried, ...rest } = current;
+          return { ...rest, [destination]: carried || current[destination] || "" };
+        });
+        composer.setQuotes((current) => {
+          const { [chatId]: carried, ...rest } = current;
+          return carried?.length ? { ...rest, [destination]: [...(current[destination] || []), ...carried] } : current;
+        });
+        const destinationParams = { ...params, hostId, projectPath: state.project.path, worktreeId: String(starter.id), prefill: undefined };
+        setArriving(destinationParams);
+        router.setParams(destinationParams);
+      };
       if (host) await session.connect(host, false, { projectPath, onOpen });
       else await session.open(projectPath, { background: true, onOpen });
-    } catch (e) {
-      setError((e as Error).message);
+      return true;
+    };
+    try {
+      const notice = await openNewChatCopies([{ hostId: firstHostId, path: firstPath }, ...others], openOne, newChatProjects, client.url, session.hostName);
+      if (notice) setError(notice);
     } finally {
       setBusy(false);
     }

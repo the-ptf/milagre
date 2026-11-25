@@ -1,5 +1,5 @@
 import { NO_PROJECT_LABEL, type ChatsHome } from "@milagre/shared/chats-home";
-import { groupByOrigin } from "@milagre/shared/project-origin";
+import { copiesToTry, copyOpenNotice, groupByOrigin, openFirstCopy } from "@milagre/shared/project-origin";
 import type { HostView } from "./all-computers-store";
 import type { RecentProject, RegisteredProject } from "./client";
 
@@ -71,6 +71,28 @@ export function newChatProjectGroups(projects: readonly NewChatProject[]): NewCh
 export function preferredCopy(group: NewChatProjectGroup, lastHostId: string | null, currentHostId: string): NewChatProject {
   const reachable = group.copies.filter((copy) => !copy.offline);
   return reachable.find((copy) => copy.hostId === lastHostId) ?? reachable.find((copy) => copy.hostId === currentHostId) ?? reachable[0] ?? group;
+}
+
+export function otherCopies(group: NewChatProjectGroup, picked: NewChatProject, currentHostId: string): NewChatProject[] {
+  const first = group.copies.find((copy) => copy.hostId === picked.hostId && copy.path === picked.path);
+  return first ? copiesToTry(group.copies, first, (copy) => copy.hostId === currentHostId).slice(1) : [];
+}
+
+type CopyPlace = { hostId: string; path: string };
+
+export async function openNewChatCopies(
+  copies: readonly CopyPlace[],
+  open: (copy: CopyPlace) => Promise<boolean>,
+  projects: readonly NewChatProject[],
+  currentHostId: string,
+  currentName: string | undefined,
+): Promise<string | null> {
+  const nameOf = (hostId: string) => projects.find((item) => item.hostId === hostId)?.hostName ?? currentName ?? "This computer";
+  const { copy, failures } = await openFirstCopy(copies, open, (item, error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    return item.hostId === currentHostId && copies.length === 1 ? message : `${nameOf(item.hostId)}: ${message}`;
+  });
+  return copyOpenNotice(failures, copy && nameOf(copy.hostId));
 }
 
 const UNREAD_HOME: ChatsHome = { path: "", exists: false };
