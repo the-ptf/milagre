@@ -16,8 +16,8 @@ const target = (def) =>
     : { url: def.url, headers: record(def.headers) };
 const sameTarget = (connector, def) => (def.type === "stdio" ? connector.command === def.command : connector.url === def.url);
 
-function createConnectorsWiring({ options, dataDir, emit, commands, version, mcp, mcpStore, linear, linearTools }) {
-  const builtIn = linear ? createLinearConnector({ linear, linearTools, store: createConnectorStore({ dataDir }) }) : null;
+function createConnectorsWiring({ options, dataDir, emit, commands, version, mcp, mcpStore, linear, linearIssues, linearTools }) {
+  const builtIn = linear ? createLinearConnector({ linear, linearIssues, linearTools, store: createConnectorStore({ dataDir }) }) : null;
   const listAll = () => [...(builtIn?.summary() ? [builtIn.summary()] : []), ...connectors.list()];
   const changed = () => emit("connectors:changed", { connectors: listAll() });
   const connectors = createConnectors({ dataDir, version, ...options.connectors, changed });
@@ -47,9 +47,12 @@ function createConnectorsWiring({ options, dataDir, emit, commands, version, mcp
   commands.handle("connectors:sign-in", (_event, id) => (isLinear(id) ? builtIn.signIn() : connectors.signIn(String(id))));
   commands.handle("connectors:cancel-sign-in", () => connectors.cancelSignIn());
   commands.handle("connectors:sign-out", (_event, id) => (isLinear(id) ? builtIn.signOut() : connectors.signOut(String(id))));
-  commands.handle("connectors:access", (_event, id, provider, accountId, on) => {
-    if (!isLinear(id)) return connectors.setAccess(String(id), String(provider), String(accountId), on === true);
-    const next = builtIn.setAccess(String(provider), String(accountId), on === true);
+  commands.handle("connectors:access", (_event, id, provider, accountId, on, workspace) => {
+    if (!isLinear(id)) {
+      if (workspace !== undefined) throw new Error("Only the built-in Linear connector has workspace access settings.");
+      return connectors.setAccess(String(id), String(provider), String(accountId), on === true);
+    }
+    const next = builtIn.setAccess(String(provider), String(accountId), on === true, workspace);
     changed();
     return next;
   });

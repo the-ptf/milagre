@@ -213,6 +213,7 @@ const PATHS = Object.freeze({
   "routines:rotate-hook": denied,
   "linear:issues": none,
   "linear:worktree-issues": ([projectPath]) => [projectPath],
+  "github:issues": ([value]) => [value?.projectPath],
   "chat:runs": none,
   "chat:send-status": ([projectPath]) => [projectPath],
   "chat:inbox": none,

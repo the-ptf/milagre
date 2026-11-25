@@ -77,8 +77,8 @@ function formatIssue(issue) {
   return cap(parts.join("\n\n"));
 }
 
-function createLinearTools({ linear, issues, dir = path.join(os.tmpdir(), "milagre-linear") }) {
-  const refs = createLinearRefs({ linear, issues });
+function createLinearTools({ linear, issues, workspaceIds, dir = path.join(os.tmpdir(), "milagre-linear") }) {
+  const refs = createLinearRefs({ linear, issues, workspaceIds });
   const { connected, checkWorkspace, find } = refs;
 
   async function issue(ref, workspace) {

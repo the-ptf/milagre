@@ -21,6 +21,7 @@ import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync
 import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider } from "@milagre/shared/mcp";
 import type { LocalMcpApi } from "@milagre/shared/local-mcp";
 import type { LinearIssue, LinearIssuesResult, LinearStatus } from "@milagre/shared/linear";
+import type { GithubIssuesResult } from "@milagre/shared/github-issue";
 import type { ConnectorInput, ConnectorMovable, ConnectorSummary, ConnectorTool, ConnectorUpdate } from "@milagre/shared/connectors";
 import type {
   BackgroundTaskOutput,
@@ -546,7 +547,7 @@ export type MilagreBridge = {
     signIn: (id: string) => Promise<ConnectorSummary>;
     cancelSignIn: () => Promise<void>;
     signOut: (id: string) => Promise<ConnectorSummary>;
-    setAccess: (id: string, provider: McpProvider, accountId: string, on: boolean) => Promise<ConnectorSummary>;
+    setAccess: (id: string, provider: McpProvider, accountId: string, on: boolean, workspace?: string) => Promise<ConnectorSummary>;
     tools: (id: string) => Promise<ConnectorTool[]>;
     movable: () => Promise<ConnectorMovable[]>;
     move: (name: string) => Promise<ConnectorSummary>;
@@ -561,6 +562,8 @@ export type MilagreBridge = {
   listLinearIssues: (query?: string, options?: { fresh?: boolean; workspace?: string }) => Promise<LinearIssuesResult>;
   /** Each Worktree's Linear issue by worktree path, for the chips. {} when off, disconnected or on error. */
   readWorktreeLinearIssues: (projectPath: string) => Promise<Record<string, LinearIssue>>;
+  /** The Project's open GitHub issues, read with its computer's gh; a search, or a pasted issue link or number, narrows them. Never rejects for gh's reasons: it answers `{ error, code }`. */
+  listGithubIssues: (projectPath: string, query?: string, options?: { fresh?: boolean }) => Promise<GithubIssuesResult>;
   /** A new worktree's branch got the name picked for its chat, a few seconds after it was created. */
   onWorktreeRenamed: (callback: (rename: WorktreeRename) => void) => () => void;
   /** Re-reads the given worktrees' diff stats in the main process, e.g. after a commit from the "Commit and open PR" dialog. */

@@ -15,12 +15,14 @@ function read(file) {
 }
 
 const isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+const accessKeys = (value) => (Array.isArray(value) ? value.filter((key) => typeof key === "string") : []);
 const validConnector = (value) => isObject(value) && isConnectorId(value.id) && typeof value.name === "string" && typeof value.url === "string";
 
 function createConnectorStore({ dataDir }) {
   const root = path.join(dataDir, "connectors");
   const secretsDir = path.join(root, "secrets");
   const listFile = path.join(root, "connectors.json");
+  const builtinFile = path.join(root, "builtin.json");
   function write(file, value) {
     preparePrivateDirectory(root);
     if (path.dirname(file) !== root) preparePrivateDirectory(path.dirname(file));
@@ -51,13 +53,19 @@ function createConnectorStore({ dataDir }) {
       fs.rmSync(secretFile(id), { force: true });
       fs.rmSync(toolsFile(id), { force: true });
     },
-    /** `provider:accountId` keys a built-in Connector (Linear) is off for. */
     readAccess: (id) => {
-      const value = read(path.join(root, "builtin.json"))?.[id]?.off;
-      return Array.isArray(value) ? value.filter((key) => typeof key === "string") : [];
+      const value = read(builtinFile)?.[id];
+      return {
+        off: accessKeys(value?.off),
+        workspaceOff: Object.fromEntries(
+          Object.entries(value?.workspaceOff ?? {})
+            .filter(([, keys]) => Array.isArray(keys))
+            .map(([workspace, keys]) => [workspace, accessKeys(keys)]),
+        ),
+      };
     },
-    saveAccess(id, off) {
-      write(path.join(root, "builtin.json"), { ...read(path.join(root, "builtin.json")), [id]: { off } });
+    saveAccess(id, access) {
+      write(builtinFile, { ...read(builtinFile), [id]: access });
     },
     /** Everywhere servers moved here automatically that the user hasn't dismissed the note about. */
     readMoved: () => (Array.isArray(read(path.join(root, "moved.json"))) ? read(path.join(root, "moved.json")) : []),

@@ -39,13 +39,15 @@ import { associatedPullRequest, chatTitle, createPendingChat, createResendMemory
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
-import { LINK_PR_HINT, issueFirstMessage, type LinearIssue, type LinearIssuesResult } from "@milagre/shared/linear";
+import { LINK_PR_HINT, type LinearIssue } from "@milagre/shared/linear";
 import { worktreeShared } from "@milagre/shared/archive";
 import type { Client, OpenProject, Snapshot } from "../client";
 import { answeredQuestions, lastUserModel, projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { pullRequestAction } from "@milagre/shared/pr-blockers";
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
-import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
+import { issueChoiceId, issueSendFields, issueStartContext, issueStartMessage, issueWorktreeFields, type PickedIssue } from "@milagre/shared/issue-start";
+import { pickGithubIssue, pickLinearIssue } from "../issue-pickers";
+import { useGithubIssuesAvailable } from "../use-github-issues";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
 import { ChatLinkProvider } from "../chat-link-context";
 import { composerQuote, quotedMessage, quoteSource, type ComposerQuote } from "@milagre/shared/prompt-parts";
@@ -54,7 +56,7 @@ import { useReachableHost } from "../routes-native";
 import { sameSession, useComposer, useMainSession, usePendingChats, useRunShape, useSession } from "../session";
 import { ChatComposerDock } from "../chat-composer-dock";
 import { useTaskEffort } from "../use-orchestrator";
-import { ChatsTrayLabel, LinearIssueButton, NewChatTray } from "../new-chat-tray";
+import { ChatsTrayLabel, IssueButton, NewChatTray } from "../new-chat-tray";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { composerPlaceholder } from "../composer-placeholder";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
@@ -125,7 +127,7 @@ import { useDotBackground } from "../dot-background";
 import { answersWithImages } from "../questions";
 import { followUpDelivery } from "@milagre/shared/queued-messages";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
-import { Icon, LinearLogo } from "../icons";
+import { Icon } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
 import { useSplitLayout } from "../split-context";
 import { useReadOpenChat } from "../read-open-chat";
@@ -185,12 +187,6 @@ const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
 const PLACE_FALLBACK_MS = 500;
 
 const COMPACT_TRAY_ROW_WIDTH = 460;
-
-const issueChoiceId = (issue: LinearIssue) => (issue.workspace ? `${issue.workspace}:${issue.key}` : issue.key);
-function issueChoices(issues: LinearIssue[]) {
-  return issues.map((issue) => ({ id: issueChoiceId(issue), title: `${issue.key} ${issue.title}`, subtitle: issue.state.name }));
-}
-let lastLinearWorkspace: string | undefined;
 
 type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string };
 
@@ -489,6 +485,7 @@ function ChatPane({
     linearActive && projectPath && !session.snapshot?.project.link && !chatsHomeOpen ? [projectPath] : [],
     linkVersion,
   );
+  const githubIssues = useGithubIssuesAvailable(connected, session.snapshot, { chatOpen: params.id, chatsHome: chatsHomeOpen });
   const targetMatches = (!params.projectPath || params.projectPath === projectPath) && (!params.hostId || params.hostId === connected?.url);
   const originChatId = pendingOrigin(projectPath, params.id, params.worktreeId, draftId);
   const pending = targetMatches
@@ -779,7 +776,7 @@ function ChatPane({
     transform: [{ translateY: Math.min(0, keyboard.height.get() + startLift * keyboard.progress.get()) / 2 }],
   }));
   const sidebar = <SidebarToolbar onOpenNavigation={panels.show} />;
-  const startIssue = useRef<(issue: LinearIssue) => void>(() => {});
+  const startIssue = useRef<(issue: PickedIssue) => void>(() => {});
   const sendDesign = useRef<() => void>(() => {});
   const sendGenui = useRef<(text: string) => Promise<boolean | "busy">>(async () => false);
   const genuiSend = useCallback((text: string) => sendGenui.current(text), []);
@@ -1267,51 +1264,16 @@ function ChatPane({
         designSending.current = null;
       });
   };
-  startIssue.current = (issue) => void send(issueFirstMessage(issue, heldDraft().draft), true, undefined, issue);
+  startIssue.current = (issue) => void send(issueStartMessage(issue, heldDraft().draft), true, undefined, issue);
   async function chooseIssue() {
-    await pickLinearIssue("Start from a Linear issue", (issue) => startIssue.current(issue));
+    await pickIssue((client) => pickLinearIssue(client, "Start from a Linear issue", (issue) => startIssue.current(issue)));
   }
-  async function pickLinearIssue(title: string, onPick: (issue: LinearIssue) => void) {
+  async function pickIssue(open: (client: Client) => Promise<void>) {
     if (targetDisabled || !client) return;
     setError("");
-    let result: LinearIssuesResult;
-    try {
-      result = await client.call<LinearIssuesResult>("linear:issues", [lastLinearWorkspace ? { workspace: lastLinearWorkspace } : {}]);
-    } catch (e) {
-      setError((e as Error).message);
-      return;
-    }
-    if ("error" in result) {
-      setError(result.error);
-      return;
-    }
-    const seen = new Map<string, LinearIssue>();
-    const keep = (list: LinearIssue[]) => {
-      for (const issue of list) seen.set(issueChoiceId(issue), issue);
-      return issueChoices(list);
-    };
-    lastLinearWorkspace = result.workspace;
-    showChoiceSheet({
-      title,
-      placeholder: "Search issues",
-      emptyLabel: "No issues found.",
-      leading: <LinearLogo size={18} tone="ink" />,
-      items: keep(result.issues),
-      tabs: result.workspaces?.map((workspace) => ({ id: workspace.id, label: workspace.name })),
-      tab: result.workspace,
-      load: async (workspace, fresh) => {
-        const next = await client.call<LinearIssuesResult>("linear:issues", [{ fresh, ...(workspace ? { workspace } : {}) }]);
-        if ("error" in next) throw new Error(next.error);
-        if (next.workspace) lastLinearWorkspace = next.workspace;
-        return keep(next.issues);
-      },
-      onSelect: (id) => {
-        const issue = seen.get(id);
-        if (issue) onPick(issue);
-      },
-    });
+    await open(client).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)));
   }
-  async function send(typedBody?: string, withAttachments = true, prAction?: PullRequestActionContext, issue?: LinearIssue, stay = false) {
+  async function send(typedBody?: string, withAttachments = true, prAction?: PullRequestActionContext, issue?: PickedIssue, stay = false) {
     const { draft, quotes, attachments } = heldDraft();
     const outgoing = quotedMessage(quotes, draft);
     const body = typedBody ?? outgoing;
@@ -1324,7 +1286,7 @@ function ChatPane({
       if (sentQuotes.length) composer.setQuotes((held) => ({ ...held, [chatId]: (held[chatId] || []).filter((quote) => !sentQuoteIds.has(quote.id)) }));
     };
     if (command(typed, withAttachments && !sentQuotes.length, sendOptions(model, preferences))) return false;
-    const issueKey = issue?.key;
+    const issueKey = issueChoiceId(issue);
     const steered = Boolean(run) && messageDelivery !== "queue" && canSteer;
     const stayDraft = stay ? randomUUID() : undefined;
     const origin = stayDraft ? pendingOrigin(project.path, undefined, String(worktreeId), stayDraft) : originChatId;
@@ -1362,7 +1324,7 @@ function ChatPane({
             ...sendOptions(model, preferences),
             delivery: messageDelivery,
             ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
-            ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
+            ...issueSendFields(issue, draft),
           },
           ...(project.link ? { link: { linkId: project.link.link.id, operationId: id } } : {}),
           ...(!project.link && (newWorktree || stay || issue)
@@ -1372,7 +1334,7 @@ function ChatPane({
                   baseBranch: base,
                   useProjectBase: pickedBase === undefined,
                   prompt: body,
-                  ...(issue ? { issueKey: issue.key, issueWorkspace: issue.workspace } : {}),
+                  ...issueWorktreeFields(issue),
                 },
               }
             : {}),
@@ -1422,7 +1384,7 @@ function ChatPane({
       files: sending.filter((item) => !item.image).map((item) => item.path || item.name),
       model: model.id,
       provider: actualProvider,
-      context: issue ? linearIssueContext(issue, draft) : (prAction ?? null),
+      context: issue ? issueStartContext(issue, draft) : (prAction ?? null),
     });
     pendingStore.setPendingChats((current) => ({
       ...current,
@@ -1463,7 +1425,7 @@ function ChatPane({
                 baseBranch: base,
                 useProjectBase: pickedBase === undefined,
                 prompt: sent,
-                ...(issueKey !== undefined ? { issueKey, ...(issue?.workspace ? { issueWorkspace: issue.workspace } : {}) } : {}),
+                ...issueWorktreeFields(issue),
               },
             ]),
           );
@@ -1491,7 +1453,7 @@ function ChatPane({
                 prompt: attachmentPrompt(sent, media.files),
                 ...options,
                 sentFrom: SENT_FROM,
-                ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
+                ...issueSendFields(issue, draft),
               },
             ])
           : client.call<{ sessionId: number }>("chat:send", [
@@ -1505,7 +1467,7 @@ function ChatPane({
                 ...options,
                 sentFrom: SENT_FROM,
                 ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
-                ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
+                ...issueSendFields(issue, draft),
               },
             ]),
       ).catch(async (error) => {
@@ -1698,7 +1660,7 @@ function ChatPane({
   }
   function linkIssue() {
     if (!worktree) return;
-    void pickLinearIssue("Link a Linear issue", (issue) => void linkWorktreeIssue(issue.key, issue.workspace));
+    void pickIssue((client) => pickLinearIssue(client, "Link a Linear issue", (issue) => void linkWorktreeIssue(issue.key, issue.workspace)));
   }
   async function linkWorktreeIssue(key: string, workspace?: string) {
     if (!worktree) return;
@@ -1897,12 +1859,14 @@ function ChatPane({
         }}
         linear={linearActive}
         onIssue={() => void chooseIssue()}
+        github={githubIssues}
+        onGithubIssue={() => void pickIssue((client) => pickGithubIssue(client, project.path, (issue) => startIssue.current(issue)))}
         labelIssue={trayRowWidth >= COMPACT_TRAY_ROW_WIDTH}
         onRowWidth={setTrayRowWidth}
       />
     ) : !params.id && project.link && linearActive ? (
       <View style={{ flexDirection: "row", alignItems: "center" }}>
-        <LinearIssueButton labelled disabled={targetDisabled} onPress={() => void chooseIssue()} />
+        <IssueButton source="linear" labelled disabled={targetDisabled} onPress={() => void chooseIssue()} />
       </View>
     ) : null;
   const dock = (

@@ -38,6 +38,10 @@ _Avoid_: base (the base is whatever branch a **Worktree** started from, which ma
 An issue in the Linear workspace connected on a **Computer**, named by its key (`ENG-123`). A **Worktree** has at most one: the link stored on it when there is one, else the first key in its branch name that matches one of the workspace's team keys. Explicitly unlinking an issue suppresses branch detection until another issue is linked. Milagre only reads it; Linear's GitHub integration moves its status.
 _Avoid_: ticket, task (Linear's own word is issue)
 
+**GitHub issue**:
+An issue in a GitHub repository, named with its repository (`owner/repo#12`) and read with the `gh` of the **Computer** that owns the **Project**, so the GitHub sign-in never leaves it. A **Chat** can start from one: the agent gets its title, body and comments as the author's data, not as instructions, and the new **Worktree**'s branch is named `<number>-<slug>`. Milagre only reads it: it never comments on, closes, labels or assigns it.
+_Avoid_: ticket, task
+
 **Chat**:
 One conversation with one agent. A Project Chat is bound to exactly one **Worktree**; a named Link's shared Chat owns one isolated **Worktree** in each member **Project**. An ordinary **Worktree** can have many **Chats**; a shared Chat's owned Worktree does not receive an independent editable Project Chat.
 A **Chat** started with No project is a **Chat** in the **Chats home**, on its own **Worktree**; it has no Git controls.

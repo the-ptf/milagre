@@ -14,6 +14,7 @@ const { isRunChat, withRunChatsHidden } = require("../routines/runtime-adapter.c
 const { doneDue } = require("@milagre/shared/done");
 const { isHiddenRunChat } = require("@milagre/shared/chats");
 const { PERMISSION_MODES } = require("../agents/permissions.cjs");
+const { githubIssueMessage } = require("./github-issue-start.cjs");
 
 function registerChatControls({
   commands,
@@ -197,6 +198,7 @@ function registerChatControls({
 }
 
 function registerChatSend({
+  options,
   commands,
   background,
   chats,
@@ -218,7 +220,7 @@ function registerChatSend({
   });
   async function sendAsUser(request) {
     if (isLinkScopeKey(request?.projectPath) || !scopeStates.has(request?.projectPath)) throw new Error("Open the project before sending to its chats.");
-    const { prAction, linearIssue, compact, sentFrom, ...rest } = request;
+    const { prAction, linearIssue, githubIssue, compact, sentFrom, ...rest } = request;
     const action = prAction === undefined ? null : pullRequestActionContext(prAction);
     if (prAction !== undefined && !action) throw new Error("That pull request action isn't valid.");
     if (compact && rest.sessionId == null) throw new Error("Open a chat before compacting it.");
@@ -228,7 +230,9 @@ function registerChatSend({
         ? { ...rest, ...compactionMessage() }
         : linearIssue !== undefined
           ? (await linearIssueMessage(rest, linearIssue)).message
-          : { ...rest, context: undefined };
+          : githubIssue !== undefined
+            ? await githubIssueMessage(options, rest, githubIssue)
+            : { ...rest, context: undefined };
     const { sessionId } = await chats.send(
       compact ? message : sentFromNotes.message({ ...message, sentFrom }, rest.sessionId == null ? null : chatKey(rest.projectPath, rest.sessionId)),
     );
@@ -705,6 +709,7 @@ function registerChatLifecycle({
     subchatEscalation,
   });
   const { sendAsUser, linearIssueMessage, markIssueStarted } = registerChatSend({
+    options,
     commands,
     background,
     chats,

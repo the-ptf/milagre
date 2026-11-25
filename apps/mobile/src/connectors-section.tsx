@@ -7,6 +7,7 @@ import {
   CONNECTORS_HINT,
   CONNECTORS_TITLE,
   CONNECTOR_ON_COMPUTER,
+  connectorAccessGroups,
   connectorAccessKey,
   connectorAccountName,
   connectorAllows,
@@ -120,22 +121,25 @@ export function ConnectorsSection() {
       ) : null}
       {selected ? (
         <>
-          <Group title={`${selected.name} · Available to`} inset={0}>
-            {accounts.map((account) => {
-              const on = connectorAllows(selected, account.provider, account.accountId);
-              return (
-                <ListRow
-                  key={connectorAccessKey(account.provider, account.accountId)}
-                  title={connectorAccountName(account)}
-                  toggle={{
-                    value: on,
-                    label: `${selected.name} for ${connectorAccountName(account)}`,
-                    onChange: () => act("connectors:access", [selected.id, account.provider, account.accountId, !on]),
-                  }}
-                />
-              );
-            })}
-          </Group>
+          {connectorAccessGroups(selected).map((group) => (
+            <Group key={group.id ?? selected.id} title={`${group.name} · Available to`} inset={0}>
+              {accounts.map((account) => {
+                const on = connectorAllows(group, account.provider, account.accountId);
+                const label = connectorAccountName(account);
+                return (
+                  <ListRow
+                    key={connectorAccessKey(account.provider, account.accountId)}
+                    title={label}
+                    toggle={{
+                      value: on,
+                      label: `${group.name} for ${label}`,
+                      onChange: () => act("connectors:access", [selected.id, account.provider, account.accountId, !on, ...(group.id ? [group.id] : [])]),
+                    }}
+                  />
+                );
+              })}
+            </Group>
+          ))}
           {selected.kind === "linear" ? <LinearSection /> : null}
           <Group inset={0}>
             {selected.kind === "url" && selected.state !== "needs-sign-in" && selected.state !== "needs-app" ? (
