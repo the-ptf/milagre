@@ -44,6 +44,10 @@ Repository fields win over personal settings; the form identifies them and keeps
 
 These rules apply to ordinary Chats, issue-started Chats, Named Link members, Delegations, Routines and Bots. Automatic naming uses the policy captured when creation starts, keeps the folder stable and leaves pushed branches alone. Branch instructions also reach the agent each turn, so they can guide branches the agent creates or renames directly. Existing branches are not renamed when settings change. Without an explicit template, valid Linear branch suggestions retain their names.
 
+## Workspace tabs
+
+Settings › Experimental › Workspace tabs puts the open Chat's Worktree in a strip of tabs where the Chat's title sits in the top bar (`ChatTopBar` picks the strip, `ChatIdentity` or `SubchatBookmark`). The model is shared with the phone in `@milagre/shared/workspace-tabs`: one tab set per Worktree, keyed by `workspaceKey`, kept per device (desktop `milagre.workspaceTabs` in preference storage, phone a JSON file in the app's documents). The strip opens a tab for whatever Chat the window shows, puts a Subchat right after its parent's family, and drops tabs of Chats that are archived or moved. Drafting a New Chat shows a New Chat tab until it is sent. ⌘1 to ⌘8 pick a tab and ⌘9 the last; ⌘W is left to the window. Browser pages, designs, Terminals, the diff and the PR become tabs in later steps; until then the + menu opens their panels.
+
 ## Notifications
 
 Milagre can notify when a turn completes or fails while its chat is not focused, with a preview of the result. Clicking the notification opens that chat, including switching projects through the usual confirmation flow. The focused chat stays quiet; cancelled turns do not send completion alerts. A turn that ends while a subagent the chat runs in the background is still at work is not announced either: the turn that subagent's result wakes is, once nothing runs in the background. The same rule applies to the phone's push notifications.

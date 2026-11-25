@@ -10,6 +10,8 @@ import { Toggle, useStyles } from "./ui";
 import { useTheme } from "./theme";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import { useNewChatStats } from "./chat-display-setting";
+import { WORKSPACE_TABS_DESCRIPTION, WORKSPACE_TABS_LABEL } from "@milagre/shared/workspace-tabs";
+import { useWorkspaceTabs } from "./workspace-tabs-store";
 import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL, DEVICE_NOTES_WARNING } from "@milagre/shared/device-notes";
 import { OrchestratorChurchRow } from "./orchestrator-church-row";
 
@@ -20,6 +22,7 @@ export function ExperimentalSection() {
   const [inboxActivity, setInboxActivity] = useFloatingInboxActivity();
   const [fatality, setFatality] = useUltracodeFatality();
   const [newChatStats, setNewChatStats] = useNewChatStats();
+  const [workspaceTabs, setWorkspaceTabs] = useWorkspaceTabs();
   const session = useSession();
   const [deviceNotes, setDeviceNotes] = useState<boolean | null>(null);
   const [deviceNotesError, setDeviceNotesError] = useState("");
@@ -82,6 +85,10 @@ export function ExperimentalSection() {
       <View style={[styles.card, { gap: space.xs }]}>
         <Toggle title={NEW_CHAT_STATS_LABEL} selected={newChatStats} onPress={() => setNewChatStats(!newChatStats)} />
         <Text style={styles.caption}>{NEW_CHAT_STATS_HINT}</Text>
+      </View>
+      <View style={[styles.card, { gap: space.xs }]}>
+        <Toggle title={WORKSPACE_TABS_LABEL} selected={workspaceTabs} onPress={() => setWorkspaceTabs(!workspaceTabs)} />
+        <Text style={styles.caption}>{WORKSPACE_TABS_DESCRIPTION}</Text>
       </View>
       {session.client && deviceNotesClient === session.client && deviceNotes !== null && (
         <View style={[styles.card, { gap: 4 }]}>

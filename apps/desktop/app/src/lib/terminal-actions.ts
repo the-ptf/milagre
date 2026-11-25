@@ -1,3 +1,5 @@
+import { sessionIdFromKey } from "./agent-runs";
+import { requestTab } from "./workspace-stage";
 import { useEffect } from "react";
 import type { TerminalInfo } from "@milagre/shared/terminal";
 import { ipcErrorMessage } from "@milagre/shared/result";
@@ -45,6 +47,7 @@ export async function openTerminal(chatId: string, cwd?: string): Promise<Termin
   const terminal = await bridgeForKey(chatId).terminals.open({ chatId, ...(cwd ? { cwd } : {}) });
   focusNext = terminal.id;
   addTerminal(terminal);
+  requestTab(chatId, { kind: "terminal", chatId: sessionIdFromKey(chatId), terminalId: terminal.id }, true);
   return terminal;
 }
 

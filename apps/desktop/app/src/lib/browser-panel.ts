@@ -110,7 +110,18 @@ const newTab = (url: string): BrowserTab => ({
   canGoForward: false,
 });
 
-export function openBrowserTab(chatKey: string, url: string, { background = false }: { background?: boolean } = {}): string {
+const agentPages = new Set<string>();
+
+/** Whether the agent opened the page (browser_open), so a Workspace tab for it lands unread instead of in front. */
+export const openedByAgent = (tabId: string) => agentPages.has(tabId);
+
+export function openBrowserTab(chatKey: string, url: string, { background = false, agent = false }: { background?: boolean; agent?: boolean } = {}): string {
+  const id = openPage(chatKey, url, background);
+  if (agent && id) agentPages.add(id);
+  return id;
+}
+
+function openPage(chatKey: string, url: string, background: boolean): string {
   let id = "";
   update(chatKey, (chat) => {
     const same = chat.tabs.find((tab) => tab.url === url);

@@ -21,26 +21,18 @@ import {
   terminalHasFocus,
   terminalHasSelection,
 } from "../../lib/terminal-registry";
-import {
-  chatTerminals,
-  saveTerminalHeight,
-  setTerminalHeight,
-  setTerminalPanelOpen,
-  setTerminalPicking,
-  showTerminal,
-  TERMINAL_HEIGHT,
-  useChatTerminals,
-  useTerminalHeight,
-} from "../../lib/terminal-store";
+import { chatTerminals, setTerminalPanelOpen, setTerminalPicking, showTerminal, useChatTerminals, useTerminalHeight } from "../../lib/terminal-store";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { useEvent } from "../../lib/stable";
 import { AnimatePresence } from "motion/react";
 import { TerminalMenu } from "./TerminalMenu";
-import { TerminalSlide } from "./TerminalSlide";
+import { startTerminalResize, TerminalSlide } from "./TerminalSlide";
+import { TerminalStage, useTerminalTabs } from "./terminal-tabs";
 
 export function TerminalPanel({ chatId, places, notify }: { chatId: string | null; places?: TerminalPlace[]; notify: (message: string) => void }) {
   const { rules } = useKeybindings();
-  const { terminals, active, open, picking } = useChatTerminals(chatId);
+  const { terminals, active, open: panelOpen, picking } = useChatTerminals(chatId);
+  const { open, staged } = useTerminalTabs(chatId, panelOpen, active);
   const height = useTerminalHeight();
   const panel = useRef<HTMLElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -169,23 +161,6 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
     () => {},
   );
 
-  function startResize(event: React.PointerEvent) {
-    event.preventDefault();
-    const startY = event.clientY;
-    const startHeight = panel.current?.getBoundingClientRect().height ?? height;
-    const room = (panel.current?.closest("[data-terminal-slot]")?.parentElement?.getBoundingClientRect().height ?? window.innerHeight) * 0.75;
-    const move = (next: PointerEvent) => setTerminalHeight(Math.min(room, Math.max(TERMINAL_HEIGHT.min, startHeight + startY - next.clientY)));
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      document.documentElement.style.cursor = "";
-      saveTerminalHeight();
-    };
-    document.documentElement.style.cursor = "row-resize";
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }
-
   function add(place?: TerminalPlace) {
     if (!chatId) return;
     if (!place) {
@@ -198,142 +173,147 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
     });
   }
 
-  return (
-    <AnimatePresence>
-      {chatId && open && (
-        <TerminalSlide key="terminals" height={height}>
-          <section ref={panel} data-terminal-panel aria-label="Terminals" className="relative flex h-full flex-col rounded-card border border-line bg-surface">
-            <div
-              role="separator"
-              aria-orientation="horizontal"
-              aria-label="Resize Terminals"
-              onPointerDown={startResize}
-              className="absolute inset-x-3 -top-1.5 z-10 h-2 cursor-row-resize"
-            />
-            <header className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-1.5">
-              <div
-                role="tablist"
-                aria-label="Terminals"
-                onKeyDown={radioKeys({ role: "tab", axis: "horizontal" })}
-                className="flex min-w-0 flex-1 items-center gap-1"
-              >
-                {terminals.map((terminal) => {
-                  const selected = terminal.id === active;
-                  const asking = armed === terminal.id;
-                  return (
-                    <div
-                      key={terminal.id}
-                      className={`group flex h-7 min-w-0 max-w-[200px] shrink items-center rounded-control text-12 font-medium transition-colors ${selected ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
-                    >
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={selected}
-                        aria-controls={bodyId}
-                        tabIndex={selected ? 0 : -1}
-                        data-terminal-tab={terminal.id}
-                        onClick={() => {
-                          showTerminal(chatId, terminal.id);
-                          requestAnimationFrame(() => focusTerminal(terminal.id));
-                        }}
-                        className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-1 pl-2"
-                      >
-                        <Icon icon={ComputerTerminal01Icon} size={12} className="shrink-0" />
-                        <span className="truncate font-mono">{terminal.title}</span>
-                        {multiple && <span className="truncate text-11 text-ink-3">{terminal.label}</span>}
-                      </button>
-                      {asking ? (
-                        <Button variant="danger" size={24} onClick={() => close(terminal)} className="mr-0.5">
-                          End {terminal.title}
-                        </Button>
-                      ) : (
-                        <IconButton
-                          label={`Close ${terminal.title}`}
-                          icon={Cancel01Icon}
-                          size={20}
-                          tooltip={false}
-                          onClick={() => close(terminal)}
-                          className={`mr-1 ${selected ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
-                        />
-                      )}
-                    </div>
-                  );
-                })}
-                <div ref={plus} className="relative shrink-0">
-                  <Tooltip label="New Terminal" shortcut={shortcutLabel(rules, "terminal.new")} side="top">
+  const section =
+    chatId && open ? (
+      <section ref={panel} data-terminal-panel aria-label="Terminals" className="relative flex h-full flex-col rounded-card border border-line bg-surface">
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize Terminals"
+          onPointerDown={(event) => startTerminalResize(event, panel.current, height)}
+          className="absolute inset-x-3 -top-1.5 z-10 h-2 cursor-row-resize"
+        />
+        <header className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-1.5">
+          <div
+            role="tablist"
+            aria-label="Terminals"
+            onKeyDown={radioKeys({ role: "tab", axis: "horizontal" })}
+            className="flex min-w-0 flex-1 items-center gap-1"
+          >
+            {terminals.map((terminal) => {
+              const selected = terminal.id === active;
+              const asking = armed === terminal.id;
+              return (
+                <div
+                  key={terminal.id}
+                  className={`group flex h-7 min-w-0 max-w-[200px] shrink items-center rounded-control text-12 font-medium transition-colors ${selected ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    aria-controls={bodyId}
+                    tabIndex={selected ? 0 : -1}
+                    data-terminal-tab={terminal.id}
+                    onClick={() => {
+                      showTerminal(chatId, terminal.id);
+                      requestAnimationFrame(() => focusTerminal(terminal.id));
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-1 pl-2"
+                  >
+                    <Icon icon={ComputerTerminal01Icon} size={12} className="shrink-0" />
+                    <span className="truncate font-mono">{terminal.title}</span>
+                    {multiple && <span className="truncate text-11 text-ink-3">{terminal.label}</span>}
+                  </button>
+                  {asking ? (
+                    <Button variant="danger" size={24} onClick={() => close(terminal)} className="mr-0.5">
+                      End {terminal.title}
+                    </Button>
+                  ) : (
                     <IconButton
-                      label="New Terminal"
-                      icon={Add01Icon}
-                      aria-expanded={multiple ? picking : undefined}
-                      onClick={() => (picking ? setTerminalPicking(chatId, false) : add())}
+                      label={`Close ${terminal.title}`}
+                      icon={Cancel01Icon}
+                      size={20}
+                      tooltip={false}
+                      onClick={() => close(terminal)}
+                      className={`mr-1 ${selected ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
                     />
-                  </Tooltip>
-                  {picking && places && (
-                    <PickerPanel
-                      title="New Terminal in"
-                      className="absolute top-full left-0 mt-1 w-56"
-                      onKeyDown={(event) => {
-                        if (event.key !== "Escape") return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setTerminalPicking(chatId, false);
-                      }}
-                    >
-                      {places.map((place) => (
-                        <PickerRow key={place.path} label={place.label} description={place.path} selected={false} onClick={() => add(place)} />
-                      ))}
-                    </PickerPanel>
                   )}
                 </div>
-              </div>
-              {profiles && (
-                <Select
-                  label="Shell for new Terminals"
-                  compact
-                  value={profiles.selectedShell ?? ""}
-                  disabled={savingShell}
-                  width={320}
-                  options={[
-                    { value: "", label: "Automatic", description: `New Terminals use ${profiles.defaultShell}` },
-                    ...profiles.shells.map((item) => ({ value: item.file, label: item.label, description: item.file })),
-                  ]}
-                  onChange={(value) => void chooseShell(value)}
+              );
+            })}
+            <div ref={plus} className="relative shrink-0">
+              <Tooltip label="New Terminal" shortcut={shortcutLabel(rules, "terminal.new")} side="top">
+                <IconButton
+                  label="New Terminal"
+                  icon={Add01Icon}
+                  aria-expanded={multiple ? picking : undefined}
+                  onClick={() => (picking ? setTerminalPicking(chatId, false) : add())}
                 />
-              )}
-              <Tooltip label="Hide Terminals" shortcut={shortcutLabel(rules, "terminal.toggle")} side="top" align="end">
-                <IconButton label="Hide Terminals" icon={ArrowDown01Icon} onClick={() => setTerminalPanelOpen(chatId, false)} />
               </Tooltip>
-            </header>
-            <div
-              ref={body}
-              id={bodyId}
-              role="tabpanel"
-              aria-label="Terminal"
-              data-terminal-body
-              className="min-h-0 flex-1 overflow-hidden px-2 pt-1.5 pb-1"
-              onContextMenu={(event) => {
-                if (!shownId) return;
-                event.preventDefault();
-                setMenu({ id: shownId, x: event.clientX, y: event.clientY, canCopy: terminalHasSelection(shownId) });
-              }}
+              {picking && places && (
+                <PickerPanel
+                  title="New Terminal in"
+                  className="absolute top-full left-0 mt-1 w-56"
+                  onKeyDown={(event) => {
+                    if (event.key !== "Escape") return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setTerminalPicking(chatId, false);
+                  }}
+                >
+                  {places.map((place) => (
+                    <PickerRow key={place.path} label={place.label} description={place.path} selected={false} onClick={() => add(place)} />
+                  ))}
+                </PickerPanel>
+              )}
+            </div>
+          </div>
+          {profiles && (
+            <Select
+              label="Shell for new Terminals"
+              compact
+              value={profiles.selectedShell ?? ""}
+              disabled={savingShell}
+              width={320}
+              options={[
+                { value: "", label: "Automatic", description: `New Terminals use ${profiles.defaultShell}` },
+                ...profiles.shells.map((item) => ({ value: item.file, label: item.label, description: item.file })),
+              ]}
+              onChange={(value) => void chooseShell(value)}
             />
-            {menu && menu.id === shownId && (
-              <TerminalMenu
-                x={menu.x}
-                y={menu.y}
-                canCopy={menu.canCopy}
-                onCopy={() => {
-                  copyTerminalSelection(menu.id);
-                  closeMenu();
-                }}
-                onPaste={() => {
-                  pasteIntoTerminal(menu.id);
-                  closeMenu();
-                }}
-                onClose={closeMenu}
-              />
-            )}
-          </section>
+          )}
+          <Tooltip label="Hide Terminals" shortcut={shortcutLabel(rules, "terminal.toggle")} side="top" align="end">
+            <IconButton label="Hide Terminals" icon={ArrowDown01Icon} onClick={() => setTerminalPanelOpen(chatId, false)} />
+          </Tooltip>
+        </header>
+        <div
+          ref={body}
+          id={bodyId}
+          role="tabpanel"
+          aria-label="Terminal"
+          data-terminal-body
+          className="min-h-0 flex-1 overflow-hidden px-2 pt-1.5 pb-1"
+          onContextMenu={(event) => {
+            if (!shownId) return;
+            event.preventDefault();
+            setMenu({ id: shownId, x: event.clientX, y: event.clientY, canCopy: terminalHasSelection(shownId) });
+          }}
+        />
+        {menu && menu.id === shownId && (
+          <TerminalMenu
+            x={menu.x}
+            y={menu.y}
+            canCopy={menu.canCopy}
+            onCopy={() => {
+              copyTerminalSelection(menu.id);
+              closeMenu();
+            }}
+            onPaste={() => {
+              pasteIntoTerminal(menu.id);
+              closeMenu();
+            }}
+            onClose={closeMenu}
+          />
+        )}
+      </section>
+    ) : null;
+  if (staged && !staged.beside && section) return <TerminalStage>{section}</TerminalStage>;
+  return (
+    <AnimatePresence>
+      {section && (
+        <TerminalSlide key="terminals" height={height}>
+          {section}
         </TerminalSlide>
       )}
     </AnimatePresence>

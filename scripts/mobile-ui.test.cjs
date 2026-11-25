@@ -405,6 +405,33 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "dictation-notice" && !(id in modules)) return { DictationNotice: "DictationNotice" };
       // Settings › Experimental's Device notes copy is plain text.
       if (id === "@milagre/shared/device-notes" && !(id in modules)) return require("@milagre/shared/device-notes");
+      // Workspace tabs (Settings › Experimental) are off in a test unless it gives its own store.
+      if (base === "workspace-tabs-store" && !(id in modules))
+        return {
+          useWorkspaceTabs: () => [false, () => {}],
+          workspaceTabsEnabled: () => false,
+          useTabSet: () => ({ tabs: [], active: null }),
+          tabSet: () => ({ tabs: [], active: null }),
+          updateTabSet() {},
+          notePhoneTab() {},
+          useNotePhoneTab() {},
+        };
+      if (base === "workspace-tabs-kinds" && !(id in modules)) return require("../apps/mobile/src/workspace-tabs-kinds.ts");
+      if (base === "workspace-tabs-panel" && !(id in modules))
+        return { TabCountAction: "TabCountAction", WorkspaceTabStrip: "WorkspaceTabStrip", WorkspaceTabsView: "WorkspaceTabsView", useWorkspaceTabSync() {} };
+      if (id === "@milagre/shared/workspace-tabs" && !(id in modules)) return require("../packages/shared/src/workspace-tabs.ts");
+      // The panel's pills and the Chat header's second line are drawing: tests get the real ones.
+      if (base === "panel-tab" && !(id in modules)) return load("panel-tab.tsx", modules, "", cache);
+      if (base === "chat-header-subtitle" && !(id in modules))
+        return load(
+          "chat-header-subtitle.tsx",
+          {
+            ...modules,
+            "./status-indicators": modules["../status-indicators"] ?? modules["./status-indicators"] ?? { HeaderPullRequestChip: "HeaderPullRequestChip" },
+          },
+          "",
+          cache,
+        );
       // Where this device's messages say they came from (sent-from.ts): a phone in a test.
       if (base === "sent-from" && !(id in modules)) return { SENT_FROM: "phone" };
       // The archived count in Settings comes from the computers the sidebar has read; none are read in a test.
@@ -3717,7 +3744,14 @@ function chatScreen(tree) {
   const node = find(tree, (candidate) => candidate.type?.name === "ChatStackOptions");
   if (!node) return;
   const { title, starting, header } = node.props;
-  return { props: { options: { title: starting ? "" : title, headerTitle: () => (starting ? null : header) } } };
+  return { props: { options: { title: starting ? "" : title, headerTitle: () => (starting ? null : drawSubtitle(header)) } } };
+}
+// The header's second line (ChatHeaderSubtitle in chat-header-subtitle.tsx) drawn in place, as React would.
+function drawSubtitle(node) {
+  if (Array.isArray(node)) return node.map(drawSubtitle);
+  if (!node || typeof node !== "object" || !node.props) return node;
+  if (typeof node.type === "function" && node.type.name === "ChatHeaderSubtitle") return drawSubtitle(node.type(node.props));
+  return "children" in node.props ? { ...node, props: { ...node.props, children: drawSubtitle(node.props.children) } } : node;
 }
 // The title's family menu (FamilyTitleMenu in app/chat.tsx), drawn one level as React would: it reads the runs itself.
 function familyPullDown(title) {

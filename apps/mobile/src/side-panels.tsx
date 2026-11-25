@@ -15,17 +15,19 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { ArrowLeft01Icon, BrowserIcon, Cancel01Icon, FileDiffIcon, PaintBoardIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, BrowserIcon, Cancel01Icon, FileDiffIcon, LayersIcon, PaintBoardIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import { useSession } from "./session";
 import { ProjectNavigation } from "./project-navigation";
 import { ClosesLeftContext, hideRevealed } from "./chat-swipe-row";
 import { ChangesView } from "./app/changes";
 import { ChangesShownContext } from "./change-tree";
 import { DiffView, type DiffTarget } from "./app/diff";
-import { GlassIconButton, IconButton, PageScroll, tap } from "./ui";
+import { GlassIconButton, IconButton, PageScroll } from "./ui";
 import { chrome, duration, easing, lineHeight, radius, type } from "./design-tokens";
 import { PR_TONE } from "@milagre/shared/pr-blockers";
-import { Icon, type IconData, type Tone } from "./icons";
+import { PanelTab } from "./panel-tab";
+import { WorkspaceTabsView } from "./workspace-tabs-panel";
+import { useWorkspaceTabs, workspaceTabsEnabled } from "./workspace-tabs-store";
 import { PrOverview } from "./pr-overview";
 import { openPrFile, openPrPage } from "./pr-nav";
 import { prChoiceKey, type PrChoice } from "./pr-chat";
@@ -47,7 +49,7 @@ type ScreenPullRequest = { number: number; chatKey: string; choices?: PrChoice[]
  * What the right panel shows: the Worktree's Changes, the Chat's PR (when it has one), or on an iPad the Chat's
  * simulators, designs or browser, which open there instead of full screen.
  */
-type RightTab = "changes" | "pr" | "simulator" | "designs" | "browser";
+type RightTab = "tabs" | "changes" | "pr" | "simulator" | "designs" | "browser";
 type ChatTabs = { token: object; chatId?: number; simulator?: SimulatorTab; designs?: DesignsTab; browser?: BrowserTab };
 type Panels = {
   screen: Screen | null;
@@ -261,7 +263,7 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   }, [docks, progress]);
   const pull = useCallback((side: Side) => {
     Keyboard.dismiss();
-    if (side === "right") setTab("pr");
+    if (side === "right") setTab(workspaceTabsEnabled() && !docking.current ? "tabs" : "pr");
     setMounted((previous) => (previous[side] ? previous : { ...previous, [side]: true }));
   }, []);
   const settled = useCallback((to: number) => {
@@ -405,9 +407,9 @@ export function useRightPanelScreen() {
   return { screen, shown };
 }
 
-function rightTabs(screen: Screen, chatTabs: ChatTabs | null): RightTab[] {
+function rightTabs(screen: Screen, chatTabs: ChatTabs | null, phone = false): RightTab[] {
   const own = chatTabs && chatTabs.token === screen.token && chatTabs.chatId === screen.chatId ? chatTabs : null;
-  const tabs: RightTab[] = [];
+  const tabs: RightTab[] = phone && workspaceTabsEnabled() && screen.worktreeId !== undefined ? ["tabs"] : [];
   if (screen.worktreeId !== undefined) tabs.push("changes");
   if (screen.pullRequest) tabs.push("pr");
   if (own?.simulator) tabs.push("simulator");
@@ -525,10 +527,14 @@ export function useSidePanels({
     setTab("changes");
     show("right");
   }, [setTab, show]);
+  const showTabs = useCallback(() => {
+    setTab("tabs");
+    show("right");
+  }, [setTab, show]);
   // On an iPad, this Chat's simulators, designs and Browser open in the docked right panel; null where they open full screen.
   const { docks, openTab } = panels;
   const openInPanel = useMemo(() => (docks && !passive ? openTab : null), [docks, passive, openTab]);
-  return { gesture, open: ours || passive ? panels.open : null, show, showPullRequest, showChanges, openInPanel };
+  return { gesture, open: ours || passive ? panels.open : null, show, showPullRequest, showChanges, showTabs, openInPanel };
 }
 
 export function PanelSwipe({ panels, covered = false, children }: { panels: ReturnType<typeof useSidePanels>; covered?: boolean; children: React.ReactNode }) {
@@ -678,7 +684,7 @@ export function SidePanelsHost() {
                 </SafeAreaInsetsContext.Provider>
               </Animated.View>
             )}
-            {mounted.right && !docks && rightTabs(screen, chatTabs).length > 0 && (
+            {mounted.right && !docks && rightTabs(screen, chatTabs, true).length > 0 && (
               <Animated.View {...hidden("right")} style={[frame("right"), right]}>
                 <RightPanel screen={screen} card={card} visible={open === "right"} />
               </Animated.View>
@@ -699,9 +705,10 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const session = useSession();
-  const { tab, setTab: onTab, pick, setPick: onPick, chatTabs, openTab, closeTab, closeRight: onClose } = usePanels();
+  const { tab, setTab: onTab, pick, setPick: onPick, chatTabs, openTab, closeTab, closeRight: onClose, docks } = usePanels();
+  useWorkspaceTabs();
   const { worktreeId, pullRequest } = screen;
-  const tabs = rightTabs(screen, chatTabs);
+  const tabs = rightTabs(screen, chatTabs, !docks);
   const shownTab = tabs.includes(tab) ? tab : tabs[0];
   const own = chatTabs && chatTabs.token === screen.token && chatTabs.chatId === screen.chatId ? chatTabs : null;
   const changesKey = `${session.snapshot?.project.path}#${worktreeId}`;
@@ -723,7 +730,7 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
     pr && worktreeId !== undefined ? { worktreeId: String(worktreeId), number: String(pr.number), chat: pr.chatKey, ...(prCwd ? { cwd: prCwd } : {}) } : null;
   const prTabs: PrChoice[] = choices.length ? choices : pullRequest ? [{ number: pullRequest.number, title: "", state: "OPEN", cwd: pullRequest.cwd }] : [];
   const designs = own?.designs;
-  const closeLabel = shownTab === "pr" ? "Close the PR" : shownTab === "changes" ? "Close Changes" : "Close the panel";
+  const closeLabel = closeLabelOf(shownTab);
   return (
     <View style={{ flex: 1 }}>
       <View style={{ marginTop: insets.top, height: TAB_BAR_HEIGHT, paddingLeft: 8, paddingRight: 6, flexDirection: "row", alignItems: "center", gap: 4 }}>
@@ -735,6 +742,7 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
           style={{ flex: 1, alignSelf: "stretch" }}
           contentContainerStyle={{ padding: 0, paddingBottom: 0, gap: 2, alignItems: "center" }}
         >
+          {tabs.includes("tabs") && <PanelTab label="Tabs" icon={LayersIcon} tone="ink2" selected={shownTab === "tabs"} onPress={() => onTab("tabs")} />}
           {tabs.includes("changes") && (
             <PanelTab label="Changes" icon={FileDiffIcon} tone="ink2" selected={shownTab === "changes"} onPress={() => onTab("changes")} />
           )}
@@ -772,6 +780,7 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
           </Text>
         </View>
       )}
+      {shownTab === "tabs" && <WorkspaceTabsView worktreeId={worktreeId} activeChatId={screen.chatId} onDone={onClose} onPanel={onTab} />}
       {worktreeId !== undefined && (
         <View style={{ flex: 1, display: file || shownTab !== "changes" ? "none" : "flex" }}>
           <ChangesShownContext.Provider value={visible && !file && shownTab === "changes"}>
@@ -843,41 +852,5 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
 }
 
 const TAB_BAR_HEIGHT = chrome.header;
-
-function PanelTab({ label, icon, tone, selected, onPress }: { label: string; icon: IconData; tone: Tone; selected: boolean; onPress: () => void }) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="tab"
-      accessibilityLabel={label}
-      accessibilityState={{ selected }}
-      hitSlop={{ top: 6, bottom: 6 }}
-      onPress={() => {
-        tap();
-        onPress();
-      }}
-      style={({ pressed }) => ({
-        minHeight: 32,
-        paddingHorizontal: 12,
-        borderRadius: radius.full,
-        borderCurve: "continuous",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        backgroundColor: selected ? colors.hover2 : pressed ? colors.hover : "transparent",
-      })}
-    >
-      <Icon icon={icon} tone={tone} size={16} />
-      <Text
-        style={{
-          color: selected ? colors.ink : colors.ink2,
-          fontSize: type.subheadline,
-          lineHeight: lineHeight.subheadline,
-          fontWeight: selected ? "600" : "400",
-        }}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
+const CLOSE_LABELS: Partial<Record<RightTab, string>> = { pr: "Close the PR", changes: "Close Changes", tabs: "Close Tabs" };
+const closeLabelOf = (tab: RightTab | undefined) => (tab && CLOSE_LABELS[tab]) || "Close the panel";

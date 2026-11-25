@@ -88,7 +88,7 @@ import { BLOCKERS, pullRequestAction, rowPullRequests } from "./lib/pr-blockers"
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { COMPACT_COMMAND } from "@milagre/shared/compaction";
 import { providerForId, resolveModel } from "./lib/models";
-import { chatMark, chatTitle, fullChatTitle, isChatListed, orderChats } from "./lib/chat-list";
+import { chatMark, chatTitle, isChatListed, orderChats } from "./lib/chat-list";
 import { deleteUndoWindow, worktreeShared } from "./lib/archive";
 import { archiveChat as runArchive } from "./lib/archive-flow";
 import type { ArchiveMode, ArchivePlan } from "./lib/archive";
@@ -146,10 +146,8 @@ import { restoredChatsNotice } from "./lib/restored-chats";
 import { lazyView } from "./lib/lazy-view";
 import { CommandPalette, DiffView, GitActionsDialog, QuestionCard } from "./components/lazy-views";
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
-import { chatBookmark } from "@milagre/shared/subchats";
-import { ChatIdentity } from "./components/agents/ChatIdentity";
+import { ChatTopBar } from "./components/agents/ChatTopBar";
 import { DesignLibraryView } from "./components/design-library/DesignLibraryView";
-import { SubchatBookmark } from "./components/agents/SubchatBookmark";
 import { DetailsPanelHost } from "./components/agents/DetailsPanel";
 import { useChatTerminals } from "./lib/terminal-store";
 import { provideSubchatActions, type SubchatActions } from "./components/agents/SubchatMessages";
@@ -784,7 +782,6 @@ function App() {
   familySessionsRef.current = familySessions;
   const bookmarkShown = view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && !runPaneOpen;
   const chatToEdge = bookmarkShown && Boolean(selectedSession && selectedSession.id > 0) && !terminalOpen;
-  const bookmarkedParent = bookmarkShown && focusedChatKey ? (chatBookmark(familySessions, focusedChatKey)?.parent ?? null) : null;
   const canvasButtonShown = view === "chat" || view === "canvas";
   const trailingCorner = canvasButtonShown ? 1 : 0;
   const cornerButtons = cornerButtonCount(splitOn, sidePanels, changesAvailable, prNumber, view);
@@ -1273,6 +1270,11 @@ function App() {
     setView("chat");
     window.requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
   }
+  const newChatInWorktree = useEvent((worktreeId: number) => {
+    startNewChat();
+    setIsolation("local");
+    setSelectedWorktreeId(worktreeId);
+  });
 
   function selectInitialChat(nextState: CoordinatorState, path: string) {
     restoreProjectChoices(nextState, path);
@@ -2529,23 +2531,17 @@ function App() {
               {view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && focusedChatKey && (
                 <RoutineChip chatKey={focusedChatKey} run={selectedSession?.routine} place="strip" onOpen={openRoutine} />
               )}
-              {bookmarkShown && !bookmarkedParent && selectedSession && focusedChatKey && (
-                <ChatIdentity
-                  title={fullChatTitle(selectedSession, messagesBySession.get(selectedSession.id) ?? NO_MESSAGES)}
-                  project={surfaces.settings ? surfaces.name : undefined}
-                  corner={cornerButtons * CORNER_PITCH}
-                />
-              )}
-              {bookmarkedParent && focusedChatKey && (
-                <SubchatBookmark
-                  chatKey={focusedChatKey}
-                  reads={{ sessions: familySessions, work: linkedWork }}
-                  corner={cornerButtons * CORNER_PITCH}
-                  onOpen={openAlone}
-                  onBeside={openBeside}
-                  onShowAll={showFamily}
-                />
-              )}
+              <ChatTopBar
+                shown={bookmarkShown}
+                projectPath={project.path}
+                chatKey={focusedChatKey}
+                session={selectedSession}
+                messages={selectedSession ? (messagesBySession.get(selectedSession.id) ?? NO_MESSAGES) : NO_MESSAGES}
+                project={surfaces.settings ? surfaces.name : undefined}
+                corner={cornerButtons * CORNER_PITCH}
+                family={{ sessions: familySessions, work: linkedWork, onOpen: openAlone, onBeside: openBeside, onShowAll: showFamily }}
+                tabs={{ state, worktree: selectedWorktree?.id, rows: chats, panels: panelButtons, onOpen: openChat, onStart: newChatInWorktree }}
+              />
               <DesignLibraryView view={view} onShow={showView} />
               {view === "canvas" && (
                 <CanvasView

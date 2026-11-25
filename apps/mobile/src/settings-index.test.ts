@@ -48,7 +48,13 @@ const SOURCES: Record<keyof typeof SETTINGS_PAGES, string[]> = {
   simlock: ["app/(settings)/simlock.tsx", "simlock-section.tsx"],
   "this-mac": ["app/(settings)/this-mac.tsx", "mac-settings-sections.tsx", shared("auto-update.ts")],
   "computer-use": ["app/(settings)/computer-use.tsx", "computer-use-section.tsx"],
-  experimental: ["app/(settings)/experimental.tsx", "experimental-section.tsx", shared("device-notes.mjs"), shared("new-chat-glance.ts")],
+  experimental: [
+    "app/(settings)/experimental.tsx",
+    "experimental-section.tsx",
+    shared("device-notes.mjs"),
+    shared("new-chat-glance.ts"),
+    shared("workspace-tabs.ts"),
+  ],
   keybindings: ["app/(settings)/keybindings.tsx", "keybindings-section.tsx"],
   "design-system": ["app/(settings)/design-system.tsx", "design-system-catalogue.ts"],
 };

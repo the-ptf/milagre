@@ -1,6 +1,8 @@
 import { preferenceStorage as localStorage } from "./preference-storage.ts";
 import { useSyncExternalStore } from "react";
 import type { TerminalInfo } from "@milagre/shared/terminal";
+import { sessionIdFromKey } from "./agent-runs";
+import { requestClose } from "./workspace-stage";
 
 const TERMINAL_HEIGHT_KEY = "milagre.terminal.height";
 export const TERMINAL_HEIGHT = { initial: 280, min: 120 };
@@ -54,6 +56,9 @@ export function saveTerminalHeight() {
 
 export function applyTerminalList(chatId: string, terminals: TerminalInfo[]) {
   const current = state.chats[chatId] ?? EMPTY;
+  for (const gone of current.terminals)
+    if (!terminals.some((terminal) => terminal.id === gone.id))
+      requestClose(chatId, { kind: "terminal", chatId: sessionIdFromKey(chatId), terminalId: gone.id });
   const active = terminals.some((terminal) => terminal.id === current.active) ? current.active : (terminals.at(-1)?.id ?? null);
   patchChat(chatId, { terminals, active, open: current.open && (terminals.length > 0 || current.picking) });
 }

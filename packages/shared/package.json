@@ -52,6 +52,7 @@
     "src/linear.ts",
     "src/chat-row.ts",
     "src/subchats.ts",
+    "src/workspace-tabs.ts",
     "src/chat-pins.ts",
     "src/subchat-states.ts",
     "src/chat-display.ts",
@@ -461,6 +462,7 @@
     "./themes": "./src/themes/index.ts",
     "./chat-row": "./src/chat-row.ts",
     "./subchats": "./src/subchats.ts",
+    "./workspace-tabs": "./src/workspace-tabs.ts",
     "./chat-pins": "./src/chat-pins.ts",
     "./subchat-escalation": {
       "types": "./src/subchat-escalation.d.mts",

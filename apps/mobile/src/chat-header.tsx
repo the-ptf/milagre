@@ -21,6 +21,15 @@ function headerTitleWidth(screenWidth: number, actionCount: number) {
   return Math.max(0, Math.min(HEADER_TITLE_MAX, screenWidth - left - right));
 }
 
+/** The room the iPad's Workspace tabs get in the header: everything between the sidebar button and the actions. */
+export function useHeaderStripWidth(actionCount: number) {
+  const window = useWindowDimensions();
+  const { pinned } = useSplit();
+  const left = HEADER_EDGE + HEADER_BUTTON + HEADER_GAP;
+  const right = HEADER_EDGE + HEADER_BUTTON + (actionCount - 1) * HEADER_BUTTON_PITCH + HEADER_GAP;
+  return Math.max(0, chatAreaWidth(window.width, pinned) - left - right);
+}
+
 export function HeaderTitleBox({ actionCount, children }: { actionCount: number; children: ReactNode }) {
   const window = useWindowDimensions();
   const { pinned } = useSplit();

@@ -1,3 +1,4 @@
+import { useDesignsStage } from "./designs-stage";
 import { HtmlReply } from "./HtmlReply";
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
@@ -460,6 +461,7 @@ type Opened = {
   focus: { id: string | null; nonce: number };
   versions: Record<string, number | null>;
   comment?: string;
+  agent?: boolean;
 };
 
 const lastPage = new Map<string, DockPage>();
@@ -611,6 +613,7 @@ export function ArtifactsProvider({
   );
   const togglePanel = () => {
     if (document.querySelector("[data-slot=design-editor]")) return;
+    if (opened && designsStage.toggleClosesTab) return designsStage.close(closePanel, opened.page)();
     if (opened) return setOpenedIn(null);
     const page = pageFor(chatId ? lastPage.get(chatId) : undefined);
     if (page) value.openAll(page === "canvas" ? designRefs : page === "page" && currentHtml ? [currentHtml] : [], page);
@@ -641,22 +644,28 @@ export function ArtifactsProvider({
             page: "canvas",
             focus: { id: null, nonce: (current?.focus.nonce ?? 0) + 1 },
             versions: current?.chatId === chatId ? current.versions : {},
+            agent: true,
           },
     );
+  });
+  const designsStage = useDesignsStage(chatId, opened, (page) => {
+    const shown = pageFor(page);
+    if (shown) value.openAll(shown === "canvas" ? designRefs : shown === "page" && currentHtml ? [currentHtml] : [], shown);
   });
   const closePanel = useCallback(() => {
     if (!document.querySelector("[data-slot=design-editor]")) setOpenedIn(null);
   }, []);
   const dockWidth = usePanelWidth("artifacts").width;
-  useSidePanelRoom("artifacts", !!opened && !!chatId && chatShown, dockWidth + 12, closePanel);
+  useSidePanelRoom("artifacts", !!opened && !!chatId && designsStage.takesRoom(chatShown), dockWidth + 12, closePanel);
   const revision = [...latest.values()].map((ref) => `${ref.id}:${ref.version}`).join("|");
   return (
     <Artifacts.Provider value={value}>
       <span ref={anchor} aria-hidden className="pointer-events-none absolute top-0 left-0 h-px w-px" />
       {children}
       <AnimatePresence>
-        {opened && chatId && chatShown && (
+        {opened && chatId && designsStage.visible(chatShown) && (
           <ArtifactDock
+            staged={designsStage.staged}
             key={chatId}
             page={opened.page}
             onPage={onPage}
@@ -676,7 +685,7 @@ export function ArtifactsProvider({
             openComment={opened.comment}
             openNonce={opened.focus.nonce}
             onSend={onSend}
-            onClose={closePanel}
+            onClose={designsStage.close(closePanel, opened.page)}
           />
         )}
       </AnimatePresence>

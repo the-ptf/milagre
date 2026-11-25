@@ -301,7 +301,7 @@ export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key
     else onKey(sender.chatKey, tabId, key);
   });
   const offOpen = bridge.onOpenUrl?.(({ chatKey, url }) => {
-    if (typeof chatKey === "string" && /^https?:\/\//i.test(url)) openBrowserTab(chatKey, url);
+    if (typeof chatKey === "string" && /^https?:\/\//i.test(url)) openBrowserTab(chatKey, url, { agent: true });
   });
   const offClose = bridge.onClosePage?.(({ contentsId, chatKey }) => {
     const page = pageOfContents(contentsId);

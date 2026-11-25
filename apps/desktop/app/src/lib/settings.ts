@@ -64,6 +64,7 @@ export interface AppSettings {
   toolCallDisplay: ToolCallDisplay;
   expandReasoning: boolean;
   newChatGlance: boolean;
+  workspaceTabs: boolean;
   showContextSize: boolean;
   compactButtonDisplay: CompactButtonDisplay;
   otherComputers: boolean;
@@ -115,6 +116,7 @@ const DEFAULTS: AppSettings = {
   toolCallDisplay: "compact",
   expandReasoning: false,
   newChatGlance: false,
+  workspaceTabs: false,
   showContextSize: true,
   compactButtonDisplay: "threshold",
   otherComputers: false,
@@ -168,6 +170,7 @@ function load(): AppSettings {
       toolCallDisplay: parseToolCallDisplay(saved.toolCallDisplay, saved.muriloMode),
       expandReasoning: typeof saved.expandReasoning === "boolean" ? saved.expandReasoning : DEFAULTS.expandReasoning,
       newChatGlance: typeof saved.newChatGlance === "boolean" ? saved.newChatGlance : DEFAULTS.newChatGlance,
+      workspaceTabs: typeof saved.workspaceTabs === "boolean" ? saved.workspaceTabs : DEFAULTS.workspaceTabs,
       showContextSize: typeof saved.showContextSize === "boolean" ? saved.showContextSize : DEFAULTS.showContextSize,
       compactButtonDisplay: parseCompactButtonDisplay(saved.compactButtonDisplay),
       otherComputers: typeof saved.otherComputers === "boolean" ? saved.otherComputers : DEFAULTS.otherComputers,
