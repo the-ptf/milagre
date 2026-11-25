@@ -35,7 +35,7 @@ const pagePolicy = (origin, code = false) => {
     .replace(`font-src ${origin}`, `font-src data: https: ${origin}`);
 };
 
-export const fileKey = (id, hash) => `pages/${id}/${hash}`;
+const fileKey = (id, hash) => `pages/${id}/${hash}`;
 
 /**
  * One file of a public page, from the bucket, whole or the one byte range asked for (a video player seeks with
@@ -177,10 +177,40 @@ export function withHead(chunk, requestUrl) {
 
 const chunkKey = (revision, index) => (revision ? `html:${revision}:${index}` : `html:${index}`);
 
-export const PAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
 const STAGED_MS = 60 * 60 * 1000;
 const fileBytes = (files) => Object.values(files ?? {}).reduce((sum, file) => sum + file.size, 0);
+
+function readPage(storage, meta, request, bucket, id, file) {
+  if (!meta || meta.deleted) return response("Not found", 404);
+  if (file) return bucket && meta.files?.includes(file) ? serveFile(bucket, fileKey(id, file), request) : response("Not found", 404);
+  if (request.method === "HEAD") return response(null, 200, "text/html; charset=utf-8");
+  let index = 0;
+  const stream = new ReadableStream(
+    {
+      pull(controller) {
+        try {
+          const current = storage.get("meta");
+          if (current?.deleted) throw Error("Snapshot revoked");
+          if (current?.revision !== meta.revision) throw Error("Snapshot updated");
+          if (index >= meta.chunks) {
+            controller.close();
+            return;
+          }
+          const chunk = storage.get(chunkKey(meta.revision, index++));
+          if (!(chunk instanceof Uint8Array)) throw Error("Missing stored chunk");
+          controller.enqueue(index === 1 ? withHead(chunk, request.url) : chunk);
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  return response(stream, 200, "text/html; charset=utf-8", {
+    "Content-Security-Policy": pagePolicy(new URL(request.url).origin, meta.code === true),
+  });
+}
 
 /**
  * Durable intent plus an alarm repairs interrupted reservations, commits and refunds.
@@ -203,7 +233,7 @@ export function createPageService({ storage, validate, render, quota, quotaId, s
   const schedule = async () => {
     const meta = storage.get("meta");
     if (storage.get("pending") || meta?.releasePending || storage.get("trash")?.length) return setAlarm(now() + RETRY_MS);
-    const times = [meta && !meta.deleted ? meta.expiresAt : 0, ...staged().map(([, file]) => file.at + STAGED_MS)].filter(Boolean);
+    const times = staged().map(([, file]) => file.at + STAGED_MS);
     if (times.length) await setAlarm(Math.min(...times));
     else await deleteAlarm();
   };
@@ -232,23 +262,26 @@ export function createPageService({ storage, validate, render, quota, quotaId, s
       storage.delete("pending");
     }
     const meta = storage.get("meta");
-    if (meta?.releasePending) {
+    await emptyTrash();
+    if (meta?.releasePending && !storage.get("trash")?.length) {
       await quota.release(quotaId);
       storage.put("meta", { deleted: true });
     }
-    await emptyTrash();
     await schedule();
   };
   const remove = async (meta) => {
-    await setAlarm(now() + RETRY_MS);
+    await setAlarm(now());
     storage.transaction(() => {
       for (let i = 0; i < (meta?.chunks ?? 0); i++) storage.delete(chunkKey(meta.revision, i));
-      const files = Object.values(storage.get("files") ?? {});
-      if (files.length) storage.put("trash", [...(storage.get("trash") ?? []), ...files.map((file) => file.key)]);
+      const trash = new Set(storage.get("trash"));
+      for (const file of Object.values(storage.get("files") ?? {})) trash.add(file.key);
+      const pending = storage.get("pending");
+      if (pending?.key) trash.add(pending.key);
+      if (trash.size) storage.put("trash", [...trash]);
+      storage.delete("pending");
       storage.delete("files");
       storage.put("meta", { deleted: true, releasePending: true });
     });
-    await recover();
   };
   const begin = async (bytes, key) => {
     const operation = String((storage.get("sequence") ?? 0) + 1);
@@ -276,10 +309,7 @@ export function createPageService({ storage, validate, render, quota, quotaId, s
     await recover();
   };
   const upload = async (request, id, hash) => {
-    if (request.method !== "PUT") return response("Method not allowed", 405);
     if (!bucket) return response("Not found", 404);
-    const meta = storage.get("meta");
-    if (meta?.deleted) return response("Snapshot revoked", 410);
     const stored = (storage.get("files") ?? {})[hash];
     if (stored) return response(JSON.stringify({ hash }), 200, "application/json; charset=utf-8");
     const type = request.headers.get("Content-Type") ?? "";
@@ -314,17 +344,16 @@ export function createPageService({ storage, validate, render, quota, quotaId, s
   };
   const migrate = async () => {
     const meta = storage.get("meta");
-    if (!meta || meta.deleted) {
-      if (meta?.deleted) await quota.release(quotaId);
-      return;
+    if (!meta) return;
+    if (meta.releasePending) return recover();
+    if (meta.deleted) return quota.release(quotaId);
+    let bytes = meta.bytes;
+    if (bytes === undefined) {
+      bytes = 0;
+      for (let i = 0; i < meta.chunks; i++) bytes += storage.get(chunkKey(meta.revision, i))?.byteLength ?? 0;
     }
-    if (!meta.expiresAt) {
-      await setAlarm(now() + PAGE_TTL_MS);
-      storage.put("meta", { ...meta, expiresAt: now() + PAGE_TTL_MS });
-    }
-    let bytes = 0;
-    for (let i = 0; i < meta.chunks; i++) bytes += storage.get(chunkKey(meta.revision, i))?.byteLength ?? 0;
-    await quota.importPage(quotaId, bytes);
+    await quota.importPage(quotaId, bytes + fileBytes(storage.get("files")));
+    if (meta.bytes === undefined) storage.put("meta", { ...meta, bytes });
     await schedule();
   };
   return {
@@ -333,12 +362,8 @@ export function createPageService({ storage, validate, render, quota, quotaId, s
       enqueue(async () => {
         try {
           await recover();
-          const meta = storage.get("meta");
-          if (meta && !meta.deleted && meta.expiresAt <= now()) await remove(meta);
-          else {
-            await dropStaged();
-            await schedule();
-          }
+          await dropStaged();
+          await schedule();
         } catch (error) {
           await setAlarm(now() + RETRY_MS);
           throw error;
@@ -349,53 +374,18 @@ export function createPageService({ storage, validate, render, quota, quotaId, s
         try {
           const isRead = request.method === "GET" || request.method === "HEAD";
           if (!isRead && !(await authorized(request, id))) return response("Unauthorized", 401);
-          await recover();
-          let meta = storage.get("meta");
-          if (meta && !meta.deleted && !meta.expiresAt) {
-            await migrate();
-            meta = storage.get("meta");
-          }
-          if (meta && !meta.deleted && meta.expiresAt <= now()) {
-            await remove(meta);
-            meta = storage.get("meta");
-          }
+          const meta = storage.get("meta");
           const file = /\/files\/([a-f0-9]{64})$/.exec(new URL(request.url).pathname)?.[1];
-          if (file) return await upload(request, id, file);
-          if (isRead) {
-            if (!meta || meta.deleted) return response("Not found", 404);
-            if (request.method === "HEAD") return response(null, 200, "text/html; charset=utf-8");
-            let index = 0;
-            const stream = new ReadableStream(
-              {
-                pull(controller) {
-                  try {
-                    const current = storage.get("meta");
-                    if (current?.deleted || current?.expiresAt <= now()) throw Error("Snapshot revoked");
-                    if (current?.revision !== meta.revision) throw Error("Snapshot updated");
-                    if (index >= meta.chunks) {
-                      controller.close();
-                      return;
-                    }
-                    const chunk = storage.get(chunkKey(meta.revision, index++));
-                    if (!(chunk instanceof Uint8Array)) throw Error("Missing stored chunk");
-                    controller.enqueue(index === 1 ? withHead(chunk, request.url) : chunk);
-                  } catch (error) {
-                    controller.error(error);
-                  }
-                },
-              },
-              { highWaterMark: 0 },
-            );
-            return response(stream, 200, "text/html; charset=utf-8", {
-              "Content-Security-Policy": pagePolicy(new URL(request.url).origin, meta.code === true),
-            });
-          }
-          if (request.method === "DELETE") {
+          if (isRead) return await readPage(storage, meta, request, bucket, id, file);
+          if (request.method === "DELETE" && !file) {
             if (!meta?.deleted) await remove(meta);
             return response(null, 204);
           }
           if (request.method !== "PUT") return response("Method not allowed", 405);
           if (meta?.deleted) return response("Snapshot revoked", 410);
+          await recover();
+          if (meta && meta.bytes === undefined) await migrate();
+          if (file) return await upload(request, id, file);
           if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers.get("Content-Type") ?? ""))
             return response("Expected application/json", 415);
           if (request.headers.has("Content-Encoding")) return response("Encoded bodies are not supported", 415);
@@ -416,11 +406,7 @@ export function createPageService({ storage, validate, render, quota, quotaId, s
           const canonical = encoder.encode(JSON.stringify(snapshot));
           const hash = await digest(canonical);
           const result = () => JSON.stringify({ id, path: `/s/${id}` });
-          if (meta?.hash === hash) {
-            await setAlarm(now() + PAGE_TTL_MS);
-            storage.put("meta", { ...meta, expiresAt: now() + PAGE_TTL_MS });
-            return response(result(), 200, "application/json; charset=utf-8");
-          }
+          if (meta?.hash === hash) return response(result(), 200, "application/json; charset=utf-8");
           let html;
           try {
             html = encoder.encode(render(snapshot, { files: (asset) => `/s/${id}/files/${asset.hash}` }));
@@ -450,7 +436,6 @@ export function createPageService({ storage, validate, render, quota, quotaId, s
               revision,
               bytes,
               operation,
-              expiresAt: now() + PAGE_TTL_MS,
               ...(named.size ? { files: [...named] } : {}),
               ...(designPageRunsCode(snapshot) ? { code: true } : {}),
             });
@@ -504,12 +489,7 @@ export async function routeRequest(request, env) {
     if (!env.previewImage) return response("Not found", 404);
     return response(request.method === "HEAD" ? null : env.previewImage, 200, "image/png");
   }
-  const file = /^\/s\/([A-Za-z0-9_-]{43})\/files\/([a-f0-9]{64})$/.exec(url.pathname);
-  if (file) {
-    if (!["GET", "HEAD"].includes(request.method)) return response("Method not allowed", 405);
-    return env.file ? env.file(file[1], file[2], request) : response("Not found", 404);
-  }
-  const read = /^\/s\/([A-Za-z0-9_-]{43})$/.exec(url.pathname);
+  const read = /^\/s\/([A-Za-z0-9_-]{43})(?:\/files\/[a-f0-9]{64})?$/.exec(url.pathname);
   const write = /^\/api\/pages\/([A-Za-z0-9_-]{43})(?:\/files\/[a-f0-9]{64})?$/.exec(url.pathname);
   if (!read && !write) return response("Not found", 404);
   if (url.search && !read) return response("Not found", 404);
@@ -519,8 +499,5 @@ export async function routeRequest(request, env) {
     return response("Browser publishing is not supported", 403);
   const id = (read ?? write)[1];
   if (write && !(await authorized(request, id))) return response("Unauthorized", 401);
-  // CF sets this at ingress. Never honor X-Forwarded-For or client-supplied internal headers.
-  const ip = local ? "local-preview" : request.headers.get("CF-Connecting-IP");
-  if (write && (!ip || ip.length > 64)) return response("Publishing unavailable", 503);
-  return env.page(id, request, ip ?? "");
+  return env.page(id, request);
 }
