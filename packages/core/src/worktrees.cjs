@@ -53,10 +53,16 @@ async function listBranches(projectPath) {
   }
 }
 
-async function checkBase(projectPath, baseBranch) {
+async function resolveWorktreeBase(projectPath, baseBranch, fetched) {
   const valid = typeof baseBranch === "string" && baseBranch !== "" && !baseBranch.startsWith("-") && !/[\0\n]/.test(baseBranch);
-  if (!valid || !(await client.read.refExists(projectPath, baseBranch)))
-    throw new Error(`The base branch ${JSON.stringify(String(baseBranch))} is missing from this project.`);
+  if (valid && (await client.read.refExists(projectPath, baseBranch))) return resolveStartRef(projectPath, baseBranch, { fetched });
+  if (validBranchName(baseBranch)) {
+    const refs = await client.read.text(projectPath, ["for-each-ref", "--format=%(refname)", `refs/remotes/*/${baseBranch}`]);
+    const matches = refs.split("\n").filter(Boolean);
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) throw new Error(`The base branch "${baseBranch}" exists on multiple remotes. Specify one of: ${matches.join(", ")}.`);
+  }
+  throw new Error(`The base branch ${JSON.stringify(String(baseBranch))} is missing from this project.`);
 }
 
 const newSuffix = () => Math.random().toString(36).slice(2, 6);
@@ -86,13 +92,12 @@ async function createWorktree({
 }) {
   if (await outsideGit(projectPath))
     throw new Error(`${path.basename(projectPath)} has no Git, so its Chats work in the folder itself. Set up Git to give a Chat its own Worktree.`);
-  await checkBase(projectPath, baseBranch);
   if (named !== undefined && !validBranchName(named)) throw new Error(`${JSON.stringify(String(named))} is not a valid branch name.`);
+  const start = await resolveWorktreeBase(projectPath, baseBranch, fetched);
   const name = `${folderSlug || (named ? slugify(named.split("/").pop()) : slugify(prompt)) || "chat"}-${suffix}`;
   const branch = named ?? `milagre/${name}`;
   const worktreePath = path.join(root, path.basename(projectPath), name);
   await fs.mkdir(path.dirname(worktreePath), { recursive: true });
-  const start = await resolveStartRef(projectPath, baseBranch, { fetched });
   beforeCreate?.();
   await client.write.checked(projectPath, ["worktree", "add", trackBase ? "--track" : "--no-track", "-b", branch, "--end-of-options", worktreePath, start]);
   const copy = await copyFilesToWorktree({ projectPath, worktreePath, setting: copyPatterns, limits: copyLimits });

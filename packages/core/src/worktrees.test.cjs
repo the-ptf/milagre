@@ -113,6 +113,35 @@ async function trailingClone(t) {
   return { root, project, git, remote, remoteGit };
 }
 
+test("createWorktree uses a fetched remote-only base without creating a local base branch", async (t) => {
+  const { root, project, git, remoteGit } = await trailingClone(t);
+  const baseBranch = "topic/fix";
+  remoteGit("branch", baseBranch);
+  git("fetch", "origin", baseBranch);
+  const options = { projectPath: project, baseBranch, root: path.join(root, "worktrees") };
+  const created = await createWorktree({ ...options, suffix: "remote" });
+  assert.equal(git("rev-parse", created.branch), remoteGit("rev-parse", baseBranch));
+  assert.equal(git("rev-parse", created.base), remoteGit("rev-parse", baseBranch));
+  assert.equal(git("branch", "--list", baseBranch), "");
+
+  git("branch", "--no-track", baseBranch, "main");
+  const local = await createWorktree({ ...options, suffix: "local" });
+  assert.equal(local.base, baseBranch);
+  assert.equal(git("rev-parse", local.branch), git("rev-parse", "main"));
+});
+
+test("createWorktree asks for a qualified base when multiple remotes have the branch", async (t) => {
+  const { root, project, git, remote } = await trailingClone(t);
+  git("remote", "add", "fork", remote);
+  git("fetch", "fork", "release/v2");
+  const options = { projectPath: project, root: path.join(root, "worktrees") };
+  await assert.rejects(createWorktree({ ...options, baseBranch: "v2" }), /missing from this project/);
+  await assert.rejects(createWorktree({ ...options, baseBranch: "release/v2" }), /fork\/release\/v2.*origin\/release\/v2/);
+  await assert.rejects(fs.stat(options.root), { code: "ENOENT" });
+  const explicit = await createWorktree({ ...options, baseBranch: "refs/remotes/fork/release/v2", trackBase: true });
+  assert.equal(git("rev-parse", "--symbolic-full-name", `${explicit.branch}@{upstream}`).trim(), "refs/remotes/fork/release/v2");
+});
+
 test("createWorktree starts a trailing branch from its freshly fetched upstream", async (t) => {
   const { root, project, git, remoteGit } = await trailingClone(t);
   const created = await createWorktree({ projectPath: project, baseBranch: "main", prompt: "x", root: path.join(root, "worktrees"), suffix: "up1" });
