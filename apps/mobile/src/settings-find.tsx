@@ -1,10 +1,9 @@
-import { duration } from "./design-tokens";
+import { duration, radius } from "./design-tokens";
 import React, { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { AccessibilityInfo, Animated, View, type ScrollViewInstance, type ViewInstance } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { PageScroll } from "./ui";
 import { useTheme } from "./theme";
-import { radius } from "./design-tokens";
 
 type FindTarget = {
   title: string;

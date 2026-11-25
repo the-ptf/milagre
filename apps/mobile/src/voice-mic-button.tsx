@@ -1,4 +1,4 @@
-import { duration } from "./design-tokens";
+import { duration, radius } from "./design-tokens";
 import { useEffect, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import Animated, {
@@ -15,7 +15,6 @@ import Animated, {
 import Svg, { Circle, Path } from "react-native-svg";
 import { Cancel01Icon, Mic01Icon } from "@hugeicons/core-free-icons";
 import { withAlpha } from "@milagre/shared/themes";
-import { radius } from "./design-tokens";
 import { pressStyle } from "./primitives/press-style";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";

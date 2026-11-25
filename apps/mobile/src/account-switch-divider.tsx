@@ -1,5 +1,4 @@
-import { View } from "react-native";
-import { Text } from "react-native";
+import { Text, View } from "react-native";
 import { UserSwitchIcon } from "@hugeicons/core-free-icons";
 import type { AccountSwitchContext } from "@milagre/shared/model";
 import { accountSwitchText, limitResetText } from "@milagre/shared/usage-limit";

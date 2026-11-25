@@ -1,5 +1,5 @@
-import { TranscriptDivider } from "./ui";
-import { GitForkIcon } from "@hugeicons/core-free-icons";
+import { InlineError, pressStyle, TranscriptDivider, useStyles } from "./ui";
+import { Alert02Icon, ArrowRight01Icon, GitForkIcon, Link04Icon } from "@hugeicons/core-free-icons";
 import { MessageToolbar } from "./message-toolbar";
 import { SendLaunch } from "./send-launch";
 import { memo, useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
@@ -8,7 +8,6 @@ import { activityDuration, stepDisplayTitle, waitingStepIds } from "@milagre/sha
 import { useDisplayValue } from "./display-clock";
 import { ActivitySources } from "./activity-source";
 import { router } from "expo-router";
-import { Alert02Icon, ArrowRight01Icon, Link04Icon } from "@hugeicons/core-free-icons";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { ChatMessage, ChatStep, LinkedContext, LimitResume } from "@milagre/shared/model";
 import { linkedContext, linkedHeading } from "@milagre/shared/linked-message";
@@ -50,7 +49,6 @@ import { useTheme } from "./theme";
 import { useMedia } from "./media-source";
 import { ViewedImages } from "./viewed-images";
 import { hitSlopFor, lineHeight as typeLineHeight, radius, space, type } from "./design-tokens";
-import { InlineError, pressStyle, useStyles } from "./ui";
 import { showImages, type MediaValue, type ViewerImage } from "./viewer-store";
 
 export type MediaSource = (path: string) => MediaValue;

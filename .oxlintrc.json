@@ -109,7 +109,7 @@
         "react/no-unknown-property": "warn",
         "react/no-this-in-sfc": "warn",
         "import/first": "warn",
-        "import/no-duplicates": "warn",
+        "import/no-duplicates": "error",
         "import/no-named-as-default": "warn",
         "import/no-named-as-default-member": "warn",
         "eslint/eqeqeq": ["warn", "smart"],
