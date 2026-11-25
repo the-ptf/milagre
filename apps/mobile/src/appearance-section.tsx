@@ -206,6 +206,15 @@ export function AppearanceSection() {
         </View>
       ))}
       <View style={{ gap: 8 }}>
+        <SectionLabel>Background</SectionLabel>
+        <Findable title="Background dots">
+          <View style={[styles.card, { gap: 4 }]}>
+            <Toggle title="Background dots" selected={settings.dots !== "off"} onPress={() => set({ dots: settings.dots === "off" ? "on" : "off" })} />
+            <Text style={styles.caption}>The dot grid behind the Chat.</Text>
+          </View>
+        </Findable>
+      </View>
+      <View style={{ gap: 8 }}>
         <SectionLabel>Custom theme</SectionLabel>
         <View style={[styles.card, { gap: 4 }]}>
           <Toggle title="Custom theme" selected={settings.customThemeEnabled} onPress={() => changeCustomTheme(!settings.customThemeEnabled)} />
