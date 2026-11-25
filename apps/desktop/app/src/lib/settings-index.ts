@@ -12,6 +12,7 @@ import {
 } from "@milagre/shared/linear";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
+import { WORKSPACE_TABS_DESCRIPTION, WORKSPACE_TABS_LABEL } from "@milagre/shared/workspace-tabs";
 import { ORCHESTRATOR_DESCRIPTION } from "./orchestrator-copy.ts";
 import type { SettingsSearchEntry } from "@milagre/shared/settings-search";
 import type { SettingsSection } from "../components/Settings";
@@ -724,6 +725,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Beta",
     description: NEW_CHAT_STATS_HINT,
     keywords: "glance cards pull requests usage tokens",
+  },
+  {
+    page: "experimental",
+    title: WORKSPACE_TABS_LABEL,
+    group: "Beta",
+    description: WORKSPACE_TABS_DESCRIPTION,
+    keywords: "tabs top bar subchats strip",
   },
   {
     page: "experimental",

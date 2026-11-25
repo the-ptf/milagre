@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { animate, motion, useMotionValue, useMotionValueEvent, usePresence } from "motion/react";
 import { DURATION, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
+import { saveTerminalHeight, setTerminalHeight, TERMINAL_HEIGHT } from "../../lib/terminal-store";
 
 const GAP = 8;
 
@@ -67,4 +68,22 @@ export function TerminalSlide({ height, children }: { height: number; children: 
       </motion.div>
     </div>
   );
+}
+
+/** Dragging the Terminals' top edge: the panel grows up to three quarters of the Chat pane, and the height is kept. */
+export function startTerminalResize(event: React.PointerEvent, panel: HTMLElement | null, height: number) {
+  event.preventDefault();
+  const startY = event.clientY;
+  const startHeight = panel?.getBoundingClientRect().height ?? height;
+  const room = (panel?.closest("[data-terminal-slot]")?.parentElement?.getBoundingClientRect().height ?? window.innerHeight) * 0.75;
+  const move = (next: PointerEvent) => setTerminalHeight(Math.min(room, Math.max(TERMINAL_HEIGHT.min, startHeight + startY - next.clientY)));
+  const up = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    document.documentElement.style.cursor = "";
+    saveTerminalHeight();
+  };
+  document.documentElement.style.cursor = "row-resize";
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
 }

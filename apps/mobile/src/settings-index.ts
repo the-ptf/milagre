@@ -6,6 +6,7 @@ import { LINEAR_HINT, LINEAR_MOVE_TO_STARTED_HINT, LINEAR_MOVE_TO_STARTED_TITLE,
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { IMPORT_INTRO, IMPORT_TITLE } from "@milagre/shared/ade-import";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
+import { WORKSPACE_TABS_DESCRIPTION, WORKSPACE_TABS_LABEL } from "@milagre/shared/workspace-tabs";
 import { searchSettings, type SettingsSearchEntry, type SettingsSearchHit } from "@milagre/shared/settings-search";
 import { DESIGN_SECTIONS, DESIGN_SYSTEM_GROUPS } from "./design-system-catalogue.ts";
 
@@ -255,6 +256,12 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     title: NEW_CHAT_STATS_LABEL,
     description: NEW_CHAT_STATS_HINT,
     keywords: "glance cards pull requests usage tokens",
+  },
+  {
+    page: "experimental",
+    title: WORKSPACE_TABS_LABEL,
+    description: WORKSPACE_TABS_DESCRIPTION,
+    keywords: "tabs subchats right panel",
   },
   {
     page: "experimental",

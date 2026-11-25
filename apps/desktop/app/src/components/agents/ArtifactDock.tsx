@@ -69,6 +69,7 @@ type DockProps = {
   openNonce: number;
   onSend?: (text: string, images?: ImageAttachment[]) => Promise<boolean>;
   onClose: () => void;
+  staged?: { beside: boolean };
 };
 
 function useSendShortcut(onSend: DockProps["onSend"], active: DockFeedback) {
@@ -104,6 +105,9 @@ function useSendShortcut(onSend: DockProps["onSend"], active: DockFeedback) {
   }, [onSend]);
 }
 
+/** Expanded by its button, or a Workspace tab in front that isn't shown beside the Chat. */
+const fillsWorkspace = (expanded: boolean, staged: { beside: boolean } | undefined) => expanded || (!!staged && !staged.beside);
+
 /**
  * The Artifact panel: one docked panel for the Chat's designs (the canvas) and its HTML page. The title is a menu that
  * switches between them in place, without the panel sliding in again or changing width.
@@ -112,7 +116,8 @@ export function ArtifactDock(props: DockProps) {
   const { page, onPage, hasCanvas, chatId, designs, htmlRef, library, onSend, onClose } = props;
   const { artifact, error: pageError } = useArtifact(htmlRef ? chatId : null, htmlRef?.id ?? "", null, htmlRef?.version);
   const html = artifact?.format === "html" ? artifact : null;
-  const [expanded, setExpanded] = useState(false);
+  const [expandedByUser, setExpanded] = useState(false);
+  const expanded = fillsWorkspace(expandedByUser, props.staged);
   const [sharing, setSharing] = useState<PageShareScope | null>(null);
   const [adding, setAdding] = useState<LibrarySource | null>(null);
   const libraryPage = library.find((item) => item.id === libraryPageId(page));

@@ -48,6 +48,8 @@ import { CommentControls, PageCommenting, useSentPageComments, type SendPageComm
 import { shortcutLabel, useKeybindings } from "../../lib/keybindings";
 import { isRemoteKey } from "../../lib/computer-bridge";
 import { targetBrowserId, useChatBrowserTargets, type ChatBrowserTargets } from "./BrowserViewer";
+import { sessionIdFromKey } from "../../lib/agent-runs";
+import { requestTab, useStage, useWorkspaceTabsOn } from "../../lib/workspace-stage";
 
 const FOCUS_BROWSER_ADDRESS = "milagre:browser-address";
 
@@ -84,6 +86,18 @@ export function BrowserPanel({
   onSendComments?: SendPageComments;
 }) {
   const chat = useChatBrowser(chatKey);
+  const tabsOn = useWorkspaceTabsOn();
+  const stage = useStage();
+  const staged = tabsOn && stage?.tab.kind === "browser" && stage.chatKey === chatKey ? stage : null;
+  const stagedPage = staged?.tab.kind === "browser" ? staged.tab.pageId : null;
+  const shown = tabsOn ? !!stagedPage : chat.open;
+  useEffect(() => {
+    if (!tabsOn) return;
+    if (stagedPage) {
+      if (chat.active !== stagedPage) selectBrowserTab(chatKey, stagedPage);
+      if (!chat.open) setBrowserOpen(chatKey, true);
+    } else if (chat.open) setBrowserOpen(chatKey, false);
+  }, [tabsOn, stagedPage, chatKey, chat.active, chat.open]);
   const listed = useChatBrowserTargets(viewerChatId, chat.open);
   const ownPages = new Set(chat.tabs.map((tab) => samePage(tab.url)));
   const streamed: ChatBrowserTargets = {
@@ -104,15 +118,19 @@ export function BrowserPanel({
   const resize = usePanelWidth("browser");
   // Dragged wider than the room left now (the changes panel or a simulator opened beside it), it narrows so the chat
   const width = dock ? Math.max(resize.min, Math.min(resize.width, dock.width - dock.simulator - 12 - MIN_CHAT_WIDTH)) : resize.width;
-  const full = expanded;
+  const full = staged ? !staged.beside : expanded;
   const close = useCallback(() => setBrowserOpen(chatKey, false), [chatKey]);
   useCloseWhenArtifactExpands(close);
-  useSidePanelRoom("browser", chat.open && !full, width + 12, close);
+  useSidePanelRoom("browser", shown && !full, width + 12, close);
   const hasStreamed = streamed.targets.length > 0;
   const open = () => (!chatBrowser(chatKey).tabs.length && (hasStreamed || streamed.loading) ? showBrowserPanel(chatKey) : setBrowserOpen(chatKey, true));
   useSidePanel("browser", {
-    open: chat.open,
-    toggle: () => (chatBrowser(chatKey).open ? close() : open()),
+    open: shown,
+    toggle: () => {
+      if (!tabsOn) return chatBrowser(chatKey).open ? close() : open();
+      const pageId = openBrowserTab(chatKey, "about:blank");
+      requestTab(chatKey, { kind: "browser", chatId: sessionIdFromKey(chatKey), pageId }, true);
+    },
   });
   const closeTab = (tabId: string) => {
     closeBrowserTab(chatKey, tabId);
@@ -129,7 +147,7 @@ export function BrowserPanel({
   const active = own;
   return createPortal(
     <AnimatePresence initial={false}>
-      {chat.open && active && (
+      {shown && active && (
         <ResizableDockSlide
           key="browser-dock"
           // Opens like the git changes panel and lines up with the sidebar's card, left of a docked simulator; the chat
@@ -158,21 +176,23 @@ export function BrowserPanel({
           className="fixed z-[41]"
           panelClassName="overflow-hidden rounded-window bg-surface text-ink shadow-card"
         >
-          <BrowserTabs
-            chatKey={chatKey}
-            tabs={chat.tabs}
-            active={active?.id ?? null}
-            streamed={streamed}
-            attachedTargets={listed.targets.filter((target) => target.source === "attached")}
-            viewing={null}
-            pages={{}}
-            onSelect={selectTab}
-            onCloseTab={closeTab}
-            onView={viewTarget}
-            onClose={close}
-            expanded={expanded}
-            onToggleExpanded={() => setExpanded((value) => !value)}
-          />
+          {!staged && (
+            <BrowserTabs
+              chatKey={chatKey}
+              tabs={chat.tabs}
+              active={active?.id ?? null}
+              streamed={streamed}
+              attachedTargets={listed.targets.filter((target) => target.source === "attached")}
+              viewing={null}
+              pages={{}}
+              onSelect={selectTab}
+              onCloseTab={closeTab}
+              onView={viewTarget}
+              onClose={close}
+              expanded={expanded}
+              onToggleExpanded={() => setExpanded((value) => !value)}
+            />
+          )}
           <BrowserToolbar key={active.id} chatKey={chatKey} tab={active} onSendComments={onSendComments} />
           <BrowserPage chatKey={chatKey} tab={active} ports={ports} streamed={streamed} onAttach={attached} />
         </ResizableDockSlide>

@@ -8,6 +8,7 @@ import { SettingCheckbox } from "../primitives/Checkbox";
 import { updateSettings, useSettings } from "../../lib/settings";
 import { Group, Row } from "./SettingsGroup";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
+import { WORKSPACE_TABS_DESCRIPTION, WORKSPACE_TABS_LABEL } from "@milagre/shared/workspace-tabs";
 import { computerNoun } from "../../lib/shortcut-hints";
 
 function RemoteDelegationSettings() {
@@ -99,6 +100,9 @@ export function ExperimentalSettings({ title, models, onOpenKeybindings }: { tit
         </Row>
         <Row label={NEW_CHAT_STATS_LABEL} description={NEW_CHAT_STATS_HINT}>
           <SettingCheckbox label={NEW_CHAT_STATS_LABEL} checked={settings.newChatGlance} onChange={(newChatGlance) => updateSettings({ newChatGlance })} />
+        </Row>
+        <Row label={WORKSPACE_TABS_LABEL} description={WORKSPACE_TABS_DESCRIPTION}>
+          <SettingCheckbox label={WORKSPACE_TABS_LABEL} checked={settings.workspaceTabs} onChange={(workspaceTabs) => updateSettings({ workspaceTabs })} />
         </Row>
         <RemoteDelegationSettings />
         <DeviceNotesSettings />

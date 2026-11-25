@@ -1,7 +1,7 @@
 import { UI_COPY } from "@milagre/shared/model-copy";
 import { withReportPrompt } from "@milagre/shared/bug-report";
 import type { BranchPolicySettings } from "@milagre/shared/branch-policy";
-import { chrome, lineHeight, space, type } from "../design-tokens";
+import { chrome, lineHeight, type } from "../design-tokens";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { useContextSettings } from "../context-settings";
 import { COMPACT_COMMAND, compactionContext, compactionText, isCompaction } from "@milagre/shared/compaction";
@@ -11,7 +11,6 @@ import {
   GitPullRequestIcon,
   Cancel01Icon,
   CleanIcon,
-  GitBranchIcon,
   LaptopIcon,
   Link04Icon,
   MoreHorizontalIcon,
@@ -72,7 +71,10 @@ import {
   prepareAnswerImages,
   prepareAttachments,
 } from "../attachments";
-import { BackgroundRing, HeaderPullRequestChip } from "../status-indicators";
+import { BackgroundRing } from "../status-indicators";
+import { ChatHeaderSubtitle } from "../chat-header-subtitle";
+import { TabCountAction, useWorkspaceTabSync, WorkspaceTabStrip } from "../workspace-tabs-panel";
+import { useWorkspaceTabs } from "../workspace-tabs-store";
 import { openPrPage, openPullRequest } from "../pr-nav";
 import { NewChatGlance } from "../new-chat-glance";
 import { onPullRequestRequest, prChoiceKey, registerPrChat, type PrChoice } from "../pr-chat";
@@ -693,6 +695,14 @@ function ChatPane({
   );
   const savedChatKey = targetMatches && projectPath && params.id ? `${projectPath}#${params.id}` : undefined;
   const prChatKey = targetMatches && projectPath ? (savedChatKey ?? `${projectPath}#new:${params.worktreeId}`) : undefined;
+  const [workspaceTabsOn] = useWorkspaceTabs();
+  const tabsProject = targetMatches ? session.snapshot?.project : undefined;
+  const tabsWorktree = tabsProject && (params.id ? tabsProject.state.sessions[Number(params.id)]?.worktree_id : Number(params.worktreeId));
+  const tabsWhere =
+    workspaceTabsOn && !secondary && tabsProject && Number.isFinite(tabsWorktree)
+      ? { hostId: targetHost, projectPath: tabsProject.path, worktreeId: Number(tabsWorktree) }
+      : null;
+  useWorkspaceTabSync(workspaceTabsOn, tabsWhere, tabsProject?.state.sessions, params.id ? Number(params.id) : undefined);
   const panels = useSidePanels({
     chatId: pending ? (pendingCanonicalId ?? pending.preview.session.id) : params.id ? Number(params.id) : undefined,
     worktreeId: targetMatches && worktreeOf ? panelWorktree(session.snapshot?.project, worktreeOf.id) : undefined,
@@ -1702,9 +1712,12 @@ function ChatPane({
       {family && <Icon icon={UnfoldMoreIcon} tone="ink3" size={12} />}
     </View>
   );
-  const header = (
+  const tabsInHeader = !!tabsWhere && split.widthClass !== "compact";
+  const header = tabsInHeader ? (
+    <WorkspaceTabStrip where={tabsWhere} activeChatId={chat?.id} actionCount={1 + Number(!!browserShortcut) + Number(!!pr)} />
+  ) : (
     <>
-      <HeaderTitleBox actionCount={1 + Number(!!browserShortcut) + Number(!!pr)}>
+      <HeaderTitleBox actionCount={1 + Number(!!browserShortcut) + Number(!!pr) + Number(!!tabsWhere)}>
         {family && chat ? (
           <FamilyTitleMenu
             sessions={project.state.sessions}
@@ -1723,45 +1736,25 @@ function ChatPane({
         ) : (
           titleRow
         )}
-        {(paired || (!project.link && !chatsHomeOpen) || (!!pr && !!chat && !chatsHomeOpen)) && (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs, maxWidth: "100%" }}>
-            {paired && (
-              <Text
-                numberOfLines={1}
-                ellipsizeMode="tail"
-                accessibilityLabel={otherComputer ? `${projectName} on ${hostName}` : projectName}
-                style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontWeight: "500", flexShrink: 1 }}
-              >
-                {otherComputer ? `${projectName} · ${hostName}` : projectName}
-              </Text>
-            )}
-            {!project.link && !chatsHomeOpen && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs, flexShrink: 1, opacity: worktree ? 1 : 0 }}>
-                <Icon icon={GitBranchIcon} tone="ink3" size={12} />
-                <Text
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                  style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, flexShrink: 1 }}
-                >
-                  {chatBranchLabel(chat, worktree?.name) ?? ""}
-                </Text>
-                <Text style={{ fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
-                  <Text style={{ color: colors.add }}>{diff && (diff.added > 0 || diff.removed > 0) ? `+${diff.added}` : ""}</Text>
-                  {diff && (diff.added > 0 || diff.removed > 0) ? " " : ""}
-                  <Text style={{ color: colors.remove }}>{diff && (diff.added > 0 || diff.removed > 0) ? `−${diff.removed}` : ""}</Text>
-                </Text>
-                {pr && chat && <HeaderPullRequestChip pr={pr} onPress={() => openPr(pr.number)} />}
-              </View>
-            )}
-            {project.link && pr && chat && <HeaderPullRequestChip pr={pr} onPress={() => openPr(pr.number)} />}
-          </View>
-        )}
+        <ChatHeaderSubtitle
+          paired={paired}
+          linked={!!project.link}
+          home={chatsHomeOpen}
+          hasChat={!!chat}
+          place={{ label: otherComputer ? `${projectName} · ${hostName}` : projectName, spoken: otherComputer ? `${projectName} on ${hostName}` : projectName }}
+          branch={chatBranchLabel(chat, worktree?.name) ?? ""}
+          worktreeShown={!!worktree}
+          diff={diff}
+          pr={pr}
+          onPr={(number) => openPr(number)}
+        />
       </HeaderTitleBox>
     </>
   );
   const paneMenu = chatPaneMenu({ chatsHomeOpen, diff, chat, run, ownRoutine, ownHeartbeat, linearIssue, linkHint, agents, busy, canLink, storedIssue });
   const headerActions = (
     <HeaderActionGroup>
+      {tabsWhere && !tabsInHeader && <TabCountAction where={tabsWhere} activeChatId={chat?.id} onPress={panels.showTabs} />}
       {browserShortcut && (
         <HeaderAction
           label={browserShortcut.accessibilityLabel}
@@ -1778,7 +1771,7 @@ function ChatPane({
       </PullDown>
     </HeaderActionGroup>
   );
-  const more = <ChatToolbar shape={`${!!browserShortcut}|${!!pr}`}>{headerActions}</ChatToolbar>;
+  const more = <ChatToolbar shape={`${!!browserShortcut}|${!!pr}|${!!tabsWhere}`}>{headerActions}</ChatToolbar>;
   const paneHeader = paired ? (
     <View
       pointerEvents="box-none"

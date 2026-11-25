@@ -16,6 +16,7 @@ import { MenuRow, Popover } from "../primitives/Popover";
 import Tooltip from "../primitives/Tooltip";
 import { isModalOpen } from "../../lib/modal";
 import { useWindowChrome } from "../../lib/window-chrome";
+import { useWorkspaceTabsOn, workspaceTabsOn } from "../../lib/workspace-stage";
 
 export type SidePanel = { open: boolean; toggle: () => void };
 type PanelName = "terminal" | "artifacts" | "browser" | "simulator" | "details";
@@ -65,8 +66,13 @@ export const CORNER_PITCH = 40;
 
 const LEADING = new Set<PanelName>(["details", "terminal"]);
 
+/** The panels Workspace tabs open as tabs instead: their buttons leave the title bar while tabs show. */
+const TABBED = new Set<PanelName>(["terminal", "artifacts", "browser"]);
+const shownButtons = (shown: Partial<Record<PanelName, SidePanel>>, tabbed: boolean) =>
+  BUTTONS.filter(({ name }) => shown[name] && !(tabbed && TABBED.has(name)));
+
 const sidePanelCount = (shown: Partial<Record<PanelName, SidePanel>>, changes = false, pullRequest = false) =>
-  BUTTONS.filter(({ name }) => shown[name]).length + Number(changes) + Number(pullRequest);
+  shownButtons(shown, workspaceTabsOn()).length + Number(changes) + Number(pullRequest);
 
 /** The title bar's trailing buttons: the panel toggles, which a split's Panels menu replaces, and the Canvas button, hidden while split. */
 export function cornerButtonCount(
@@ -85,10 +91,11 @@ type PanelProps = { changes?: SidePanel; pullRequest?: SidePanel & { number: num
 /** The panel buttons as one menu, for the focused pane of a split, where the title bar holds the panes' headers. */
 export function PanelMenu({ changes, pullRequest }: PanelProps) {
   const shown = useSidePanels();
+  const tabbed = useWorkspaceTabsOn();
   const { rules } = useKeybindings();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
-  const buttons = BUTTONS.filter(({ name }) => shown[name]);
+  const buttons = shownButtons(shown, tabbed);
   if (!buttons.length && !changes && !pullRequest) return null;
   const row = (key: string, title: string, icon: typeof PaintBoardIcon, panel: SidePanel, command?: KeybindingCommandId) => (
     <MenuRow
@@ -150,6 +157,7 @@ export function PanelToggles({
   split = false,
 }: PanelProps & { right: number; hidden?: boolean; split?: boolean }) {
   const shown = useSidePanels();
+  const tabbed = useWorkspaceTabsOn();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (hidden || event.defaultPrevented || event.isComposing || isModalOpen()) return;
@@ -163,7 +171,7 @@ export function PanelToggles({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [hidden]);
-  const buttons = BUTTONS.filter(({ name }) => shown[name]);
+  const buttons = shownButtons(shown, tabbed);
   const chrome = useWindowChrome();
   const { rules } = useKeybindings();
   const panelButton = ({ name, label, title = label, icon, command }: (typeof BUTTONS)[number]) => {

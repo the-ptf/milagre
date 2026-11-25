@@ -1,5 +1,7 @@
 import { useLocalSearchParams } from "expo-router";
 import { TerminalSheet, type TerminalPlace } from "../terminal";
+import { useSession } from "../session";
+import { useNotePhoneTab } from "../workspace-tabs-store";
 
 function parsePlaces(value: string | undefined): TerminalPlace[] | undefined {
   if (!value) return undefined;
@@ -14,5 +16,6 @@ function parsePlaces(value: string | undefined): TerminalPlace[] | undefined {
 
 export default function TerminalScreen() {
   const { hostId, chatId, places } = useLocalSearchParams<{ hostId?: string; chatId?: string; places?: string }>();
+  useNotePhoneTab(useSession(), hostId, chatId, "terminal");
   return <TerminalSheet key={`${hostId}:${chatId}`} hostId={hostId} chatId={chatId} places={parsePlaces(places)} />;
 }

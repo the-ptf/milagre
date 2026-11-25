@@ -66,6 +66,10 @@ _Avoid_: tab (a browser's own UI term), session (the page's sign-in state is par
 An interactive shell the user opens in a **Chat**. It starts in that **Chat**'s **Worktree** (or a shared Chat's workspace folder before its first Worktree is created) with the user's own environment and the shell chosen for that computer. Automatic selection uses installed zsh on Linux or the user's login shell otherwise; changing the choice applies only to new **Terminals**. It belongs to the **Chat**: other **Chats**, even in the same **Worktree**, do not see it, and the **Chat**'s agent neither reads nor types in it. A **Chat** can have several. A **Terminal** keeps running when the desktop app closes, and ends when its shell exits or its **Chat** is archived. See [host](docs/host.md).
 _Avoid_: console, shell (the program running inside a **Terminal**)
 
+**Workspace tab**:
+A **Chat** or **Subchat** a **Worktree** has open on one device, in a strip across the top bar on a computer and an iPad and in the right panel on a phone (Settings › Experimental). Every **Chat** of the **Worktree** shares one tab set; a **Chat** without a **Worktree** has its own. Each device keeps its own tabs, order and the one in front. Closing a tab only takes it off the strip: the **Chat** stays in the sidebar, and closing the **Worktree**'s main **Chat** (its oldest **Chat** that is no one's **Subchat**) asks first.
+_Avoid_: tab alone where a **Browser page** is meant
+
 **Task list**:
 A **Chat**'s tree of tasks, at most three levels deep, written by the agent with Milagre's `tasks_set` and `task_update`. Saved with the **Chat**; a provider's own todo list fills it until Milagre's tools take over.
 
