@@ -399,6 +399,27 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,url,body,isPrerelease | node scripts/announce-release.cjs
+  homebrew:
+    needs: [prepare, publish]
+    if: always() && needs.publish.result == 'success' && needs.prepare.outputs.channel == 'stable'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: the-ptf/homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+      - name: Update the Homebrew cask
+        run: |
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern milagre.rb --output Casks/milagre.rb --clobber
+          if git diff --quiet; then echo "The cask already installs $RELEASE_TAG."; exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit --quiet -m "Update Milagre to $RELEASE_TAG" Casks/milagre.rb
+          git push --quiet
   deploy-linux-repository:
     needs: [prepare, publish]
     # always(): publish follows the skipped windows job, and a job downstream of a skipped one is skipped without it.

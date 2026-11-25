@@ -8,7 +8,7 @@ macOS is available through the [public Homebrew tap](https://github.com/the-ptf/
 brew install --cask the-ptf/tap/milagre
 ```
 
-The tap starts with the signed, notarized `v0.88.0` release for Apple Silicon and Intel. Its scheduled updater downloads both stable-release DMGs, checks their sizes and hashes, and commits the new cask. Uninstalling keeps saved Chats and settings.
+Each stable release's `homebrew` job in `publish.yml` commits the `milagre.rb` cask it generated (below) to the tap, with the `HOMEBREW_TAP_DEPLOY_KEY` secret: a deploy key with write access to the tap only. The tap stays its own repository because `brew tap` clones the whole repository and the short `the-ptf/tap/milagre` name needs a repository called `homebrew-tap`. Uninstalling keeps saved Chats and settings.
 
 | Platform | Architecture         | Installers         | Distribution                                                                       |
 | -------- | -------------------- | ------------------ | ---------------------------------------------------------------------------------- |
