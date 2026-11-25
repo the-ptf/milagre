@@ -12,29 +12,53 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Restore fingerprint hashes
+        id: cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/fingerprints
+          key: fingerprint-${{ github.event.pull_request.head.sha }}-${{ github.event.pull_request.base.sha }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 26
           cache: npm
-      - run: npm ci
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: npm ci
       - name: Fingerprint the PR
+        if: steps.cache.outputs.cache-hit != 'true'
         working-directory: apps/mobile
         run: npx expo-updates fingerprint:generate --platform ios > "$RUNNER_TEMP/head.json"
       - name: Fingerprint main
+        if: steps.cache.outputs.cache-hit != 'true'
         env:
-          BASE_REF: ${{ github.base_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          git worktree add "$RUNNER_TEMP/base" "origin/$BASE_REF"
+          git worktree add "$RUNNER_TEMP/base" "$BASE_SHA"
           cd "$RUNNER_TEMP/base" && npm ci --ignore-scripts --workspace @milagre/mobile --include-workspace-root && npx patch-package --patch-dir apps/mobile/patches && cd apps/mobile && npx expo-updates fingerprint:generate --platform ios > "$RUNNER_TEMP/base.json"
+      - name: Extract the hashes
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir "$RUNNER_TEMP/fingerprints"
+          for side in head base; do
+            node -e 'const {hash} = require(process.argv[1]); if (typeof hash !== "string" || !hash.trim()) throw Error("Could not read a fingerprint hash"); console.log(hash)' "$RUNNER_TEMP/$side.json" > "$RUNNER_TEMP/fingerprints/$side"
+          done
+      - name: Save the hashes before checking approval
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/fingerprints
+          key: ${{ steps.cache.outputs.cache-primary-key }}
       - name: Compare
         env:
           APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'native-build-approved') }}
         run: |
-          head=$(node -p 'JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP + "/head.json","utf8")).hash')
-          base=$(node -p 'JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP + "/base.json","utf8")).hash')
+          head=$(cat "$RUNNER_TEMP/fingerprints/head")
+          base=$(cat "$RUNNER_TEMP/fingerprints/base")
           echo "base $base"; echo "head $head"
           if [ -z "$head" ] || [ "$head" = undefined ] || [ -z "$base" ] || [ "$base" = undefined ]; then
             echo "::error::Could not read a fingerprint hash"; exit 1

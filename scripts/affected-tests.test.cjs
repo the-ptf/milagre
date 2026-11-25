@@ -154,15 +154,26 @@ test("a directory dependency reaches through the files under it, but never out o
 
 test("the CI plan sizes the Electron matrix to the selected checks and runs Windows only for its own files", () => {
   const seconds = () => 40;
+  const skipped = { site: false, smoke: false, signing: false, cli: false };
   assert.deepEqual(ciPlan({ full: "the lockfile", unit: [], electron: [], electronSeconds: seconds }), {
     unit: true,
     electron: true,
     native: true,
+    site: false,
+    smoke: true,
+    signing: true,
+    cli: true,
     shards: Array.from({ length: MAX_SHARDS }, (_, i) => i + 1),
   });
-  assert.deepEqual(ciPlan({ full: null, unit: [], electron: [], electronSeconds: seconds }), { unit: false, electron: false, native: false, shards: [1] });
+  assert.deepEqual(ciPlan({ full: null, unit: [], electron: [], electronSeconds: seconds }), {
+    ...skipped,
+    unit: false,
+    electron: false,
+    native: false,
+    shards: [1],
+  });
   const some = ciPlan({ full: null, unit: ["apps/mobile/src/a.test.ts"], electron: ["a", "b", "c", "d", "e"], electronSeconds: seconds });
-  assert.deepEqual(some, { unit: true, electron: true, native: false, shards: [1, 2, 3] });
+  assert.deepEqual(some, { ...skipped, unit: true, electron: true, native: false, shards: [1, 2, 3] });
   assert.equal(ciPlan({ full: null, unit: [NATIVE_TESTS[0]], electron: [], electronSeconds: seconds }).native, true);
   const many = ciPlan({ full: null, unit: [], electron: Array.from({ length: 200 }, (_, i) => `c${i}`), electronSeconds: seconds });
   assert.equal(many.shards.length, MAX_SHARDS);
@@ -194,9 +205,33 @@ test("on this repository: mobile, core, renderer and runner changes reach the te
   const electron = runner.discoverElectronChecks(root);
   const reach = (changed) => runner.affectedSelection({ root, changed, files, unit, electron });
 
-  const mobile = reach(["apps/mobile/src/app/chat.tsx"]).tests;
-  assert.ok(![...mobile].some((file) => electron.includes(file)), "a phone screen reaches no Electron check");
-  assert.ok([...mobile].every((file) => !file.startsWith("packages/core/") && !file.startsWith("apps/daemon/")));
+  function plan(changed, event) {
+    const affected = reach(changed);
+    const selected = runner.selectTests({
+      unit,
+      electron,
+      filters: { ...runner.parseArgs([]), platform: "linux", commandExists: () => true, affected: affected.tests },
+    });
+    return { ...ciPlan({ ...selected, changed, full: affected.full, event, electronSeconds: runner.electronSeconds }), tests: affected.tests };
+  }
+  for (const event of ["pull_request", "push"]) {
+    const site = plan(["apps/site/public/logo.png", "scripts/site-og.cjs"], event);
+    assert.ok(site.site && site.unit);
+    for (const file of unit.filter((name) => name.startsWith("apps/site/"))) assert.ok(site.tests.has(file), file);
+    assert.ok(!site.native && !site.electron && !site.smoke && !site.signing && !site.cli);
+
+    const mobile = plan(["apps/mobile/src/app/chat.tsx", "scripts/mobile-ui.test.cjs"], event);
+    for (const file of unit.filter((name) => /^(apps\/mobile\/|scripts\/mobile-)/.test(name))) assert.ok(mobile.tests.has(file), file);
+    assert.ok(mobile.unit && !mobile.native && !mobile.electron && !mobile.smoke && !mobile.signing && !mobile.cli);
+    assert.ok([...mobile.tests].every((file) => !file.startsWith("packages/core/") && !file.startsWith("apps/daemon/")));
+
+    const check = "scripts/test-project-cache.cjs";
+    const targeted = plan([check], event);
+    assert.deepEqual([...targeted.tests], [check]);
+    assert.deepEqual(targeted.shards, [1]);
+    assert.ok(targeted.electron && !targeted.unit && !targeted.native && !targeted.smoke && !targeted.signing);
+  }
+  assert.equal(plan(["distribution/linux-repository/worker.mjs"], "push").signing, true);
 
   const ownership = reach(["packages/core/src/ownership.cjs"]).tests;
   assert.ok(ownership.has("packages/core/src/ownership.test.cjs"));

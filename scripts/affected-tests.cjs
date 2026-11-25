@@ -233,6 +233,13 @@ function gitState(root, base, { workingTree = !process.env.CI } = {}) {
   return { changed: [...changed].sort(), files };
 }
 
+function narrowWorkspace(changed) {
+  if (!changed.length) return null;
+  if (changed.every((file) => /^(apps\/site\/|scripts\/(?:site-demo\/|site-[^/]+$|share-og\.cjs$|test-site(?:-lighthouse)?\.cjs$))/.test(file))) return "site";
+  if (changed.every((file) => /^(apps\/mobile\/|scripts\/mobile-)/.test(file))) return "mobile";
+  return null;
+}
+
 /** Electron shards on a PR: about this many seconds of checks each, as on a full run (1000 s over 12 runners). */
 const SHARD_SECONDS = 85;
 const MAX_SHARDS = 12;
@@ -241,21 +248,40 @@ const MAX_SHARDS = 12;
  * What the CI change filter outputs: whether the unit, Electron and Windows jobs run on this PR and over how many
  * Electron shards, from the runner's selection for the Linux runners.
  */
-function ciPlan({ full, unit, electron, electronSeconds }) {
-  if (full) return { unit: true, electron: true, native: true, shards: range(MAX_SHARDS) };
+function ciPlan({ full, changed = [], event, unit, electron, electronSeconds }) {
+  const site = !full && narrowWorkspace(changed) === "site" && electron.every((file) => /^scripts\/test-site(?:-lighthouse)?\.cjs$/.test(file));
   const seconds = electron.reduce((sum, file) => sum + electronSeconds(file), 0);
-  const shards = electron.length ? Math.min(MAX_SHARDS, electron.length, Math.max(1, Math.ceil(seconds / SHARD_SECONDS))) : 0;
+  const shards = full ? MAX_SHARDS : Math.min(MAX_SHARDS, electron.length, Math.max(1, Math.ceil(seconds / SHARD_SECONDS)));
+  const cli = event !== "pull_request" && Boolean(full || electron.includes("scripts/test-cli-package.cjs"));
   return {
-    unit: unit.length > 0,
-    electron: electron.length > 0,
-    native: NATIVE_TESTS.some((file) => unit.includes(file)),
-    shards: shards ? range(shards) : [1],
+    unit: Boolean(full || unit.length || cli),
+    electron: Boolean(full || (!site && electron.length)),
+    native: Boolean(full || NATIVE_TESTS.some((file) => unit.includes(file))),
+    site,
+    smoke: event !== "pull_request" && Boolean(full || electron.includes("scripts/test-desktop.cjs")),
+    signing: Boolean(
+      full || unit.includes("scripts/linux-repository.test.cjs") || changed.some((file) => /^(distribution\/|scripts\/[^/]*linux-repository)/.test(file)),
+    ),
+    cli,
+    shards: shards && !site ? range(shards) : [1],
   };
 }
 
 const range = (count) => Array.from({ length: count }, (_, i) => i + 1);
 
-module.exports = { FULL_SUITE, NATIVE_TESTS, MAX_SHARDS, SHARD_SECONDS, fullSuiteReason, buildGraph, affectedTests, selectAffected, gitState, ciPlan };
+module.exports = {
+  narrowWorkspace,
+  FULL_SUITE,
+  NATIVE_TESTS,
+  MAX_SHARDS,
+  SHARD_SECONDS,
+  fullSuiteReason,
+  buildGraph,
+  affectedTests,
+  selectAffected,
+  gitState,
+  ciPlan,
+};
 
 // `node scripts/affected-tests.cjs [--base <ref>] [--all] [--github-output]`: the CI change filter. Prints what runs and why.
 if (require.main === module) {
@@ -266,7 +292,7 @@ if (require.main === module) {
   const base = args.includes("--base") ? args[args.indexOf("--base") + 1] : null;
   const unitTests = runner.discoverUnitTests(root);
   const electronChecks = runner.discoverElectronChecks(root);
-  let full = args.includes("--all") || !base ? "every job runs outside pull requests" : null;
+  let full = args.includes("--all") || !base ? "no change filter requested" : null;
   let affected = null;
   let changed = [];
   if (!full) {
@@ -285,17 +311,18 @@ if (require.main === module) {
     electron: electronChecks,
     filters: { ...runner.parseArgs([]), affected, platform: "linux", commandExists: () => true },
   });
-  const plan = ciPlan({ full, unit, electron, electronSeconds: runner.electronSeconds });
+  const plan = ciPlan({ full, changed, event: process.env.GITHUB_EVENT_NAME, unit, electron, electronSeconds: runner.electronSeconds });
   const lines = [
     full ? `Full suite: ${full}.` : `${changed.length} changed files.`,
     `unit: ${plan.unit ? `${unit.length} files` : "skipped"}`,
     `electron: ${plan.electron ? `${electron.length} checks over ${plan.shards.length} shards` : "skipped"}`,
+    `site browser checks in quick-checks: ${plan.site}`,
     `native (Windows): ${plan.native ? "runs" : "skipped"}`,
   ];
   if (!full) lines.push("", ...unit.map((file) => `unit ${file}`), ...electron.map((file) => `electron ${file}`));
   console.log(lines.join("\n"));
   if (args.includes("--github-output") && process.env.GITHUB_OUTPUT) {
-    const outputs = { unit: plan.unit, electron: plan.electron, native: plan.native, shards: JSON.stringify(plan.shards) };
+    const outputs = { ...plan, shards: JSON.stringify(plan.shards) };
     fs.appendFileSync(
       process.env.GITHUB_OUTPUT,
       Object.entries(outputs)

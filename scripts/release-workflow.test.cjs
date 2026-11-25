@@ -82,6 +82,37 @@ fi
   };
 }
 
+test("candidate push paths watch packaging inputs and the tests installers exercise", () => {
+  const matches = (file) =>
+    candidateWorkflow.on.push.paths.reduce((hit, pattern) => {
+      const exclude = pattern.startsWith("!");
+      return path.matchesGlob(file, exclude ? pattern.slice(1) : pattern) ? !exclude : hit;
+    }, false);
+  for (const input of [
+    "scripts/prepare-simulator-helper.cjs",
+    "scripts/prepare-node-pty.cjs",
+    "scripts/package-cloudflared.cjs",
+    "scripts/linux-runtime.Dockerfile",
+    "apps/desktop/electron/main.cjs",
+    "packages/shared/src/repository.mjs",
+    "distribution/linux-repository/worker.mjs",
+    "package-lock.json",
+    "licenses/inter-OFL.txt",
+    ...JSON.stringify(candidateWorkflow.jobs.package.steps).match(/(?:scripts|packages|apps)\/[\w./-]+\.(?:cjs|sh)\b/g),
+  ])
+    assert.ok(matches(input), input);
+  for (const file of [
+    "apps/site/src/pages/index.astro",
+    "scripts/site-og.cjs",
+    "apps/mobile/src/app/chat.tsx",
+    "scripts/mobile-ui.test.cjs",
+    "packages/core/src/store.test.cjs",
+    "apps/desktop/app/src/ui.test.ts",
+    "scripts/test-project-cache.cjs",
+  ])
+    assert.ok(!matches(file), file);
+});
+
 test("every candidate platform forwards the release version through npm to the packager", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-candidate-args-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -157,7 +188,7 @@ test("each architecture builds in parallel and notarizes once, as a disk image",
 test("CI only rewrites the Next beta draft once main passes the required checks", () => {
   const job = ciWorkflow.jobs["next-beta"];
   assert.equal(job.if, "github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'the-ptf/milagre'");
-  assert.deepEqual(job.needs, ["javascript", "native-gate", "macos-desktop-smoke"]);
+  assert.deepEqual(job.needs, ["javascript", "native-gate", "desktop-gate"]);
   assert.equal(job.permissions.contents, "write");
   const checkout = job.steps.find((step) => step.uses?.startsWith("actions/checkout"));
   assert.equal(checkout.with["fetch-depth"], 0);

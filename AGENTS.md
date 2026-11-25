@@ -34,7 +34,7 @@ The most common defect is a change that works where you tried it and is missing 
 
 ## Checks
 
-Run `npm run typecheck`, `npm run lint` and `npm test -- --only <name>` for what you touched; CI runs the full suite. A change under `apps/desktop/electron` or to window, dock, menu or notification code also gets `npm test -- --only test-desktop` on your Mac: CI runs that macOS smoke on pushes to main only. To see a change in the real app, use the `verify-milagre` skill.
+Run `npm run typecheck`, `npm run lint` and `npm test -- --only <name>` for what you touched; CI runs the full suite. A change under `apps/desktop/electron` or to window, dock, menu or notification code also gets `npm test -- --only test-desktop` on your Mac: CI runs that macOS smoke on affected pushes to main, in the merge queue and nightly. To see a change in the real app, use the `verify-milagre` skill.
 
 - Test what a caller can observe, at the lowest layer that fails on `main`. Extend an existing test before adding one.
 - Wait for a condition, never a fixed time. Inject the clock or seed when time or randomness decides the outcome.

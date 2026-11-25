@@ -1,11 +1,17 @@
-# Holds a PR that touches the site to its Lighthouse budget (apps/site/lighthouse-budget.json). The CI Electron shards
-# run the same check, but only when desktop code changed; a site-only PR skipped it until merge. Ubuntu runners ship
-# Google Chrome, which chrome-launcher finds; the check builds the site and serves it itself.
 name: Site Lighthouse
 on:
   pull_request:
     # DESIGN.md builds the /design page the check scores.
-    paths: ["apps/site/**", "DESIGN.md", "scripts/test-site-lighthouse.cjs", ".github/workflows/site-lighthouse.yml"]
+    paths:
+      [
+        "apps/site/**",
+        "DESIGN.md",
+        "scripts/site-*",
+        "scripts/site-demo/**",
+        "scripts/share-og.cjs",
+        "scripts/test-site*.cjs",
+        ".github/workflows/site-lighthouse.yml",
+      ]
 permissions:
   contents: read
 concurrency:
