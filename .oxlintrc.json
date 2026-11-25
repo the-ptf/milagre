@@ -113,7 +113,7 @@
         "import/no-named-as-default": "warn",
         "import/no-named-as-default-member": "warn",
         "eslint/eqeqeq": ["warn", "smart"],
-        "typescript/array-type": "warn",
+        "typescript/array-type": "error",
         "typescript/no-empty-object-type": "warn",
         "typescript/no-wrapper-object-types": "warn",
         "typescript/consistent-type-assertions": "warn",

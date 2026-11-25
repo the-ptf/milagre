@@ -38,7 +38,7 @@ import { ProjectIcon } from "../project-icon";
 import { Chip, EmptyState, ErrorNotice, PageScroll, PillButton, Tag, pressStyle, useStyles } from "../ui";
 import { useTheme, type Palette } from "../theme";
 
-const FILTERS: Array<{ id: CanvasFilter; label: string; dot?: "orange" | "accent" }> = [
+const FILTERS: { id: CanvasFilter; label: string; dot?: "orange" | "accent" }[] = [
   { id: "all", label: "All" },
   { id: "needs-you", label: "Needs you", dot: "orange" },
   { id: "running", label: "Running", dot: "accent" },
@@ -55,7 +55,7 @@ function linkLabels(links: readonly CanvasLink[], matches: (end: LinkEnd) => boo
 const toneColor = (colors: Palette, tone: CanvasTone) => (tone === "accent" ? colors.accentInk : tone === "ink3" ? colors.ink2 : colors[tone]);
 
 type Row = CanvasChat & { sharedLinkId?: string };
-type Section = { path: string; name: string; worktrees: Array<CanvasWorktree & { rows: Row[]; linked: string[] }>; linked: string[] };
+type Section = { path: string; name: string; worktrees: (CanvasWorktree & { rows: Row[]; linked: string[] })[]; linked: string[] };
 
 export default function CanvasScreen() {
   const styles = useStyles();

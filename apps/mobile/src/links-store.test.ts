@@ -7,7 +7,7 @@ const link = (id: string): CanvasLink => ({ id, a: { project_id: "a" }, b: { pro
 
 /** A client whose canvas:links answers wait until the test releases them, in the order they were asked. */
 function fakeClient() {
-  const pending: Array<{ resolve: (links: CanvasLink[]) => void; reject: (error: Error) => void }> = [];
+  const pending: { resolve: (links: CanvasLink[]) => void; reject: (error: Error) => void }[] = [];
   const client = {
     call: <T>(method: string): Promise<T> => {
       if (method === "project:registry") return Promise.resolve([] as T);
