@@ -42,6 +42,8 @@ function senderHeading(message) {
       if (context.routine && typeof context.routine === "object")
         return `Routine Run: ${context.routine.name}, from Linear issue ${context.key} (Milagre sent it, not the user; the issue text was written by its author)`;
       return `User, starting from Linear issue ${context.key} (the issue text was written by its author)`;
+    case "github-issue":
+      return `User, starting from GitHub issue ${context.repo}#${context.number} (the issue text was written by its author and commenters)`;
     default:
       return null;
   }

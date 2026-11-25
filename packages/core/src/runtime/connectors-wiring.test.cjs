@@ -6,6 +6,7 @@ const path = require("node:path");
 const { createConnectorsWiring } = require("./connectors-wiring.cjs");
 const { createMcpStore } = require("../mcp/store.cjs");
 const { startFakeMcp } = require("../connectors/test-helpers.cjs");
+const { createLinearIssues } = require("../linear/issues.cjs");
 
 const STDIO = path.join(__dirname, "..", "connectors", "test-stdio-server.cjs");
 
@@ -30,7 +31,7 @@ async function wiring(t, { everywhere = () => [], off = {}, moveEverywhere, line
         mcpStore.setEverywhere(mcpStore.read().everywhere.filter((def) => def.name !== name));
       },
     },
-    ...(linear ? { linear, linearTools: {} } : {}),
+    ...(linear ? { linear, linearIssues: createLinearIssues({ linear }), linearTools: {} } : {}),
   });
   const { connectors } = wired;
   t.after(async () => {
@@ -81,11 +82,22 @@ test("on start every Everywhere server moves, keeping the Accounts it was off fo
   assert.deepEqual(await handlers.get("connectors:moved")(), []);
 });
 
-test("Milagre's Linear sign-in shows as a Connector whose Available to decides who gets its tools", async (t) => {
+test("Linear workspace access scopes tool listing, lookups and calls from a running Chat", async (t) => {
   let connected = true;
+  const workspaces = ["Acme", "Beta"].map((name) => ({ id: name.toLowerCase(), organization: { name } }));
+  const queried = [];
   const linear = {
-    status: () => (connected ? { connected: true, workspaces: [{ id: "acme", organization: { name: "Acme" } }] } : { connected: false }),
+    status: () => ({ connected, workspaces: connected ? workspaces : [] }),
+    workspaces: () => (connected ? workspaces : []),
     enabled: () => true,
+    query: async (workspace) => {
+      queried.push(workspace);
+      return {};
+    },
+    download: async (workspace) => {
+      queried.push(workspace);
+      throw Object.assign(new Error("File missing"), { code: "not-found" });
+    },
     connect: async () => {
       connected = true;
     },
@@ -93,17 +105,57 @@ test("Milagre's Linear sign-in shows as a Connector whose Available to decides w
       connected = false;
     },
   };
-  const { handlers, wired, events } = await wiring(t, { linear });
+  const { handlers, wired, events, dataDir } = await wiring(t, { linear });
+  fs.mkdirSync(path.join(dataDir, "connectors"), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(dataDir, "connectors", "builtin.json"), JSON.stringify({ linear: { off: ["codex:a"] } }), { mode: 0o600 });
   const [entry] = await handlers.get("connectors:list")();
   assert.equal(entry.id, "linear");
   assert.equal(entry.kind, "linear");
-  assert.deepEqual(entry.workspaces, ["Acme"]);
-  const names = (context) => wired.tools(context).map((tool) => tool.name);
-  assert.ok(names({ provider: "codex", accountId: "a" }).includes("linear_issue"));
-  await handlers.get("connectors:access")(null, "linear", "codex", "a", false);
-  assert.equal(names({ provider: "codex", accountId: "a" }).includes("linear_issue"), false);
-  assert.ok(names({ provider: "claude", accountId: "a" }).includes("linear_issue"));
+  assert.deepEqual(entry.workspaces, ["Acme", "Beta"]);
+  assert.deepEqual(
+    entry.workspaceAccess.map(({ off }) => off),
+    [["codex:a"], ["codex:a"]],
+  );
+  const codex = { provider: "codex", accountId: "a" };
+  const claude = { provider: "claude", accountId: "a" };
+  const access = handlers.get("connectors:access");
+  assert.deepEqual(wired.tools(codex), []);
+  await access(null, "linear", "codex", "a", true, "beta");
+  await access(null, "linear", "claude", "a", false, "beta");
+  assert.throws(() => access(null, "linear", "codex", "a", true, "missing"), /no longer connected/);
+  const codexTools = wired.tools(codex);
+  const run = (name, args) => codexTools.find((tool) => tool.name === `linear_${name}`).run(args);
+  await assert.rejects(run("issue", { issue: "ENG-12" }), /any connected Linear workspace \(beta\)/);
+  assert.deepEqual(queried.splice(0), ["beta"]);
+  assert.equal(await run("search", { query: "work" }), "No issues match in beta.");
+  assert.deepEqual(queried.splice(0), ["beta"]);
+  await assert.rejects(run("file", { url: "https://uploads.linear.app/file.png" }), /\(beta\)/);
+  assert.deepEqual(queried.splice(0), ["beta"]);
+  const denied = [
+    ["issue", { issue: "https://linear.app/acme/issue/ENG-12", workspace: "beta" }],
+    ["search", { query: "work", workspace: "acme" }],
+    ["file", { url: "https://uploads.linear.app/file.png", workspace: "acme" }],
+    ["create_issue", { team: "ENG", title: "Work", workspace: "acme" }],
+    ["update_issue", { issue: "ENG-12", title: "Work", workspace: "acme" }],
+    ["comment", { issue: "https://linear.app/acme/issue/ENG-12", body: "Work" }],
+  ];
+  for (const [name, args] of denied) await assert.rejects(run(name, args), /doesn't have access to the "acme"/);
+  assert.deepEqual(queried, []);
+  await wired
+    .tools(claude)
+    .find((tool) => tool.name === "linear_search")
+    .run({ query: "work" });
+  assert.deepEqual(queried.splice(0), ["acme"]);
+  await access(null, "linear", "codex", "a", false, "beta");
+  assert.deepEqual(wired.tools(codex), []);
+  await assert.rejects(run("search", { query: "work" }), /doesn't have access to any/);
+  assert.deepEqual(queried, []);
   assert.ok(events.some(([channel, payload]) => channel === "connectors:changed" && payload.connectors[0].off.includes("codex:a")));
+  await access(null, "linear", "codex", "a", true);
+  assert.deepEqual(
+    (await handlers.get("connectors:list")())[0].workspaceAccess.map(({ off }) => off),
+    [[], ["claude:a"]],
+  );
   await handlers.get("connectors:sign-out")(null, "linear");
   assert.deepEqual(await handlers.get("connectors:list")(), []);
 });

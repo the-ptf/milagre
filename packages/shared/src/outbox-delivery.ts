@@ -45,7 +45,7 @@ export async function deliverOutbox(original: OutboxItem, update: (patch: Partia
     images,
     files,
     prompt:
-      item.request.prAction || item.request.linearIssue
+      item.request.prAction || item.request.linearIssue || item.request.githubIssue
         ? item.request.prompt
         : files.length
           ? `${item.request.body || "Please review the attached files."}\n\nAttached files:\n${files.join("\n")}`

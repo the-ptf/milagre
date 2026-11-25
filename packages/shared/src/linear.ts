@@ -65,3 +65,14 @@ export function issueChipLabel(issue: LinearIssue): string {
 export function restoredDraft(body: string, typed: string, fromIssue: boolean): string {
   return fromIssue ? typed : typed || body;
 }
+
+export type LinearIssueContext = {
+  kind: "linear-issue";
+  key: string;
+  title: string;
+  url: string;
+  state: { name: string; type: "triage" | "backlog" | "unstarted" | "started" | "completed" | "canceled"; color: string };
+  workspace?: string;
+  note?: string;
+  routine?: { routineId: string; runId: string; name: string; at: number; quiet?: boolean; summary?: string; label?: string };
+};

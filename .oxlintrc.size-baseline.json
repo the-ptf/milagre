@@ -137,7 +137,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2851,
+            "max": 2850,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -543,7 +543,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 367,
+            "max": 366,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -575,7 +575,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2444,
+            "max": 2409,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -583,7 +583,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2192,
+            "max": 2160,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -678,7 +678,7 @@
     {
       "files": ["apps/mobile/src/chat-reply.tsx"],
       "rules": {
-        "complexity": ["error", 79]
+        "complexity": ["error", 78]
       }
     },
     {
@@ -1445,7 +1445,7 @@
         "max-lines": [
           "error",
           {
-            "max": 922,
+            "max": 918,
             "skipBlankLines": true,
             "skipComments": true
           }

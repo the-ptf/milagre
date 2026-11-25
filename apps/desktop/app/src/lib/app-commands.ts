@@ -2,6 +2,8 @@ import { requestSideQuestion } from "./chat-branch-events";
 import { bridgeForKey } from "./computer-bridge";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { UI_COPY } from "@milagre/shared/model-copy";
+import { GITHUB_ISSUE_TITLE } from "@milagre/shared/github-issue";
+import { requestGithubIssuePicker } from "./issue-picker-request";
 import type { SettingsSection } from "../components/Settings";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
 import type { AgentSession, OpenProject } from "../model";
@@ -82,6 +84,21 @@ function actionCommands(ctx: AppCommandContext): Command[] {
       keywords: "create chat agent background quick",
       run: () => actions.newWorktree(),
     },
+    ...(ctx.showGit
+      ? [
+          {
+            id: "github-issue",
+            label: GITHUB_ISSUE_TITLE,
+            group: "Actions",
+            icon: "github" as const,
+            keywords: "github issue gh ticket bug new chat worktree",
+            run: async () => {
+              await actions.newChat();
+              requestGithubIssuePicker();
+            },
+          },
+        ]
+      : []),
     ...(terminalChatId
       ? [
           {

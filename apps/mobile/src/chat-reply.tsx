@@ -39,8 +39,8 @@ import { AnswerCard } from "./answer-card";
 import { useToolCallDisplay } from "./chat-display-setting";
 import { PullRequestActionCard } from "./pr-action-card";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
-import { isLinearIssueContext } from "@milagre/shared/linear-issue";
-import { LinearIssueCard } from "./linear-issue-card";
+import { issueCard } from "@milagre/shared/issue-start";
+import { IssueCard } from "./issue-card";
 import { ComputerUseCard } from "./computer-use-card";
 import { HeartbeatCard } from "./heartbeat-card";
 import { usageLimitOf } from "@milagre/shared/usage-limit";
@@ -390,7 +390,7 @@ export const ChatReply = memo(function ChatReply({
   const feedback = message?.role === "user" ? parseDesignFeedback(text) : null;
   const pageComments = message?.role === "user" && !feedback ? parsePageComments(text) : null;
   const prAction = message?.role === "user" && isPullRequestAction(message.context) ? message.context : null;
-  const issue = message?.role === "user" && isLinearIssueContext(message.context) ? message.context : null;
+  const issue = message?.role === "user" ? issueCard(message.context) : null;
   const thought = !run || run.questions.length ? unspokenThought(text, allSteps) : "";
   const limit = !run && message?.role === "assistant" ? usageLimitOf(message) : null;
   const advisor = typeof message?.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
@@ -453,7 +453,7 @@ export const ChatReply = memo(function ChatReply({
         {prAction ? (
           <PullRequestActionCard action={prAction} />
         ) : issue ? (
-          <LinearIssueCard issue={issue} />
+          <IssueCard issue={issue} />
         ) : feedback ? (
           <DesignFeedbackCard
             feedback={feedback}

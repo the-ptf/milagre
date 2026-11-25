@@ -32,7 +32,8 @@ export type Command = {
     | "pullRequest"
     | "folderAdd"
     | "canvas"
-    | "orchestrator";
+    | "orchestrator"
+    | "github";
   run: () => void | Promise<unknown>;
   searchOnly?: boolean;
 };

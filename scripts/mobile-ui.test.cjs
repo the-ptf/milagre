@@ -436,7 +436,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // The Chat screen's parts (app/chat.tsx and its chat-*.ts[x] siblings in src/) load with the screen's fakes, named from src/.
       if (
         file === "app/chat.tsx" &&
-        ["chat-header", "chat-transcript-rows", "chat-transcript-data", "chat-follow", "chat-composer-dock", "new-chat-tray"].includes(relative) &&
+        ["chat-header", "chat-transcript-rows", "chat-transcript-data", "chat-follow", "chat-composer-dock", "new-chat-tray", "issue-pickers"].includes(
+          relative,
+        ) &&
         !(id in modules)
       ) {
         const fromSrc = { ...modules };
@@ -591,6 +593,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           },
         };
       // Which reply can be settled, and the Done and Snooze patches it sends: plain logic.
+      // Starting from a Linear or GitHub issue (issue-start.mjs, github-issue.mjs) is pure; whether GitHub is offered asks the computer.
+      if (["@milagre/shared/issue-start", "@milagre/shared/github-issue"].includes(id) && !(id in modules)) return require(id);
+      if (base === "use-github-issues" && !(id in modules)) return { useGithubIssuesAvailable: () => false };
+      if (base === "issue-card" && !(id in modules)) return { IssueCard: "IssueCard" };
       if (base === "chat-done" && !(id in modules)) return require("../apps/mobile/src/chat-done.ts");
       // The runs reply merge is plain logic; which Chats are on screen only narrows the host's runs reads, so UI tests
       // register nothing.
@@ -3740,7 +3746,7 @@ const CHAT_PARTS = new Set([
   "ComposerControls",
   "NewChatTray",
   "ChatsTrayLabel",
-  "LinearIssueButton",
+  "IssueButton",
 ]);
 function drawChatParts(node) {
   if (Array.isArray(node)) return node.map(drawChatParts);
@@ -13249,7 +13255,7 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
-    "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./issue-card": { IssueCard: "IssueCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
@@ -13303,8 +13309,28 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
     onActivity() {},
     media: (path) => path,
   });
-  assert.ok(findType(issueTree, "LinearIssueCard"));
+  assert.ok(findType(issueTree, "IssueCard"));
   assert.ok(!findType(issueTree, "Text"), "no bubble with the prompt text");
+  // A GitHub issue's first message is the same card, repository-qualified.
+  const githubTree = ChatReply({
+    message: {
+      id: 4,
+      session_id: 1,
+      body: "Work on GitHub issue acme/web#12: Fix login\n\nhttps://github.com/acme/web/issues/12",
+      context: { kind: "github-issue", repo: "acme/web", number: 12, title: "Fix login", url: "https://github.com/acme/web/issues/12", state: "open" },
+      role: "user",
+    },
+    onActivity() {},
+    media: (path) => path,
+  });
+  const githubCard = (function find(node) {
+    if (Array.isArray(node)) return node.map(find).find(Boolean);
+    if (!node?.props) return null;
+    return node.type === "IssueCard" ? node : find(node.props.children);
+  })(githubTree);
+  assert.equal(githubCard?.props.issue.key, "acme/web#12");
+  assert.equal(githubCard?.props.issue.source, "github");
+  assert.ok(!findType(githubTree, "Text"), "no bubble with the prompt text");
   const conclusion = "T3 Code tries every route in parallel.";
   const steps = [
     { id: "t1", kind: "thinking", title: "Thought", status: "done", detail: "Looking.", offset: 9 },
@@ -13362,7 +13388,7 @@ test("mobile tool display keeps compact progress specific and Full detail in ord
       "./chat-display-setting": { useToolCallDisplay: () => [display, () => {}] },
       "./display-clock": { useDisplayValue: (_interval, compute) => compute(Date.now()) },
       "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
-      "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+      "./issue-card": { IssueCard: "IssueCard" },
       "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
       "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
       "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
@@ -15058,6 +15084,60 @@ test("mobile Linear page shows the Mac's Linear switch and status, re-read on fo
   );
 });
 
+test("mobile Connectors edits provider access for one Linear workspace at a time", async () => {
+  const react = hookHost();
+  const focused = [];
+  const changes = [];
+  const workspaceAccess = [
+    { id: "urbis", name: "Urbis", off: [] },
+    { id: "rdplus", name: "RDPlus", off: [] },
+  ];
+  const client = {
+    async call(method, args) {
+      if (method === "connectors:list") return [{ id: "linear", kind: "linear", name: "Linear", state: "connected", tools: 6, off: [], workspaceAccess }];
+      if (method === "mcp:accounts") return [{ provider: "codex", accountId: "work", label: "Work" }];
+      if (method === "connectors:moved") return [];
+      if (method === "connectors:access") {
+        changes.push(Array.from(args));
+        workspaceAccess.find(({ id }) => id === args[4]).off = ["codex:work"];
+        return;
+      }
+      throw new Error(`unexpected ${method}`);
+    },
+  };
+  const { ConnectorsSection } = load("connectors-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "react-native-svg": { default: "Svg", Path: "Path" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/connectors": require("../packages/shared/src/connectors.ts"),
+    "./confirm-store": {},
+    "./linear-section": { LinearSection: "LinearSection" },
+    "./icons": { Icon: "Icon" },
+    "./session": { useSession: () => ({ client }) },
+    "./theme": {},
+    "./ui": { Group: "Group", ListRow: "ListRow", InlineError: "InlineError", useStyles: () => ({}) },
+  });
+  const render = () => {
+    react.begin();
+    return ConnectorsSection();
+  };
+  const toggle = (tree, name) => find(tree, (node) => node.props?.toggle?.label === `${name} for Codex · Work`).props.toggle;
+  render();
+  focused.at(-1)();
+  await new Promise(setImmediate);
+  find(render(), (node) => node.type === "ListRow" && node.props.title === "Linear").props.onPress();
+  toggle(render(), "RDPlus").onChange();
+  await new Promise(setImmediate);
+  const tree = render();
+  assert.deepEqual(changes, [["linear", "codex", "work", false, "rdplus"]]);
+  assert.equal(toggle(tree, "Urbis").value, true);
+  assert.equal(toggle(tree, "RDPlus").value, false);
+  assert.match(find(tree, (node) => node.type === "ListRow" && node.props.title === "Linear").props.subtitle, /By workspace/);
+});
+
 test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the Mac and rolled back when refused", async () => {
   const react = hookHost();
   const focused = [];
@@ -15576,7 +15656,7 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
-    "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./issue-card": { IssueCard: "IssueCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
@@ -15634,7 +15714,7 @@ test("mobile ChatReply marks a Delegation and its report with their sender, neve
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
-    "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./issue-card": { IssueCard: "IssueCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
@@ -19347,7 +19427,7 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["full", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
-    "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./issue-card": { IssueCard: "IssueCard" },
     "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },

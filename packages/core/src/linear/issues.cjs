@@ -135,9 +135,16 @@ function createLinearIssues({ linear, now = Date.now }) {
     return keys;
   }
 
-  async function candidates(key, workspace) {
-    const ids = linear.workspaces().map((item) => item.id);
-    if (typeof workspace === "string" && ids.includes(workspace.toLowerCase())) return [workspace.toLowerCase()];
+  async function candidates(key, workspace, allowed) {
+    const ids = linear
+      .workspaces()
+      .map((item) => item.id)
+      .filter((id) => !allowed || allowed.includes(id));
+    if (typeof workspace === "string") {
+      const id = workspace.toLowerCase();
+      if (ids.includes(id)) return [id];
+      if (allowed) return [];
+    }
     if (ids.length < 2) return ids;
     const team = key.split("-")[0];
     const owners = [];
@@ -145,10 +152,10 @@ function createLinearIssues({ linear, now = Date.now }) {
     return owners.length ? owners : ids;
   }
 
-  async function readIssue(key, workspace) {
+  async function readIssue(key, workspace, allowed) {
     const upper = String(key).toUpperCase();
     if (!isIssueKey(upper)) return null;
-    for (const id of await candidates(upper, workspace)) {
+    for (const id of await candidates(upper, workspace, allowed)) {
       const issue = (await readIssues([[id, upper]], { fresh: true })).get(`${id}:${upper}`);
       if (issue) return issue;
     }

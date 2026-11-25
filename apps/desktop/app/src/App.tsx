@@ -105,8 +105,8 @@ import { gitChatContext } from "./lib/git-dialog";
 import { useWorktreePullRequests } from "./components/useWorktreePullRequests";
 import { useLinear } from "./components/useLinear";
 import { useWorktreeLinearIssues } from "./components/useWorktreeLinearIssues";
-import { issueFirstMessage, restoredDraft, type LinearIssue } from "@milagre/shared/linear";
-import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
+import { restoredDraft } from "@milagre/shared/linear";
+import { issueSendFields, issueStartContext, issueStartMessage, issueWorktreeFields, type PickedIssue } from "@milagre/shared/issue-start";
 import { chatPullRequests, ownBranchPullRequest, pullRequestRefsCache } from "./lib/chat-pull-requests";
 import { associatedPullRequest } from "@milagre/shared/chats";
 import { usePastedImages } from "./components/usePastedImages";
@@ -1518,7 +1518,7 @@ function App() {
     }
   }
 
-  async function resolveSendTarget(body: string, issue?: IssueRef, view = chatView.current, fresh = false) {
+  async function resolveSendTarget(body: string, issue?: PickedIssue, view = chatView.current, fresh = false) {
     if (!state || !project || !selectedWorktree) return null;
     if (!issue && preparedTarget.current?.view === view && preparedTarget.current.projectPath === project.path) return preparedTarget.current;
     if (selectedSession && !fresh) return { sessionId: selectedSession.id as number | null, worktreeId: selectedWorktree.id };
@@ -1532,7 +1532,7 @@ function App() {
           baseBranch: effectiveBaseBranch,
           useProjectBase: baseOverride === null,
           prompt: body,
-          ...(issue ? { issueKey: issue.key, ...(issue.workspace ? { issueWorkspace: issue.workspace } : {}) } : {}),
+          ...issueWorktreeFields(issue),
         }),
       { retryable: (error) => retryKind(error) === "unsent" },
     );
@@ -1554,7 +1554,7 @@ function App() {
     files: string[] = imageDraft.files,
     preserveComposer = false,
     prAction?: PullRequestActionContext,
-    issue?: LinearIssue,
+    issue?: PickedIssue,
     delivery?: MessageDelivery,
     fresh?: { view: number },
   ): Promise<boolean> {
@@ -1601,7 +1601,7 @@ function App() {
             prompt: prAction ? pullRequestActionPrompt(prAction) : body,
             ...options,
             ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
-            ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: submittedDraft })! } : {}),
+            ...issueSendFields(issue, submittedDraft),
           },
           ...(!session && (!(fresh ? noGit : isolation === "local") || issue)
             ? {
@@ -1610,7 +1610,7 @@ function App() {
                   baseBranch: effectiveBaseBranch,
                   useProjectBase: baseOverride === null,
                   prompt: body,
-                  ...(issue ? { issueKey: issue.key, issueWorkspace: issue.workspace } : {}),
+                  ...issueWorktreeFields(issue),
                 },
               }
             : {}),
@@ -1643,7 +1643,7 @@ function App() {
       files,
       model: model.id,
       provider: model.provider,
-      context: issue ? linearIssueContext(issue, submittedDraft) : (prAction ?? null),
+      context: issue ? issueStartContext(issue, submittedDraft) : (prAction ?? null),
     });
     dispatchPending({
       type: "add",
@@ -1686,7 +1686,7 @@ function App() {
             prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(body, uploadedFiles),
             ...options,
             ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
-            ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: submittedDraft })! } : {}),
+            ...issueSendFields(issue, submittedDraft),
           }),
         { retryable: (error) => retryKind(error) !== null },
       );
@@ -1763,8 +1763,8 @@ function App() {
     return true;
   });
 
-  function startFromIssue(issue: LinearIssue) {
-    void executeSend(issueFirstMessage(issue, draftStore.get()), permissionMode, imageDraft.images, imageDraft.files, false, undefined, issue);
+  function startFromIssue(issue: PickedIssue) {
+    void executeSend(issueStartMessage(issue, draftStore.get()), permissionMode, imageDraft.images, imageDraft.files, false, undefined, issue);
   }
 
   function reportMilagreBug(sessionId: number) {
@@ -2911,7 +2911,6 @@ function App() {
   );
 }
 
-type IssueRef = Pick<LinearIssue, "key" | "workspace">;
 export default function AppWithUpdates() {
   return (
     <UpdateShell>

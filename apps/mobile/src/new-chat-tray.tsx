@@ -1,17 +1,28 @@
 import { Pressable, Text, View } from "react-native";
 import { ArrowDown01Icon, BubbleChatIcon, ComputerIcon, GitBranchIcon, GitForkIcon, LaptopIcon } from "@hugeicons/core-free-icons";
 import { CHATS_TRAY_LABEL } from "@milagre/shared/chats-home";
-import { Icon, LinearLogo } from "./icons";
+import { GithubLogo, Icon, LinearLogo } from "./icons";
 import { DISABLED_OPACITY, PullDown, pressStyle, useStyles } from "./ui";
 import { space } from "./design-tokens";
 import type { NewChatProject } from "./new-chat-project";
 
-export function LinearIssueButton({ labelled, disabled, onPress }: { labelled: boolean; disabled: boolean; onPress: () => void }) {
+export function IssueButton({
+  source,
+  labelled,
+  disabled,
+  onPress,
+}: {
+  source: "linear" | "github";
+  labelled: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}) {
   const styles = useStyles();
+  const name = source === "github" ? "GitHub" : "Linear";
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Start from a Linear issue"
+      accessibilityLabel={`Start from a ${name} issue`}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => ({
@@ -23,8 +34,8 @@ export function LinearIssueButton({ labelled, disabled, onPress }: { labelled: b
         ...pressStyle({ pressed, disabled }),
       })}
     >
-      <LinearLogo size={13} />
-      {labelled && <Text style={styles.label}>Linear issue</Text>}
+      {source === "github" ? <GithubLogo size={13} /> : <LinearLogo size={13} />}
+      {labelled && <Text style={styles.label}>{`${name} issue`}</Text>}
     </Pressable>
   );
 }
@@ -59,6 +70,8 @@ export function NewChatTray({
   onBranch,
   linear,
   onIssue,
+  github,
+  onGithubIssue,
   labelIssue,
   onRowWidth,
 }: {
@@ -79,6 +92,8 @@ export function NewChatTray({
   onBranch: (id: string) => void;
   linear: boolean;
   onIssue: () => void;
+  github: boolean;
+  onGithubIssue: () => void;
   labelIssue: boolean;
   onRowWidth: (width: number) => void;
 }) {
@@ -213,7 +228,8 @@ export function NewChatTray({
           <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
         </View>
       </PullDown>
-      {linear && <LinearIssueButton labelled={labelIssue} disabled={disabled} onPress={onIssue} />}
+      {linear && <IssueButton source="linear" labelled={labelIssue && !github} disabled={disabled} onPress={onIssue} />}
+      {github && <IssueButton source="github" labelled={labelIssue && !linear} disabled={disabled} onPress={onGithubIssue} />}
     </View>
   );
 }
