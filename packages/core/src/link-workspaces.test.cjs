@@ -309,3 +309,46 @@ test("a Named Link applies each member Project's own Git rules and default base"
     assert.equal(execFileSync("git", ["-C", member.worktreePath, "branch", "--show-current"], { encoding: "utf8" }).trim(), member.branch);
   }
 });
+
+test("releaseLinkWorktrees removes worktrees across distinct repositories concurrently while keeping each repository sequential", async (t) => {
+  let activeTotal = 0;
+  let maxTotal = 0;
+  const activeByProject = new Map();
+  let overlapReached;
+  const sawOverlap = new Promise((resolve) => (overlapReached = resolve));
+  const releases = [];
+  const removedPaths = [];
+  const { link, store, workspaces, projects } = await fixture(t, {
+    removeWorktree: async ({ path: worktreePath, projectPath }) => {
+      const perRepo = (activeByProject.get(projectPath) ?? 0) + 1;
+      assert.equal(perRepo, 1, "worktrees in the same repository never run together");
+      activeByProject.set(projectPath, perRepo);
+      activeTotal++;
+      maxTotal = Math.max(maxTotal, activeTotal);
+      if (activeTotal > 1) overlapReached();
+      await new Promise((resolve) => releases.push(resolve));
+      activeTotal--;
+      activeByProject.set(projectPath, 0);
+      removedPaths.push(worktreePath);
+    },
+  });
+  await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "one", operationId: randomUUID() });
+  const first = await addBoth(link, workspaces, 1);
+  await readyChat(link, store, workspaces, { link, chatId: 2, prompt: "two", operationId: randomUUID() });
+  const second = await addBoth(link, workspaces, 2);
+
+  const releasing = workspaces.releaseLinkWorktrees(link.id);
+  await sawOverlap;
+  while (removedPaths.length < 4) {
+    while (releases.length) releases.shift()();
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const result = await releasing;
+  assert.equal(maxTotal, 2, "distinct repositories run concurrently");
+  assert.deepEqual(
+    result.removed.map((member) => member.worktreePath),
+    [...first, ...second].map((member) => member.worktreePath),
+  );
+  assert.deepEqual(result.kept, []);
+  assert.equal(projects.length, 2);
+});
