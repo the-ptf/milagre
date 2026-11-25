@@ -321,7 +321,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1042,
+            "max": 1031,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -329,12 +329,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 949,
+            "max": 942,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 149]
+        "complexity": ["error", 145]
       }
     },
     {
@@ -575,7 +575,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2402,
+            "max": 2399,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -583,12 +583,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2151,
+            "max": 2147,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 506]
+        "complexity": ["error", 502]
       }
     },
     {
