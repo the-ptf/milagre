@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO, KIRO_LOGO, LINEAR_LOGO, PI_LOGO, providerLogoPath } from "@milagre/shared/provider-logos";
+import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO, GITHUB_LOGO, KIRO_LOGO, LINEAR_LOGO, PI_LOGO, providerLogoPath } from "@milagre/shared/provider-logos";
 import type { ModelProvider } from "../model";
 import { useSettings } from "../lib/settings";
 
@@ -89,6 +89,14 @@ export function LinearLogo({ size = 12 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" className="shrink-0" data-linear-logo>
       <path d={LINEAR_LOGO.d} fill="currentColor" />
+    </svg>
+  );
+}
+
+export function GithubLogo({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" className="shrink-0" data-github-logo>
+      <path d={GITHUB_LOGO.d} fill="currentColor" />
     </svg>
   );
 }

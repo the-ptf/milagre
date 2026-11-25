@@ -23,9 +23,9 @@ function readTabs(): WorkspaceTab[] {
   }
 }
 
-function IssueSkeleton() {
+export function IssueSkeleton() {
   return (
-    <div role="status" data-linear-issue-skeleton className="h-64 overflow-hidden">
+    <div role="status" data-issue-skeleton className="h-64 overflow-hidden">
       <span className="sr-only">Loading issues</span>
       {Array.from({ length: 4 }, (_, index) => (
         <div key={index} aria-hidden="true" className="flex items-center gap-2 px-2 py-1.5">

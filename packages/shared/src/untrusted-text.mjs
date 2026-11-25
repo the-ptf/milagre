@@ -6,6 +6,7 @@ const MILAGRE_TAGS = [
   "handoff_brief",
   "advisor_result",
   "linear_issue",
+  "github_issue",
   "milagre_note",
   "waiting_subchats",
   "untrusted-data",

@@ -1,7 +1,7 @@
 import { use, useCallback, useEffect, useId, useMemo, useState, useSyncExternalStore, type Context } from "react";
 import { Animated, AppState, Easing, View } from "react-native";
 import Svg, { Circle, Defs, FeGaussianBlur, Filter, G, LinearGradient, Mask, Path, Stop } from "react-native-svg";
-import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO, KIRO_LOGO, LINEAR_LOGO, PI_LOGO, providerLogoPath } from "@milagre/shared/provider-logos";
+import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO, GITHUB_LOGO, KIRO_LOGO, LINEAR_LOGO, PI_LOGO, providerLogoPath } from "@milagre/shared/provider-logos";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native";
 import type { ModelProvider } from "@milagre/shared/model";
 import { useTheme, type Palette } from "./theme";
@@ -219,6 +219,15 @@ export function LinearLogo({ size = 12, tone = "ink2" }: { size?: number; tone?:
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       <Path d={LINEAR_LOGO.d} fill={colors[tone]} />
+    </Svg>
+  );
+}
+
+export function GithubLogo({ size = 12, tone = "ink2" }: { size?: number; tone?: Tone }) {
+  const { colors } = useTheme();
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <Path d={GITHUB_LOGO.d} fill={colors[tone]} />
     </Svg>
   );
 }

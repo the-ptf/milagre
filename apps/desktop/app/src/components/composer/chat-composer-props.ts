@@ -3,7 +3,7 @@ import type { AgentSession } from "@milagre/shared/model";
 import type { AgentPort, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, Subagent } from "../../model";
 import type { ReactNode } from "react";
 import { type Starter } from "../Onboarding";
-import type { LinearIssue } from "@milagre/shared/linear";
+import type { PickedIssue } from "@milagre/shared/issue-start";
 import type {
   AgentCliStatus,
   EffortLevel,
@@ -126,7 +126,7 @@ export interface ChatComposerProps {
   baseBranch: string;
   onBaseBranchChange: (branch: string) => void;
   linearActive?: boolean;
-  onStartFromIssue?: (issue: LinearIssue) => void;
+  onStartFromIssue?: (issue: PickedIssue) => void;
   newChatError: string | null;
   saveNotice?: ReactNode;
   notice?: string | null;

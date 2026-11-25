@@ -4,7 +4,7 @@ import { Stack, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Cancel01Icon, GitBranchIcon } from "@hugeicons/core-free-icons";
 import { EdgeFade } from "../bottom-fade";
-import { currentChoice } from "../choice-store";
+import { currentChoice, type ChoiceItem } from "../choice-store";
 import { Icon } from "../icons";
 import { CheckRow, Chip, EmptyState, HeaderButton, InlineError, SectionLabel, useStyles } from "../ui";
 import { useTheme } from "../theme";
@@ -30,6 +30,31 @@ export default function ChoiceSheet() {
   const chosen = useRef<string | null>(null);
   const closing = useRef(false);
   const insets = useSafeAreaInsets();
+  const remote = entry?.search;
+  const [found, setFound] = useState<{ query: string; items: ChoiceItem[] } | null>(null);
+  useEffect(() => {
+    const text = query.trim();
+    if (!remote || !text) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      remote(text).then(
+        (list) => {
+          if (!live) return;
+          setFound({ query: text, items: list });
+          setRefreshError("");
+        },
+        (error: unknown) => {
+          if (!live) return;
+          setFound({ query: text, items: [] });
+          setRefreshError(error instanceof Error ? error.message : String(error));
+        },
+      );
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [remote, query]);
   useEffect(() => {
     if (!entry) {
       router.back();
@@ -40,7 +65,15 @@ export default function ChoiceSheet() {
   if (!entry) return null;
   const search = query.trim().toLowerCase();
   const load = entry.load;
-  const items = switching ? [] : allItems.filter((item) => `${item.title}\n${item.keywords ?? ""}`.toLowerCase().includes(search));
+  const remoteSearch = remote && search ? query.trim() : "";
+  const searching = !!remoteSearch && found?.query !== remoteSearch;
+  const items = switching
+    ? []
+    : remoteSearch
+      ? found?.query === remoteSearch
+        ? found.items
+        : []
+      : allItems.filter((item) => `${item.title}\n${item.keywords ?? ""}`.toLowerCase().includes(search));
   const tabs = entry.tabs && entry.tabs.length > 1 ? entry.tabs : null;
   async function reload(next: string | undefined, fresh: boolean) {
     if (!load) return;
@@ -90,14 +123,14 @@ export default function ChoiceSheet() {
               </View>
             )}
             <Text style={styles.caption}>
-              {switching ? "Loading…" : `${items.length} ${items.length === 1 ? "result" : "results"}`}
+              {switching ? "Loading…" : searching ? "Searching…" : `${items.length} ${items.length === 1 ? "result" : "results"}`}
               {load ? " · Pull to refresh" : ""}
             </Text>
             <InlineError message={refreshError} />
           </View>
         }
         ItemSeparatorComponent={ChoiceSeparator}
-        ListEmptyComponent={switching ? undefined : <EmptyState title={entry.emptyLabel} />}
+        ListEmptyComponent={switching || searching ? undefined : <EmptyState title={entry.emptyLabel} />}
         renderItem={({ item, index }) => {
           const row = (
             <CheckRow

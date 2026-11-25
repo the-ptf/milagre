@@ -74,8 +74,8 @@ import { CORNER_PITCH, PanelToggles } from "./agents/PanelToggles";
 import { queueControls } from "./QueuedMessages";
 import { BridgeContext, ScopeContext, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { useLinear } from "./useLinear";
-import { issueFirstMessage, restoredDraft, type LinearIssue } from "@milagre/shared/linear";
-import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
+import { restoredDraft } from "@milagre/shared/linear";
+import { issueSendFields, issueStartContext, issueStartMessage, type PickedIssue } from "@milagre/shared/issue-start";
 import { busyTerminals, newTerminal, useTerminalSync, type TerminalPlace } from "../lib/terminal-actions";
 import { CommandPalette, DiffView, GitActionsDialog, QuestionCard } from "./lazy-views";
 const CanvasView = lazyView(() => import("./CanvasView").then((module) => module.CanvasView));
@@ -437,7 +437,7 @@ export function LinkWorkspace({
     preserve = false,
     attach = true,
     delivery?: MessageDelivery,
-    issue?: LinearIssue,
+    issue?: PickedIssue,
     additionalImages: ImageAttachment[] = [],
   ) {
     const typed = draftStore.get().trim();
@@ -503,7 +503,7 @@ export function LinkWorkspace({
       files,
       model: model.id,
       provider: model.provider,
-      ...(issue ? { context: linearIssueContext(issue, typed) } : {}),
+      ...(issue ? { context: issueStartContext(issue, typed) } : {}),
     });
     const previewId = preview.message.clientMessageId;
     setPendingSends((current) => [...current, { ...preview, key: sendKey, provider: model.provider }]);
@@ -532,7 +532,7 @@ export function LinkWorkspace({
         fastMode,
         replies: getSettings().claudeReplies,
         tldrEnabled: getSettings().tldrEnabled,
-        ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: typed })! } : {}),
+        ...issueSendFields(issue, typed),
       };
       const sent = await retrySend(() => bridge.sendLinkMessage(request), { retryable: (error) => retryKind(error) !== null });
       drafts.acknowledgeSend(operation, sent.sessionId);
@@ -751,7 +751,7 @@ export function LinkWorkspace({
                         scopeKind="link"
                         skillScope={isRemoteKey(owner) ? owner : (session?.workspacePath ?? owner)}
                         linearActive={linear.active}
-                        onStartFromIssue={(issue) => void send(issueFirstMessage(issue, draftStore.get().trim()), false, true, undefined, issue)}
+                        onStartFromIssue={(issue) => void send(issueStartMessage(issue, draftStore.get().trim()), false, true, undefined, issue)}
                         onOpenAccounts={onOpenAccounts}
                         store={draftStore}
                         projectPath={root}
