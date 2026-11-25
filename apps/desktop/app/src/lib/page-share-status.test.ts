@@ -33,12 +33,12 @@ test("paused, retrying and frozen links each say so", () => {
 });
 
 test("published pages name their scope and state", () => {
-  assert.deepEqual([share({ kind: "workspace" }), share({ kind: "design", designId: "login" }), share({ kind: "artifacts" }), share()].map(scopeLabel), [
-    "Workspace",
-    "Design",
-    "Page",
-    "Designs",
-  ]);
+  assert.deepEqual(
+    [share({ kind: "workspace" }), share({ kind: "design", designId: "login" }), share({ kind: "selection" }), share({ kind: "artifacts" }), share()].map(
+      scopeLabel,
+    ),
+    ["Workspace", "Design", "Presentation", "Page", "Designs"],
+  );
   assert.deepEqual([share({ live: true }), share({ live: true, paused: true }), share(), share({ live: true, revoked: true })].map(shareState), [
     "Live",
     "Paused",
@@ -51,6 +51,11 @@ test("each scope warns what the link shows", () => {
   assert.equal(shareTitle({ kind: "workspace" }), "Share");
   assert.equal(shareTitle({ kind: "design", designId: "login" }), "Share this design");
   assert.equal(shareTitle({ kind: "artifacts" }), "Share this page");
+  assert.equal(shareTitle({ kind: "selection", designIds: ["a", "b"] }), "Share as a presentation");
+  assert.match(
+    shareNotice({ kind: "selection", designIds: ["a", "b", "c"] }),
+    /the 3 selected designs, one at a time in the order you picked them, and nothing else in this Chat\./,
+  );
   assert.match(shareNotice({ kind: "workspace" }), /^Anyone with the link can see every design and the page.*keeps updating as the agent works\.$/);
   assert.match(shareNotice({ kind: "design" }), /this design\./);
   assert.match(shareNotice({ kind: "artifacts" }, true), /Share again for a link that keeps updating/);

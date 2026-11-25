@@ -268,3 +268,22 @@ test("a grouped workspace puts its page in a block named after it, and pages or 
   const interactive = { title: "Live", interactive: { html: "<p>Hi</p>", width: 390, height: 844 } };
   assert.equal(designPageRunsCode(validateDesignPageSnapshot({ schemaVersion: 1, kind: "workspace", title: "Release", designs: [interactive] })), true);
 });
+
+test("a selection keeps its designs in order, ignores groups and renders as a presentation", () => {
+  const input = { ...page(), kind: "selection", chatId: "/private/project#1" };
+  input.designs[0].group = "Onboarding";
+  const snapshot = validateDesignPageSnapshot(input);
+  assert.deepEqual(Object.keys(snapshot), ["schemaVersion", "kind", "title", "designs"]);
+  assert.deepEqual(
+    snapshot.designs.map((design) => design.title),
+    ["First", "Second"],
+  );
+  const html = renderDesignPage(snapshot);
+  assert.match(html, /<div id="canvas" data-present>/);
+  assert.doesNotMatch(html, /<section/, "a presentation has no group blocks");
+  assert.throws(() => validateDesignPageSnapshot({ ...page(), kind: "selection", designs: [] }), /at least one design/);
+  assert.throws(
+    () => validateDesignPageSnapshot({ ...page(), kind: "selection", designs: Array.from({ length: 101 }, () => page().designs[0]) }),
+    /at most 100/,
+  );
+});

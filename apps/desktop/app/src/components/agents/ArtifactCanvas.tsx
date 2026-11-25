@@ -11,7 +11,6 @@ import {
   designGroups,
   designKitLabel,
   isInteractiveDesign,
-  libraryEditLabel,
   readPageMessage,
   type Artifact,
   type ArtifactAsset,
@@ -32,7 +31,8 @@ import { designLayout, designNodeAt } from "@milagre/shared/design";
 import { designModesOf } from "@milagre/shared/design-modes";
 import { CanvasDesignBody } from "./CanvasDesignBody";
 import { useDesignMode } from "./design-mode";
-import { DesignFrameChips } from "./DesignFrameChips";
+import { DesignFrameChips, LibraryEditNote } from "./DesignFrameChips";
+import { frameBorder, SelectionOrder, usePickFirst, useSelectionOrder } from "./canvas-selection";
 import { CommentLayer, CommentPin } from "./CommentPin";
 import { LiveDesignLayer, LiveDesignWaiting, LiveDraftFrames } from "./LiveDesignFrame";
 import { useLiveDesign } from "./design-live";
@@ -455,14 +455,14 @@ export const ArtifactCanvas = forwardRef<
     },
     onTap: setActive,
   });
-  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+  const onPointerDown = usePickFirst((event: React.PointerEvent<HTMLDivElement>) => {
     if (pan.grab(event)) return;
     const target = event.target as HTMLElement;
     if (!target.closest(`[data-slot=artifact-frame][data-artifact="${active}"] [data-design-body]`)) setActive(null);
     if (event.button !== 0 || target.closest("button, textarea, [data-design-body]")) return;
     const design = target.closest("[data-slot=artifact-shield]") ? (target.closest<HTMLElement>("[data-slot=artifact-frame]")?.dataset.artifact ?? null) : null;
     pan.start(event, design);
-  };
+  });
 
   return (
     <div
@@ -556,15 +556,6 @@ export const ArtifactCanvas = forwardRef<
   );
 });
 
-function LibraryEditNote({ artifact, version, chatId }: { artifact: Artifact | null; version: number; chatId: string | null | undefined }) {
-  const label = libraryEditLabel(artifact, version, chatId);
-  return label ? (
-    <span className="ml-2" data-slot="artifact-library-edit">
-      {label}
-    </span>
-  ) : null;
-}
-
 function optionLabel(index: number): string {
   return index < 26 ? String.fromCharCode(65 + index) : optionLabel(Math.floor(index / 26) - 1) + optionLabel(index % 26);
 }
@@ -615,6 +606,7 @@ const DesignFrame = memo(function DesignFrame({
   onAddToLibrary?: (design: ArtifactRef) => void;
 }) {
   const frame = useRef<HTMLDivElement>(null);
+  const order = useSelectionOrder(design.id);
   const [inView, setInView] = useState(false);
   const [liveZoom, setLiveZoom] = useState(false);
   useLayoutEffect(() => {
@@ -759,6 +751,7 @@ const DesignFrame = memo(function DesignFrame({
           className="absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1.5 pb-1.5 text-12"
           style={{ width: width * scale, height: HEADER, transform: `scale(${1 / scale})` }}
         >
+          <SelectionOrder order={order} />
           <span className="shrink-0 font-semibold text-ink-3 empty:hidden" data-slot="artifact-frame-label">
             {label}
           </span>
@@ -791,7 +784,7 @@ const DesignFrame = memo(function DesignFrame({
           data-design-body
           data-painted={(!!artifact && painted === artifact) || undefined}
           data-active={active || undefined}
-          className={`size-full overflow-hidden rounded-card border-2 bg-paper shadow-raised transition-opacity ${active ? "border-accent" : isChosen ? "border-ink" : "border-transparent"} ${active ? "" : "[&_iframe]:pointer-events-none"} ${dimmed && !active ? "opacity-45 group-hover/frame:opacity-100" : ""}`}
+          className={`size-full overflow-hidden rounded-card border-2 bg-paper shadow-raised transition-opacity ${frameBorder(active, order, isChosen)} ${active ? "" : "[&_iframe]:pointer-events-none"} ${dimmed && !active ? "opacity-45 group-hover/frame:opacity-100" : ""}`}
         >
           {artifact ? (
             <CanvasDesignBody

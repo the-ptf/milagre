@@ -23,7 +23,14 @@ export interface WorkspacePageSnapshot {
   designs: DesignPageSnapshot["designs"];
   page?: ArtifactPageSnapshot["artifacts"][number];
 }
-export type PageSnapshot = DesignPageSnapshot | ArtifactPageSnapshot | WorkspacePageSnapshot;
+/** Designs the user picked on the canvas, in their order; the viewer presents them one at a time. */
+export interface SelectionPageSnapshot {
+  schemaVersion: 1;
+  kind: "selection";
+  title: string;
+  designs: DesignPageSnapshot["designs"];
+}
+export type PageSnapshot = DesignPageSnapshot | ArtifactPageSnapshot | WorkspacePageSnapshot | SelectionPageSnapshot;
 export function validateDesignPageSnapshot(value: unknown): PageSnapshot;
 export function isSnapshotRaster(source: string): boolean;
 export function designPageRunsCode(snapshot: PageSnapshot | null | undefined): boolean;

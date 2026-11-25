@@ -8,6 +8,7 @@
  * The browser runs these functions from their source (`Function.prototype.toString`), so they use only browser
  * globals and each other, never module bindings. Wrangler must not wrap them in `__name` (`keep_names = false`).
  */
+import { mvPresent, PRESENT_ICONS, PRESENT_STYLE } from "./presentation.mjs";
 
 const icon = (size, paths) =>
   `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths.map((d) => `<path d="${d}"/>`).join("")}</svg>`;
@@ -102,7 +103,8 @@ function mvStart(config) {
       document.body.prepend(heading);
     } else document.querySelector("h1").className = "sr";
     document.body.classList.add("mv");
-    if (document.querySelector("#canvas")) mvDesigns(config);
+    if (document.querySelector("#canvas[data-present]")) mvPresent(config);
+    else if (document.querySelector("#canvas")) mvDesigns(config);
     else mvArtifact(config);
   };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run, { once: true });
@@ -781,9 +783,12 @@ function mvHint(view) {
   setTimeout(() => view.toast(touch ? "Press and hold a frame to download it" : "Right-click a frame to download it", true), 600);
 }
 
-const FUNCTIONS = [mvStart, mvArtifact, mvDesigns, mvFrames, mvCamera, mvActions, mvMenu, mvDock, mvGestures, mvKeys, mvHint];
+const FUNCTIONS = [mvStart, mvArtifact, mvDesigns, mvFrames, mvCamera, mvActions, mvMenu, mvDock, mvGestures, mvKeys, mvHint, mvPresent];
 
-const SCRIPT = `(()=>{${FUNCTIONS.map(String).join("\n")}\n${mvStart.name}(${JSON.stringify({ icons: ICONS })})})()`.replaceAll("</", "<\\/");
+const SCRIPT = `(()=>{${FUNCTIONS.map(String).join("\n")}\n${mvStart.name}(${JSON.stringify({ icons: ICONS, present: PRESENT_ICONS })})})()`.replaceAll(
+  "</",
+  "<\\/",
+);
 
 /** The `<style>` and `<script>` the service inserts into a page's `<head>` when the page is read. */
-export const VIEWER_HEAD = `<style id="mv-style">${STYLE.replace(/\n/g, "")}</style><script>${SCRIPT}</script>`;
+export const VIEWER_HEAD = `<style id="mv-style">${(STYLE + PRESENT_STYLE).replace(/\n/g, "")}</style><script>${SCRIPT}</script>`;

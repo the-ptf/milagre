@@ -8,23 +8,39 @@ const { createShareHistory } = require("./design-page-history.cjs");
 const hash = (value) => createHash("sha256").update(value).digest("base64url");
 const ID = /^[A-Za-z0-9_-]{43}$/;
 const DESIGN_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
-const UNTITLED = { workspace: "Artifacts", design: "Design", designs: "Designs", artifacts: "Artifact" };
+const MAX_SELECTION = 100;
+const UNTITLED = { workspace: "Artifacts", design: "Design", selection: "Designs", designs: "Designs", artifacts: "Artifact" };
 const kindOf = (kind = "designs") => {
-  if (!Object.hasOwn(UNTITLED, kind)) throw Error("Choose the workspace, one design or the page to share.");
+  if (!Object.hasOwn(UNTITLED, kind)) throw Error("Choose the workspace, one design, a selection of designs or the page to share.");
   return kind;
+};
+const selectionOf = (designIds) => {
+  if (!Array.isArray(designIds) || !designIds.length) throw Error("Choose the designs to share.");
+  if (designIds.length > MAX_SELECTION) throw Error(`Share at most ${MAX_SELECTION} designs in one link.`);
+  if (!designIds.every((id) => typeof id === "string" && DESIGN_ID.test(id))) throw Error("Choose the designs to share.");
+  if (new Set(designIds).size !== designIds.length) throw Error("Choose each design once.");
+  return [...designIds];
 };
 const scopeOf = (request) => {
   const kind = kindOf(request?.kind);
+  if (kind === "selection") return { kind, designIds: selectionOf(request.designIds) };
   if (kind !== "design") return { kind };
   if (typeof request.designId !== "string" || !DESIGN_ID.test(request.designId)) throw Error("Choose the design to share.");
   return { kind, designId: request.designId };
 };
-const entryScope = (entry) => ({ kind: entry.kind ?? "designs", ...(entry.kind === "design" ? { designId: entry.designId } : {}) });
-const sameScope = (entry, scope) => (entry.kind ?? "designs") === scope.kind && (scope.kind !== "design" || entry.designId === scope.designId);
+const scopeFields = ({ kind, designId, designIds }) => ({
+  ...(kind === "design" ? { designId } : {}),
+  ...(kind === "selection" ? { designIds } : {}),
+});
+const entryScope = (entry) => ({ kind: entry.kind ?? "designs", ...scopeFields(entry) });
+const sameScope = (entry, scope) =>
+  (entry.kind ?? "designs") === scope.kind &&
+  (scope.kind !== "design" || entry.designId === scope.designId) &&
+  (scope.kind !== "selection" || entry.designIds?.join(",") === scope.designIds.join(","));
 const replaceable = (entries, scope) =>
   entries.filter((entry) => !entry.revoked && sameScope(entry, scope) && (scope.kind === "designs" || entry.live === true));
 const transient = (error) => error?.unreachable === true || error?.status === 429 || error?.status >= 500;
-const publicEntry = ({ id, url, title, createdAt, updatedAt, designCount, revoked, published, kind, designId, live, paused, stale, lastError }) => ({
+const publicEntry = ({ id, url, title, createdAt, updatedAt, designCount, revoked, published, kind, designId, designIds, live, paused, stale, lastError }) => ({
   id,
   url,
   title,
@@ -33,6 +49,7 @@ const publicEntry = ({ id, url, title, createdAt, updatedAt, designCount, revoke
   designCount,
   ...(kind && kind !== "designs" ? { kind } : {}),
   ...(designId ? { designId } : {}),
+  ...(designIds ? { designIds: [...designIds] } : {}),
   ...(live ? { live: true } : {}),
   ...(live && paused ? { paused: true } : {}),
   ...(live && stale && !revoked ? { stale: true, ...(lastError ? { lastError } : {}) } : {}),
@@ -41,7 +58,7 @@ const publicEntry = ({ id, url, title, createdAt, updatedAt, designCount, revoke
 });
 
 /**
- * Publishes a Chat's workspace, one design or its page under capability links kept in private per-Chat histories.
+ * Publishes a Chat's workspace, one design, a selection of designs or its page under capability links kept in private per-Chat histories.
  * Links made by this version are live: `changed(chatId)` republishes each un-paused one a few seconds later under the
  * same capability. Links saved without `live` are frozen snapshots and only change when the owner shares again.
  */
@@ -152,7 +169,7 @@ function createDesignPageSharing({
       createdAt: Date.now(),
       ...details,
       ...(scope.kind === "designs" ? {} : { kind: scope.kind, live: true, chatId }),
-      ...(scope.designId ? { designId: scope.designId } : {}),
+      ...scopeFields(scope),
       published: false,
     };
   };

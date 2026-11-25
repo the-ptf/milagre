@@ -65,16 +65,21 @@ export type ArtifactAssetChunk = ArtifactAsset & { offset: number; base64: strin
 export type Artifact = DesignArtifact | HtmlArtifact;
 /**
  * What a published page holds. `workspace` is the Artifact panel's Share: every design and the HTML page. `design` is
- * one design (`designId`), `artifacts` the HTML page alone. `designs` (every design, no page) is only for links made
- * before workspaces; it is never created again.
+ * one design (`designId`), `selection` the designs the user picked on the canvas (`designIds`, in that order), shown
+ * one at a time as a presentation, `artifacts` the HTML page alone. `designs` (every design, no page) is only for links
+ * made before workspaces; it is never created again.
  */
-export type ArtifactPageKind = "workspace" | "design" | "designs" | "artifacts";
-export type PageShareScope = { kind?: ArtifactPageKind; designId?: string };
+export type ArtifactPageKind = "workspace" | "design" | "selection" | "designs" | "artifacts";
+export type PageShareScope = { kind?: ArtifactPageKind; designId?: string; designIds?: string[] };
+/** The most designs one `selection` link presents. */
+export const MAX_SHARED_SELECTION = 100;
 
 export interface DesignPageShare {
   kind?: ArtifactPageKind;
   /** For `kind: "design"`: the design the link shows. */
   designId?: string;
+  /** For `kind: "selection"`: the designs the link presents, in order. */
+  designIds?: string[];
   id: string;
   url: string;
   title: string;
