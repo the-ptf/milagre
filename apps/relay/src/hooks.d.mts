@@ -80,6 +80,6 @@ export function handleHookRequest(
   },
 ): Promise<Response>;
 export interface HookSql {
-  exec(query: string, ...bindings: unknown[]): { toArray(): Record<string, any>[]; one(): Record<string, any> };
+  exec(query: string, ...bindings: unknown[]): { toArray(): Record<string, unknown>[]; one(): Record<string, unknown> };
 }
 export function sqlHookStorage(sql: HookSql): HookStorage;
