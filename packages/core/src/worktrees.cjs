@@ -53,12 +53,19 @@ async function listBranches(projectPath) {
   }
 }
 
+async function matchingRemoteRefs(projectPath, baseBranch) {
+  const remotes = (await client.read.text(projectPath, ["remote"])).split("\n").filter(Boolean);
+  if (!remotes.length) return [];
+  const candidates = remotes.map((remote) => `refs/remotes/${remote}/${baseBranch}`);
+  const refs = await client.read.text(projectPath, ["for-each-ref", "--format=%(refname)", ...candidates]);
+  return refs.split("\n").filter((ref) => candidates.includes(ref));
+}
+
 async function resolveWorktreeBase(projectPath, baseBranch, fetched) {
   const valid = typeof baseBranch === "string" && baseBranch !== "" && !baseBranch.startsWith("-") && !/[\0\n]/.test(baseBranch);
   if (valid && (await client.read.refExists(projectPath, baseBranch))) return resolveStartRef(projectPath, baseBranch, { fetched });
   if (validBranchName(baseBranch)) {
-    const refs = await client.read.text(projectPath, ["for-each-ref", "--format=%(refname)", `refs/remotes/*/${baseBranch}`]);
-    const matches = refs.split("\n").filter(Boolean);
+    const matches = await matchingRemoteRefs(projectPath, baseBranch);
     if (matches.length === 1) return matches[0];
     if (matches.length > 1) throw new Error(`The base branch "${baseBranch}" exists on multiple remotes. Specify one of: ${matches.join(", ")}.`);
   }
