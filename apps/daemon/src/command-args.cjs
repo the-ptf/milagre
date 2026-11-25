@@ -3,7 +3,7 @@ function parseCommandArgs(args) {
     positionals = [],
     flags = [];
   const strings = new Set(["data-dir", "chat", "input", "channel"]);
-  const booleans = new Set(["help", "version", "json", "no-pair", "no-qr", "stdio"]);
+  const booleans = new Set(["help", "version", "json", "full", "no-pair", "no-qr", "stdio"]);
   for (let i = 0; i < args.length; i++) {
     let arg = args[i];
     if (arg === "--") {
@@ -35,6 +35,8 @@ function parseCommandArgs(args) {
       }
     } else flags.push([name, raw]);
   }
+  if (values.full && (positionals[0] !== "worktree" || positionals[1] !== "create" || values.chat))
+    throw new Error("--full is only supported by worktree create");
   if (positionals[0] === "serve") {
     for (const [name, value] of flags) {
       if (name !== "project" || value === true) throw new Error(`Unknown or missing serve option: --${name}`);

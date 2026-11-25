@@ -1,4 +1,5 @@
 const { contractFor, argumentsFor, inputForFlags, fieldsOf, resolve, flagName } = require("@milagre/core/command-input");
+const { chatKey } = require("@milagre/shared/agent-runs");
 const fs = require("node:fs/promises");
 const MAX_INPUT = 16 * 1024 * 1024;
 
@@ -104,8 +105,11 @@ async function runProductCommand(client, positionals, values) {
     if (!found) throw new Error(`Unknown command: ${name}`);
     return found;
   }
-  const parts = [...positionals];
-  let input = await readInput(values.input);
+  return runOwnerCommand(client, [...positionals], values);
+}
+
+async function runOwnerCommand(client, parts, { input: rawInput, flags = [], full }) {
+  let input = await readInput(rawInput);
   if (input === undefined && parts.length && ["[", "{"].includes(parts.at(-1)[0])) input = JSON.parse(parts.pop());
   const method = parts.join(":");
   if (flags.length && input !== undefined) throw new Error("Use named flags or JSON input, not both");
@@ -114,7 +118,15 @@ async function runProductCommand(client, positionals, values) {
   if (!definition) throw new Error(`Unknown command: ${parts.join(" ")}. Use milagre command list.`);
   const contract = definition;
   const args = argumentsFor(contract, flags.length ? inputForFlags(definition.inputSchema, flags) : input);
-  if (family === "desktop") return client.call("desktop:invoke", [{ method: parts.slice(1).join(":"), args }]);
+  if (parts[0] === "desktop") return client.call("desktop:invoke", [{ method: parts.slice(1).join(":"), args }]);
+  if (method === "worktree:create" && !full) {
+    if (commands.some((item) => item.name === "daemon:state-patches"))
+      await client.call("daemon:state-patches", [{ messages: false, transcripts: false, archivedSubagents: false }]);
+    const { project, worktreeId, setupNote } = await client.call(method, args);
+    const worktree = project.state.worktrees[worktreeId];
+    const session = Object.values(project.state.sessions).find((item) => item.worktree_id === worktreeId);
+    return { worktreeId, chatId: chatKey(project.path, session.id), branch: project.git === false ? null : worktree.name, path: worktree.path, setupNote };
+  }
   return client.call(method, args);
 }
 
@@ -149,7 +161,7 @@ function schemaHelp(definition) {
           `  --${flagName(name)} ${typeOf(field)}${schema.required?.includes(name) ? " (required)" : ""}${field.description ? `  ${field.description}` : ""}`,
       )
       .join("\n") || "  No command flags."
-  }\n\n  --input JSON|@file|-  Supply the complete input as JSON.\n`;
+  }\n\n  --input JSON|@file|-  Supply the complete input as JSON.\n${definition.name === "worktree:create" ? "  --full               Include the full Project state in the creation result.\n" : ""}`;
 }
 async function productHelp(client, parts, values) {
   if (values.chat) {
