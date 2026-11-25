@@ -513,3 +513,54 @@ test("a stable release with Windows enabled uploads the WinGet manifest with the
     );
   assert.match(calls, /gh release create v9\.9\.9 --target \S+ --latest /);
 });
+
+test("a stable release pushes its cask to the Homebrew tap once, after Publish, with a key scoped to the tap", (t) => {
+  const job = publishWorkflow.jobs.homebrew;
+  assert.deepEqual(job.needs, ["prepare", "publish"]);
+  assert.equal(job.if, "always() && needs.publish.result == 'success' && needs.prepare.outputs.channel == 'stable'");
+  assert.deepEqual(job.steps[0].with, { repository: "the-ptf/homebrew-tap", "ssh-key": "${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}" });
+  const step = job.steps.find((candidate) => candidate.name === "Update the Homebrew cask");
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-homebrew-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (cwd, ...args) => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  const remote = path.join(root, "tap.git");
+  const tap = path.join(root, "tap");
+  git(root, "init", "--quiet", "--bare", "--initial-branch=main", remote);
+  git(root, "clone", "--quiet", remote, tap);
+  fs.mkdirSync(path.join(tap, "Casks"));
+  fs.writeFileSync(path.join(tap, "Casks/milagre.rb"), 'version "9.9.8"\n');
+  git(tap, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "--allow-empty", "-m", "seed");
+  git(tap, "add", ".");
+  git(tap, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "cask");
+  git(tap, "push", "--quiet", "origin", "main");
+  git(tap, "branch", "--quiet", "--set-upstream-to=origin/main");
+
+  fs.mkdirSync(path.join(root, "bin"));
+  const download = 'while [ $# -gt 0 ]; do [ "$1" = --output ] && printf \'version "9.9.9"\\n\' > "$2"; shift; done\n';
+  fs.writeFileSync(path.join(root, "bin/gh"), `#!/bin/bash\nprintf '%s\\n' "$*" >> "$CALL_LOG"\n${download}`, { mode: 0o755 });
+  const env = {
+    PATH: `${path.join(root, "bin")}${path.delimiter}${process.env.PATH}`,
+    CALL_LOG: path.join(root, "calls.log"),
+    RELEASE_TAG: "v9.9.9",
+    GITHUB_REPOSITORY: "the-ptf/milagre",
+  };
+
+  const first = runStep(step, tap, env);
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(
+    fs.readFileSync(env.CALL_LOG, "utf8"),
+    /^release download v9\.9\.9 --repo the-ptf\/milagre --pattern milagre\.rb --output Casks\/milagre\.rb --clobber$/m,
+  );
+  assert.equal(git(remote, "log", "-1", "--format=%s"), "Update Milagre to v9.9.9");
+  assert.equal(git(remote, "show", "main:Casks/milagre.rb"), 'version "9.9.9"');
+
+  const rerun = runStep(step, tap, env);
+  assert.equal(rerun.status, 0, rerun.stderr);
+  assert.match(rerun.stdout, /already installs v9\.9\.9/);
+  assert.equal(git(remote, "rev-list", "--count", "main"), "3");
+});
