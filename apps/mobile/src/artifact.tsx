@@ -13,7 +13,7 @@ import {
   designFeedbackText,
   newCommentId,
   onArtifactTab,
-  readPageMessage,
+  artifactDownload,
   sentNumbers,
   type Artifact,
   type ArtifactComment,
@@ -39,7 +39,7 @@ import { useShareAvailable } from "./use-share-available";
 import { ArtifactPageTitle, artifactPageMenu, useChatDesigns } from "./artifact-page-menu";
 import { useDesignLibrary } from "./design-library";
 import { artifactPageActions } from "./artifact-page-actions";
-import { rememberPage, rememberedTab } from "./artifact-pages";
+import { readArtifactEvent, rememberPage, rememberedTab } from "./artifact-pages";
 import { pageWithFiles, usePageFiles } from "./artifact-files";
 import { CommentBox } from "./viewer-chrome";
 import { useVisibleRunChatKeys } from "./visible-run-chats";
@@ -596,15 +596,15 @@ export function ArtifactSheet({
 
   const onMessage = useCallback(
     (data: string) => {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(data);
-      } catch {
-        return;
-      }
-      const message = readPageMessage(parsed);
+      const message = readArtifactEvent(data);
       if (!message) return;
       switch (message.t) {
+        case "download": {
+          const file = artifactDownload(artifact?.assets, message, (asset) => files.uris?.get(asset.name));
+          const uri = file && files.uris?.get(file.asset.name);
+          if (file && uri) router.push({ pathname: "/file-preview", params: { uri, name: file.name } });
+          return;
+        }
         case "ready":
           ready.current = true;
           setEpoch((value) => value + 1);
@@ -644,7 +644,7 @@ export function ArtifactSheet({
           return;
       }
     },
-    [artifact, tab, composer, notes, sent],
+    [artifact, tab, composer, notes, sent, files.uris],
   );
 
   const closeComposer = (remove = false) => {

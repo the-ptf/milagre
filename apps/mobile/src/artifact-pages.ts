@@ -1,3 +1,4 @@
+import { readPageMessage } from "@milagre/shared/artifact";
 import type { MenuSection } from "./primitives/menu";
 import type { DesignsTab } from "./panel-tabs";
 
@@ -106,4 +107,12 @@ export function artifactRouteParams(target: DesignsTab): Record<string, string |
     comment: target.comment,
     requestId: target.requestId,
   };
+}
+
+export function readArtifactEvent(data: string) {
+  try {
+    return readPageMessage(JSON.parse(data));
+  } catch {
+    return null;
+  }
 }

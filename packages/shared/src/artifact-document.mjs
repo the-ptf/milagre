@@ -136,6 +136,7 @@ d.addEventListener("touchmove",function(e){if(!held)return;var t=e.touches[0];if
 function release(){clearTimeout(hold);held=null}
 d.addEventListener("touchend",release,{passive:true,capture:true});d.addEventListener("touchcancel",release,{passive:true,capture:true});
 d.addEventListener("click",function(e){if(swallow&&Date.now()-swallow<800){swallow=0;e.preventDefault();e.stopPropagation()}},true);
+d.addEventListener("click",function(e){if(!e.isTrusted||e.defaultPrevented||!input||commenting)return;var a=e.target.closest&&e.target.closest("a[download][href]");if(!a)return;e.preventDefault();post({t:"download",href:a.getAttribute("href"),name:a.download||""})});
 d.addEventListener("contextmenu",function(e){if(input==="touch")e.preventDefault()},true);
 function boot(){diagrams();size();if(window.pele)new MutationObserver(diagrams).observe(d.body||root,{childList:true,subtree:true});post({t:"ready"})}
 addEventListener("load",function(){retheme();size();later()});
@@ -154,9 +155,9 @@ const attribute = (text) => text.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
  * `milagreArtifact.run(command)` hands the app's commands to the page.
  */
 export const ARTIFACT_SHELL_SCRIPT = String.raw`(function(){
-var frame=document.querySelector("iframe"),KEY="${ARTIFACT_PAGE}",NUMBERS=["x","y","sx","sy","sw","cw","dy","cx","cy"],TEXTS=["t","k","a","near","key"];
+var frame=document.querySelector("iframe"),KEY="${ARTIFACT_PAGE}",NUMBERS=["x","y","sx","sy","sw","cw","dy","cx","cy"],TEXTS=["t","k","a","near","key","href","name"];
 function app(m){var b=window.ReactNativeWebView;if(b&&b.postMessage)b.postMessage(JSON.stringify(m))}
-addEventListener("message",function(e){if(!frame||e.source!==frame.contentWindow)return;var d=e.data;if(!d||typeof d!=="object"||d.milagre!==KEY||typeof d.t!=="string")return;var m={};
+addEventListener("message",function(e){if(!frame||e.source!==frame.contentWindow)return;var d=e.data;if(!d||typeof d!=="object"||d.milagre!==KEY||typeof d.t!=="string")return;if(d.t==="download"&&!navigator.userActivation.isActive)return;var m={};
 NUMBERS.forEach(function(n){if(typeof d[n]==="number"&&isFinite(d[n]))m[n]=d[n]});TEXTS.forEach(function(n){if(typeof d[n]==="string")m[n]=d[n].slice(0,600)});if(typeof d.shown==="boolean")m.shown=d.shown;
 var v=window.visualViewport;if(v&&typeof m.sx==="number"&&typeof m.sy==="number"){m.sx=(m.sx-v.offsetLeft)*v.scale;m.sy=(m.sy-v.offsetTop)*v.scale}app(m)});
 window.milagreArtifact={run:function(c){if(!frame||!c||typeof c!=="object")return;c.milagre=KEY;frame.contentWindow.postMessage(c,"*")}};

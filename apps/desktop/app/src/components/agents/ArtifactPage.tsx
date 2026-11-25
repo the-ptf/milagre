@@ -3,6 +3,7 @@ import { ARTIFACT_ESCAPE, artifactTab, onArtifactTab, type ArtifactPageMessage, 
 import type { ArtifactRef } from "../../model";
 import { THEME_EVENT } from "../../lib/theme-sheet";
 import { ArtifactFrame, pageFiles, tellPage, type DesignPin, type PageState, type PinControls } from "./ArtifactCanvas";
+import { saveArtifactDownload } from "./artifact-download";
 import { CommentPin, commentCursor } from "./CommentPin";
 
 export type PageHandle = {
@@ -110,13 +111,15 @@ export const ArtifactPage = forwardRef<
   }));
 
   const [anchor, setAnchor] = useState<{ key: string; sx: number; sy: number; shown: boolean } | null>(null);
-  const ref: ArtifactRef = { id: page.id, title: page.title, version: page.version, format: "html" };
   const commentsRef = useRef(comments);
   commentsRef.current = comments;
   const onPage = useCallback(
     (message: ArtifactPageMessage) => {
       const controls = commentsRef.current;
       switch (message.t) {
+        case "download":
+          void saveArtifactDownload(chatId, page, frame.current?.src, message);
+          return;
         case "size":
           if (message.sw > message.cw + 1) setWide(message.sw);
           return;
@@ -131,6 +134,7 @@ export const ArtifactPage = forwardRef<
           onToggleComment();
           return;
         case "press": {
+          const ref: ArtifactRef = { id: page.id, title: page.title, version: page.version, format: "html" };
           const key = controls.onPin(ref, message.x, message.y, undefined, {
             anchor: message.a || undefined,
             near: message.near || undefined,
@@ -150,8 +154,7 @@ export const ArtifactPage = forwardRef<
           return;
       }
     },
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-    [zoom, onToggleComment, page.id, page.version, page.title, page.tabs, tab.id, tab.title],
+    [zoom, onToggleComment, chatId, page, tab.id, tab.title],
   );
 
   useEffect(() => {

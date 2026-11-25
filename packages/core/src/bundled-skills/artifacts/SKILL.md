@@ -23,6 +23,31 @@ To show a photo, video, recording, font or any other file, save it in the Chat's
 
 Names are letters, digits, dots, dashes and underscores, with no folders. A file is up to 95 MB, a page's files up to 1 GB together. Attach a file once: later calls keep it while any tab's HTML still mentions `assets/<name>`, and drop it when none does. Attaching a file under a name the page already has replaces it. `artifact_read` lists the page's files.
 
+For a download button in the Artifact panel, style an anchor and use `download` to suggest a filename. The link works with a click, tap or keyboard.
+
+```html
+<a class="download" href="assets/orders.xlsx" download="Regional orders.xlsx">Download workbook</a>
+
+<style>
+  .download {
+    display: inline-block;
+    padding: 12px 20px;
+    border-radius: 8px;
+    background: #2454c6;
+    color: white;
+    font: 600 15px system-ui;
+    text-decoration: none;
+  }
+  .download:hover {
+    background: #193e99;
+  }
+  .download:focus-visible {
+    outline: 3px solid #2454c6;
+    outline-offset: 3px;
+  }
+</style>
+```
+
 ## Diagrams
 
 For a flowchart, sequence, state, class or ER diagram, a timeline, a Gantt or pie chart, a mind map or any other Mermaid diagram, put its Mermaid text in a `<pre class="mermaid">` block. Milagre draws it in place with Pele, offline and on shared pages, in the colours of the text and background around it, fitted to the page's width (a left-to-right flowchart turns top-down on a phone). Do not load mermaid.js or any other script for it: remote scripts are blocked. Escape `<`, `>` and `&` in the diagram text. To set the colours yourself, set `--pele-bg`, `--pele-fg`, `--pele-line`, `--pele-surface`, `--pele-border` and `--pele-accent` on the block.
