@@ -21,10 +21,6 @@ export function setStage(next: Stage) {
   listeners.forEach((listener) => listener());
 }
 
-export function currentStage(): Stage {
-  return stage;
-}
-
 export function useStage(): Stage {
   return useSyncExternalStore(subscribe, () => stage);
 }
