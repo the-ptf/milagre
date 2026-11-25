@@ -74,6 +74,7 @@ import {
 import { BackgroundRing } from "../status-indicators";
 import { ChatHeaderSubtitle } from "../chat-header-subtitle";
 import { TabCountAction, useWorkspaceTabSync, WorkspaceTabStrip } from "../workspace-tabs-panel";
+import { tabsAt } from "../workspace-tabs-kinds";
 import { useWorkspaceTabs } from "../workspace-tabs-store";
 import { openPrPage, openPullRequest } from "../pr-nav";
 import { NewChatGlance } from "../new-chat-glance";
@@ -697,11 +698,7 @@ function ChatPane({
   const prChatKey = targetMatches && projectPath ? (savedChatKey ?? `${projectPath}#new:${params.worktreeId}`) : undefined;
   const [workspaceTabsOn] = useWorkspaceTabs();
   const tabsProject = targetMatches ? session.snapshot?.project : undefined;
-  const tabsWorktree = tabsProject && (params.id ? tabsProject.state.sessions[Number(params.id)]?.worktree_id : Number(params.worktreeId));
-  const tabsWhere =
-    workspaceTabsOn && !secondary && tabsProject && Number.isFinite(tabsWorktree)
-      ? { hostId: targetHost, projectPath: tabsProject.path, worktreeId: Number(tabsWorktree) }
-      : null;
+  const tabsWhere = workspaceTabsOn && !secondary ? tabsAt(targetHost, tabsProject, params.id ? Number(params.id) : undefined, params.worktreeId) : null;
   useWorkspaceTabSync(workspaceTabsOn, tabsWhere, tabsProject?.state.sessions, params.id ? Number(params.id) : undefined);
   const panels = useSidePanels({
     chatId: pending ? (pendingCanonicalId ?? pending.preview.session.id) : params.id ? Number(params.id) : undefined,

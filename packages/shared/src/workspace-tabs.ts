@@ -18,10 +18,13 @@ export const EMPTY_TABS: TabSet = { tabs: [], active: null };
 
 export const WORKSPACE_TABS_LABEL = "Workspace tabs";
 export const WORKSPACE_TABS_DESCRIPTION =
-  "Open a Worktree's Chats and Subchats as tabs: in the top bar on a computer and an iPad, in the right panel on a phone.";
+  "Open a Worktree's or a Link's Chats and Subchats as tabs: in the top bar on a computer and an iPad, in the right panel on a phone.";
 export const MAIN_CHAT_CLOSE_TITLE = "Close the main Chat?";
-export const mainChatCloseMessage = (title: string) =>
-  `“${title}” started this Worktree. Closing its tab keeps the Chat in the sidebar, where you can open it again.`;
+/** Where a tab set lives: a Worktree's Chats, or a Link's, whose Chats span several Projects. */
+export type TabPlace = "worktree" | "link";
+export const newChatTabLabel = (place: TabPlace) => (place === "link" ? "New Chat in this Link" : "New Chat in this Worktree");
+export const mainChatCloseMessage = (title: string, place: TabPlace = "worktree") =>
+  `“${title}” ${place === "link" ? "is this Link's first Chat" : "started this Worktree"}. Closing its tab keeps the Chat in the sidebar, where you can open it again.`;
 
 export function tabId(tab: WorkspaceTab): string {
   switch (tab.kind) {
