@@ -1,5 +1,7 @@
 // in order: the docked designs on an iPad take another batch while the first still waits for a busy Chat.
-export type DesignMessage = { text: string; onSent: () => void; kind?: "designs" | "artifacts" };
+import type { Attachment } from "./attachments";
+
+export type DesignMessage = { text: string; onSent: () => void; kind?: "designs" | "artifacts"; images?: Attachment[] };
 const waiting = new Map<string, DesignMessage[]>();
 
 export function clearDesignMessages(hostId: string) {
@@ -40,4 +42,29 @@ export function onSendDesignMessageNow(listener: (chatKey: string) => void) {
   return () => {
     sendNowListeners.delete(listener);
   };
+}
+
+type WaitingDesign = { sending: { current: DesignMessage | null }; deferred: { current: boolean } };
+
+export function sendWaitingDesign(
+  chatKey: string | null | undefined,
+  enabled: boolean,
+  state: WaitingDesign,
+  send: (message: DesignMessage) => Promise<unknown>,
+  again: () => void,
+) {
+  const message = chatKey ? peekDesignMessage(chatKey) : null;
+  if (!message || !chatKey || state.sending.current === message || (message.kind !== "artifacts" && !enabled)) return;
+  state.sending.current = message;
+  void send(message)
+    .then((sent) => {
+      state.sending.current = null;
+      state.deferred.current = sent === "busy";
+      if (sent !== true) return;
+      designMessageSent(chatKey, message);
+      again();
+    })
+    .catch(() => {
+      state.sending.current = null;
+    });
 }

@@ -1,7 +1,7 @@
 import { ArtifactsProvider } from "../agents/ArtifactCard";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { chatHistory } from "@milagre/shared/chat-history";
-import type { Subagent } from "../../model";
+import type { ImageAttachment, Subagent } from "../../model";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -108,7 +108,7 @@ export function ReplyProviders({
   chatId: string | null;
   steps: ChatStep[];
   userMessages: { id: number | string; body: string }[];
-  onSend?: (text: string) => Promise<boolean>;
+  onSend?: (text: string, images?: ImageAttachment[]) => Promise<boolean>;
   agent?: string;
   followAgent?: boolean;
   subagents?: readonly Subagent[];

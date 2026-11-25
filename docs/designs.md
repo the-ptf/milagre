@@ -11,6 +11,10 @@ A design is one kind for all its versions:
 
 Users don't edit designs. They view them, try interactive ones, pin comments, choose one and ask for changes in Chat. Only agents change designs, through the design tools.
 
+On the desktop canvas the Pointer tool (V) views and tries designs and the Hand tool (H) drags the canvas from anywhere; the middle button and a held Space drag it too, over designs included (`canvas-pan.ts`). A design being tried keeps the middle button, since its iframe takes the events. The phone canvas pans by touch.
+
+A comment can carry up to four images, pasted into its text (on the desktop also dropped on its bubble; on the phone through the `MilagreImagePaste` field hook the composer uses). They ride as the feedback message's own image attachments, each comment line naming its images as `[Image #N]` (`designFeedbackMessage`, read back by `parseDesignFeedback`), so the comment the host stores keeps only its text. An image-only comment sends "See the attached image.".
+
 An interactive version is `v<N>.html` beside `meta.json`, with `interactive: true` on its entry and no `v<N>.design.json`. `design_apply` takes `edits` (exact text and replacement, in order); `design_show` with the same id and `expectedVersion` replaces it; a variant is `design_show` with `from` and `edits`.
 
 ## Where designs live

@@ -15,6 +15,8 @@ const ALLOWED: Record<string, string> = {
   [`${join("lib", "shortcut-hints.ts")} window blur reset`]: "drops the held-modifier shortcut hints when the window loses focus",
   [`${join("lib", "shortcut-hints.ts")} window pointerdown reset`]: "drops the held-modifier shortcut hints on any click",
   [`${join("lib", "dictation-shortcut.ts")} window blur release`]: "releases the held Dictate key, whose keyup lands in another app",
+  [`${join("components", "agents", "canvas-pan.ts")} window blur release`]:
+    "releases a held Space on the design canvas, whose keyup lands in another app or a design's frame",
 };
 
 function sources(dir: string): string[] {

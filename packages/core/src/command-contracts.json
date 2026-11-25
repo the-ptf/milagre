@@ -5540,6 +5540,13 @@
         },
         "id": {
           "type": "string"
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "The images attached to it: their numbers among the message's images, from 1."
         }
       },
       "required": ["design", "text"],

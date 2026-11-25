@@ -779,7 +779,7 @@ export function LinkWorkspace({
                         onRetryLoad={() => void chatWindow.retry()}
                         imageDraft={imageDraft}
                         onSend={(delivery) => void send(draftStore.get().trim(), false, true, delivery)}
-                        onSendDesignMessage={(text) => send(text, true, false)}
+                        onSendDesignMessage={(text, images) => send(text, true, false, undefined, undefined, images)}
                         onSendPageComments={(text, images) => send(text, true, false, undefined, undefined, images)}
                         onStop={chatId && run ? () => void agents.interrupt(chatId) : undefined}
                         isSending={Boolean(run && !approval && !question) || (pendingHere && !run)}

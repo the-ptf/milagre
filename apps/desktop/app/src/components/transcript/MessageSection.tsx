@@ -485,7 +485,7 @@ function MessageBody({
   if (advisor) return <AdvisorResultCard context={advisor} body={message.body} />;
   if (prAction) return <PullRequestActionCard action={prAction} />;
   if (issue) return <IssueCard issue={issue} />;
-  if (feedback) return <DesignFeedbackCard feedback={feedback} messageId={message.id} />;
+  if (feedback) return <DesignFeedbackCard feedback={feedback} messageId={message.id} images={message.images} />;
   if (pageFeedback) return <PageCommentsCard comments={pageFeedback} images={message.images} />;
   if (answered) return <AnswerCard answered={answered} />;
   if (isUser)
@@ -641,7 +641,7 @@ export const MessageSection = memo(function MessageSection({
   const linkedArticle = linkedLineArticle(message, isUser, linked, { exchange, onOpenChat });
   if (linkedArticle) return linkedArticle;
   const cards = userCards(message, isUser, linked);
-  const { advisor, bubble, pageFeedback } = cards;
+  const { advisor, bubble, pageFeedback, feedback } = cards;
   const copyUser = (bubble || (isUser && linked)) && !advisor && Boolean(message.body.trim()) && !onlyImageMentions(message.body, message.images?.length ?? 0);
   const forkThis = forkAction(onFork, message.id, streaming);
   return (
@@ -681,9 +681,11 @@ export const MessageSection = memo(function MessageSection({
           images={
             pageFeedback
               ? message.images?.filter((image) => !isPageCommentImage(image))
-              : isUser
-                ? message.images
-                : message.images?.filter((image) => !image.sourcePath)
+              : feedback
+                ? message.images?.filter((_, index) => !feedback.comments.some((comment) => comment.images?.includes(index + 1)))
+                : isUser
+                  ? message.images
+                  : message.images?.filter((image) => !image.sourcePath)
           }
           files={mentions.inline ? message.files?.filter((file) => !mentions.inline!.has(file)) : message.files}
         />

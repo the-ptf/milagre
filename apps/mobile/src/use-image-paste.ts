@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { findNodeHandle, type TextInputInstance } from "react-native";
 import { requireOptionalNativeModule, type EventSubscription } from "expo-modules-core";
 import type { PastedImage } from "./attachment-picker";
@@ -10,8 +10,9 @@ type ImagePasteModule = {
 };
 const nativePaste = requireOptionalNativeModule<ImagePasteModule>("MilagreImagePaste");
 
-export function useImagePaste(onPaste?: (image: PastedImage) => void) {
-  const ref = useRef<TextInputInstance>(null);
+export function useImagePaste(onPaste?: (image: PastedImage) => void, field?: RefObject<TextInputInstance | null>) {
+  const own = useRef<TextInputInstance>(null);
+  const ref = field ?? own;
   const target = useRef<number | null>(null);
   const latest = useRef(onPaste);
   const enabled = Boolean(onPaste);

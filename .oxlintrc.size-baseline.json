@@ -172,7 +172,7 @@
         "max-lines": [
           "error",
           {
-            "max": 840,
+            "max": 836,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -180,7 +180,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 298,
+            "max": 290,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -575,7 +575,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2410,
+            "max": 2409,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -583,7 +583,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2161,
+            "max": 2160,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -628,14 +628,6 @@
     {
       "files": ["apps/mobile/src/artifact.tsx"],
       "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 819,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
         "max-lines-per-function": [
           "error",
           {

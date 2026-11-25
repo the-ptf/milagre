@@ -18,13 +18,14 @@ import {
   type ArtifactPageMessage,
   type PagePin,
 } from "@milagre/shared/artifact";
-import type { ArtifactRef } from "../../model";
+import type { ArtifactRef, ImageAttachment } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
 import { useArtifact } from "./artifact-read";
+import { useCanvasPan } from "./canvas-pan";
 import { DesignDeleteButton, type Deleting } from "./DesignDeleteButton";
 import { DesignFrameMenu } from "./DesignFrameMenu";
 import { designLayout, designNodeAt } from "@milagre/shared/design";
@@ -50,6 +51,7 @@ export type DesignPin = {
   tab?: { id: string; title: string };
   resolved?: string;
   commentId?: string;
+  images?: ImageAttachment[];
 };
 export type PinControls = {
   showResolved?: boolean;
@@ -65,6 +67,7 @@ export type PinControls = {
   ) => string | void;
   onOpen: (key: string | null) => void;
   onText: (key: string, text: string) => void;
+  onImages: (key: string, images: ImageAttachment[]) => void;
   onRemove: (key: string) => void;
   onSend: () => void;
 };
@@ -249,11 +252,28 @@ export const ArtifactCanvas = forwardRef<
     comments: PinControls;
     choice: ChoiceControls;
     onView: (view: CanvasView) => void;
+    /** The Hand tool: a left drag moves the canvas from anywhere, designs included. */
+    hand?: boolean;
     onShare?: (design: ArtifactRef) => void;
     onAddToLibrary?: (design: ArtifactRef) => void;
   }
 >(function ArtifactCanvas(
-  { chatId, allowLive = true, library = false, designs, versions, onVersion, focus, commenting, comments, choice, onView, onShare, onAddToLibrary },
+  {
+    chatId,
+    allowLive = true,
+    library = false,
+    designs,
+    versions,
+    onVersion,
+    focus,
+    commenting,
+    comments,
+    choice,
+    onView,
+    hand = false,
+    onShare,
+    onAddToLibrary,
+  },
   handle,
 ) {
   const viewport = useRef<HTMLDivElement>(null);
@@ -424,49 +444,24 @@ export const ArtifactCanvas = forwardRef<
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, []);
-  // `design` is the design a press started on: released without dragging, it hands that design the mouse. (The pointer
-  const drag = useRef<{
-    pointer: number;
-    x: number;
-    y: number;
-    startX: number;
-    startY: number;
-    design: string | null;
-  } | null>(null);
-  const dragged = useRef(false);
-  const onPointerDown = (event: React.PointerEvent) => {
+  const pan = useCanvasPan({
+    viewport,
+    hand,
+    origin: () => viewRef.current,
+    onPan: (x, y) => {
+      moved.current = true;
+      stopRefit();
+      setView((current) => ({ ...current, x, y }));
+    },
+    onTap: setActive,
+  });
+  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (pan.grab(event)) return;
     const target = event.target as HTMLElement;
     if (!target.closest(`[data-slot=artifact-frame][data-artifact="${active}"] [data-design-body]`)) setActive(null);
     if (event.button !== 0 || target.closest("button, textarea, [data-design-body]")) return;
-    dragged.current = false;
     const design = target.closest("[data-slot=artifact-shield]") ? (target.closest<HTMLElement>("[data-slot=artifact-frame]")?.dataset.artifact ?? null) : null;
-    drag.current = {
-      pointer: event.pointerId,
-      x: event.clientX - viewRef.current.x,
-      y: event.clientY - viewRef.current.y,
-      startX: event.clientX,
-      startY: event.clientY,
-      design,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-  const onPointerMove = (event: React.PointerEvent) => {
-    const start = drag.current;
-    if (!start || start.pointer !== event.pointerId) return;
-    if (!dragged.current && Math.hypot(event.clientX - start.startX, event.clientY - start.startY) < 4) return;
-    dragged.current = true;
-    moved.current = true;
-    stopRefit();
-    setView((current) => ({
-      ...current,
-      x: event.clientX - start.x,
-      y: event.clientY - start.y,
-    }));
-  };
-  const endDrag = (event: React.PointerEvent) => {
-    const start = drag.current;
-    drag.current = null;
-    if (event.type === "pointerup" && start?.design && !dragged.current) setActive(start.design);
+    pan.start(event, design);
   };
 
   return (
@@ -474,17 +469,18 @@ export const ArtifactCanvas = forwardRef<
       ref={viewport}
       data-slot="artifact-canvas"
       tabIndex={-1}
-      className={`relative min-h-0 flex-1 touch-none overflow-clip bg-canvas outline-none ${drag.current ? "cursor-grabbing" : "cursor-grab"}`}
+      className={`relative min-h-0 flex-1 touch-none overflow-clip bg-canvas outline-none ${pan.dragging ? "cursor-grabbing" : "cursor-grab"}`}
       style={{
         backgroundImage: "radial-gradient(var(--color-line) 1px, transparent 1px)",
         backgroundSize: `${dotStep(view.scale)}px ${dotStep(view.scale)}px`,
         backgroundPosition: `${view.x}px ${view.y}px`,
       }}
       onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
+      onPointerMove={pan.onPointerMove}
+      onPointerUp={pan.end}
+      onPointerCancel={pan.end}
     >
+      {pan.grabAll && <div data-slot="artifact-pan-shield" className={`absolute inset-0 z-30 ${pan.dragging ? "cursor-grabbing" : "cursor-grab"}`} />}
       <div
         ref={board}
         className="absolute top-0 left-0 flex origin-top-left flex-col items-start"

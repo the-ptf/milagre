@@ -2648,7 +2648,7 @@ function App() {
                             ? () => void compactContext()
                             : undefined
                         }
-                        onSendDesignMessage={(text) => executeSend(text, permissionMode, [], [], true)}
+                        onSendDesignMessage={(text, images = []) => executeSend(text, permissionMode, images, [], true)}
                         onSendPageComments={(text, images) => executeSend(text, permissionMode, images, [], true)}
                         linearActive={linear.active}
                         onStartFromIssue={surfaces.git ? startFromIssue : undefined}

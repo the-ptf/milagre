@@ -9,7 +9,6 @@ import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
 import { Cancel01Icon, CommentAdd01Icon, DashboardSquare01Icon, MoreHorizontalIcon, PlayIcon, Sent02Icon, Share08Icon } from "@hugeicons/core-free-icons";
 import {
-  designFeedbackMessage,
   designGroups,
   designKitLabel,
   designsCanvasShell,
@@ -37,12 +36,14 @@ import { addToLibrary, isLibraryAdd, libraryAddSections, useDesignLibrary } from
 import type { DesignsTab } from "./panel-tabs";
 import { loadCanvasDesign } from "./design-font-cache";
 import { CommentBox } from "./viewer-chrome";
+import type { Attachment } from "./attachments";
+import { designFeedback } from "./design-comment-images";
 import { designActionsMenu, designModeLabel, shownDesignMode } from "./design-modes-menu";
 import type { DesignMode } from "@milagre/shared/design-modes";
 import { useVisibleRunChatKeys } from "./visible-run-chats";
 import { useDesignBuildIn } from "./design-build-in";
 
-type Note = DesignComment & { key: string };
+type Note = DesignComment & { key: string; photos?: Attachment[] };
 type CanvasView = { mode: "design" | "canvas"; id: string | null };
 type Composer = { key: string; kind: "new" | "edit" | "read"; at: { x: number; y: number } | null };
 type CanvasCommand = Record<string, unknown> & { t: string };
@@ -50,6 +51,7 @@ type CanvasCommand = Record<string, unknown> & { t: string };
 const unsent = new Map<string, { notes: Note[]; choice: ArtifactRef | null }>();
 const EMPTY_DESIGNS: Record<string, Artifact> = {};
 
+const isWritten = (note: Note) => !!note.text.trim() || !!note.photos?.length;
 const refOf = (design: Artifact): ArtifactRef => ({ id: design.id, version: design.version, title: design.title, format: design.format });
 
 /**
@@ -114,7 +116,7 @@ export function DesignsSheet({
 
   useEffect(() => {
     if (!chatKey) return;
-    const written = notes.filter((note) => note.text.trim());
+    const written = notes.filter(isWritten);
     if (written.length || choice) unsent.set(chatKey, { notes: written, choice });
     else unsent.delete(chatKey);
   }, [chatKey, notes, choice]);
@@ -373,7 +375,7 @@ export function DesignsSheet({
   const shown = shownId ? loaded[shownId] : undefined;
   const summary = ordered.find((design) => design.id === shownId);
   const row = rows.find((item) => item.designs.some((design) => design.id === shownId));
-  const written = notes.filter((note) => note.text.trim());
+  const written = notes.filter(isWritten);
   const pendingHere = !!shown && choice?.id === shown.id && choice.version === shown.version;
   const sentHere = !!shown && !choice && chosen === `${shown.id}:${shown.version}`;
   const feedback = written.length + (choice ? 1 : 0);
@@ -381,16 +383,15 @@ export function DesignsSheet({
   const closeComposer = (remove = false) => {
     if (!composer) return;
     const { key } = composer;
-    setNotes((current) => current.filter((note) => note.key !== key || (!remove && note.text.trim())));
+    setNotes((current) => current.filter((note) => note.key !== key || (!remove && isWritten(note))));
     setComposer(null);
   };
   const send = () => {
     if (!hostId || !chatId || !feedback || !source) return;
-    const comments: DesignComment[] = written.map(({ key: _key, ...note }) => ({ ...note, text: note.text.trim(), id: newCommentId() }));
+    const { comments, message } = designFeedback(written, choice);
     if (chatKey) unsent.delete(chatKey);
     postDesignMessage(`${hostId}|${chatId}`, {
-      kind: "designs",
-      text: designFeedbackMessage({ choice, comments }),
+      ...message,
       onSent: () => {
         if (!comments.length) return;
         source
@@ -601,6 +602,7 @@ export function DesignsSheet({
                 onCancel={() => closeComposer(true)}
                 onDone={() => closeComposer()}
                 onSend={send}
+                onPhotos={(photos) => setNotes((current) => current.map((note) => (note.key === composer.key ? { ...note, photos } : note)))}
                 room={room.width ? room : undefined}
               />
             )}
