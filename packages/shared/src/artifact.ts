@@ -398,6 +398,7 @@ export type PagePin = { k: string; x: number; y: number; a?: string; n: number |
 /** What an Artifact page's helper tells its viewer (ARTIFACT_PAGE_SCRIPT); screen points are in the page's pixels. */
 export type ArtifactPageMessage =
   | { t: "ready" }
+  | { t: "download"; href: string; name: string }
   | { t: "size"; sw: number; cw: number }
   | { t: "press"; x: number; y: number; a: string; near: string; sx: number; sy: number }
   | { t: "pin"; k: string; sx: number; sy: number }
@@ -405,6 +406,18 @@ export type ArtifactPageMessage =
   | { t: "zoom"; dy: number; cx: number; cy: number }
   | { t: "fit" }
   | { t: "key"; key: string };
+
+/** Resolve a download against the current page's manifest, including links built after the viewer rewrote its HTML. */
+export function artifactDownload(
+  assets: ArtifactAsset[] | undefined,
+  message: Extract<ArtifactPageMessage, { t: "download" }>,
+  urlFor: (asset: ArtifactAsset) => string | undefined,
+) {
+  const asset = assets?.find((item) => message.href === `assets/${item.name}` || message.href === `./assets/${item.name}` || message.href === urlFor(item));
+  if (!asset) return null;
+  const name = message.name.trim();
+  return { asset, name: name && !/^[.]|[\\/:*?"<>|\p{Cc}\p{Cf}]/u.test(name) ? name : asset.name };
+}
 
 /**
  * A message from an Artifact page's helper, by its shape, or null. The page runs the agent's code too, so anything
@@ -423,6 +436,10 @@ export function readPageMessage(data: unknown): ArtifactPageMessage | null {
     case "ready":
     case "fit":
       return { t: value.t };
+    case "download": {
+      const href = text("href");
+      return href ? { t: "download", href, name: text("name", 255) ?? "" } : null;
+    }
     case "size": {
       const sw = number("sw"),
         cw = number("cw");

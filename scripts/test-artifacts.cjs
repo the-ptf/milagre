@@ -172,6 +172,15 @@ const phone = {
   ],
 };
 
+const reportLink = `<a href="assets/report.xlsx" download="Monthly report.xlsx"><span>Download</span></a>
+<script>
+addEventListener("message", event => {
+  if (event.data !== "test-download-focus") return;
+  document.querySelector("a[download]").focus();
+  parent.postMessage("test-download-focused", "*");
+});
+</script>`;
+
 const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -274,6 +283,10 @@ window.milagre = {
       window.libraryListeners.add(listener);
       return () => window.libraryListeners.delete(listener);
     },
+    asset: async ({ chatId, name, offset }) => {
+      if (chatId !== "milagre-link:fixture#1" || name !== "report.xlsx") throw new Error("Unknown attachment");
+      return { offset, hash: "a".repeat(64), size: 4, base64: offset === 0 ? "UEs=" : "AP8=" };
+    },
     get: async ({ chatId, id, version }) => {
       window.calls.push([chatId, id, version ?? null]);
       // As the daemon: a key under a Worktree's path is no open Chat.
@@ -282,7 +295,7 @@ window.milagre = {
       if (id === "home") return { id, version: 1, title: "Home", versions: 1, latest: 1, width: 390, height: 844, format: "design", document: home, html: designHtml(home) };
       const kept = window.libraryDesigns.find((entry) => entry.id === id);
       if (kept) return { ...kept, version: version ?? kept.version, latest: kept.version, document: home, html: designHtml(home) };
-      if (id === "legacy" || id === "current-artifact") return { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, latest: window.htmlVersion ?? 1, width: 1280, height: 800, ...(window.htmlTabs ? { tabs: window.htmlTabs } : {}), html: "<!doctype html><h1>How this works " + (window.htmlVersion ?? 1) + "</h1>" };
+      if (id === "legacy" || id === "current-artifact") return { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, latest: window.htmlVersion ?? 1, width: 1280, height: 800, ...(window.htmlTabs ? { tabs: window.htmlTabs } : {}), html: "<!doctype html><h1>How this works " + (window.htmlVersion ?? 1) + "</h1>" + ${JSON.stringify(reportLink)}, assets: [{ name: "report.xlsx", hash: "a".repeat(64), size: 4, type: "application/octet-stream" }] };
       const latest = window.latest;
       const shown = version ?? latest;
       return { id, version: shown, title: shown === 1 ? "Login screen" : "Login screen, warmer", versions: latest, latest, width: 1280, height: 800, format: "design", document: designs[shown], html: designHtml(designs[shown]) };
@@ -1440,6 +1453,28 @@ async function browserChecks() {
     // Give the click and its 264px bubble room inside the page, without relying on a one-pixel edge hit.
     await evaluate(`${dock}.querySelector('[aria-label="Fill the window with the artifact"]').click()`);
     await waitFor(`${dock}.dataset.full === "true" && ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect().width > 400`);
+    await evaluate(`window.showSaveFilePicker = async ({ suggestedName }) => ({
+      createWritable: async () => {
+        const bytes = [];
+        return { write: async chunk => bytes.push(...chunk), close: async () => { window.savedReport = { suggestedName, bytes } } };
+      }
+    }); true`);
+    await evaluate(`new Promise(resolve => {
+      const frame = ${dock}.querySelector("[data-slot=artifact-page] iframe");
+      function focused(event) {
+        if (event.source !== frame.contentWindow || event.data !== "test-download-focused") return;
+        removeEventListener("message", focused);
+        resolve(true);
+      }
+      addEventListener("message", focused);
+      frame.contentWindow.postMessage("test-download-focus", "*");
+    })`);
+    const input = window.webContents.debugger;
+    if (!input.isAttached()) input.attach("1.3");
+    for (const type of ["keyDown", "keyUp"])
+      await input.sendCommand("Input.dispatchKeyEvent", { type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await waitFor("!!window.savedReport");
+    assert.deepEqual(await evaluate("window.savedReport"), { suggestedName: "Monthly report.xlsx", bytes: [80, 75, 0, 255] });
     // In comment mode a click on the page pins a comment there; its bubble opens in the dock, at the pin.
     await evaluate(`${dock}.querySelector('button[aria-label="Comment on the page"]').click()`);
     await waitFor(`${dock}.querySelector('button[aria-label="Stop commenting"]')?.getAttribute("aria-pressed") === "true"`);
@@ -1449,8 +1484,6 @@ async function browserChecks() {
     );
     // The page's helper may still be starting: click until the bubble opens.
     // sendInputEvent stops at the page's frame; input through the DevTools protocol is hit-tested into it, as a real click.
-    const input = window.webContents.debugger;
-    if (!input.isAttached()) input.attach("1.3");
     for (let attempt = 0; attempt < 20 && !(await evaluate(`!!${dock}.querySelector("[data-slot=artifact-comment-bubble] textarea")`)); attempt++) {
       for (const type of ["mousePressed", "mouseReleased"])
         await input.sendCommand("Input.dispatchMouseEvent", {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  artifactDownload,
   artifactTab,
   libraryCardLine,
   libraryRecent,
@@ -256,6 +257,27 @@ test("sent comments are numbered within the message that carried them", () => {
       ["c", 1],
     ],
   );
+});
+
+test("a download resolves only this page's attachment and treats the suggested name as a filename", () => {
+  const asset = { name: "report.xlsx", hash: "a".repeat(64), size: 12, type: "application/octet-stream" };
+  const desktop = "milagre-artifact://preview/123/assets/report.xlsx";
+  const phone = `file:///cache/${asset.hash}`;
+  for (const url of [desktop, phone]) {
+    const resolve = (href: string, name = "Monthly report.xlsx") => artifactDownload([asset], { t: "download", href, name }, () => url);
+    for (const href of [url, "assets/report.xlsx", "./assets/report.xlsx"]) {
+      assert.deepEqual(resolve(href), { asset, name: "Monthly report.xlsx" });
+      assert.deepEqual(resolve(href, ""), { asset, name: asset.name });
+      assert.deepEqual(resolve(href, "../report.xlsx"), { asset, name: asset.name });
+    }
+    for (const href of [
+      "assets/missing.xlsx",
+      "milagre-artifact://preview/other/assets/report.xlsx",
+      "https://example.com/assets/report.xlsx",
+      "file:///elsewhere",
+    ])
+      assert.equal(resolve(href), null);
+  }
 });
 
 test("only the page helper's own messages, by shape, reach the viewer", () => {
