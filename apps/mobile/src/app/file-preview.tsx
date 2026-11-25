@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { isMarkdownFile } from "@milagre/shared/file-link";
+import { fileLinkFolder, isMarkdownFile } from "@milagre/shared/file-link";
 import { File, FileMode } from "expo-file-system";
 import { Platform, Text, View } from "react-native";
 import { Download04Icon, SourceCodeIcon, TextIcon } from "@hugeicons/core-free-icons";
@@ -11,7 +11,6 @@ import { saveAttachment } from "../save-attachment";
 import { Toast } from "../primitives/toast";
 import { Markdown } from "../markdown";
 import { ErrorNotice, HeaderButton, PageScroll, PillButton, useStyles } from "../ui";
-import { fileLinkFolder } from "@milagre/shared/file-link";
 
 function previewPaths(path: string | undefined, fallbacks: string | undefined): string[] {
   if (!path) return [];

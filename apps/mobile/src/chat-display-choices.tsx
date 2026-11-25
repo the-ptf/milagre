@@ -17,8 +17,7 @@ import {
 import type { ChatRowShow } from "@milagre/shared/chat-row";
 import { Icon } from "./icons";
 import { tap } from "./primitives/tap";
-import { createStylesHook, fonts, type Palette } from "./theme";
-import { useTheme } from "./theme";
+import { createStylesHook, fonts, useTheme, type Palette } from "./theme";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { pressStyle } from "./primitives/press-style";
 

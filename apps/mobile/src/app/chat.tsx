@@ -4,10 +4,21 @@ import type { BranchPolicySettings } from "@milagre/shared/branch-policy";
 import { chrome, lineHeight, space, type } from "../design-tokens";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { useContextSettings } from "../context-settings";
-import { compactionContext } from "@milagre/shared/compaction";
-import { CleanIcon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
+import { COMPACT_COMMAND, compactionContext, compactionText, isCompaction } from "@milagre/shared/compaction";
+import {
+  ArrowDown01Icon,
+  Globe02Icon,
+  GitPullRequestIcon,
+  Cancel01Icon,
+  CleanIcon,
+  GitBranchIcon,
+  LaptopIcon,
+  Link04Icon,
+  MoreHorizontalIcon,
+  UnfoldMoreIcon,
+} from "@hugeicons/core-free-icons";
 import { outbox, outboxAttachments, hasQueuedChat } from "../outbox";
-import { LINK_CHAT_WORKTREES_TEXT, linkDeletedElsewhereText } from "@milagre/shared/worktree-link";
+import { LINK_CHAT_WORKTREES_TEXT, isWorktreeLinked, linkDeletedElsewhereText, worktreeLinkText } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chatHistory } from "@milagre/shared/chat-history";
@@ -17,16 +28,6 @@ import { Keyboard, Linking, Pressable, StyleSheet, Text, View, useWindowDimensio
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import type { NavigationProp } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-  ArrowDown01Icon,
-  Globe02Icon,
-  GitPullRequestIcon,
-  Cancel01Icon,
-  GitBranchIcon,
-  LaptopIcon,
-  Link04Icon,
-  MoreHorizontalIcon,
-} from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { compactButtonState } from "@milagre/shared/chat-display";
@@ -73,7 +74,7 @@ import { BackgroundRing, HeaderPullRequestChip } from "../status-indicators";
 import { openPrPage, openPullRequest } from "../pr-nav";
 import { NewChatGlance } from "../new-chat-glance";
 import { onPullRequestRequest, prChoiceKey, registerPrChat, type PrChoice } from "../pr-chat";
-import { widthClass } from "../split-width";
+import { READING_WIDTH, widthClass } from "../split-width";
 import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
 import { useBrowserShortcut } from "../browser";
 import { useInternalBrowser } from "../browser-setting";
@@ -114,9 +115,7 @@ import {
 } from "@milagre/shared/routines";
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
-import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
 import { accountSwitchText, isAccountSwitch, isLimitReset, limitResetText } from "@milagre/shared/usage-limit";
-import { isWorktreeLinked, worktreeLinkText } from "@milagre/shared/worktree-link";
 import { BackgroundIndicator } from "../running-logo";
 import { RunIndicator } from "../run-indicator";
 import { EdgeFade } from "../bottom-fade";
@@ -127,7 +126,6 @@ import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turn
 import { Icon, LinearLogo } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
 import { useSplitLayout } from "../split-context";
-import { READING_WIDTH } from "../split-width";
 import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";

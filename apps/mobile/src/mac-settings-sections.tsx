@@ -1,4 +1,4 @@
-import { CheckRow } from "./ui";
+import { CheckRow, InlineError, ListRow, useStyles } from "./ui";
 import { useCallback, useState } from "react";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_TITLE } from "@milagre/shared/auto-update";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
@@ -6,7 +6,6 @@ import { IMPORT_INTRO, IMPORT_TITLE } from "@milagre/shared/ade-import";
 import { Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSession } from "./session";
-import { InlineError, ListRow, useStyles } from "./ui";
 import { DONE_DEFAULTS, DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
 import { readDoneSettings, saveDoneSettings } from "./done-retention";
 import { MacUpdateRows, useMacUpdate } from "./mac-update";

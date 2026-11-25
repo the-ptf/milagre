@@ -5,7 +5,6 @@ import { ActivityIndicator, Alert, AppState, BackHandler, Linking, Platform, Pre
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CommentBox } from "./viewer-chrome";
-import type { PagePinPosition } from "@milagre/shared/page-picker";
 import * as Clipboard from "expo-clipboard";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import {
@@ -22,7 +21,7 @@ import {
   WifiDisconnected01Icon,
 } from "@hugeicons/core-free-icons";
 import type { BrowserList, BrowserTarget } from "@milagre/shared/browser";
-import { PAGE_PICK_CANCEL, pagePickScript, pagePinsScript, type PagePin } from "@milagre/shared/page-picker";
+import { PAGE_PICK_CANCEL, pagePickScript, pagePinsScript, type PagePin, type PagePinPosition } from "@milagre/shared/page-picker";
 import { pageKey, type PageElement, type SavedPageComment } from "@milagre/shared/page-comments";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
 import { directPageUrl, externalPageUrl, originalPageUrl, pairedPageHost, privatePage } from "./browser-page-url";

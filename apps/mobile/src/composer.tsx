@@ -1,7 +1,6 @@
 import { startingProvider } from "@milagre/shared/providers";
-import type { AgentCliStatus } from "@milagre/shared/model";
+import type { AgentCliStatus, PermissionMode } from "@milagre/shared/model";
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { PermissionMode } from "@milagre/shared/model";
 import type { ComposerQuote } from "@milagre/shared/prompt-parts";
 import type { Attachment } from "./attachments";
 import { readPermission, savedChatDefaults, savePermission } from "./hosts-native";
