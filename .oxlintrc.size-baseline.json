@@ -83,7 +83,7 @@
     {
       "files": ["apps/daemon/src/product-commands.cjs"],
       "rules": {
-        "complexity": ["error", 51]
+        "complexity": ["error", 43]
       }
     },
     {

@@ -98,6 +98,8 @@ milagre command run tasks_read --chat '/absolute/path/to/project#1'
 
 Results print as JSON. With `--json`, errors do too, and any failure exits with status 1.
 
+`milagre worktree create` prints `worktreeId`, `chatId`, `branch`, and `path`, plus any setup note. Use the returned `chatId` with `--chat`. For the full Project state, pass `--full` on the creation command.
+
 ## Triage a problem
 
 When the desktop app won't start:
