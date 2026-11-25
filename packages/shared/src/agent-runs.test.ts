@@ -1022,30 +1022,54 @@ test("suggestions belong only to the last completed Claude turn and clear on eve
 
 const step = (id: string) => ({ type: "step-started" as const, step: { id, kind: "command" as const, title: id } });
 
-test("the agent's answer to a steering message is saved as its own reply, not folded between steps", () => {
-  let applied = applyAgentEvent(
-    base(),
-    { [key(1)]: { text: "", model: "m", approvals: [], steps: [], questions: [], answered: {} } },
-    PROJECT,
-    key(1),
-    step("s1"),
-  );
-  applied = applyAgentEvent(applied.state, applied.runs, PROJECT, key(1), { type: "message-sent", model: "m" });
-  assert.equal(applied.runs[key(1)].steered, true);
-  applied = applyAgentEvent(applied.state, applied.runs, PROJECT, key(1), { type: "text-delta", messageId: null, text: "Because 27 isn't installed." });
-  const before = applied.state.messages.length;
-  applied = applyAgentEvent(applied.state, applied.runs, PROJECT, key(1), step("s2"));
-  assert.equal(applied.state.messages.at(-1)?.body, "Because 27 isn't installed.");
-  assert.equal(applied.state.messages.length, before + 1);
-  assert.equal(applied.runs[key(1)].steered, undefined);
+test("a steering reply and its finished steps appear once in saved history and the live transcript", () => {
+  const chat = key(1);
+  const question = "Which note should I use?\n- First\n- Second";
+  let runs = startRun({}, chat, "m");
+  let state = base();
+  let client = runs;
+  const apply = (event: AgentEvent) => {
+    ({ state, runs } = applyAgentEvent(state, runs, PROJECT, chat, event));
+    client = applyRunEvent(client, chat, event);
+  };
+  apply(step("running"));
+  apply({ type: "message-sent", model: "m" });
+  apply(step("read"));
+  apply({ type: "step-completed", id: "read", status: "done" });
+  apply({ type: "text-delta", messageId: "question", text: question });
+  const snapshot = runs;
+  const nextStep = step("write");
+  apply(nextStep);
+
   assert.deepEqual(
-    applied.runs[key(1)].steps.map((item) => item.id),
-    ["s1", "s2"],
+    state.messages.map((message) => message.body),
+    [question],
   );
-  // Later text between steps folds as before.
-  applied = applyAgentEvent(applied.state, applied.runs, PROJECT, key(1), { type: "text-delta", messageId: null, text: "Next." });
-  applied = applyAgentEvent(applied.state, applied.runs, PROJECT, key(1), step("s3"));
-  assert.equal(applied.state.messages.length, before + 1);
+  assert.deepEqual(
+    state.messages[0].steps?.map((item) => item.id),
+    ["read"],
+  );
+  assert.equal(client[chat].text, "");
+  assert.deepEqual(
+    client[chat].steps.map((item) => [item.id, item.offset]),
+    [
+      ["running", 0],
+      ["write", 0],
+    ],
+  );
+  assert.deepEqual(client, runs);
+  assert.deepEqual(applyRunEvent(snapshot, chat, nextStep), runs);
+
+  apply({ type: "text-delta", messageId: "next", text: question });
+  apply(step("finish"));
+  assert.equal(state.messages.length, 1);
+  assert.equal(client[chat].text, question);
+  apply({ type: "turn-completed" });
+  assert.deepEqual(
+    state.messages.map((message) => message.body),
+    [question, question],
+  );
+  assert.deepEqual(client, {});
 });
 
 test("a missing final reasoning summary preserves the public summary received during streaming", () => {

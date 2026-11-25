@@ -100,13 +100,21 @@ function splitRun(run) {
   return { ...run, text: "", steps: running, split: true };
 }
 
-export function applyRunEvent(runs, chatId, event, model = "") {
+function splitBeforeEvent(run, event) {
+  if (!run) return null;
+  if (event.type === "message-sent") return splitRun(run);
+  if (event.type !== "step-started" || !run.steered || !run.text.trim()) return null;
+  const { steered: _answered, ...remaining } = splitRun(run);
+  return remaining;
+}
+
+export function applyRunEvent(runs, chatId, event, model = "", split = splitBeforeEvent(runs[chatId], event)) {
+  if (split) runs = { ...runs, [chatId]: split };
   const run = runs[chatId];
   switch (event.type) {
     case "message-sent": {
       if (!run) return startRun(runs, chatId, event.model, event.permissionMode);
-      const split = splitRun(run);
-      return split ? { ...runs, [chatId]: split } : runs;
+      return { ...runs, [chatId]: { ...run, steered: true } };
     }
     case "turn-started": {
       const next = run ? runs : startRun(runs, chatId, model);
@@ -280,21 +288,18 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
       const { native_session_id: _forgotten, ...rest } = session;
       return { state: { ...state, sessions: { ...state.sessions, [sessionId]: rest } }, runs, changed: true };
     }
-    case "message-sent": {
-      const next = run ? splitRunForSteer(state, runs, projectPath, chatId) : { state, runs: applyRunEvent(runs, chatId, event), changed: false };
-      if (run) next.runs = { ...next.runs, [chatId]: { ...next.runs[chatId], steered: true } };
-      return { ...next, changed: next.changed || suggestionChanged };
+    case "message-sent":
+    case "step-started": {
+      if (event.type === "step-started" && event.step.id.startsWith("compact-") && pendingCompaction(state, sessionId)) return { state, runs, changed: false };
+      const split = splitBeforeEvent(run, event);
+      return {
+        state: split ? saveSplitReply(state, sessionId, run) : state,
+        runs: applyRunEvent(runs, chatId, event, "", split),
+        changed: Boolean(split) || suggestionChanged,
+      };
     }
     case "turn-started":
       return { state, runs: applyRunEvent(runs, chatId, event, lastUserModel(state, sessionId)), changed: suggestionChanged };
-    case "step-started":
-      if (event.step.id.startsWith("compact-") && pendingCompaction(state, sessionId)) return { state, runs, changed: false };
-      if (run?.steered && run.text.trim()) {
-        const split = splitRunForSteer(state, runs, projectPath, chatId);
-        const { steered: _answered, ...rest } = split.runs[chatId];
-        return { state: split.state, runs: applyRunEvent({ ...split.runs, [chatId]: rest }, chatId, event), changed: split.changed };
-      }
-      return { state, runs: applyRunEvent(runs, chatId, event), changed: false };
     case "context-compacting":
       return pendingCompaction(state, sessionId) ? { state, runs, changed: false } : addCompaction(state, runs, projectPath, chatId, "preparing");
     case "context-compacted": {
@@ -408,6 +413,10 @@ export function splitRunForSteer(state, runs, projectPath, chatId) {
   if (!chatInProject(projectPath, chatId) || !state.sessions[sessionId] || !run) return { state, runs, changed: false };
   const split = splitRun(run);
   if (!split) return { state, runs, changed: false };
+  return { state: saveSplitReply(state, sessionId, run), runs: { ...runs, [chatId]: split }, changed: true };
+}
+
+function saveSplitReply(state, sessionId, run) {
   const finished = run.steps.filter((step) => step.status !== "running");
   const message = {
     id: state.next_id,
@@ -418,11 +427,7 @@ export function splitRunForSteer(state, runs, projectPath, chatId) {
     model: run.model,
     ...savedSteps(run.text, finished, "done"),
   };
-  return {
-    state: { ...state, next_id: state.next_id + 1, messages: [...state.messages, message] },
-    runs: { ...runs, [chatId]: split },
-    changed: true,
-  };
+  return { ...state, next_id: state.next_id + 1, messages: [...state.messages, message] };
 }
 
 export function recordAnswers(state, runs, projectPath, chatId, body, answered, images) {

@@ -1401,7 +1401,7 @@
     {
       "files": ["packages/shared/src/agent-runs.mjs"],
       "rules": {
-        "complexity": ["error", 100]
+        "complexity": ["error", 97]
       }
     },
     {
