@@ -343,11 +343,11 @@ function Fixture() {
   const [htmlRevised, setHtmlRevised] = useState(false);
   window.reviseHtml = () => { window.htmlVersion = 2; window.htmlId = "current-artifact"; setHtmlRevised(true); };
   const [said, setSaid] = useState([]);
-  window.appendFeedback = (feedback) => setSaid((current) => [...current, designFeedbackMessage(feedback)]);
+  window.appendFeedback = (feedback) => setSaid((current) => [...current, { text: designFeedbackMessage(feedback) }]);
   const [resolvedReply, setResolvedReply] = useState(false);
   // The agent resolves the comment, then replies: the Chat moving on is what reads the comments again.
   window.agentResolves = (note) => { window.kept = window.kept.map((comment) => ({ ...comment, resolved: { note, at: 2 } })); setResolvedReply(true); };
-  const onSendDesignMessage = async (text) => { window.sent.push(text); setSaid((current) => [...current, text]); return true; };
+  const onSendDesignMessage = async (text, images = []) => { window.sent.push(text); window.sentImages = [...(window.sentImages ?? []), images]; setSaid((current) => [...current, { text, images }]); return true; };
   const messages = [
     { id: 1, session_id: 1, context: null, role: "user", body: "design a login screen" },
     { id: 2, session_id: 1, context: null, role: "assistant", body: "Here is a first pass.", steps: [step(1, 0), { id: "retired", kind: "artifact", title: "Explanation", status: "done", offset: 0, artifact: { id: "legacy", version: 1, title: "Explanation" } }] },
@@ -356,7 +356,7 @@ function Fixture() {
     ...(revised ? [{ id: 5, session_id: 1, context: null, role: "assistant", body: "Orange accent.", steps: [step(3, 0)] }] : []),
     ...Array.from({ length: catalogReads }, (_, index) => ({ id: 40 + index, session_id: 1, context: null, role: "assistant", body: "Regrouped.", steps: [{ id: "reread-" + index, kind: "tool", title: "design_delete", status: "done", offset: 0 }] })),
     ...(htmlRevised ? [{ id: 31, session_id: 1, context: null, role: "assistant", body: "Updated explanation.", steps: [{ id: "html-update", kind: "artifact", status: "done", title: "Updated artifact", offset: 0, artifact: { id: "current-artifact", version: 2, title: "Explanation", format: "html" } }] }] : []),
-    ...said.map((body, index) => ({ id: 10 + index, session_id: 1, context: null, role: "user", body })),
+    ...said.map(({ text, images }, index) => ({ id: 10 + index, session_id: 1, context: null, role: "user", body: text, ...(images?.length ? { images } : {}) })),
     ...(resolvedReply ? [{ id: 30, session_id: 1, context: null, role: "assistant", body: "Made it bigger.", steps: [{ id: "r1", kind: "other", title: "Resolved a design comment", status: "done", offset: 0 }] }] : []),
   ];
   // The app's layout: the chat pane inside the workspace, beside a 260px sidebar.
@@ -843,9 +843,51 @@ async function browserChecks() {
     await waitFor(`getComputedStyle(${homeControls}).opacity === "0"`);
     await evaluate(`${dock}.querySelector("[aria-label='Fit every design']").click()`);
 
+    // The middle button drags the canvas from anywhere, a design included, without handing the design the mouse; so do
+    // the Hand tool (H, back with V) and a held Space.
+    const board = `${dock}.querySelector("[data-slot=artifact-canvas] > div:not([data-slot])").style.transform`;
+    const designCentre = () =>
+      evaluate(
+        `(() => { const r = ${frame("login")}.querySelector("[data-design-body]").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`,
+      );
+    const dragFrom = async (from, button) => {
+      const held = button === "middle" ? ["middleButtonDown"] : ["leftButtonDown"];
+      window.webContents.sendInputEvent({ type: "mouseMove", x: from.x, y: from.y });
+      window.webContents.sendInputEvent({ type: "mouseDown", x: from.x, y: from.y, button, clickCount: 1 });
+      for (const step of [10, 30, 60]) window.webContents.sendInputEvent({ type: "mouseMove", x: from.x + step, y: from.y + step, modifiers: held });
+      window.webContents.sendInputEvent({ type: "mouseUp", x: from.x + 60, y: from.y + 60, button, clickCount: 1 });
+    };
+    let panned = await evaluate(board);
+    await dragFrom(await designCentre(), "middle");
+    await waitFor(`${board} !== ${JSON.stringify(panned)}`);
+    assert.ok(!!(await evaluate(`${frame("login")}.querySelector("[data-slot=artifact-shield]")`)), "a middle drag leaves the design as it was");
+    assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-mode-view]").textContent`), "", "the tools are icons");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "H" });
+    window.webContents.sendInputEvent({ type: "char", keyCode: "h" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "H" });
+    await waitFor(
+      `${dock}.querySelector("[data-slot=artifact-mode-hand]").getAttribute("aria-pressed") === "true" && !!${dock}.querySelector("[data-slot=artifact-pan-shield]")`,
+    );
+    panned = await evaluate(board);
+    await dragFrom(await designCentre(), "left");
+    await waitFor(`${board} !== ${JSON.stringify(panned)}`);
+    assert.ok(!!(await evaluate(`${frame("login")}.querySelector("[data-slot=artifact-shield]")`)), "the Hand tool drags over a design");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "V" });
+    window.webContents.sendInputEvent({ type: "char", keyCode: "v" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "V" });
+    await waitFor(
+      `${dock}.querySelector("[data-slot=artifact-mode-view]").getAttribute("aria-pressed") === "true" && !${dock}.querySelector("[data-slot=artifact-pan-shield]")`,
+    );
+    const centre = await designCentre();
+    window.webContents.sendInputEvent({ type: "mouseMove", x: centre.x, y: centre.y });
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Space" });
+    await waitFor(`!!${dock}.querySelector("[data-slot=artifact-pan-shield]")`);
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Space" });
+    await waitFor(`!${dock}.querySelector("[data-slot=artifact-pan-shield]")`);
+    await evaluate(`${dock}.querySelector("[aria-label='Fit every design']").click()`);
+
     // Wheel over a design pans the canvas until the design is clicked; then the design takes the mouse, and Escape hands
     // it back without closing the canvas.
-    const board = `${dock}.querySelector("[data-slot=artifact-canvas] > div").style.transform`;
     const over = await evaluate(
       `(() => { const r = ${frame("login")}.querySelector("[data-design-body]").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`,
     );
@@ -1060,6 +1102,17 @@ async function browserChecks() {
     await screenshot("comment-long");
     await typeComment("Make the button bigger");
     await waitFor(`${commentBox}.clientHeight === ${oneLine.height}`);
+    // An image pasted into the comment rides with it.
+    await evaluate(`(() => {
+      const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+      const data = new DataTransfer();
+      data.items.add(new File([bytes], "reference.png", { type: "image/png" }));
+      ${commentBox}.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    })()`);
+    await waitFor(`${frame("login")}.querySelectorAll("[data-slot=artifact-comment-images] img").length === 1`);
+    assert.equal(await evaluate(`${commentBox}.value`), "Make the button bigger", "the image doesn't land in the text");
+    await screenshot("comment-image");
+    await evaluate(`${commentBox}.focus()`);
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
     await waitFor(`!${frame("login")}.querySelector("[data-slot=artifact-comment-bubble]") && !!${dock}`);
     assert.match(await evaluate(`${frame("login")}.querySelector("[data-slot=artifact-pin]").getAttribute("aria-label")`), /Comment 1: Make the button bigger/);
@@ -1086,8 +1139,9 @@ async function browserChecks() {
     await waitFor(`window.kept?.[0]?.id === "${commentId}"`);
     assert.match(
       await evaluate("window.sent[0]"),
-      /^I chose the design "Home" \(home, version 1\)\. Continue from this one\.\n\nA comment on the designs:\n\n1\. \(comment [a-f0-9]{8}\) On the design "Login screen, warmer" \(login, version 2\), 50% across and 2\d% down(?:, layer "[^"]+")?: Make the button bigger\n\n.*artifact_resolve_comment/s,
+      /^I chose the design "Home" \(home, version 1\)\. Continue from this one\.\n\nA comment on the designs:\n\n1\. \(comment [a-f0-9]{8}\) On the design "Login screen, warmer" \(login, version 2\), 50% across and 2\d% down(?:, layer "[^"]+")?: Make the button bigger \[Image #1\]\n\n.*artifact_resolve_comment/s,
     );
+    assert.equal(await evaluate("window.sentImages[0].length"), 1, "the comment's image goes with the message");
     assert.match(await evaluate("window.sent[0]"), /Read the latest design with design_read, then revise its layers with design_apply and expectedVersion/);
     assert.doesNotMatch(await evaluate("window.sent[0]"), /artifact_show|artifact_read/);
     await waitFor(`!!${frame("home")}.querySelector("[data-slot=artifact-chosen]") && !${dock}.querySelector("[data-slot=artifact-send]")`);
@@ -1097,6 +1151,7 @@ async function browserChecks() {
     // In the chat the feedback is a card, not the text the agent reads: the choice, and the comment beside its spot.
     const card = 'document.querySelector("[data-slot=design-feedback]")';
     await waitFor(`!!${card}?.querySelector("[data-slot=design-feedback-comment] iframe")`);
+    await waitFor(`${card}.querySelectorAll("[data-slot=design-feedback-images] img").length === 1`);
     assert.match(await evaluate(`${card}.querySelector("[data-slot=design-feedback-choice]").textContent`), /Chose Home/);
     assert.match(
       await evaluate(`${card}.querySelector("[data-slot=design-feedback-comment]").textContent`),
@@ -1585,7 +1640,7 @@ async function browserChecks() {
       await waitFor(`!!${frame("login")}.querySelector("[data-slot=artifact-comment-layer]")`);
     }
     console.log(
-      "PASS: one Artifact button and panel, its title a menu that switches between the canvas and the page in place; live Share links pause, resume, update and stop, per workspace, design and page; a shown design is a card outside the activity with a sandboxed preview at its own screen size that can't make requests; Open docks a canvas of every design at the top right beside the chat (beside the git changes panel, away while the diff replaces the chat, filling the workspace when expanded or narrow), where frames follow revisions and step back through versions, zoom and fit work, wheel over a design pans until the design is clicked, choosing and Figma-like pinned comments wait for Send and reach the agent in one message, and Escape closes it",
+      "PASS: one Artifact button and panel, its title a menu that switches between the canvas and the page in place; live Share links pause, resume, update and stop, per workspace, design and page; a shown design is a card outside the activity with a sandboxed preview at its own screen size that can't make requests; Open docks a canvas of every design at the top right beside the chat (beside the git changes panel, away while the diff replaces the chat, filling the workspace when expanded or narrow), where frames follow revisions and step back through versions, zoom and fit work, wheel over a design pans until the design is clicked, the middle button, the Hand tool and Space drag the canvas from anywhere, choosing and Figma-like pinned comments (with pasted images) wait for Send and reach the agent in one message, and Escape closes it",
     );
     if (!keepOpen) app.exit(0);
   } catch (error) {

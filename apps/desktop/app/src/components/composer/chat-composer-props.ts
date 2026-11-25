@@ -33,7 +33,7 @@ export interface ChatComposerProps {
   reconnectingName?: string | null;
   offlineTray?: ReactNode;
   offScreen?: boolean;
-  onSendDesignMessage?: (text: string) => Promise<boolean>;
+  onSendDesignMessage?: (text: string, images?: ImageAttachment[]) => Promise<boolean>;
   onSendPageComments?: (text: string, images: ImageAttachment[]) => Promise<boolean>;
   onOpenDiff?: (path: string, worktree: string) => void;
   onOpenPullRequestLink?: (url: string) => boolean;

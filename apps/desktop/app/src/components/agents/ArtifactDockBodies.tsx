@@ -1,13 +1,12 @@
 import { useRef, useState } from "react";
-import { Comment01Icon, Cursor01Icon } from "@hugeicons/core-free-icons";
+import { Comment01Icon } from "@hugeicons/core-free-icons";
 import type { HtmlArtifact } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
-import Tooltip from "../primitives/Tooltip";
-import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { ZoomBar } from "../primitives/ZoomBar";
 import { ArtifactCanvas, type CanvasHandle, type CanvasView } from "./ArtifactCanvas";
 import { ArtifactPage, type PageHandle } from "./ArtifactPage";
+import { CanvasToolButton, CanvasTools } from "./CanvasTools";
 import { CommentOptions } from "./CommentOptions";
 import { COMMENT_KEY } from "./comment-key";
 import type { DockFeedback, DockPage } from "./dock-feedback";
@@ -109,6 +108,7 @@ export function CanvasBody({
   const { toggleComment, choice, setChoice } = feedback;
   const commenting = feedback.commenting && canComment;
   const label = commentLabel(feedback, "canvas");
+  const [hand, setHand] = useState(false);
   return (
     <div className="relative flex min-h-0 flex-1 flex-col" data-slot="artifact-dock-canvas">
       <ArtifactCanvas
@@ -128,6 +128,7 @@ export function CanvasBody({
           onChoose: canComment ? (design) => setChoice((current) => (current?.id === design.id && current.version === design.version ? null : design)) : null,
         }}
         onView={setView}
+        hand={hand && !commenting}
         onShare={onShare}
         onAddToLibrary={onAddToLibrary}
       />
@@ -135,36 +136,28 @@ export function CanvasBody({
         data-slot="artifact-zoom-bar"
         className="absolute bottom-4 left-1/2 -translate-x-1/2"
         leading={
-          <div role="group" aria-label="Canvas mode" className="flex items-center gap-0.5">
-            <Tooltip label="View and try designs" asChild>
-              <button
-                type="button"
-                data-slot="artifact-mode-view"
-                aria-pressed={!commenting}
-                onClick={() => commenting && toggleComment()}
-                className={`flex h-7 items-center gap-1.5 rounded-full px-3 text-12 font-medium transition-colors ${commenting ? "text-ink-2 hover:bg-hover" : "bg-hover-2 text-ink"}`}
-              >
-                <Icon icon={Cursor01Icon} size={14} />
-                View
-              </button>
-            </Tooltip>
-            <CommentOptions shown={feedback.showResolved} onChange={feedback.setShowResolved}>
-              <Tooltip label={`${label}. Right-click or hold for comment options`} keyHint={COMMENT_KEY} asChild>
-                <button
-                  type="button"
-                  data-slot="artifact-mode-comment"
-                  aria-label={label}
-                  aria-pressed={commenting}
+          <CanvasTools
+            tool={commenting ? "comment" : hand ? "hand" : "pointer"}
+            onTool={(tool) => {
+              setHand(tool === "hand");
+              if (commenting !== (tool === "comment")) toggleComment();
+            }}
+            comment={
+              <CommentOptions shown={feedback.showResolved} onChange={feedback.setShowResolved}>
+                <CanvasToolButton
+                  label={label}
+                  tip={`${label}. Right-click or hold for comment options`}
+                  keyHint={COMMENT_KEY}
+                  icon={Comment01Icon}
+                  pressed={commenting}
+                  tone="accent"
+                  slot="artifact-mode-comment"
                   disabled={!canComment}
                   onClick={toggleComment}
-                  className={`flex h-7 items-center gap-1.5 rounded-full px-3 text-12 font-medium transition-colors disabled:opacity-40 ${commenting ? "bg-accent-tint text-accent-ink" : "text-ink-2 enabled:hover:bg-hover"}`}
-                >
-                  <Icon icon={Comment01Icon} size={14} />
-                  Comment
-                </button>
-              </Tooltip>
-            </CommentOptions>
-          </div>
+                />
+              </CommentOptions>
+            }
+          />
         }
         zoom={view?.scale ?? null}
         onZoomOut={() => canvas.current?.zoomBy(1 / 1.25)}

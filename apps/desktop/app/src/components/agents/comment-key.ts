@@ -3,8 +3,9 @@ import { isModalOpen } from "../../lib/modal";
 
 export const COMMENT_KEY = "C";
 
-function isCommentKey(event: KeyboardEvent) {
-  if (event.key.toLowerCase() !== COMMENT_KEY.toLowerCase() || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
+/** A bare letter press meant for the canvas: not typed into a field or a design, and with no dialog or menu open. */
+export function isCanvasKey(event: KeyboardEvent, key: string) {
+  if (event.key.toLowerCase() !== key.toLowerCase() || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
   if (event.repeat || event.isComposing || event.defaultPrevented) return false;
   const target = event.target instanceof Element ? event.target : null;
   if (target?.closest("input, textarea, select, [contenteditable]:not([contenteditable=false])")) return false;
@@ -13,11 +14,12 @@ function isCommentKey(event: KeyboardEvent) {
   return !isModalOpen() && !document.querySelector("[data-slot=design-page-share]");
 }
 
-export function useCommentKey(enabled: boolean, toggle: () => void) {
+export function useCanvasKeys(enabled: boolean, keys: Record<string, () => void>) {
   const onKey = useEffectEvent((event: KeyboardEvent) => {
-    if (!isCommentKey(event)) return;
+    const run = Object.entries(keys).find(([name]) => isCanvasKey(event, name))?.[1];
+    if (!run) return;
     event.preventDefault();
-    toggle();
+    run();
   });
   useEffect(() => {
     if (!enabled) return;
@@ -25,4 +27,8 @@ export function useCommentKey(enabled: boolean, toggle: () => void) {
     window.addEventListener("keydown", handle);
     return () => window.removeEventListener("keydown", handle);
   }, [enabled]);
+}
+
+export function useCommentKey(enabled: boolean, toggle: () => void) {
+  useCanvasKeys(enabled, { [COMMENT_KEY]: toggle });
 }

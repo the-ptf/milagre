@@ -114,6 +114,19 @@ test("editable feedback keeps the selected layer and asks for a version-safe edi
   assert.deepEqual(parseDesignFeedback(message), { choice: null, comments: [comment] });
 });
 
+test("a comment's attached images ride as image mentions and read back", () => {
+  const login = { id: "login", version: 2, title: "Login" };
+  const page = { id: "report", version: 1, title: "Report", format: "html" as const };
+  const comments = [
+    { design: login, x: 0.5, y: 0.25, id: "1234abcd", text: "Match this", images: [1, 2] },
+    { design: page, x: 0.1, y: 0.2, id: "5678abcd", text: "", images: [3] },
+  ];
+  const message = designFeedbackMessage({ comments });
+  assert.match(message, /: Match this \[Image #1\] \[Image #2\]\n/);
+  assert.match(message, /down: \[Image #3\]\n/);
+  assert.deepEqual(parseDesignFeedback(message), { choice: null, comments });
+});
+
 test("feedback without a pinned layer still requests a version-safe structured edit", () => {
   const comment = { design: { id: "welcome", version: 2, title: "Welcome" }, text: "Use a larger title" };
   const message = designFeedbackMessage({ comments: [comment] });

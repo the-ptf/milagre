@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { designFeedbackMessage, newCommentId, sentNumbers, type ArtifactComment, type DesignComment, type HtmlArtifact } from "@milagre/shared/artifact";
-import type { ArtifactRef } from "../../model";
+import type { ArtifactRef, ImageAttachment } from "../../model";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import type { DesignPin, PinControls } from "./ArtifactCanvas";
 
 /** The two bodies of the Artifact panel: the canvas of every design, and the Chat's HTML page. */
 export type DockPage = "canvas" | "page" | `library:${string}`;
+
+const isWritten = (pin: DesignPin) => !!pin.text.trim() || !!pin.images?.length;
+const IMAGE_ONLY = "See the attached image.";
 
 const unsent = new Map<string, { pins: DesignPin[]; choice: ArtifactRef | null }>();
 
@@ -42,7 +45,7 @@ type FeedbackOptions = {
   hostComments: ArtifactComment[];
   openComment?: string;
   openNonce: number;
-  onSend?: (text: string) => Promise<boolean>;
+  onSend?: (text: string, images?: ImageAttachment[]) => Promise<boolean>;
   onCommentsAdded: () => void;
   onSent: () => void;
 };
@@ -70,7 +73,7 @@ export function useDockFeedback({
 }: FeedbackOptions) {
   const unsentKey = page === "canvas" ? chatId : `${chatId}#artifacts`;
   const [kept] = useState(() => unsent.get(unsentKey));
-  const [pins, setPins] = useState<DesignPin[]>(() => kept?.pins.filter((pin) => pin.text.trim()) ?? []);
+  const [pins, setPins] = useState<DesignPin[]>(() => kept?.pins.filter(isWritten) ?? []);
   const [choice, setChoice] = useState<ArtifactRef | null>(kept?.choice ?? null);
   const [commenting, setCommenting] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
@@ -102,7 +105,7 @@ export function useDockFeedback({
   }, [unsentKey, pins, choice]);
   useEffect(() => {
     if (!kept || page !== "canvas") return;
-    for (const item of [...(kept.choice ? [kept.choice] : []), ...kept.pins.filter((pin) => pin.text.trim()).map((pin) => pin.design)]) {
+    for (const item of [...(kept.choice ? [kept.choice] : []), ...kept.pins.filter(isWritten).map((pin) => pin.design)]) {
       const newest = designs.find((design) => design.id === item.id)?.version;
       if (newest !== undefined && item.version < newest && versions[item.id] == null) onVersion(item.id, item.version);
     }
@@ -116,25 +119,30 @@ export function useDockFeedback({
     setChoice((current) => (current && !ids.has(current.id) ? null : current));
   }, [page, designIds]);
   const toggleComment = useCallback(() => setCommenting((value) => !value), []);
-  const written = pins.filter((pin) => pin.text.trim());
+  const written = pins.filter(isWritten);
   const count = written.length + (choice ? 1 : 0);
   const send = async () => {
     if (!onSend || sending || !count) return;
     setSending(true);
     setError("");
     try {
+      const images: ImageAttachment[] = [];
       const comments: DesignComment[] = written.map(({ key, design, x, y, text, nodeId, anchor, near, tab }) => ({
         id: key,
         design,
         x,
         y,
-        text,
+        text: text.trim() || IMAGE_ONLY,
         ...(nodeId ? { nodeId } : {}),
         ...(anchor ? { anchor } : {}),
         ...(near ? { near } : {}),
         ...(tab ? { tab } : {}),
       }));
-      if (await onSend(designFeedbackMessage({ choice, comments }))) {
+      const numbered = comments.map((comment, index) => {
+        const own = (written[index]!.images ?? []).map((image) => images.push(image));
+        return own.length ? { ...comment, images: own } : comment;
+      });
+      if (await onSend(designFeedbackMessage({ choice, comments: numbered }), images)) {
         if (comments.length)
           void bridgeForKey(chatId)
             .artifacts.addComments?.({ chatId, comments })
@@ -157,7 +165,7 @@ export function useDockFeedback({
     onPin: (design, x, y, nodeId, onPage) => {
       const key = newCommentId();
       setPins((current) => [
-        ...current.filter((pin) => pin.key !== openPin || pin.text.trim()),
+        ...current.filter((pin) => pin.key !== openPin || isWritten(pin)),
         {
           key,
           design,
@@ -175,6 +183,7 @@ export function useDockFeedback({
     },
     onOpen: setOpenPin,
     onText: (key, text) => setPins((current) => current.map((pin) => (pin.key === key ? { ...pin, text } : pin))),
+    onImages: (key, images) => setPins((current) => current.map((pin) => (pin.key === key ? { ...pin, images } : pin))),
     onRemove: (key) => {
       setPins((current) => current.filter((pin) => pin.key !== key));
       setOpenPin((current) => (current === key ? null : current));

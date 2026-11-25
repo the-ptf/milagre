@@ -3,6 +3,7 @@ import type { DesignDocument } from "./design.mjs";
 import type { ArtifactAsset } from "./artifact-assets.mjs";
 import { ago } from "./main-sync.ts";
 import { projectOfKey, sessionIdFromKey } from "./agent-runs.mjs";
+import { formatImageMention } from "./prompt-parts.mjs";
 export { createDesignFontReader, restoreDesignFonts } from "./design-font-cache.mjs";
 
 export type { ArtifactAsset };
@@ -212,6 +213,8 @@ export type DesignComment = {
   tab?: { id: string; title: string };
   text: string;
   id?: string;
+  /** The images attached to it: their numbers among the message's images, from 1. */
+  images?: number[];
 };
 
 /** The tab of an Artifact page to show: the one named, else its first; a page without tabs is its one tab, id "". */
@@ -267,7 +270,8 @@ export function designFeedbackMessage({ choice, comments }: { choice?: ArtifactR
       const layer = comment.nodeId ? `, layer "${comment.nodeId}"` : "";
       const tab = comment.design.format === "html" && comment.tab ? `, on the tab ${comment.tab.id} ("${nearText(comment.tab.title)}")` : "";
       const near = comment.design.format === "html" && nearText(comment.near) ? `, near "${nearText(comment.near)}"` : "";
-      return `${index + 1}. ${comment.id ? `(comment ${comment.id}) ` : ""}On ${designName(comment.design)}${at}${layer}${tab}${near}: ${comment.text.trim()}`;
+      const said = [comment.text.trim(), ...(comment.images ?? []).map(formatImageMention)].filter(Boolean).join(" ");
+      return `${index + 1}. ${comment.id ? `(comment ${comment.id}) ` : ""}On ${designName(comment.design)}${at}${layer}${tab}${near}: ${said}`;
     });
     const htmlOnly = comments.every((comment) => comment.design.format === "html");
     const mixed = !htmlOnly && comments.some((comment) => comment.design.format === "html");
@@ -313,6 +317,12 @@ const COMMENT =
 const ARTIFACT_COMMENT =
   /^(\d+)\. (?:\(comment ([a-f0-9]{8})\) )?On the artifact "(.*)" \(([a-z0-9-]+)\)(?:, (\d+)% across and (\d+)% down)?(?:, on the tab ([a-z0-9-]+) \("([^"]*)"\))?(?:, near "([^"]*)")?: (.*)$/;
 
+function withImages(said: string): { text: string; images?: number[] } {
+  const [, text = said, tokens] = /^(.*?)((?:\s*\[Image #\d+\])+)$/.exec(said) ?? [];
+  const images = tokens ? [...tokens.matchAll(/\[Image #(\d+)\]/g)].map((token) => Number(token[1])) : [];
+  return images.length ? { text, images } : { text };
+}
+
 /**
  * The feedback a message designFeedbackMessage wrote carries, read back to show it as a card instead of its text; null
  * for any other message. Only the exact shape it writes reads back, so a message the user typed stays text.
@@ -333,10 +343,10 @@ export function parseDesignFeedback(body: string): { choice: ArtifactRef | null;
   for (const line of (list ?? "").split("\n")) {
     const artifact = ARTIFACT_COMMENT.exec(line);
     if (artifact) {
-      const [, , commentId, title, id, x, y, tabId, tabTitle, near, text] = artifact;
+      const [, , commentId, title, id, x, y, tabId, tabTitle, near, said] = artifact;
       comments.push({
         design: { id: id!, title: title!, version: 1, format: "html" },
-        text: text!,
+        ...withImages(said!),
         ...(commentId ? { id: commentId } : {}),
         ...(x === undefined || y === undefined ? {} : { x: Number(x) / 100, y: Number(y) / 100 }),
         ...(tabId ? { tab: { id: tabId, title: tabTitle! } } : {}),
@@ -346,11 +356,11 @@ export function parseDesignFeedback(body: string): { choice: ArtifactRef | null;
     }
     const match = COMMENT.exec(line);
     if (!match) return null;
-    const [, , commentId, title, id, version, x, y, nodeId, text] = match;
+    const [, , commentId, title, id, version, x, y, nodeId, said] = match;
     comments.push({
       design: { id: id!, version: Number(version), title: title! },
       ...(x === undefined || y === undefined ? {} : { x: Number(x) / 100, y: Number(y) / 100 }),
-      text: text!,
+      ...withImages(said!),
       ...(commentId ? { id: commentId } : {}),
       ...(nodeId ? { nodeId } : {}),
     });

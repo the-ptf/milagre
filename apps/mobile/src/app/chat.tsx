@@ -83,7 +83,7 @@ import { useChatPorts } from "../ports";
 import { TerminalDock, terminalPlaces } from "../terminal";
 import { KeyboardChatScrollView, KeyboardStickyView, useKeyboardState, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import { ChatReply, ChatRow, type ReplyChat } from "../chat-reply";
-import { designMessageSent, onSendDesignMessageNow, peekDesignMessage, type DesignMessage } from "../design-outbox";
+import { onSendDesignMessageNow, sendWaitingDesign, type DesignMessage } from "../design-outbox";
 import { PanelTabsContext } from "../panel-tabs";
 import { chosenDesign } from "@milagre/shared/artifact";
 import { handoffSides } from "../handoff-sides";
@@ -1241,22 +1241,14 @@ function ChatPane({
     }
   }
   sendGenui.current = (text: string) => send(text, false);
-  sendDesign.current = () => {
-    const message = designKey ? peekDesignMessage(designKey) : null;
-    if (!message || !designKey || designSending.current === message || (message.kind !== "artifacts" && session.designs.enabled !== true)) return;
-    designSending.current = message;
-    void send(message.text, false)
-      .then((sent) => {
-        designSending.current = null;
-        designDeferred.current = sent === "busy";
-        if (sent !== true) return;
-        designMessageSent(designKey, message);
-        sendDesign.current();
-      })
-      .catch(() => {
-        designSending.current = null;
-      });
-  };
+  sendDesign.current = () =>
+    sendWaitingDesign(
+      designKey,
+      session.designs.enabled === true,
+      { sending: designSending, deferred: designDeferred },
+      (message) => send(message.text, false, undefined, undefined, false, message.images),
+      () => sendDesign.current(),
+    );
   startIssue.current = (issue) => void send(issueFirstMessage(issue, heldDraft().draft), true, undefined, issue);
   async function chooseIssue() {
     await pickLinearIssue("Start from a Linear issue", (issue) => startIssue.current(issue));
@@ -1301,7 +1293,14 @@ function ChatPane({
       },
     });
   }
-  async function send(typedBody?: string, withAttachments = true, prAction?: PullRequestActionContext, issue?: LinearIssue, stay = false) {
+  async function send(
+    typedBody?: string,
+    withAttachments = true,
+    prAction?: PullRequestActionContext,
+    issue?: LinearIssue,
+    stay = false,
+    extra: NonNullable<DesignMessage["images"]> = [],
+  ) {
     const { draft, quotes, attachments } = heldDraft();
     const outgoing = quotedMessage(quotes, draft);
     const body = typedBody ?? outgoing;
@@ -1334,7 +1333,7 @@ function ChatPane({
           withAttachments && worktree?.path
             ? mentionAttachments(typed, worktree.path, attachments, (path) => knownFiles.current.has(worktree.path, path)).added
             : [];
-        const picked = withAttachments ? [...attachments, ...mentioned] : [];
+        const picked = withAttachments ? [...attachments, ...mentioned] : extra;
         await outbox.enqueue({
           id,
           computerId: client.url,
@@ -1395,7 +1394,7 @@ function ChatPane({
       if (!chatsHomeOpen) void savedChatDefaults.saveLastProject(client.url, sendingProjectPath);
       if (projectOrigin) void savedChatDefaults.saveOriginComputer(projectOrigin, client.url);
     }
-    const sending = withAttachments ? [...attachments, ...mentions.added] : [];
+    const sending = withAttachments ? [...attachments, ...mentions.added] : extra;
     const focus = focused.current;
     const current = () => !stay && focus !== null && focused.current === focus && session.isSelected();
     const clearsDraft = own || issueKey !== undefined;

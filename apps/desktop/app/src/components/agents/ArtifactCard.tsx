@@ -12,7 +12,7 @@ import {
   type ArtifactComment,
   type DesignComment,
 } from "@milagre/shared/artifact";
-import type { ArtifactRef, ChatStep, Subagent } from "../../model";
+import type { ArtifactRef, ChatStep, ImageAttachment, Subagent } from "../../model";
 import { Button } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { THEME_EVENT } from "../../lib/theme-sheet";
@@ -21,6 +21,7 @@ import { useSidePanel } from "./PanelToggles";
 import { usePanelWidth } from "./panel-width";
 import { ArtifactFrame, pageFiles, type DesignPin, type PageFiles } from "./ArtifactCanvas";
 import { useArtifact } from "./artifact-read";
+import { SentCommentImages } from "./CommentImages";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { remember, useSavedDesigns } from "./saved-designs";
@@ -262,12 +263,16 @@ const ArtifactCard = memo(function ArtifactCard({ step }: { step: ChatStep & { a
   );
 });
 
+const NO_IMAGES: ImageAttachment[] = [];
+
 export function DesignFeedbackCard({
   feedback,
   messageId,
+  images = NO_IMAGES,
 }: {
   feedback: { choice: ArtifactRef | null; comments: DesignComment[] };
   messageId: number | string;
+  images?: ImageAttachment[];
 }) {
   const { chatId, openComment, enabled, latest } = useContext(Artifacts);
   const choice = feedback.choice && latest.has(feedback.choice.id) ? feedback.choice : null;
@@ -298,6 +303,7 @@ export function DesignFeedbackCard({
             key={feedback.comments.indexOf(comment)}
             comment={comment}
             number={feedback.comments.indexOf(comment) + 1}
+            images={(comment.images ?? []).flatMap((index) => images[index - 1] ?? [])}
             onOpen={chatId && comment.x !== undefined ? () => openComment(`${messageId}:${feedback.comments.indexOf(comment)}`) : undefined}
           />
         ))}
@@ -315,7 +321,7 @@ function FeedbackText({ feedback }: { feedback: { choice: ArtifactRef | null; co
   );
 }
 
-function FeedbackComment({ comment, number, onOpen }: { comment: DesignComment; number: number; onOpen?: () => void }) {
+function FeedbackComment({ comment, number, images, onOpen }: { comment: DesignComment; number: number; images: ImageAttachment[]; onOpen?: () => void }) {
   const { chatId, resolutions, latest, anchors } = useContext(Artifacts);
   const resolved = comment.id ? resolutions.get(comment.id) : undefined;
   const current = latest.get(comment.design.id);
@@ -360,6 +366,7 @@ function FeedbackComment({ comment, number, onOpen }: { comment: DesignComment; 
       </span>
       <span className="min-w-0 flex-1">
         <span className={`block ${resolved === undefined ? "text-ink" : "text-ink-3 line-through"}`}>{comment.text}</span>
+        <SentCommentImages images={images} />
         {resolved !== undefined && (
           <span data-slot="design-feedback-resolved" className="mt-0.5 flex items-start gap-1 text-12 text-green-ink">
             <Icon icon={CheckmarkCircle02Icon} size={12} className="mt-0.5 shrink-0" />
@@ -477,7 +484,7 @@ export function ArtifactsProvider({
   chatId: string | null;
   steps: ChatStep[];
   userMessages: { id: number | string; body: string }[];
-  onSend?: (text: string) => Promise<boolean>;
+  onSend?: (text: string, images?: ImageAttachment[]) => Promise<boolean>;
   agent?: string;
   followAgent?: boolean;
   subagents?: readonly Subagent[];

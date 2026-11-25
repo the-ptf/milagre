@@ -6,7 +6,10 @@ import { useCommentSendKey, useOnScreenReturn, useReturnKey } from "./hardware-k
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import { lineHeight, radius, type } from "./design-tokens";
-import { Field, PillButton } from "./ui";
+import { Field, InlineError, PillButton } from "./ui";
+import { CommentImageStrip, useCommentPaste } from "./comment-images";
+import { useImagePaste } from "./use-image-paste";
+import type { Attachment } from "./attachments";
 
 export function CommentBox({
   at,
@@ -18,17 +21,19 @@ export function CommentBox({
   onCancel,
   onDone,
   onSend,
+  onPhotos,
   room,
 }: {
   at: { x: number; y: number };
   kind: "new" | "edit" | "read";
-  note?: { text: string };
+  note?: { text: string; photos?: Attachment[] };
   sentComment?: { text: string; resolved?: { note: string } };
   number: number;
   onChange: (text: string) => void;
   onCancel: () => void;
   onDone: () => void;
   onSend: () => void;
+  onPhotos?: (photos: Attachment[]) => void;
   room?: { width: number; height: number };
 }) {
   const { colors } = useTheme();
@@ -36,11 +41,14 @@ export function CommentBox({
   // A web page the comment was held on can keep the keyboard focus past autoFocus (WebKit's text interaction takes it
   const input = useRef<TextInputInstance>(null);
   const [focused, setFocused] = useState(false);
+  const photos = note?.photos ?? [];
+  const pasted = useCommentPaste(photos, onPhotos);
+  const paste = useImagePaste(pasted.onPaste && ((image) => void pasted.onPaste?.(image)), input);
   const keep = () => onDone();
   const enter = useReturnKey(input, sentComment ? undefined : keep);
   const onScreen = useOnScreenReturn(sentComment ? undefined : keep);
   useCommentSendKey(focused && !sentComment, () => {
-    if (text.trim()) onSend();
+    if (text.trim() || photos.length) onSend();
   });
   const window = useWindowDimensions();
   const bounds = room ?? window;
@@ -119,10 +127,14 @@ export function CommentBox({
             autoCorrect
             autoFocus
             bare
-            onLayout={enter.attach}
+            onLayout={() => {
+              enter.attach();
+              paste.onLayout();
+            }}
             onFocus={() => {
               setFocused(true);
               enter.attach();
+              paste.onFocus();
             }}
             onBlur={() => setFocused(false)}
             {...onScreen}
@@ -136,13 +148,15 @@ export function CommentBox({
             placeholder="What should change here?"
             style={{ maxHeight: 120 }}
           />
-          <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+          {onPhotos && <CommentImageStrip photos={photos} onRemove={(id) => onPhotos(photos.filter((photo) => photo.id !== id))} />}
+          <InlineError message={pasted.error} />
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
             {kind === "new" ? (
               <PillButton size="small" variant="plain" muted title="Cancel" onPress={onCancel} />
             ) : (
               <PillButton size="small" variant="plain" destructive title="Delete" onPress={onCancel} />
             )}
-            <PillButton size="small" title={kind === "new" ? "Add" : "Done"} disabled={kind === "new" && !text.trim()} onPress={onDone} />
+            <PillButton size="small" title={kind === "new" ? "Add" : "Done"} disabled={kind === "new" && !text.trim() && !photos.length} onPress={onDone} />
           </View>
         </>
       )}

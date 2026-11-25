@@ -80,15 +80,19 @@ function viewerPhotos(message: ChatMessage, media: MediaSource): ViewerImage[] {
   }));
 }
 
-function Photos({ message, media }: { message: ChatMessage; media: MediaSource }) {
+const hasCommentImages = (feedback: ReturnType<typeof parseDesignFeedback>) => !!feedback?.comments.some((comment) => comment.images?.length);
+
+function Photos({ message, media, only, hidden }: { message: ChatMessage; media: MediaSource; only?: number[]; hidden?: boolean }) {
   const { colors } = useTheme();
   const photos = viewerPhotos(message, media);
   const thumbs = useRef<(ViewInstance | null)[]>([]);
-  if (!photos.length) return null;
-  const single = photos.length === 1;
+  if (!photos.length || hidden) return null;
+  const single = !only && photos.length === 1;
+  const shown = photos.flatMap((photo, index) => (!only || only.includes(index + 1) ? [{ photo, index }] : []));
+  if (!shown.length) return null;
   return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, justifyContent: "flex-end", maxWidth: 264 }}>
-      {photos.map((photo, index) => (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, justifyContent: only ? "flex-start" : "flex-end", maxWidth: 264 }}>
+      {shown.map(({ photo, index }) => (
         <Pressable
           key={index}
           ref={(view) => {
@@ -98,7 +102,7 @@ function Photos({ message, media }: { message: ChatMessage; media: MediaSource }
           accessibilityLabel={`${photo.name}. Open full screen`}
           onPress={() => open(photos, index, thumbs.current)}
         >
-          <Thumbnail source={photo.source} size={single ? 220 : 130} />
+          <Thumbnail source={photo.source} size={only ? 64 : single ? 220 : 130} />
           <View
             style={{
               position: "absolute",
@@ -440,7 +444,7 @@ export const ChatReply = memo(function ChatReply({
     const lineHeight = Math.round(textPx * 1.4667);
     return (
       <SendLaunch clientMessageId={message.clientMessageId} style={{ alignSelf: "flex-end", alignItems: "flex-end", gap: 6, maxWidth: "88%" }}>
-        <Photos message={message} media={media} />
+        <Photos message={message} media={media} hidden={hasCommentImages(feedback)} />
         {message.files
           ?.filter((file) => !inline.has(file) && !message.images?.some((image) => image.path === file || image.sourcePath === file))
           .map((file) => (
@@ -451,7 +455,12 @@ export const ChatReply = memo(function ChatReply({
         ) : issue ? (
           <LinearIssueCard issue={issue} />
         ) : feedback ? (
-          <DesignFeedbackCard feedback={feedback} chatId={chatId} moved={designsMoved} />
+          <DesignFeedbackCard
+            feedback={feedback}
+            chatId={chatId}
+            moved={designsMoved}
+            renderImages={(numbers) => <Photos message={message} media={media} only={numbers} />}
+          />
         ) : pageComments ? (
           <PageCommentsCard comments={pageComments} chatId={chatId} moved={designsMoved} />
         ) : message.answered?.length ? (
