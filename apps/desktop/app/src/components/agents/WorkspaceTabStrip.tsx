@@ -22,7 +22,7 @@ import {
 import { closeBrowserTab } from "../../lib/browser-panel";
 import { pageIcon, pageLabel, useWorkspaceTabSources, type TabPanels } from "./use-workspace-tab-sources";
 import { setBookmarkReserve } from "../../lib/bookmark-reserve";
-import { useControlsClearance } from "../../lib/window-chrome";
+import { useWindowChrome } from "../../lib/window-chrome";
 import { tabSet, updateTabSet, useTabSet } from "../../lib/workspace-tabs-store";
 import { Button, IconButton } from "../primitives/Button";
 import { Dialog } from "../primitives/Dialog";
@@ -60,7 +60,8 @@ type Props = {
  */
 export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, belongs, rows, activeChatId, corner, menu, onOpenChat, onNewChat }: Props) {
   const set = useTabSet(workspace);
-  const { bar, inset } = useControlsClearance<HTMLDivElement>(true, corner);
+  const chrome = useWindowChrome();
+  const anchor = useRef<HTMLSpanElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const group = useRef<HTMLDivElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
@@ -84,7 +85,7 @@ export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, be
   };
   useLayoutEffect(measure, [set, drafting]);
   useLayoutEffect(() => {
-    const host = bar.current?.offsetParent;
+    const host = anchor.current?.offsetParent;
     const box = group.current;
     if (!(host instanceof HTMLElement) || !box) return;
     const update = () => {
@@ -99,7 +100,7 @@ export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, be
       observer.disconnect();
       setBookmarkReserve(0);
     };
-  }, [bar]);
+  }, []);
 
   const shownActive = drafting ? DRAFT : set.active;
   useEffect(() => {
@@ -145,151 +146,156 @@ export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, be
   const menuParent = menuTab?.kind === "chat" ? parentOf(menuTab.chatId) : undefined;
 
   return (
-    <div
-      ref={bar}
-      data-workspace-tabs
-      style={inset}
-      className="pointer-events-none absolute inset-x-3 top-[var(--window-chrome-top)] z-[55] flex h-8 select-none items-center"
-    >
-      <div ref={group} className="pointer-events-auto flex min-w-0 max-w-full items-center gap-0.5">
+    <>
+      <span ref={anchor} aria-hidden className="absolute" />
+      {createPortal(
         <div
-          ref={scroller}
-          role="tablist"
-          aria-label="Workspace tabs"
-          onScroll={measure}
-          onWheel={(event) => {
-            if (scroller.current && Math.abs(event.deltaY) > Math.abs(event.deltaX)) scroller.current.scrollLeft += event.deltaY;
-          }}
-          className="no-drag flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]"
-          style={{ maskImage: mask, WebkitMaskImage: mask }}
+          data-workspace-tabs
+          style={{ left: chrome.controlsEnd, right: chrome.rightInset + 12 + (corner ? corner + 20 : 0) }}
+          className="pointer-events-none fixed top-[var(--window-chrome-top)] z-[55] flex h-8 select-none items-center"
         >
-          {set.tabs.map((tab) => {
-            const id = tabId(tab);
-            const row = tab.kind === "chat" ? rowOf(tab.chatId) : undefined;
-            return (
-              <Tab
-                key={id}
-                id={id}
-                title={label(tab)}
-                active={!drafting && set.active === id}
-                dragging={dragging === id}
-                unread={Boolean(tab.unread || row?.unread)}
-                subchat={tab.kind === "chat" && parentOf(tab.chatId) !== undefined}
-                icon={pageIcon(tab)}
-                beside={Boolean(tab.beside)}
-                mark={
-                  row?.mark && row.mark !== "idle" && row.mark !== "unread" ? (
-                    <ChatMarkDotInline mark={row.mark} failed={false} background={row.background} />
-                  ) : null
-                }
-                shortcut={tabShortcutDigit(set, id)}
-                onSelect={() => focus(tab)}
-                onClose={() => requestClose(id)}
-                onDragStart={(event) => startDrag(id, event)}
-                onMenu={(x, y) => setMenuAt({ id, x, y })}
-                onHover={(element) => row && hover.show(row, element)}
-                onLeave={hover.hideSoon}
+          <div ref={group} className="pointer-events-auto flex min-w-0 max-w-full items-center gap-0.5">
+            <div
+              ref={scroller}
+              role="tablist"
+              aria-label="Workspace tabs"
+              onScroll={measure}
+              onWheel={(event) => {
+                if (scroller.current && Math.abs(event.deltaY) > Math.abs(event.deltaX)) scroller.current.scrollLeft += event.deltaY;
+              }}
+              className="no-drag flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]"
+              style={{ maskImage: mask, WebkitMaskImage: mask }}
+            >
+              {set.tabs.map((tab) => {
+                const id = tabId(tab);
+                const row = tab.kind === "chat" ? rowOf(tab.chatId) : undefined;
+                return (
+                  <Tab
+                    key={id}
+                    id={id}
+                    title={label(tab)}
+                    active={!drafting && set.active === id}
+                    dragging={dragging === id}
+                    unread={Boolean(tab.unread || row?.unread)}
+                    subchat={tab.kind === "chat" && parentOf(tab.chatId) !== undefined}
+                    icon={pageIcon(tab)}
+                    beside={Boolean(tab.beside)}
+                    mark={
+                      row?.mark && row.mark !== "idle" && row.mark !== "unread" ? (
+                        <ChatMarkDotInline mark={row.mark} failed={false} background={row.background} />
+                      ) : null
+                    }
+                    shortcut={tabShortcutDigit(set, id)}
+                    onSelect={() => focus(tab)}
+                    onClose={() => requestClose(id)}
+                    onDragStart={(event) => startDrag(id, event)}
+                    onMenu={(x, y) => setMenuAt({ id, x, y })}
+                    onHover={(element) => row && hover.show(row, element)}
+                    onLeave={hover.hideSoon}
+                  />
+                );
+              })}
+              {drafting && (
+                <Tab
+                  id={DRAFT}
+                  title="New Chat"
+                  active
+                  dragging={false}
+                  unread={false}
+                  subchat={false}
+                  mark={null}
+                  onSelect={() => undefined}
+                  onClose={() => close(DRAFT)}
+                  onDragStart={() => undefined}
+                  onMenu={() => undefined}
+                  onHover={() => undefined}
+                  onLeave={() => undefined}
+                />
+              )}
+            </div>
+            <IconButton
+              ref={addButton}
+              size={24}
+              label="New tab"
+              icon={PlusSignIcon}
+              side="bottom"
+              data-workspace-tab-add
+              onClick={() => setPopover(popover === "add" ? null : "add")}
+            />
+            {(edges.left || edges.right) && (
+              <IconButton
+                ref={allButton}
+                size={24}
+                label={`All tabs (${set.tabs.length})`}
+                icon={ArrowDown01Icon}
+                side="bottom"
+                onClick={() => setPopover(popover === "all" ? null : "all")}
               />
-            );
-          })}
-          {drafting && (
-            <Tab
-              id={DRAFT}
-              title="New Chat"
-              active
-              dragging={false}
-              unread={false}
-              subchat={false}
-              mark={null}
-              onSelect={() => undefined}
-              onClose={() => close(DRAFT)}
-              onDragStart={() => undefined}
-              onMenu={() => undefined}
-              onHover={() => undefined}
-              onLeave={() => undefined}
+            )}
+          </div>
+          {popover === "add" && (
+            <AddTabMenu
+              anchor={addButton}
+              menu={menu.map(({ tab, ...entry }) => (tab ? { ...entry, onSelect: () => updateTabSet(workspace, (current) => openTab(current, tab)) } : entry))}
+              onNewChat={onNewChat}
+              onClose={() => setPopover(null)}
             />
           )}
-        </div>
-        <IconButton
-          ref={addButton}
-          size={24}
-          label="New tab"
-          icon={PlusSignIcon}
-          side="bottom"
-          data-workspace-tab-add
-          onClick={() => setPopover(popover === "add" ? null : "add")}
-        />
-        {(edges.left || edges.right) && (
-          <IconButton
-            ref={allButton}
-            size={24}
-            label={`All tabs (${set.tabs.length})`}
-            icon={ArrowDown01Icon}
-            side="bottom"
-            onClick={() => setPopover(popover === "all" ? null : "all")}
-          />
-        )}
-      </div>
-      {popover === "add" && (
-        <AddTabMenu
-          anchor={addButton}
-          menu={menu.map(({ tab, ...entry }) => (tab ? { ...entry, onSelect: () => updateTabSet(workspace, (current) => openTab(current, tab)) } : entry))}
-          onNewChat={onNewChat}
-          onClose={() => setPopover(null)}
-        />
+          {popover === "all" && (
+            <AllTabsMenu
+              anchor={allButton}
+              tabs={set.tabs}
+              active={drafting ? null : set.active}
+              label={label}
+              subchat={(tab) => tab.kind === "chat" && parentOf(tab.chatId) !== undefined}
+              onPick={focus}
+              onClose={() => setPopover(null)}
+            />
+          )}
+          {menuAt && menuTab && (
+            <TabMenu
+              at={menuAt}
+              parent={menuParent}
+              beside={menuTab.kind === "browser" || menuTab.kind === "designs" || menuTab.kind === "terminal" ? Boolean(menuTab.beside) : undefined}
+              onBeside={() => {
+                updateTabSet(workspace, (current) => setBeside(current, menuAt.id, !menuTab.beside));
+                focus(menuTab);
+              }}
+              onClose={() => setMenuAt(null)}
+              onParent={onOpenChat}
+              onCloseTab={() => requestClose(menuAt.id)}
+              onCloseOthers={() => {
+                updateTabSet(workspace, (current) => closeOtherTabs(current, menuAt.id));
+                focus(menuTab);
+              }}
+            />
+          )}
+          {confirming && (
+            <CloseMainChatDialog
+              title={main === undefined ? "Chat" : (rowOf(main)?.label ?? "Chat")}
+              onCancel={() => setConfirming(null)}
+              onConfirm={() => {
+                setConfirming(null);
+                close(confirming);
+              }}
+            />
+          )}
+          {hover.card &&
+            createPortal(
+              <ChatHoverCard
+                item={hover.card.row}
+                linked={[]}
+                position={hover.card.position}
+                onPointerEnter={hover.keep}
+                onPointerLeave={hover.hideSoon}
+                onOpenLink={hover.hide}
+              />,
+              document.body,
+            )}
+        </div>,
+        document.body,
       )}
-      {popover === "all" && (
-        <AllTabsMenu
-          anchor={allButton}
-          tabs={set.tabs}
-          active={drafting ? null : set.active}
-          label={label}
-          subchat={(tab) => tab.kind === "chat" && parentOf(tab.chatId) !== undefined}
-          onPick={focus}
-          onClose={() => setPopover(null)}
-        />
-      )}
-      {menuAt && menuTab && (
-        <TabMenu
-          at={menuAt}
-          parent={menuParent}
-          beside={menuTab.kind === "browser" || menuTab.kind === "designs" || menuTab.kind === "terminal" ? Boolean(menuTab.beside) : undefined}
-          onBeside={() => {
-            updateTabSet(workspace, (current) => setBeside(current, menuAt.id, !menuTab.beside));
-            focus(menuTab);
-          }}
-          onClose={() => setMenuAt(null)}
-          onParent={onOpenChat}
-          onCloseTab={() => requestClose(menuAt.id)}
-          onCloseOthers={() => {
-            updateTabSet(workspace, (current) => closeOtherTabs(current, menuAt.id));
-            focus(menuTab);
-          }}
-        />
-      )}
-      {confirming && (
-        <CloseMainChatDialog
-          title={main === undefined ? "Chat" : (rowOf(main)?.label ?? "Chat")}
-          onCancel={() => setConfirming(null)}
-          onConfirm={() => {
-            setConfirming(null);
-            close(confirming);
-          }}
-        />
-      )}
-      {hover.card &&
-        createPortal(
-          <ChatHoverCard
-            item={hover.card.row}
-            linked={[]}
-            position={hover.card.position}
-            onPointerEnter={hover.keep}
-            onPointerLeave={hover.hideSoon}
-            onOpenLink={hover.hide}
-          />,
-          document.body,
-        )}
-    </div>
+    </>
   );
 }
 
