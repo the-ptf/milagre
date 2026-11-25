@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { IMAGE_ERRORS, IMAGE_TYPES, MAX_ATTACHMENT_BYTES } from "@milagre/shared/limits";
 import type { ImageAttachment } from "../../model";
@@ -17,26 +17,24 @@ export const imageFilesOf = (data: DataTransfer | null) => (data ? [...data.file
 /** A draft comment's images: pasted into its text or dropped on its bubble. */
 export function useCommentImages(images: ImageAttachment[] = NONE, onImages?: (images: ImageAttachment[]) => void) {
   const [error, setError] = useState("");
-  const latest = useRef(images);
-  latest.current = images;
   const add = async (files: File[]) => {
     if (!onImages || !files.length) return;
     if (files.some((file) => !TYPES.has(file.type))) return setError(IMAGE_ERRORS.type);
     if (files.some((file) => file.size > MAX_ATTACHMENT_BYTES)) return setError(IMAGE_ERRORS.size);
-    const room = MAX_COMMENT_IMAGES - latest.current.length;
+    const room = MAX_COMMENT_IMAGES - images.length;
     if (room < files.length) setError(`A comment takes up to ${MAX_COMMENT_IMAGES} images.`);
     else setError("");
     if (room <= 0) return;
     try {
       const read = await Promise.all(files.slice(0, room).map(readImage));
-      onImages([...latest.current, ...read].slice(0, MAX_COMMENT_IMAGES));
+      onImages([...images, ...read].slice(0, MAX_COMMENT_IMAGES));
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Could not read the image.");
     }
   };
   const remove = (id: string) => {
     setError("");
-    onImages?.(latest.current.filter((image) => image.id !== id));
+    onImages?.(images.filter((image) => image.id !== id));
   };
   return { images, add, remove, error, enabled: !!onImages };
 }
