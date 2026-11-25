@@ -162,6 +162,9 @@ test("Done is stamped with the host's clock, reopened, and cleared by a restore,
   assert.deepEqual(await runtime.invoke("done:settings:read"), { retentionHours: 24 });
   assert.deepEqual(await runtime.invoke("done:settings:save", [{ retentionHours: 8 }]), { retentionHours: 8 });
   assert.deepEqual(await runtime.invoke("done:settings:read"), { retentionHours: 8 });
+  assert.deepEqual(await runtime.invoke("sidebar:settings:read"), { projects: 10 });
+  assert.deepEqual(await runtime.invoke("sidebar:settings:save", [{ projects: 20 }]), { projects: 20 });
+  assert.equal((await runtime.invoke("project:recent")).length, 1);
 });
 
 test("Node runtime preserves stored Chats and provider IDs across a restart", async (t) => {

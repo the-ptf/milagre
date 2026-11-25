@@ -4,6 +4,8 @@ const { createComputerResources } = require("../computer-resources.cjs");
 const { createKeybindings } = require("../keybindings.cjs");
 const { createBabysitSettings } = require("../babysit-settings.cjs");
 const { createDoneSettings } = require("../done-settings.cjs");
+const { createSettingsFile } = require("../settings-file.cjs");
+const { normalizeSidebarSettings } = require("@milagre/shared/sidebar-settings");
 
 function registerSettingsCommands({ commands, dataDir, emit, worktreeRoot, chatsHome, projectRegistry, chats, scopeStates, heldState, routines }) {
   const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
@@ -31,6 +33,15 @@ function registerSettingsCommands({ commands, dataDir, emit, worktreeRoot, chats
   const doneSettings = createDoneSettings({ file: path.join(dataDir, "done.json"), emit });
   commands.handle("done:settings:read", () => doneSettings.read());
   commands.handle("done:settings:save", (_event, patch) => doneSettings.save(patch));
+  const sidebarSettings = createSettingsFile({
+    file: path.join(dataDir, "sidebar.json"),
+    emit,
+    normalize: normalizeSidebarSettings,
+    event: "sidebar:settings",
+    name: "Sidebar settings",
+  });
+  commands.handle("sidebar:settings:read", () => sidebarSettings.read());
+  commands.handle("sidebar:settings:save", (_event, patch) => sidebarSettings.save(patch));
   commands.handle("app-update:activity", () =>
     hostActivity({
       busy: chats.busyChats(),
@@ -38,7 +49,7 @@ function registerSettingsCommands({ commands, dataDir, emit, worktreeRoot, chats
       routines: routines().runningCount(),
     }),
   );
-  return { keybindings, computerResources, contextSettings, babysitSettings, doneSettings };
+  return { keybindings, computerResources, contextSettings, babysitSettings, doneSettings, sidebarSettings };
 }
 
 module.exports = { registerSettingsCommands };

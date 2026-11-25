@@ -1,4 +1,4 @@
-import { DoneRetention } from "./mac-settings-sections";
+import { DoneRetention, SidebarProjects } from "./mac-settings-sections";
 import { SnoozeSection } from "./snooze-settings-section";
 import { useContextSettings } from "./context-settings";
 import { FOLLOW_UP_OPTIONS, type FollowUps } from "@milagre/shared/queued-messages";
@@ -82,6 +82,7 @@ export function ChatDisplaySection() {
         ]}
       />
       <SnoozeSection />
+      <SidebarProjects />
       <DoneRetention />
     </View>
   );

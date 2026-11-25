@@ -8,6 +8,7 @@ import { router, useFocusEffect } from "expo-router";
 import { useSession } from "./session";
 import { DONE_DEFAULTS, DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
 import { readDoneSettings, saveDoneSettings } from "./done-retention";
+import { normalizeSidebarSettings, SIDEBAR_PROJECT_OPTIONS, type SidebarSettings } from "@milagre/shared/sidebar-settings";
 import { MacUpdateRows, useMacUpdate } from "./mac-update";
 
 export function MacUpdatesSection() {
@@ -173,6 +174,52 @@ export function DoneRetention() {
           <View key={option}>
             {index > 0 && <View style={styles.separator} />}
             <CheckRow title={retentionLabel(option)} checked={hours === option} onPress={() => choose(option)} />
+          </View>
+        ))}
+      </View>
+    </>
+  );
+}
+
+export function SidebarProjects() {
+  const styles = useStyles();
+  const session = useSession();
+  const client = session.client;
+  const [projects, setProjects] = useState<number | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      if (!client) return;
+      let live = true;
+      void client
+        .call<SidebarSettings>("sidebar:settings:read", [])
+        .then((value) => live && setProjects(normalizeSidebarSettings(value).projects))
+        .catch(() => live && setProjects(null));
+      return () => {
+        live = false;
+      };
+    }, [client]),
+  );
+  if (projects === null || !client) return null;
+  const choose = (next: number) => {
+    const previous = projects;
+    setProjects(next);
+    void client
+      .call<SidebarSettings>("sidebar:settings:save", [{ projects: next }])
+      .then((value) => {
+        setProjects(normalizeSidebarSettings(value).projects);
+        void session.reloadProjects().catch(() => {});
+        return undefined;
+      })
+      .catch(() => setProjects(previous));
+  };
+  return (
+    <>
+      <Text style={[styles.section, { marginTop: 12 }]}>Projects shown</Text>
+      <View accessibilityRole="radiogroup" style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
+        {SIDEBAR_PROJECT_OPTIONS.map((option, index) => (
+          <View key={option}>
+            {index > 0 && <View style={styles.separator} />}
+            <CheckRow title={String(option)} checked={projects === option} onPress={() => choose(option)} />
           </View>
         ))}
       </View>

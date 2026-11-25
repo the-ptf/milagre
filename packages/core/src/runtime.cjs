@@ -809,7 +809,7 @@ function createRuntime(options) {
   routines.start();
   commands.handle("routines:enabled:read", () => ({ enabled: true }));
   commands.handle("routines:enabled:save", () => ({ enabled: true }));
-  const { keybindings, computerResources, contextSettings, babysitSettings, doneSettings } = registerSettingsCommands({
+  const { keybindings, computerResources, contextSettings, babysitSettings, doneSettings, sidebarSettings } = registerSettingsCommands({
     commands,
     dataDir,
     emit,
@@ -1081,7 +1081,7 @@ function createRuntime(options) {
 
   let shownProjectPath = null;
   let recentStore = null;
-  const recentProjects = () => (recentStore ??= createRecentProjects(path.join(dataDir, "recent-projects.json")));
+  const recentProjects = () => (recentStore ??= createRecentProjects(path.join(dataDir, "recent-projects.json"), { sidebarSettings }));
   let registryStore = null;
   const projectRegistry = () =>
     (registryStore ??= createProjectRegistry(path.join(dataDir, "project-registry.json"), options.registryRoots ? { roots: options.registryRoots } : {}));

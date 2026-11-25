@@ -2,8 +2,10 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { gitTopLevel, requireWorktreeRoot } = require("./editors.cjs");
 const { outsideGit } = require("./project-identity.cjs");
+const { SIDEBAR_DEFAULTS, SIDEBAR_PROJECT_OPTIONS } = require("@milagre/shared/sidebar-settings");
 
-const MAX_RECENT = 10;
+// The file keeps as many as the largest choice, so lowering the setting and raising it again loses nothing.
+const MAX_RECENT = Math.max(...SIDEBAR_PROJECT_OPTIONS);
 
 function entryFrom(value) {
   if (!value || typeof value !== "object" || typeof value.path !== "string" || !path.isAbsolute(value.path)) return null;
@@ -23,7 +25,7 @@ async function isFolder(folder) {
   }
 }
 
-function createRecentProjects(file, { now = () => new Date() } = {}) {
+function createRecentProjects(file, { now = () => new Date(), sidebarSettings } = {}) {
   let queue = Promise.resolve();
   let counter = 0;
 
@@ -79,7 +81,7 @@ function createRecentProjects(file, { now = () => new Date() } = {}) {
   }
 
   return {
-    list: () => read({ strict: false }),
+    list: async () => (await read({ strict: false })).slice(0, sidebarSettings?.read().projects ?? SIDEBAR_DEFAULTS.projects),
     add(projectPath) {
       const entry = entryFrom({ path: projectPath, openedAt: now().toISOString() });
       if (!entry) return Promise.reject(new Error("An absolute project path is required"));
@@ -153,4 +155,4 @@ async function launchProject(store, cwd, { topLevel = gitTopLevel, plain = plain
   return null;
 }
 
-module.exports = { MAX_RECENT, createRecentProjects, launchProject, plainFolder, rememberProject, switchTarget };
+module.exports = { createRecentProjects, launchProject, plainFolder, rememberProject, switchTarget };

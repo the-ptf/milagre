@@ -11,6 +11,7 @@ import { computerNoun } from "../../lib/shortcut-hints";
 import { ChoiceGroup } from "./settings-parts";
 import { DoneRetentionSetting, SnoozeSetting } from "./ChatSettings";
 import { SnoozeOptionsSetting } from "./SnoozeOptionsSetting";
+import { SidebarProjectsSetting } from "./SidebarProjectsSetting";
 
 export function GeneralSettings() {
   const settings = useSettings();
@@ -65,6 +66,7 @@ export function GeneralSettings() {
           }
         />
       </ChoiceGroup>
+      <SidebarProjectsSetting />
       <DoneRetentionSetting />
       <SnoozeSetting />
       <SnoozeOptionsSetting />

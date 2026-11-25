@@ -68,6 +68,8 @@ const METHODS = new Set([
   "babysit:settings:save",
   "done:settings:read",
   "done:settings:save",
+  "sidebar:settings:read",
+  "sidebar:settings:save",
   "orchestrator:read",
   "orchestrator:projects",
   "orchestrator:computers",

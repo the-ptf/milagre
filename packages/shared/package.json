@@ -224,6 +224,10 @@
       "types": "./src/done.d.mts",
       "default": "./src/done.mjs"
     },
+    "./sidebar-settings": {
+      "types": "./src/sidebar-settings.d.mts",
+      "default": "./src/sidebar-settings.mjs"
+    },
     "./snooze": {
       "types": "./src/snooze.d.mts",
       "default": "./src/snooze.mjs"

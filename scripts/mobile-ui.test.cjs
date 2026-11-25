@@ -14248,6 +14248,7 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
     "./ui": { InlineError: "InlineError", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
     "./settings-list": { Row: "Row" },
     "@milagre/shared/done": require("@milagre/shared/done"),
+    "@milagre/shared/sidebar-settings": require("@milagre/shared/sidebar-settings"),
     "./done-retention": require("../apps/mobile/src/done-retention.ts"),
     "./mac-update": { useMacUpdate: () => ({ update: undefined, restarting: false }), MacUpdateRows: "MacUpdateRows" },
   });
@@ -14306,6 +14307,7 @@ test("mobile Auto update switch shows the Mac's setting, saves a change and hide
     "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
     "./settings-list": { Row: "Row" },
     "@milagre/shared/done": require("@milagre/shared/done"),
+    "@milagre/shared/sidebar-settings": require("@milagre/shared/sidebar-settings"),
     "./done-retention": require("../apps/mobile/src/done-retention.ts"),
     "./mac-update": { useMacUpdate: () => ({ update: undefined, restarting: false }), MacUpdateRows: "MacUpdateRows" },
   });
@@ -14358,6 +14360,7 @@ test("mobile General lists the Mac's Done retention, saves a pick there and hide
     "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
     "./settings-list": { Row: "Row" },
     "@milagre/shared/done": require("@milagre/shared/done"),
+    "@milagre/shared/sidebar-settings": require("@milagre/shared/sidebar-settings"),
     "./done-retention": require("../apps/mobile/src/done-retention.ts"),
     "./mac-update": { useMacUpdate: () => ({ update: undefined, restarting: false }), MacUpdateRows: "MacUpdateRows" },
   });
@@ -14394,6 +14397,71 @@ test("mobile General lists the Mac's Done retention, saves a pick there and hide
   for (const fn of focused.splice(0)) fn();
   await settle();
   assert.equal(rows().length, 0, "an older Mac has no Done retention to show");
+});
+
+test("mobile General lists how many Projects the Mac shows, saves a pick, reloads the list and hides for an older Mac", async () => {
+  const react = hookHost();
+  const focused = [];
+  const calls = [];
+  let reloads = 0;
+  let older = false;
+  let projects = 10;
+  const client = {
+    async call(method, args) {
+      calls.push([method, ...args]);
+      if (older) throw new Error("Command is not available from mobile");
+      if (method === "sidebar:settings:read") return { projects };
+      if (method === "sidebar:settings:save") return { projects: (projects = args[0].projects) };
+      throw new Error("Unknown method");
+    },
+  };
+  const { SidebarProjects } = load("mac-settings-sections.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
+    "@milagre/shared/auto-update": require("@milagre/shared/auto-update"),
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { router: { push() {} }, useFocusEffect: (fn) => focused.push(fn) },
+    "@hugeicons/core-free-icons": {},
+    "./session": { useSession: () => ({ client, hosts: [], reloadProjects: async () => void reloads++ }) },
+    "./icons": { Icon: "Icon" },
+    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
+    "./settings-list": { Row: "Row" },
+    "@milagre/shared/done": require("@milagre/shared/done"),
+    "@milagre/shared/sidebar-settings": require("@milagre/shared/sidebar-settings"),
+    "./done-retention": require("../apps/mobile/src/done-retention.ts"),
+    "./mac-update": { useMacUpdate: () => ({ update: undefined, restarting: false }), MacUpdateRows: "MacUpdateRows" },
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const rows = () => {
+    react.begin();
+    const tree = SidebarProjects();
+    return tree ? allNodes(tree, (node) => node.type === "CheckRow") : [];
+  };
+  assert.equal(rows().length, 0, "nothing shows before the Mac answers");
+  for (const fn of focused.splice(0)) fn();
+  await settle();
+  same(
+    rows().map((row) => [row.props.title, row.props.checked]),
+    [
+      ["5", false],
+      ["10", true],
+      ["15", false],
+      ["20", false],
+      ["30", false],
+      ["50", false],
+    ],
+  );
+  rows()[3].props.onPress();
+  await settle();
+  assert.equal(JSON.stringify(calls.at(-1)), JSON.stringify(["sidebar:settings:save", { projects: 20 }]));
+  assert.equal(rows()[3].props.checked, true);
+  assert.equal(reloads, 1, "the Projects list reads the new limit");
+  older = true;
+  rows();
+  for (const fn of focused.splice(0)) fn();
+  await settle();
+  assert.equal(rows().length, 0, "an older Mac has no limit to show");
 });
 
 test("mobile General shows the Mac's Milagre update, checks, installs after asking, and hides on an older Mac", async (t) => {
@@ -14439,6 +14507,7 @@ test("mobile General shows the Mac's Milagre update, checks, installs after aski
     "./icons": { Icon: "Icon" },
     "./settings-list": { Row: "Row" },
     "@milagre/shared/done": require("@milagre/shared/done"),
+    "@milagre/shared/sidebar-settings": require("@milagre/shared/sidebar-settings"),
     "./done-retention": require("../apps/mobile/src/done-retention.ts"),
     "./mac-update": load("mac-update.tsx", modules),
   });

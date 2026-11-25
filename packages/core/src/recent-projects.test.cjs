@@ -4,7 +4,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { MAX_RECENT, createRecentProjects, launchProject, rememberProject, switchTarget } = require("./recent-projects.cjs");
+const { createRecentProjects, launchProject, rememberProject, switchTarget } = require("./recent-projects.cjs");
 
 async function tempDir(t) {
   const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-recent-")));
@@ -89,19 +89,24 @@ test("opening the project already at the top leaves the file as it is", async (t
   );
 });
 
-test("the list keeps the 10 most recent projects", async (t) => {
+test("the list shows the sidebar's limit of recent projects and keeps the rest for a higher one", async (t) => {
   const base = await tempDir(t);
-  const names = Array.from({ length: MAX_RECENT + 2 }, (_, index) => `project-${index}`);
+  const names = Array.from({ length: 12 }, (_, index) => `project-${index}`);
   const paths = await folders(base, ...names);
-  const recent = createRecentProjects(path.join(base, "recent-projects.json"), { now: clock() });
+  let limit = 10;
+  const recent = createRecentProjects(path.join(base, "recent-projects.json"), { now: clock(), sidebarSettings: { read: () => ({ projects: limit }) } });
   for (const folder of paths) await recent.add(folder);
 
-  const list = await recent.list();
-
-  assert.equal(MAX_RECENT, 10);
   assert.deepEqual(
-    list.map((entry) => entry.name),
+    (await recent.list()).map((entry) => entry.name),
     names.slice(2).toReversed(),
+  );
+  limit = 5;
+  await recent.add(paths[11]);
+  limit = 15;
+  assert.deepEqual(
+    (await recent.list()).map((entry) => entry.name),
+    names.toReversed(),
   );
 });
 

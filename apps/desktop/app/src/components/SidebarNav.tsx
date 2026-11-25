@@ -58,6 +58,7 @@ import { updateSettings, useSettings } from "../lib/settings";
 import { useChatPins } from "../lib/chat-pins";
 import { UpdateSettingsBadge } from "./UpdateNotice";
 import { RECENT_PROJECTS_CHANGED } from "../lib/project-list";
+import { useRecentProjectsChanged } from "../lib/use-recent-projects-changed";
 import {
   cachedProjectCopy,
   cachedScopeState,
@@ -73,7 +74,7 @@ import {
   type FlatChat,
 } from "../lib/sidebar-scopes";
 import { ScopeRail, type RailScope } from "./sidebar/ScopeRail";
-import { bridgeFor, isRemoteKey } from "../lib/computer-bridge";
+import { isRemoteKey } from "../lib/computer-bridge";
 import { DoneSection, type DoneEntry } from "./sidebar/DoneSection";
 import { SnoozedSection, type SnoozedEntry } from "./sidebar/SnoozedSection";
 import { SidebarToast } from "./sidebar/SidebarToast";
@@ -401,17 +402,7 @@ export default memo(function SidebarNav({
       live = false;
     };
   }, [projectPath, selectedLink?.id, listsChanged]);
-  useEffect(() => {
-    const changed = () => setListsChanged((count) => count + 1);
-    window.addEventListener(RECENT_PROJECTS_CHANGED, changed);
-    const stopLocalMcp = bridgeFor(LOCAL_COMPUTER).localMcp?.onChanged?.((payload) => {
-      if (payload?.projectAdded) window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
-    });
-    return () => {
-      window.removeEventListener(RECENT_PROJECTS_CHANGED, changed);
-      stopLocalMcp?.();
-    };
-  }, []);
+  useRecentProjectsChanged(() => setListsChanged((count) => count + 1));
   const [, setOrderSynced] = useState(0);
   useEffect(() => {
     const follow = (event: StorageEvent) => {

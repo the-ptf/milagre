@@ -15,6 +15,7 @@ import type {
   BoardColumn,
 } from "@milagre/shared/orchestrator";
 import type { DoneSettings } from "@milagre/shared/done";
+import type { SidebarSettings } from "@milagre/shared/sidebar-settings";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import type { KeybindingCommandId, KeybindingRule, KeybindingsState } from "@milagre/shared/keybindings";
 import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync";
@@ -506,6 +507,12 @@ export type MilagreBridge = {
   saveDoneSettings: (patch: Partial<DoneSettings>) => Promise<DoneSettings>;
   /** The settings changed, here or from another device. */
   onDoneSettings: (callback: (value: DoneSettings) => void) => () => void;
+  /** Settings › General: how many recent Projects the sidebar lists. Kept by the host. */
+  readSidebarSettings: () => Promise<SidebarSettings>;
+  /** Merges the patch over the stored settings and returns the normalized result. */
+  saveSidebarSettings: (patch: Partial<SidebarSettings>) => Promise<SidebarSettings>;
+  /** The settings changed, here or from another device. */
+  onSidebarSettings: (callback: (value: SidebarSettings) => void) => () => void;
   /** Whether this Mac runs Routines: always `true` now; an older paired computer may still say `false`. */
   readRoutinesEnabled: () => Promise<{ enabled: boolean }>;
   /** This Mac's routines that haven't ended, newest first, each with its latest Runs first. */

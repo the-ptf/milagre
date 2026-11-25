@@ -141,7 +141,7 @@ function accountsBridge(invoke, listen) {
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
- * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readBabysitSettings" | "saveBabysitSettings" | "onBabysitSettings" | "readDoneSettings" | "saveDoneSettings" | "onDoneSettings" | "readOrchestrator" | "readOrchestratorProjects" | "readOrchestratorComputers" | "saveOrchestratorSettings" | "sendToOrchestrator" | "pickOrchestratorProject" | "showOrchestratorTaskInSidebar" | "undoOrchestratorTask" | "moveOrchestratorTask" | "deleteOrchestratorTask" | "rerouteOrchestratorTask" | "dismissOrchestratorTask" | "importOrchestratorMemory" | "saveOrchestratorMemory" | "forgetOrchestratorMemory" | "onOrchestrator">}
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readBabysitSettings" | "saveBabysitSettings" | "onBabysitSettings" | "readDoneSettings" | "saveDoneSettings" | "onDoneSettings" | "readSidebarSettings" | "saveSidebarSettings" | "onSidebarSettings" | "readOrchestrator" | "readOrchestratorProjects" | "readOrchestratorComputers" | "saveOrchestratorSettings" | "sendToOrchestrator" | "pickOrchestratorProject" | "showOrchestratorTaskInSidebar" | "undoOrchestratorTask" | "moveOrchestratorTask" | "deleteOrchestratorTask" | "rerouteOrchestratorTask" | "dismissOrchestratorTask" | "importOrchestratorMemory" | "saveOrchestratorMemory" | "forgetOrchestratorMemory" | "onOrchestrator">}
  */
 function hostSettingsBridge(invoke, listen) {
   return {
@@ -151,6 +151,9 @@ function hostSettingsBridge(invoke, listen) {
     readDoneSettings: () => invoke("done:settings:read"),
     saveDoneSettings: (patch) => invoke("done:settings:save", patch),
     onDoneSettings: (callback) => listen("done:settings", callback),
+    readSidebarSettings: () => invoke("sidebar:settings:read"),
+    saveSidebarSettings: (patch) => invoke("sidebar:settings:save", patch),
+    onSidebarSettings: (callback) => listen("sidebar:settings", callback),
     readOrchestrator: () => invoke("orchestrator:read"),
     readOrchestratorProjects: () => invoke("orchestrator:projects"),
     readOrchestratorComputers: () => invoke("orchestrator:computers"),

@@ -659,6 +659,8 @@ test("a confined phone reads the Babysit PRs settings but can't change them", as
   await assert.rejects(confine.checkCall("babysit:settings:save", [{ level: 5 }]), { status: 403, message: REFUSED });
   await confine.checkCall("done:settings:read", []);
   await assert.rejects(confine.checkCall("done:settings:save", [{ retentionHours: 1 }]), { status: 403, message: REFUSED });
+  await confine.checkCall("sidebar:settings:read", []);
+  await assert.rejects(confine.checkCall("sidebar:settings:save", [{ projects: 20 }]), { status: 403, message: REFUSED });
 });
 
 // keybindings.json names no folder, but a confined phone has no business rebinding the Mac's keys.

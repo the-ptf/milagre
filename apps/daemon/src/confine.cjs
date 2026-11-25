@@ -183,6 +183,8 @@ const PATHS = Object.freeze({
   "babysit:settings:save": denied,
   "done:settings:read": none,
   "done:settings:save": denied,
+  "sidebar:settings:read": none,
+  "sidebar:settings:save": denied,
   "orchestrator:read": none,
   "orchestrator:projects": none,
   "orchestrator:computers": none,
