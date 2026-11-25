@@ -217,7 +217,7 @@ function QuestionHeader({
                   pressStyle({ pressed, kind: "row" }),
                 ]}
               >
-                {answered(item) && <Icon icon={Tick02Icon} tone="ink2" size={14} />}
+                {answered(item) && <Icon icon={Tick02Icon} tone="ink2" size={12} />}
                 <Text style={{ color: index === page ? colors.ink : colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "500" }}>
                   {item.header.trim() || `Question ${index + 1}`}
                 </Text>
@@ -305,7 +305,7 @@ function QuestionOptions({
                 }}
               >
                 {on && question.multiSelect ? (
-                  <Icon icon={Tick02Icon} tone="onInk" size={14} />
+                  <Icon icon={Tick02Icon} tone="onInk" size={12} />
                 ) : (
                   <Text maxFontSizeMultiplier={1.3} style={{ color: on ? colors.onInk : colors.ink2, fontSize: type.caption1, fontWeight: "600" }}>
                     {index + 1}

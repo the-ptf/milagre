@@ -38,7 +38,7 @@ export type ChatApprovalProps = {
 };
 
 /** Whether the composer's approval slot has anything to show. A question the composer asks shows in the composer. */
-export function approvalShown({ approvalCard, pendingQuestion, remoteDelegations, pendingApproval, messages }: ChatApprovalProps) {
+function approvalShown({ approvalCard, pendingQuestion, remoteDelegations, pendingApproval, messages }: ChatApprovalProps) {
   return Boolean(
     approvalCard || cardQuestion(pendingQuestion) || remoteDelegations.length || (pendingApproval && pendingWaitingNote(messages)?.ask === "approval"),
   );
@@ -80,7 +80,7 @@ export function chatApprovalSlots(props: ChatApprovalProps) {
   };
 }
 
-export function ChatApproval(props: ChatApprovalProps) {
+function ChatApproval(props: ChatApprovalProps) {
   const { chatId, run, pendingApproval, approvalCard, pendingQuestion, questionSent } = props;
   const runs = useRuns(props.remoteDelegations.length > 0);
   const card = cardQuestion(pendingQuestion);
