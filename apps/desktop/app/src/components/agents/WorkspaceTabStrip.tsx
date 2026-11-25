@@ -157,7 +157,7 @@ export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, be
           style={{ left: Math.max(chrome.controlsEnd, columnLeft), right: chrome.rightInset + 12 + (corner ? corner + 20 : 0) }}
           className="pointer-events-none fixed top-[var(--window-chrome-top)] z-[55] flex h-8 select-none items-center"
         >
-          <div ref={group} className="pointer-events-auto flex min-w-0 max-w-full items-center gap-0.5">
+          <div ref={group} className="no-drag pointer-events-auto flex min-w-0 max-w-full items-center gap-0.5">
             <div
               ref={scroller}
               role="tablist"
