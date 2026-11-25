@@ -108,9 +108,23 @@ async function browserChecks() {
       "every strip button sits in a no-drag area, so a mouse press reaches it instead of dragging the window",
     );
     await evaluate(
-      `document.querySelector('[data-workspace-tab="chat:3"]').dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 300, clientY: 20 }))`,
+      `(() => {
+        const tab = document.querySelector('[data-workspace-tab="chat:3"]');
+        const box = tab.getBoundingClientRect();
+        tab.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: box.left + 8, clientY: box.top + box.height / 2 }));
+      })()`,
     );
     await waitFor(`document.querySelector("[data-menu-row]")`);
+    assert.equal(
+      await evaluate(`(() => {
+        let menu = document.querySelector("[data-menu-row]");
+        while (menu && getComputedStyle(menu).position !== "fixed") menu = menu.parentElement;
+        const box = menu.getBoundingClientRect();
+        return menu.contains(document.elementFromPoint(box.left + 12, box.top + 6));
+      })()`),
+      true,
+      "a tab's menu paints over the tab strip where they overlap",
+    );
     assert.deepEqual(
       await evaluate(`[...document.querySelectorAll("[data-menu-row]")].filter((row) => !row.querySelector("svg")).map((row) => row.textContent)`),
       [],
@@ -190,7 +204,7 @@ async function browserChecks() {
     await screenshot("draft");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Chat and Subchat tabs open, switch by click and digit, reorder by drag, close by middle click, ask before the main Chat, drop archived Chats and show a New Chat draft, keep every button clear of the window drag area, give every tab menu row an icon; Browser pages become tabs, unread when the agent opened them, and stage the page in front",
+      "PASS: Chat and Subchat tabs open, switch by click and digit, reorder by drag, close by middle click, ask before the main Chat, drop archived Chats and show a New Chat draft, keep every button clear of the window drag area, give every tab menu row an icon and paint it over the strip; Browser pages become tabs, unread when the agent opened them, and stage the page in front",
     );
     app.exit(0);
   } catch (error) {
