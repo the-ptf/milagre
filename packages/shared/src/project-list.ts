@@ -15,10 +15,27 @@ export const PROJECT_AVATAR = { fill: "ink", ink: "onInk" } as const;
  */
 export type FolderScan = {
   folder: string;
+  /** The Link's name: the `.code-workspace` file's, else the folder's. Hosts before it sent none. */
+  name?: string;
+  /** The folder has a `.code-workspace` file; its folders are among the children. */
+  workspace?: boolean;
   git: boolean;
   children: { path: string; name: string; relative: string; git: boolean; chosen: boolean }[];
   detect: boolean;
 };
+
+export const folderScanName = (scan: FolderScan) => scan.name || (scan.folder.split("/").findLast(Boolean) ?? scan.folder);
+
+export function folderImportText(scan: FolderScan) {
+  const name = folderScanName(scan);
+  const count = scan.children.filter((child) => child.git).length;
+  const found = scan.workspace ? `The ${name} workspace lists ${count} repositories.` : `${name} holds ${count} repositories.`;
+  return `${found} Add the ones you check as Projects, grouped by a Link named ${name}.`;
+}
+
+/** Opening this folder offers its repositories as Projects grouped by a Link, instead of opening it as one Project. */
+export const offersFolderImport = (scan: FolderScan | null): scan is FolderScan =>
+  !!scan?.detect && (!scan.git || !!scan.workspace) && scan.children.some((child) => child.git);
 
 export type ListNode<T> = { item: T; children: T[] };
 

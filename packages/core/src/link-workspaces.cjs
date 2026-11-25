@@ -9,6 +9,51 @@ const { removeWorktree: removeChecked } = require("./worktree-cleanup.cjs");
 const { changedCopiedFiles } = require("./worktree-files.cjs");
 const { validLinkId } = require("@milagre/shared/chat-scopes");
 
+const projectSlug = (project) => slugify(project.name) || "project";
+function memberAlias(projects, index) {
+  const slug = projectSlug(projects[index]);
+  return projects.some((project, i) => i !== index && projectSlug(project) === slug) ? `${slug}-${index + 1}` : slug;
+}
+
+async function reserve({ getSettings, git, root }, prep, projects, index) {
+  const project = projects[index];
+  const settings = await getSettings(project.path);
+  const policy = settings.git ?? (await resolveBranchPolicy(project.path)).effective;
+  const base = policy.baseBranch || (await git.read.resolveBase(project.path)).ref || "HEAD";
+  const branchSuffix = prep.operationId.slice(0, 8);
+  const suffix = `${branchSuffix}${index}`;
+  const name = `${slugify(prep.prompt) || "chat"}-${suffix}`;
+  const worktreePath = path.join(root, path.basename(project.path), name);
+  const issue = prep.issue;
+  const branch = await availablePolicyBranch(
+    project.path,
+    policy,
+    { slug: issue?.title || prep.prompt || "chat", ticket: issue?.key || branchTicket(prep.prompt), suffix: branchSuffix },
+    { issueBranch: issue ? issue.branchName || "" : undefined },
+  );
+  try {
+    await fs.lstat(worktreePath);
+    throw new Error(`Project ${project.name}: Worktree folder already exists`);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  const resolved = await resolveSetupCommand(project.path, settings.setupCommand);
+  return {
+    projectId: project.id,
+    projectPath: project.path,
+    projectName: project.name,
+    worktreePath,
+    branch,
+    trackBase: policy.trackBase,
+    base,
+    initialCommit: await git.read.commitOf(project.path, base),
+    suffix,
+    alias: memberAlias(projects, index),
+    ...(settings.filesToCopy !== undefined ? { copyPatterns: settings.filesToCopy } : {}),
+    setupCommand: resolved.command,
+    setupSource: resolved.source,
+  };
+}
 function createLinkWorkspaces({
   store,
   registry,
@@ -76,43 +121,6 @@ function createLinkWorkspaces({
       path.join(prep.workspacePath, "milagre-workspace.json"),
       JSON.stringify({ linkId: link.id, chatId: prep.chatId, projects: prep.members.filter(isReady) }, null, 2),
     );
-  }
-  async function reserve(prep, project, index) {
-    const settings = await getSettings(project.path);
-    const policy = settings.git ?? (await resolveBranchPolicy(project.path)).effective;
-    const base = policy.baseBranch || (await git.read.resolveBase(project.path)).ref || "HEAD";
-    const suffix = `${prep.operationId.slice(0, 8)}${index}`;
-    const name = `${slugify(prep.prompt) || "chat"}-${suffix}`;
-    const worktreePath = path.join(root, path.basename(project.path), name);
-    const issue = prep.issue;
-    const branch = await availablePolicyBranch(
-      project.path,
-      policy,
-      { slug: issue?.title || prep.prompt || "chat", ticket: issue?.key || branchTicket(prep.prompt), suffix },
-      { issueBranch: issue ? issue.branchName || "" : undefined },
-    );
-    try {
-      await fs.lstat(worktreePath);
-      throw new Error(`Project ${project.name}: Worktree folder already exists`);
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
-    const resolved = await resolveSetupCommand(project.path, settings.setupCommand);
-    return {
-      projectId: project.id,
-      projectPath: project.path,
-      projectName: project.name,
-      worktreePath,
-      branch,
-      trackBase: policy.trackBase,
-      base,
-      initialCommit: await git.read.commitOf(project.path, base),
-      suffix,
-      alias: `${slugify(project.name) || "project"}-${index + 1}`,
-      ...(settings.filesToCopy !== undefined ? { copyPatterns: settings.filesToCopy } : {}),
-      setupCommand: resolved.command,
-      setupSource: resolved.source,
-    };
   }
   async function materialize(link, prep, member) {
     try {
@@ -233,7 +241,8 @@ function createLinkWorkspaces({
         project.path === value ||
         project.name.toLowerCase() === lower ||
         path.basename(project.path).toLowerCase() === lower ||
-        `${slugify(project.name) || "project"}-${i + 1}` === lower ||
+        memberAlias(projects, i) === lower ||
+        `${projectSlug(project)}-${i + 1}` === lower ||
         prep.members.some((member) => member.projectId === project.id && member.worktreePath === value),
     );
     if (index === -1) throw new Error(`No Project "${value}" in this Link. Its Projects: ${projects.map((project) => project.name).join(", ")}.`);
@@ -253,7 +262,7 @@ function createLinkWorkspaces({
     if (member?.retained) throw new Error(member.error);
     await ownProject(project.path);
     if (!member) {
-      member = await reserve(prep, project, index);
+      member = await reserve({ getSettings, git, root }, prep, projects, index);
       prep.members.push(member);
       await save(link.id, prep);
     }

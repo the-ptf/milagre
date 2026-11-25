@@ -16,8 +16,9 @@ The shared Chats below are the only exception, and each owns its Worktrees outri
 
 ## Named Links
 
-A Named Link is an ordered set of two or more Projects. Its Chats have one transcript and one provider session, saved in the runtime profile, and each Chat creates one Worktree in every member Project on its first message. Sending again, restarting or handing over reuses that set.
+A Named Link is an ordered set of two or more Projects. Its Chats have one transcript and one provider session, saved in the runtime profile. Each Chat works in one folder that holds a link per member Project, named after the Project (with its position added only when two members share a name). A member starts as its main checkout, read-only; the agent's first change there goes through `link_worktree_create`, which makes the Chat's Worktree in that Project and points the link at it. Every member Worktree of one Chat gets the same branch name, so one change across repositories reads as one branch. Sending again, restarting or handing over reuses that set.
 
+- Opening a folder that holds repositories, or one with a `.code-workspace` file (its listed folders count even outside the folder), offers to add them as Projects in one Named Link, named after the workspace file or the folder. Desktop and phone share the rule and copy in `@milagre/shared/project-list`.
 - The Chat may edit all of its own Worktrees under its permission mode. Canvas-linked Worktrees outside its set keep the read-only and Delegation rules.
 - Renaming or changing members affects only Chats started afterwards; a Chat's own set never changes. An unavailable member can still be removed.
 - The daemon owns every member repository and records preparation before any Git change. Partial preparation never starts a provider. A missing member blocks new turns without deleting the transcript or shrinking membership.
