@@ -9,7 +9,7 @@ import { Icon } from "./primitives/Icon";
 import { ProjectAvatar } from "./primitives/ProjectAvatar";
 import { useDismiss } from "../lib/use-dismiss";
 import { useComputers } from "../lib/computers";
-import { pickedProjectKey, projectPickerRows, useNamedLinks, type ProjectGroup } from "../lib/project-copies";
+import { otherCopyKeys, pickedProjectKey, projectPickerRows, useNamedLinks, type ProjectGroup } from "../lib/project-copies";
 import { newChatLook } from "../lib/new-chat-look";
 import { useProjectImages } from "../lib/project-images";
 
@@ -28,7 +28,7 @@ export function NewChatHeading({
   projectKind?: ProjectKind;
   groups: ProjectGroup[];
   noProject?: ProjectGroup;
-  onProjectChange?: (key: string, home?: Pick<ChatsHome, "exists">) => void;
+  onProjectChange?: (key: string, home?: Pick<ChatsHome, "exists">, others?: readonly string[]) => void;
   onLinkPick?: (id: string) => void;
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -90,9 +90,9 @@ export function NewChatHeading({
               groups={groups}
               noProject={noProject}
               currentKey={projectKey}
-              onPick={(key, home) => {
+              onPick={(key, home, others) => {
                 close();
-                if (key !== projectKey) onProjectChange(key, home);
+                if (key !== projectKey) onProjectChange(key, home, others);
               }}
               onLinkPick={
                 onLinkPick &&
@@ -123,7 +123,7 @@ function ProjectPicker({
   groups: ProjectGroup[];
   noProject?: ProjectGroup;
   currentKey: string;
-  onPick: (key: string, home?: Pick<ChatsHome, "exists">) => void;
+  onPick: (key: string, home?: Pick<ChatsHome, "exists">, others?: readonly string[]) => void;
   onLinkPick?: (id: string) => void;
   onClose: () => void;
 }) {
@@ -177,7 +177,10 @@ function ProjectPicker({
             label={group.name}
             trailing={group.copies.length > 1 ? `${group.copies.length} computers` : group.computerId === LOCAL_COMPUTER ? undefined : group.computer}
             selected={current}
-            onClick={() => onPick(pickedProjectKey(group, currentKey))}
+            onClick={() => {
+              const key = pickedProjectKey(group, currentKey);
+              onPick(key, undefined, otherCopyKeys(group, key));
+            }}
           />
         );
       })}

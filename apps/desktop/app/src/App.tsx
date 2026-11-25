@@ -40,7 +40,9 @@ import { reconcileState } from "@milagre/shared/reconcile";
 import { applyAgentEvent } from "@milagre/shared/agent-runs";
 import { chatsNeedingAttention } from "@milagre/shared/attention";
 import { reportChatAction } from "./lib/chat-action";
-import { confirmHeldState, isLean, numberedState, seedHeldState, stateEvents } from "./lib/state-events";
+import { isLean, seedHeldState, stateEvents } from "./lib/state-events";
+import { namedOpenFailure, readRemoteProject, requestProject } from "./lib/remote-project";
+import { copyOpenNotice, openFirstCopy } from "@milagre/shared/project-origin";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, type CSSProperties, type SetStateAction } from "react";
@@ -123,7 +125,7 @@ import { useChatPins } from "./lib/chat-pins";
 import { sessionsWithPins } from "@milagre/shared/chat-pins";
 import { EditorLinks, Notice } from "./components/editor-links";
 import { withReportPrompt } from "@milagre/shared/bug-report";
-import type { ProjectRead, RuntimeConnection, StateStamp } from "./electron";
+import type { RuntimeConnection, StateStamp } from "./electron";
 import { useSidebarUsage } from "./components/usage/use-sidebar-usage";
 import { useUsage } from "./components/usage/useUsage";
 import { loadChatPreferences, saveChatPreferences } from "./lib/chat-preferences";
@@ -381,7 +383,8 @@ function App() {
   useEffect(() => {
     void loadInitialProject();
   }, []);
-  const { computers: pairedComputers } = useComputers();
+  const { thisMac, computers: pairedComputers } = useComputers();
+  const computerName = (id: string) => (id === LOCAL_COMPUTER ? thisMac : (pairedComputers.find((computer) => computer.id === id)?.name ?? "That computer"));
   const openChatComputer = useRef<string>(LOCAL_COMPUTER);
   const knownComputers = pairedComputers.map((computer) => computer.id).join("\n");
   useEffect(() => {
@@ -1338,23 +1341,12 @@ function App() {
     if (restored) setNotice(restored);
   }
 
-  function requestProject(projectPath: string): Promise<OpenProject & StateStamp> {
-    return isRemoteKey(projectPath) ? readRemoteProject(projectPath) : bridgeForKey(projectPath).switchProject(projectPath);
-  }
-  async function readRemoteProject(projectPath: string): Promise<OpenProject & StateStamp> {
-    const bridge = bridgeForKey(projectPath);
-    const held = numberedState(projectPath);
-    if (held && "worktrees" in held) {
-      const reply: ProjectRead = await bridge.readProject(projectPath, { state: false });
-      if (reply.state?.sessions) return reply as OpenProject & StateStamp;
-      confirmHeldState(projectPath, reply);
-      const { version: _version, epoch: _epoch, ...header } = reply;
-      return { ...header, state: (numberedState(projectPath) as CoordinatorState | undefined) ?? held };
-    }
-    return bridge.readProject(projectPath, { state: true });
-  }
-
-  async function replaceProject(load: () => Promise<(OpenProject & StateStamp) | null>, path?: string, adopt: Parameters<typeof adoptProject>[1] = {}) {
+  async function replaceProject(
+    load: () => Promise<(OpenProject & StateStamp) | null>,
+    path?: string,
+    adopt: Parameters<typeof adoptProject>[1] = {},
+    rethrow = false,
+  ) {
     const navigation = ++projectNavigation.current;
     const cached = path ? projectsSeen.current.get(path) : undefined;
     const cachedState = path ? statesRef.current[path] : undefined;
@@ -1370,13 +1362,16 @@ function App() {
     const adopted = path ? statesRef.current[path] : undefined;
     try {
       const next = await request;
-      if (navigation !== projectNavigation.current || !next) return;
+      if (navigation !== projectNavigation.current || !next) return undefined;
       if (next.path !== projectRef.current?.path || selectedLinkRef.current) adoptProject(next, adopt);
       else refreshOpenProject(next, path ? adopted : statesRef.current[next.path]);
+      return true;
     } catch (error) {
-      if (navigation !== projectNavigation.current) return;
+      if (navigation !== projectNavigation.current) return undefined;
+      if (rethrow) throw error;
       if (!projectRef.current && onboarding) setStartupError(ipcErrorMessage(error));
-      setNotice(ipcErrorMessage(error));
+      setNotice(namedOpenFailure(path, error, computerName));
+      return undefined;
     }
   }
 
@@ -1494,7 +1489,7 @@ function App() {
     beginChatSwitch(chatKey(projectPath, sessionId));
     let request: Promise<OpenProject & StateStamp>;
     try {
-      request = isRemoteKey(projectPath) ? readRemoteProject(projectPath) : window.milagre.openCanvasProject(projectPath);
+      request = isRemoteKey(projectPath) ? readRemoteProject(bridgeForKey(projectPath), projectPath) : window.milagre.openCanvasProject(projectPath);
     } catch (error) {
       request = Promise.reject(error);
     }
@@ -1927,21 +1922,21 @@ function App() {
     const { prompt } = await window.milagre.prepareTriage(`Milagre desktop ${await window.milagre.getAppVersion()} on ${navigator.platform}`);
     await startNewChatOnThisMac(prompt);
   });
-  const moveNewChat = useEvent(async (key: string, home?: Pick<ChatsHome, "exists">) => {
+  const moveNewChat = useEvent(async (key: string, home?: Pick<ChatsHome, "exists">, others: readonly string[] = []) => {
     const from = projectRef.current?.path;
     if (selectedLinkRef.current || !from || from === key) return;
     const typedKey = draftKey(from, selectedSessionRef.current);
     movingDraft.current = true;
     try {
-      await moveDraftTo(key, from, typedKey, home);
+      await moveDraftTo([key, ...others], from, typedKey, home);
     } finally {
       movingDraft.current = false;
     }
   });
-  async function moveDraftTo(key: string, from: string, typedKey: string, home?: Pick<ChatsHome, "exists">) {
+  async function moveDraftTo(keys: string[], from: string, typedKey: string, home?: Pick<ChatsHome, "exists">) {
     if (home && !home.exists) {
       try {
-        await bridgeForKey(key).ensureChatsHome();
+        await bridgeForKey(keys[0]).ensureChatsHome();
       } catch (error) {
         if (!selectedLinkRef.current && projectRef.current?.path === from)
           setNewChatError(`Could not start a Chat without a Project: ${ipcErrorMessage(error)}`);
@@ -1949,19 +1944,22 @@ function App() {
       }
       if (selectedLinkRef.current || projectRef.current?.path !== from) return;
     }
-    const remembered = scopeDrafts.read({ kind: "project", projectPath: key });
-    const start = () => {
+    let started = false;
+    const start = (key: string) => {
+      if (started || selectedLinkRef.current || projectRef.current?.path !== key) return;
+      started = true;
+      const remembered = scopeDrafts.read({ kind: "project", projectPath: key });
       const carried = draftStore.take(typedKey);
       if (carried) scopeDrafts.save({ kind: "project", projectPath: from }, { text: "", sessionId: null });
       startNewChat(carried || (remembered.sessionId === null ? remembered.text : ""));
     };
-    const arrived = () => !selectedLinkRef.current && projectRef.current?.path === key;
-    const switched = switchProject(key);
-    if (arrived()) start();
-    else {
-      await switched;
-      if (arrived()) start();
-    }
+    const open = (key: string) => {
+      const switched = replaceProject(() => requestProject(key), key, {}, true);
+      start(key);
+      return switched.finally(() => start(key));
+    };
+    const { copy, failures, stopped } = await openFirstCopy(keys, open, (key, error) => namedOpenFailure(key, error, computerName));
+    if (!stopped && failures.length) setNotice(copyOpenNotice(failures, copy && computerName(computerOfKey(copy))));
   }
   const newChatWithoutProject = useEvent(async () => {
     const bridge = bridgeFor(LOCAL_COMPUTER);

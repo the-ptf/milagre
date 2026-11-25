@@ -232,18 +232,17 @@ function UpdatesList({
 }) {
   const updating = items.some((item) => item.status === "updating");
   const left = items.filter((item) => item.status === "available" || item.status === "failed");
+  const cliFirst = updating || items.some((item) => item.status === "available");
   const ready = app && state?.status === "downloaded";
   return (
     <>
       <ul className="-mx-2 mt-3 flex flex-col gap-0.5">
-        {app && state && <AppUpdateRow state={state} cliLeft={left.length > 0 || updating} busy={busy} onAct={onAct} />}
+        {app && state && <AppUpdateRow state={state} cliLeft={cliFirst} busy={busy} onAct={onAct} />}
         {items.map((item) => (
           <ProviderUpdateRow key={item.provider} item={item} locked={updating} onInstall={() => void providers.install(item.provider)} />
         ))}
       </ul>
-      {ready && (left.length > 0 || updating) && (
-        <p className="mt-2.5 text-12 text-ink-3">Milagre restarts last, after the CLIs finish. Restarting stops running agents.</p>
-      )}
+      {ready && cliFirst && <p className="mt-2.5 text-12 text-ink-3">Milagre restarts last, after the CLIs finish. Restarting stops running agents.</p>}
       {left.length > 0 ? (
         <Button className="mt-4 w-full" disabled={updating} onClick={() => void providers.installAll()}>
           {left.length === items.length ? "Update all" : `Update ${left.length} more`}

@@ -12,7 +12,7 @@ import '/src/styles.css';
 window.release = 'unavailable'; window.available = false; window.reads = 0; window.installed = false; window.calls = []; window.fail = true;
 window.progress = new Set();
 window.milagre = {
- getUpdateState: async () => ({ status: 'idle', version: null, progress: 0 }),
+ getUpdateState: async () => window.appState ?? ({ status: 'idle', version: null, progress: 0 }),
  onUpdateState: () => () => {},
  onCliProgress: (callback) => { window.progress.add(callback); return () => window.progress.delete(callback); },
  getProviderUpdates: async () => { window.reads++; return !window.available ? null : window.installed ? [] : [{provider:'codex',installedVersion:'0.160.0',version:window.release,channel:'homebrew-cask',command:'brew upgrade --cask codex'}]; },
@@ -87,7 +87,21 @@ async function browserChecks() {
     await wait("!!document.querySelector('[aria-label=\"Dismiss update\"]')");
     await run("document.querySelector('[aria-label=\"Dismiss update\"]').click()");
     await wait("!document.querySelector('[data-update-notice]')");
-    console.log("Provider update pill: pill first, card, download percent, installing, failure log, retry, installed and dismissal passed.");
+    await run(
+      "window.appState={status:'downloaded',version:'0.234.0',progress:100};window.release='0.165.0';window.installed=false;window.fail=true;window.mount()",
+    );
+    const restart = "[...document.querySelectorAll('button')].find(b => b.textContent === 'Restart')";
+    await wait(`!!${restart}`);
+    assert.equal(await run(`${restart}.disabled`), true, "Milagre restarts after the CLIs still to update");
+    await click("Update all");
+    await run("window.finish()");
+    await wait("document.body.textContent.includes('Error: codex: Download failed')");
+    assert.equal(await run(`${restart}.disabled`), false, "A CLI that failed to update must not block restarting Milagre");
+    assert.equal(await run("document.body.textContent.includes('Milagre restarts last')"), false);
+    await shot("failed-cli-restart");
+    console.log(
+      "Provider update pill: pill first, card, download percent, installing, failure log, retry, installed, dismissal and restart past a failed CLI passed.",
+    );
     passed = true;
   } catch (error) {
     console.error(error);

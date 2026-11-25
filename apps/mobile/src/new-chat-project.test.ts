@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { HostView } from "./all-computers-store.ts";
-import { newChatChoices, newChatLinks, newChatProjectGroups, newChatProjects, noProjectChoice, pickNewChatProject, preferredCopy } from "./new-chat-project.ts";
+import {
+  newChatChoices,
+  newChatLinks,
+  newChatProjectGroups,
+  newChatProjects,
+  noProjectChoice,
+  openNewChatCopies,
+  otherCopies,
+  pickNewChatProject,
+  preferredCopy,
+} from "./new-chat-project.ts";
 
 const view = (hostId: string, state: HostView["state"], paths: string[], hidden: string[] = [], home?: HostView["home"]): HostView => ({
   hostId,
@@ -177,4 +187,37 @@ test("New Chat omits adopted canvas groups, including histories from previous sh
   ]);
   for (const project of v.projects) if (project.link) project.link.canvasLinkId = "edge";
   assert.deepEqual(newChatLinks([v], "mac"), []);
+});
+
+test("a Project another computer refuses opens on the next copy, and the notice names the computer", async () => {
+  const copy = (hostId: string, hostName: string, offline = false) => ({
+    hostId,
+    hostName,
+    offline,
+    path: "/rd-events",
+    name: "rd-events",
+    origin: "github.com/x/rd-events",
+  });
+  const [group] = newChatProjectGroups([copy("deer", "deer"), copy("mbp", "mbp"), copy("off", "off", true), copy("here", "Victor XPro")]);
+  const deer = group!.copies[0]!;
+  const others = otherCopies(group!, deer, "here");
+  assert.deepEqual(
+    others.map((item) => item.hostId),
+    ["here", "mbp"],
+  );
+  const opened: string[] = [];
+  const notice = await openNewChatCopies(
+    [deer, ...others],
+    async (item) => {
+      if (item.hostId === "deer") throw new Error("Open this project in Milagre first.");
+      opened.push(item.hostId);
+      return true;
+    },
+    group!.copies,
+    "here",
+    "Victor XPro",
+  );
+  assert.deepEqual(opened, ["here"]);
+  assert.equal(notice, "deer: Open this project in Milagre first. Opened it on Victor XPro instead.");
+  assert.equal(await openNewChatCopies([{ hostId: "here", path: "/a" }], async () => true, [], "here", "Victor XPro"), null);
 });

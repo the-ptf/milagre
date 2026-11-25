@@ -114,7 +114,7 @@ export interface ChatComposerProps {
     key: string;
     name: string;
     kind?: ProjectKind;
-    onChange?: (key: string, home?: Pick<ChatsHome, "exists">) => void;
+    onChange?: (key: string, home?: Pick<ChatsHome, "exists">, others?: readonly string[]) => void;
     onLinkPick?: (id: string) => void;
   };
   worktrees: Array<{ id: number; name: string; path: string }>;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { groupByOrigin, originId } from "./project-origin.mjs";
+import { copiesToTry, copyOpenNotice, groupByOrigin, openFirstCopy, originId } from "./project-origin.mjs";
 
 test("originId reads ssh, scp-like and https remotes of one repo the same", () => {
   for (const url of [
@@ -47,4 +47,50 @@ test("groupByOrigin: no origin, or a second clone on the same computer, stays it
     groups.map((group) => group.copies.length),
     [1, 1, 1, 1],
   );
+});
+
+test("copiesToTry: the picked copy, then this computer's, then the rest; offline copies are skipped", () => {
+  const picked = { id: "deer", online: true };
+  const here = { id: "here", online: true };
+  const mbp = { id: "mbp", online: true };
+  const off = { id: "off", online: false };
+  assert.deepEqual(
+    copiesToTry([mbp, off, picked, here], picked, (copy) => copy.id === "here").map((copy) => copy.id),
+    ["deer", "here", "mbp"],
+  );
+});
+
+test("openFirstCopy names each refusing computer and stops at the first copy that opens", async () => {
+  const refused = new Set(["deer"]);
+  const result = await openFirstCopy(
+    ["deer", "here", "mbp"],
+    async (id) => {
+      if (refused.has(id)) throw new Error("Open this project in Milagre first.");
+      return true;
+    },
+    (id, error) => `${id}: ${(error as Error).message}`,
+  );
+  assert.deepEqual(result, { copy: "here", failures: ["deer: Open this project in Milagre first."], stopped: false });
+  assert.equal(copyOpenNotice(result.failures, "Victor XPro"), "deer: Open this project in Milagre first. Opened it on Victor XPro instead.");
+  assert.equal(copyOpenNotice([], "Victor XPro"), null);
+});
+
+test("openFirstCopy stops when an open is superseded, and reports every refusal when none opens", async () => {
+  assert.deepEqual(
+    await openFirstCopy(
+      ["a", "b"],
+      async () => undefined,
+      () => "x",
+    ),
+    { copy: undefined, failures: [], stopped: true },
+  );
+  const none = await openFirstCopy(
+    ["a", "b"],
+    async (id) => {
+      throw new Error(`no ${id}`);
+    },
+    (id, error) => `${id}: ${(error as Error).message}`,
+  );
+  assert.deepEqual(none, { copy: undefined, failures: ["a: no a", "b: no b"], stopped: false });
+  assert.equal(copyOpenNotice(none.failures), "a: no a b: no b");
 });
