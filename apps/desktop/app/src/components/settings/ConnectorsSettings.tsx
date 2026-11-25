@@ -4,6 +4,7 @@ import {
   CONNECTORS_HINT,
   CONNECTORS_TITLE,
   CONNECTOR_SIGNING_IN,
+  connectorAccessGroups,
   connectorAccessKey,
   connectorAccountName,
   connectorAllows,
@@ -70,16 +71,27 @@ function RowAction({ connector, state, onEdit, remote }: { connector: ConnectorS
 
 function Access({ connector, accounts, state }: { connector: ConnectorSummary; accounts: McpAccount[]; state: ConnectorsState }) {
   if (!accounts.length) return <p className="py-2 text-12 text-ink-3">No provider accounts yet. Every account you add gets this connector.</p>;
-  return accounts.map((account) => (
-    <div key={connectorAccessKey(account.provider, account.accountId)} className="flex min-h-10 items-center gap-3">
-      <span className="min-w-0 flex-1 truncate text-13 text-ink">{connectorAccountName(account)}</span>
-      <span data-connector-access={`${connector.id}:${connectorAccessKey(account.provider, account.accountId)}`} className="flex">
-        <SettingCheckbox
-          label={`${connector.name} for ${connectorAccountName(account)}`}
-          checked={connectorAllows(connector, account.provider, account.accountId)}
-          onChange={(on) => state.setAccess(connector.id, account.provider, account.accountId, on)}
-        />
-      </span>
+  return connectorAccessGroups(connector).map((group) => (
+    <div key={group.id ?? connector.id} className="pb-1">
+      <SectionLabel as="h3" className="pb-1">
+        {group.id ? `${group.name} · Available to` : "Available to"}
+      </SectionLabel>
+      {accounts.map((account) => {
+        const key = connectorAccessKey(account.provider, account.accountId);
+        const label = connectorAccountName(account);
+        return (
+          <div key={key} className="flex min-h-10 items-center gap-3">
+            <span className="min-w-0 flex-1 truncate text-13 text-ink">{label}</span>
+            <span data-connector-access={[connector.id, group.id, key].filter(Boolean).join(":")} className="flex">
+              <SettingCheckbox
+                label={`${group.name} for ${label}`}
+                checked={connectorAllows(group, account.provider, account.accountId)}
+                onChange={(on) => state.setAccess(connector.id, account.provider, account.accountId, on, group.id)}
+              />
+            </span>
+          </div>
+        );
+      })}
     </div>
   ));
 }
@@ -128,9 +140,6 @@ function ConnectorRow({
       </div>
       {open && (
         <div className="px-4 pt-1 pb-3">
-          <SectionLabel as="h3" className="pb-1">
-            Available to
-          </SectionLabel>
           <Access connector={connector} accounts={state.accounts} state={state} />
           {connector.kind === "linear" &&
             (remote ? (

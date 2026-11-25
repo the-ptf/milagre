@@ -907,6 +907,13 @@
           "schema": {
             "enum": [false, true]
           }
+        },
+        {
+          "name": "workspace",
+          "optional": true,
+          "schema": {
+            "type": "string"
+          }
         }
       ]
     },

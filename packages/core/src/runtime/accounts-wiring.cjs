@@ -110,7 +110,7 @@ function createAccountsWiring({ options, dataDir, emit, commands, version, envir
       return {};
     }
   });
-  connectorsWiring = createConnectorsWiring({ options, dataDir, emit, commands, version, mcp, mcpStore, linear, linearTools });
+  connectorsWiring = createConnectorsWiring({ options, dataDir, emit, commands, version, mcp, mcpStore, linear, linearIssues, linearTools });
   const integrations = {
     linearTools,
     tools: connectorsWiring.tools,
