@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { IconData } from "./icons";
 /** Searchable choices wait here because a native sheet route cannot carry callbacks. */
-type ChoiceItem = {
+export type ChoiceItem = {
   id: string;
   title: string;
   subtitle?: string;
@@ -21,6 +21,8 @@ type ChoiceRequest = {
   tabs?: { id: string; label: string }[];
   tab?: string;
   load?: (tab: string | undefined, fresh: boolean) => Promise<ChoiceItem[]>;
+  /** Asks for matches as the user types, instead of filtering `items`: for a search the computer answers. */
+  search?: (query: string) => Promise<ChoiceItem[]>;
   onSelect: (id: string) => void;
 };
 type ChoiceRequestEntry = Omit<ChoiceRequest, "onSelect"> & { choose: (id: string | null) => void };

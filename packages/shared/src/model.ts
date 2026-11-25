@@ -10,6 +10,10 @@ import type {
 } from "./subchat-escalation.mjs";
 
 import type { ContextUsage, ModelMeta, TurnMetrics } from "./model-meta.ts";
+import type { GithubIssueContext } from "./github-issue.mjs";
+import type { LinearIssueContext } from "./linear.ts";
+
+export type { GithubIssueContext, LinearIssueContext };
 
 export type SessionStatus = "Created" | "Running" | "Stopped";
 export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro" | "pi";
@@ -387,17 +391,6 @@ export type PullRequestBlocker = "conflicts" | "changes-requested" | "checks-fai
 
 export type PullRequestActionContext = { kind: "pr-action"; action: PullRequestBlocker; pr: number; url: string };
 
-export type LinearIssueContext = {
-  kind: "linear-issue";
-  key: string;
-  title: string;
-  url: string;
-  state: { name: string; type: "triage" | "backlog" | "unstarted" | "started" | "completed" | "canceled"; color: string };
-  workspace?: string;
-  note?: string;
-  routine?: { routineId: string; runId: string; name: string; at: number; quiet?: boolean; summary?: string; label?: string };
-};
-
 export type WorktreeLinkedContext = {
   kind: "worktree-linked";
   linkId: string;
@@ -750,6 +743,7 @@ export type ChatContext =
   | CompactionContext
   | PullRequestActionContext
   | LinearIssueContext
+  | GithubIssueContext
   | UsageLimitContext
   | AccountSwitchContext
   | { kind: "limit-reset" | "git-action" }
@@ -1134,6 +1128,8 @@ export interface ChatSendRequest {
   prAction?: { action: PullRequestBlocker; pr: number; url: string };
   /** The first message of a Chat started from an issue. Milagre reads the issue and writes the body, prompt and context itself. */
   linearIssue?: { key: string; workspace?: string; note?: string };
+  /** The first message of a Chat started from a GitHub issue. The host reads it with its own `gh` and writes the body, prompt and context itself. */
+  githubIssue?: { repo: string; number: number; note?: string };
   /** Compact the Chat's context now (Claude only). Milagre writes the body, prompt and context itself, ignoring the ones sent. */
   compact?: boolean;
   /** Where the user typed it, when not in the Chat's own computer's window. The agent is told (packages/core/src/sent-from.cjs). */
@@ -1156,6 +1152,8 @@ export interface WorktreeRequest {
   issueKey?: string;
   /** The Linear workspace the issue was picked from. */
   issueWorkspace?: string;
+  /** A GitHub issue to name the branch after; the host reads it with its own `gh`. */
+  githubIssue?: { repo: string; number: number };
 }
 
 export interface CoordinatorState {

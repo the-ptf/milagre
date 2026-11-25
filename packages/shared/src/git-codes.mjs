@@ -6,7 +6,9 @@ export const GIT_CODES = Object.freeze({
   WORKTREE_CHANGED: "WORKTREE_CHANGED",
 });
 const GH_INSTALL = Object.freeze({ darwin: "`brew install gh`", win32: "`winget install --id GitHub.cli`" });
-const ghMissing = (platform) => `Install the GitHub CLI (${GH_INSTALL[platform] ?? "cli.github.com"}) to open PRs.`;
+/** How to install the GitHub CLI on `platform`, for a message that names what it's needed for. */
+export const ghInstallHint = (platform) => GH_INSTALL[platform] ?? "cli.github.com";
+const ghMissing = (platform) => `Install the GitHub CLI (${ghInstallHint(platform)}) to open PRs.`;
 export const GIT_MESSAGES = Object.freeze({
   NO_ORIGIN: "This repo has no origin remote.",
   DETACHED: "Check out a branch to push.",

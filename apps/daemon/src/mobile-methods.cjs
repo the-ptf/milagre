@@ -98,6 +98,7 @@ const METHODS = new Set([
   "routines:rotate-hook",
   "linear:issues",
   "linear:worktree-issues",
+  "github:issues",
   "chat:runs",
   "chat:send-status",
   "chat:inbox",

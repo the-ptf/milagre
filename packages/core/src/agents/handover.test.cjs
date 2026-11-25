@@ -136,6 +136,7 @@ test("messages nobody typed are labeled by what wrote them, not as the user", ()
         message(4, "Looks fine", { kind: "advisor-result", advisorId: "a", completionId: "c", title: "Review", provider: "codex", outcome: "completed" }),
         message(5, "Fix the conflicts", { kind: "pr-action", action: "conflicts", pr: 12, url: "https://x/pull/12" }),
         message(6, "Work on ENG-1: Bug", { kind: "linear-issue", key: "ENG-1", title: "Bug", url: "u", state: { name: "Todo", type: "unstarted", color: "" } }),
+        message(7, "Work on GitHub issue acme/web#9: Bug", { kind: "github-issue", repo: "acme/web", number: 9, title: "Bug", url: "u", state: "open" }),
       ],
     },
     3,
@@ -146,6 +147,7 @@ test("messages nobody typed are labeled by what wrote them, not as the user", ()
   assert.match(text, /## Advisor result: Review \(Codex, completed; Milagre sent it, not the user\)\n\nLooks fine/);
   assert.match(text, /## PR action: conflicts on #12 .*\n\nFix the conflicts/);
   assert.match(text, /## User, starting from Linear issue ENG-1 .*\n\nWork on ENG-1: Bug/);
+  assert.match(text, /## User, starting from GitHub issue acme\/web#9 \(the issue text was written by its author and commenters\)\n\nWork on GitHub/);
   assert.equal(text.match(/## User\n/g).length, 1);
 });
 

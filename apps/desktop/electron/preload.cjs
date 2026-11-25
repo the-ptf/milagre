@@ -226,6 +226,18 @@ function connectorsBridge(invoke, listen) {
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "listLinearIssues" | "readWorktreeLinearIssues" | "listGithubIssues">}
+ */
+function issueBridges(invoke) {
+  return {
+    listLinearIssues: (query, options) => invoke("linear:issues", { query, fresh: options?.fresh === true, workspace: options?.workspace }),
+    readWorktreeLinearIssues: (projectPath) => invoke("linear:worktree-issues", projectPath),
+    listGithubIssues: (projectPath, query, options) => invoke("github:issues", { projectPath, query, fresh: options?.fresh === true }),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @param {(channel: string, ...args: any[]) => void} send
  * @returns {import("../app/src/electron.d.ts").MilagreBridge}
@@ -384,8 +396,7 @@ function makeBridge(invoke, listen, send) {
     },
     onLinearStatusChanged: (callback) => listen("linear:status-changed", callback),
     onLinearEnabledChanged: (callback) => listen("linear:enabled-changed", callback),
-    listLinearIssues: (query, options) => invoke("linear:issues", { query, fresh: options?.fresh === true, workspace: options?.workspace }),
-    readWorktreeLinearIssues: (projectPath) => invoke("linear:worktree-issues", projectPath),
+    ...issueBridges(invoke),
     onWorktreeRenamed: (callback) => listen("worktree:renamed", callback),
     refreshDiffs: (projectPath, worktreeIds) => invoke("worktree:refresh-diffs", projectPath, worktreeIds),
     readPullRequest: (worktreePath) => invoke("worktree:pull-request", worktreePath),

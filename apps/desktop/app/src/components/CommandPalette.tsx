@@ -12,6 +12,7 @@ import {
   FolderAddIcon,
   FolderOpenIcon,
   GitBranchIcon,
+  GithubIcon,
   GitPullRequestIcon,
   Link04Icon,
   PencilEdit02Icon,
@@ -67,6 +68,7 @@ const icons = {
   pullRequest: GitPullRequestIcon,
   folderAdd: FolderAddIcon,
   orchestrator: KanbanIcon,
+  github: GithubIcon,
 };
 
 function CommandKeys({ command, hints }: { command: KeybindingCommandId; hints: boolean }) {

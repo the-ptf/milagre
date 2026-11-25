@@ -436,7 +436,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // The Chat screen's parts (app/chat.tsx and its chat-*.ts[x] siblings in src/) load with the screen's fakes, named from src/.
       if (
         file === "app/chat.tsx" &&
-        ["chat-header", "chat-transcript-rows", "chat-transcript-data", "chat-follow", "chat-composer-dock", "new-chat-tray"].includes(relative) &&
+        ["chat-header", "chat-transcript-rows", "chat-transcript-data", "chat-follow", "chat-composer-dock", "new-chat-tray", "issue-pickers"].includes(
+          relative,
+        ) &&
         !(id in modules)
       ) {
         const fromSrc = { ...modules };
@@ -591,6 +593,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           },
         };
       // Which reply can be settled, and the Done and Snooze patches it sends: plain logic.
+      // Starting from a Linear or GitHub issue (issue-start.mjs, github-issue.mjs) is pure; whether GitHub is offered asks the computer.
+      if (["@milagre/shared/issue-start", "@milagre/shared/github-issue"].includes(id) && !(id in modules)) return require(id);
+      if (base === "use-github-issues" && !(id in modules)) return { useGithubIssuesAvailable: () => false };
+      if (base === "issue-card" && !(id in modules)) return { IssueCard: "IssueCard" };
       if (base === "chat-done" && !(id in modules)) return require("../apps/mobile/src/chat-done.ts");
       // The runs reply merge is plain logic; which Chats are on screen only narrows the host's runs reads, so UI tests
       // register nothing.
@@ -3734,7 +3740,7 @@ const CHAT_PARTS = new Set([
   "ComposerControls",
   "NewChatTray",
   "ChatsTrayLabel",
-  "LinearIssueButton",
+  "IssueButton",
 ]);
 function drawChatParts(node) {
   if (Array.isArray(node)) return node.map(drawChatParts);
@@ -13243,7 +13249,7 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
-    "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./issue-card": { IssueCard: "IssueCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
@@ -13297,8 +13303,28 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
     onActivity() {},
     media: (path) => path,
   });
-  assert.ok(findType(issueTree, "LinearIssueCard"));
+  assert.ok(findType(issueTree, "IssueCard"));
   assert.ok(!findType(issueTree, "Text"), "no bubble with the prompt text");
+  // A GitHub issue's first message is the same card, repository-qualified.
+  const githubTree = ChatReply({
+    message: {
+      id: 4,
+      session_id: 1,
+      body: "Work on GitHub issue acme/web#12: Fix login\n\nhttps://github.com/acme/web/issues/12",
+      context: { kind: "github-issue", repo: "acme/web", number: 12, title: "Fix login", url: "https://github.com/acme/web/issues/12", state: "open" },
+      role: "user",
+    },
+    onActivity() {},
+    media: (path) => path,
+  });
+  const githubCard = (function find(node) {
+    if (Array.isArray(node)) return node.map(find).find(Boolean);
+    if (!node?.props) return null;
+    return node.type === "IssueCard" ? node : find(node.props.children);
+  })(githubTree);
+  assert.equal(githubCard?.props.issue.key, "acme/web#12");
+  assert.equal(githubCard?.props.issue.source, "github");
+  assert.ok(!findType(githubTree, "Text"), "no bubble with the prompt text");
   const conclusion = "T3 Code tries every route in parallel.";
   const steps = [
     { id: "t1", kind: "thinking", title: "Thought", status: "done", detail: "Looking.", offset: 9 },
@@ -13356,7 +13382,7 @@ test("mobile tool display keeps compact progress specific and Full detail in ord
       "./chat-display-setting": { useToolCallDisplay: () => [display, () => {}] },
       "./display-clock": { useDisplayValue: (_interval, compute) => compute(Date.now()) },
       "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
-      "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+      "./issue-card": { IssueCard: "IssueCard" },
       "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
       "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
       "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
@@ -15624,7 +15650,7 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
-    "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./issue-card": { IssueCard: "IssueCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
@@ -15682,7 +15708,7 @@ test("mobile ChatReply marks a Delegation and its report with their sender, neve
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
-    "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./issue-card": { IssueCard: "IssueCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
@@ -19395,7 +19421,7 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["full", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
-    "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./issue-card": { IssueCard: "IssueCard" },
     "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },

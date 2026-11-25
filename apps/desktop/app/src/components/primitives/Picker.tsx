@@ -61,7 +61,10 @@ export function PickerPanel({
 
   const search = onQueryChange && (
     <FieldGroup
-      className="my-2 shrink-0"
+      size={32}
+      fill="bare"
+      className={`shrink-0 pl-[7px] ${searchPlacement === "top" ? "mb-1" : "mt-1"}`}
+      aria-label={placeholder}
       leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
       value={query}
       onChange={(event) => onQueryChange(event.target.value)}

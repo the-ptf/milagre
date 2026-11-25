@@ -8,6 +8,7 @@ const { suggestWorktreeName } = require("../worktree-name.cjs");
 const { removeWorktree, worktreeStatus } = require("../worktree-cleanup.cjs");
 const { previewFilesToCopy } = require("../worktree-files.cjs");
 const { createProjectSettings } = require("../project-settings.cjs");
+const { githubWorktreeIssue, registerGithubIssues } = require("./github-issue-start.cjs");
 const { resolveSetupCommand } = require("../worktree-setup.cjs");
 const { isIssueKey } = require("../linear/links.cjs");
 const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
@@ -214,6 +215,7 @@ function registerWorktreeSettings({ emit, commands, environmentReady, knownFolde
 }
 
 function registerWorktreeCreation({
+  options,
   emit,
   commands,
   background,
@@ -261,11 +263,11 @@ function registerWorktreeCreation({
     emit("worktree:renamed", { projectPath, path: created.path, from: created.branch, name });
   }
 
-  commands.handle("worktree:create", async (event, { projectPath, baseBranch, useProjectBase, prompt, issueKey, issueWorkspace }) => {
+  commands.handle("worktree:create", async (event, { projectPath, baseBranch, useProjectBase, prompt, issueKey, issueWorkspace, githubIssue }) => {
     await ownProject(projectPath);
     await environmentReady;
     if (chatsHome.isHome(projectPath) && (await isFolderChatsHome(projectPath))) {
-      if (issueKey) throw new Error("A Chat without a Project cannot be linked to a Linear issue.");
+      if (issueKey || githubIssue) throw new Error("A Chat without a Project cannot start from an issue.");
       event?.localMcp?.assertActive();
       const folder = await createFolderChat(projectPath);
       const project = await readProject(projectPath);
@@ -273,23 +275,23 @@ function registerWorktreeCreation({
       return { project, worktreeId: worktree.id };
     }
     const issue = typeof issueKey === "string" ? await readLinearIssue(issueKey, issueWorkspace) : null;
+    const named = issue
+      ? { title: issue.title, ticket: issue.key, branch: issue.branchName || "" }
+      : githubIssue !== undefined
+        ? await githubWorktreeIssue(options, projectPath, githubIssue)
+        : null;
     const policy = (await readProjectGit(projectPath)).effective;
     baseBranch = (useProjectBase && policy.baseBranch) || baseBranch || policy.baseBranch || (await git.resolveBase(projectPath)).name;
     const request = { projectPath, baseBranch, prompt };
     const suffix = newSuffix();
-    const ticket = issue?.key || branchTicket(prompt);
-    const branch = await availablePolicyBranch(
-      projectPath,
-      policy,
-      { slug: issue?.title || prompt || "chat", ticket, suffix },
-      { issueBranch: issue ? issue.branchName || "" : undefined },
-    );
+    const ticket = named?.ticket || branchTicket(prompt);
+    const branch = await availablePolicyBranch(projectPath, policy, { slug: named?.title || prompt || "chat", ticket, suffix }, { issueBranch: named?.branch });
     const settings = await projectSettings().get(projectPath);
     const synced = (await projectSettings().getMainSync(projectPath)).enabled ? await syncMain(projectPath, baseBranch) : null;
     const created = await createWorktree({
       ...request,
       branch,
-      folderSlug: branchSlug(issue ? branch.split("/").pop() : prompt || "chat"),
+      folderSlug: branchSlug(named ? branch.split("/").pop() : prompt || "chat"),
       trackBase: policy.trackBase,
       suffix,
       root: worktreeRoot(),
@@ -327,7 +329,7 @@ function registerWorktreeCreation({
       { chats: [] },
     );
     if (issue) markIssueStarted(issue);
-    if (!issue) void track(() => nameWorktree(request.projectPath, created, request.prompt ?? "", policy, suffix, ticket), background).catch(() => {});
+    if (!named) void track(() => nameWorktree(request.projectPath, created, request.prompt ?? "", policy, suffix, ticket), background).catch(() => {});
     return { project: { ...project, state }, worktreeId: listed.id, ...(resolved.note ? { setupNote: resolved.note } : {}) };
   });
   commands.handle("worktree:link-issue", async (_event, { projectPath, worktreeId, key, workspace } = {}) => {
@@ -455,7 +457,9 @@ function createWorktrees({
     git,
     projectSettings,
   });
+  registerGithubIssues({ commands, options, states, environmentReady });
   const { readLinearIssue } = registerWorktreeCreation({
+    options,
     emit,
     commands,
     background,

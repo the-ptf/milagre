@@ -9,12 +9,12 @@ import { parsePageComments } from "@milagre/shared/page-comments";
 import { ArtifactCards, DesignFeedbackCard } from "../agents/ArtifactCard";
 import { AnswerCard } from "../agents/AnswerCard";
 import { PullRequestActionCard } from "../agents/PullRequestActionCard";
-import { LinearIssueCard } from "../agents/LinearIssueCard";
+import { IssueCard } from "../agents/IssueCard";
 import { AdvisorResultCard } from "../agents/AdvisorResultCard";
 import { UsageLimitCard } from "../agents/UsageLimitCard";
 import { isAccountSwitch, isLimitReset, limitResetText, usageLimitOf } from "@milagre/shared/usage-limit";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
-import { isLinearIssueContext } from "@milagre/shared/linear-issue";
+import { issueCard } from "@milagre/shared/issue-start";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import type { LimitResume, ImageAttachment } from "../../model";
 import { reportMarker } from "@milagre/shared/subchat-states";
@@ -377,7 +377,7 @@ function linkedLineArticle(
 function userCards(message: AppChatMessage, isUser: boolean, linked: Linked) {
   const advisor = typeof message.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
   const prAction = isUser && isPullRequestAction(message.context) ? message.context : null;
-  const issue = isUser && isLinearIssueContext(message.context) ? message.context : null;
+  const issue = isUser ? issueCard(message.context) : null;
   const feedback = isUser && !linked && !advisor && !prAction && !issue ? parseDesignFeedback(message.body) : null;
   const pageFeedback = isUser && !linked && !advisor && !prAction && !issue && !feedback ? parsePageComments(message.body) : null;
   const answered = isUser && !linked && !advisor && !feedback && !pageFeedback && message.answered?.length ? message.answered : null;
@@ -484,7 +484,7 @@ function MessageBody({
   const steps = message.steps ?? [];
   if (advisor) return <AdvisorResultCard context={advisor} body={message.body} />;
   if (prAction) return <PullRequestActionCard action={prAction} />;
-  if (issue) return <LinearIssueCard issue={issue} />;
+  if (issue) return <IssueCard issue={issue} />;
   if (feedback) return <DesignFeedbackCard feedback={feedback} messageId={message.id} />;
   if (pageFeedback) return <PageCommentsCard comments={pageFeedback} images={message.images} />;
   if (answered) return <AnswerCard answered={answered} />;

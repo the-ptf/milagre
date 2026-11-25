@@ -124,12 +124,12 @@ async function checks(url) {
     // (a) Linear on: the chip opens the issue list, typing filters through listLinearIssues, picking starts the chat.
     // Until the list arrives the panel shows skeleton rows at full height, not a "Loading" line it then grows out of.
     await click("Linear issue");
-    await waitFor(`!!document.querySelector('[data-linear-issue-skeleton]') && typeof window.__release === 'function'`);
+    await waitFor(`!!document.querySelector('[data-issue-skeleton]') && typeof window.__release === 'function'`);
     assert.equal(await evaluate(`document.body.textContent.includes('No issues found.')`), false, "no empty label while loading");
     await screenshot("linear-issue-loading");
     await evaluate(`window.__hold = false; window.__release()`);
     await waitFor(`document.querySelectorAll('[data-linear-issue-row]').length === 2`);
-    assert.equal(await evaluate(`!!document.querySelector('[data-linear-issue-skeleton]')`), false, "the skeleton goes once issues arrive");
+    assert.equal(await evaluate(`!!document.querySelector('[data-issue-skeleton]')`), false, "the skeleton goes once issues arrive");
     assert.equal(await evaluate(`window.__fresh[0]`), false, "opening reads the list the Mac kept");
     await evaluate(`document.querySelector('[data-linear-issues-refresh]').click()`);
     await waitFor(`window.__fresh.length === 2`);
