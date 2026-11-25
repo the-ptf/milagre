@@ -287,7 +287,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           id === "@milagre/shared/tool-activity" ||
           id === "@milagre/shared/project-origin" ||
           id === "@milagre/shared/bug-report" ||
-          id === "@milagre/shared/chats-home") &&
+          id === "@milagre/shared/chats-home" ||
+          id === "@milagre/shared/question-composer") &&
         !(id in modules)
       )
         return require(id);
@@ -1726,6 +1727,79 @@ test("a standalone single-choice Chat question still sends on its pick", () => {
   find(render(), (n) => n.props?.accessibilityRole === "radio").props.onPress();
   assert.equal(sent.length, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(sent[0][0])), { choice: ["Read"] });
+});
+
+function composerQuestionHost(request) {
+  const react = hookHost();
+  const sent = [];
+  const { ComposerQuestion } = load("composer-question.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Image: "Image", Pressable: "Pressable", ScrollView: "ScrollView", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
+    "@milagre/shared/question-composer": require("../packages/shared/src/question-composer.ts"),
+    "./attachment-picker": { pickAttachments: async () => [], preparePastedImage: async () => ({}) },
+    "./activity-drafts": { takeActivityDraft: () => ({}) },
+    "./composer-glass": { ComposerGlass: "ComposerGlass" },
+    "./icons": { Icon: "Icon" },
+    "./prompt-field": { PromptField: "PromptField" },
+    "./ui": {
+      DISABLED_OPACITY: { control: 0.4 },
+      IconButton: "IconButton",
+      InlineError: "InlineError",
+      PullDown: "PullDown",
+      pressStyle: () => ({}),
+      useStyles: () => ({ caption: {} }),
+    },
+    "./theme": { useTheme: () => ({ colors: new Proxy({}, { get: (_target, key) => key }) }) },
+  });
+  // The banner's parts are components of their own; draw them in place, as React would.
+  const draw = (node) => {
+    if (Array.isArray(node)) return node.map(draw);
+    if (!node || typeof node !== "object" || !node.props) return node;
+    if (typeof node.type === "function") return draw(node.type(node.props));
+    return "children" in node.props ? { ...node, props: { ...node.props, children: draw(node.props.children) } } : node;
+  };
+  const render = () => {
+    react.begin();
+    return draw(ComposerQuestion({ request, busy: false, initialAnswers: {}, field: {}, submit: (...args) => sent.push(args) }));
+  };
+  const send = (tree) =>
+    find(find(tree, (n) => n.type === "PromptField").props.renderControls("mic"), (n) => n.type === "IconButton" && /Send|Next/.test(n.props.label));
+  return { render, sent, send };
+}
+
+test("a Chat question sits in the composer: one pick sends a lone question, the prompt is the typed answer", () => {
+  const lone = composerQuestionHost({ requestId: "lone", questions: [{ id: "choice", question: "Choice?", options: [{ label: "Read" }], allowOther: true }] });
+  const tree = lone.render();
+  assert.equal(find(tree, (n) => n.type === "PromptField").props.placeholder, "Or type your own answer…");
+  find(tree, (n) => n.props?.accessibilityRole === "radio").props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(lone.sent[0][0])), { choice: ["Read"] });
+
+  const batch = composerQuestionHost({
+    requestId: "batch",
+    questions: [
+      { id: "size", header: "Size", question: "Size?", options: [{ label: "Small" }], allowOther: true },
+      { id: "name", header: "Name", question: "Name?", options: [{ label: "Keep" }], allowOther: true },
+    ],
+  });
+  let screen = batch.render();
+  assert.equal(batch.send(screen).props.disabled, true, "nothing to send before an answer");
+  find(screen, (n) => n.props?.accessibilityRole === "radio").props.onPress();
+  screen = batch.render();
+  assert.equal(find(screen, (n) => n.props?.accessibilityRole === "tab" && n.props.accessibilityState.selected).props.accessibilityState.selected, true);
+  assert.equal(find(screen, (n) => n.props?.accessibilityRole === "header").props.children, "Name?");
+  find(screen, (n) => n.type === "PromptField").props.onChangeText("Rename it");
+  screen = batch.render();
+  assert.equal(find(screen, (n) => n.props?.accessibilityRole === "radio").props.accessibilityState.checked, false);
+  batch.send(screen).props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(batch.sent[0][0])), { size: ["Small"], name: ["Rename it"] });
+});
+
+test("Skip in the composer question dismisses it", () => {
+  const { render, sent } = composerQuestionHost({ requestId: "skip", questions: [{ id: "q", question: "Q?", options: [{ label: "A" }], allowOther: true }] });
+  find(render(), (n) => n.props?.accessibilityLabel === "Skip the question").props.onPress();
+  assert.deepEqual(sent, [[null, ""]]);
 });
 
 test("inbox approval shows the entire action inline, including folders, files and delegation", () => {
@@ -4013,6 +4087,7 @@ function chatHost({
         ),
     },
     "../questions": { Approval: "Approval", Questions: "Questions" },
+    "../composer-question": { ActivityComposerQuestion: "ActivityComposerQuestion" },
     "../chat-reply": { ChatReply: "ChatReply", ChatRow: "ChatReply" },
     "../design-outbox": require("../apps/mobile/src/design-outbox.ts"),
     "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
@@ -13415,6 +13490,7 @@ test("mobile activity sheet opens the selected call without paging and keeps app
     "../markdown": { Markdown: "Markdown" },
     "../chat-pages": { useChatPage: () => ({ messages: [], loading: false, trim() {} }) },
     "../questions": { Approval: "Approval" },
+    "../composer-question": { ActivityComposerQuestion: "ActivityComposerQuestion" },
     "../ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton" },
     "../session": {
       useSession: () => ({
@@ -13520,6 +13596,7 @@ test("mobile tool output retries after reconnect and clears the failed-read cont
     "../markdown": { Markdown: "Markdown" },
     "../chat-pages": { useChatPage: () => ({ messages: [], loading: false, trim() {} }) },
     "../questions": { Approval: "Approval" },
+    "../composer-question": { ActivityComposerQuestion: "ActivityComposerQuestion" },
     "../ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton" },
     "../session": { useSession: () => session },
   });

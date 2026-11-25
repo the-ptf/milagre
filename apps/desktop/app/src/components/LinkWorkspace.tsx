@@ -54,8 +54,9 @@ import { usePastedImages } from "./usePastedImages";
 import type { useAgentRuns } from "./useAgentRuns";
 import { useRunShell, useRunStatuses } from "../lib/agent-runs-store";
 import { attachmentPrompt } from "../lib/media";
-import { sentDecision, sentReply } from "../lib/agent-runs";
+import { sentDecision } from "../lib/agent-runs";
 import { PermissionCard } from "./agents/PermissionCard";
+import { cardQuestion, composerQuestionFor, questionAnswerer, questionCardProps } from "../app/ChatApproval";
 import { useStepApprovalScope } from "./agents/step-approval";
 import { getSettings } from "../lib/settings";
 import { EditorLinks } from "./editor-links";
@@ -580,7 +581,9 @@ export function LinkWorkspace({
   }
   const recents = scopeChats(owner, state, chatOrder, runMarks, { pins }).filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))));
   const approval = run?.approvals[0],
-    question = approval ? undefined : run?.questions[0];
+    question = approval ? undefined : run?.questions[0],
+    card = cardQuestion(question);
+  const answerQuestion = questionAnswerer(agents, chatId, question, setError);
   const stepApproval = useStepApprovalScope(approval, (run?.approvals.length ?? 1) - 1, approval ? sentDecision(run, approval.requestId) : null, (decision) => {
     if (approval && chatId) void agents.respond(chatId, approval.requestId, decision).catch((failure) => setError(ipcErrorMessage(failure)));
   });
@@ -821,6 +824,7 @@ export function LinkWorkspace({
                         waitingForSubagents={run?.waitingForSubagents}
                         activity={session ? chatActivity(session, run) : undefined}
                         asking={Boolean(question)}
+                        question={composerQuestionFor(run, chatId ? question : undefined, answerQuestion)}
                         waitingStepIds={run?.approvals.flatMap((request) => (request.stepId ? [request.stepId] : []))}
                         resume={
                           session?.resumeTurn
@@ -872,15 +876,8 @@ export function LinkWorkspace({
                                 void agents.respond(chatId, approval.requestId, decision).catch((failure) => setError(ipcErrorMessage(failure)))
                               }
                             />
-                          ) : question && chatId ? (
-                            <QuestionCard
-                              request={question}
-                              waiting={(run?.questions.length ?? 1) - 1}
-                              answering={sentReply(run, question.requestId)}
-                              onAnswer={(answer) =>
-                                void agents.answerQuestion(chatId, question.requestId, answer).catch((failure) => setError(ipcErrorMessage(failure)))
-                              }
-                            />
+                          ) : card && chatId ? (
+                            <QuestionCard {...questionCardProps(run, card, answerQuestion)} />
                           ) : undefined
                         }
                       />

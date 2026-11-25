@@ -17,6 +17,7 @@ import type {
 } from "../../model";
 import { type ChatMentionScope } from "../ChatMentions";
 import { type StepApproval } from "../agents/step-approval";
+import type { ComposerQuestionProps } from "../agents/ComposerQuestion";
 import type { ImageDraft } from "../usePastedImages";
 import type { DraftStore } from "../../lib/draft-store";
 import type { QueueControls } from "../QueuedMessages";
@@ -108,6 +109,7 @@ export interface ChatComposerProps {
   onPermissionModeChange: (mode: PermissionMode) => void;
   onRecommendationSelect: (option: string) => void;
   approval?: ReactNode;
+  question?: ComposerQuestionProps;
   approvalHidden?: boolean;
   stepApproval?: StepApproval | null;
   newChatProject?: {

@@ -156,7 +156,7 @@ no border. Grouped cards are flat: the surface with a hairline (`useStyles().car
 | --------------- | ---------------------- | ---------------------- | --------------------------------------------------------------------------------- |
 | `shadowCard`    | `0 1px 3px #0000000f`  | `0 1px 3px #00000040`  | An inline card; Android's raised segment                                          |
 | `shadowRaised`  | `0 4px 20px #0000000f` | `0 4px 20px #00000059` | Floating controls: the inbox button, the undo panel, viewer chrome; Android glass |
-| `shadowOverlay` | `0 8px 28px #00000017` | `0 8px 28px #00000080` | The iPad Settings card, the question card over the composer                       |
+| `shadowOverlay` | `0 8px 28px #00000017` | `0 8px 28px #00000080` | The iPad Settings card, a secret or bug report card over the composer             |
 
 ## Surfaces
 

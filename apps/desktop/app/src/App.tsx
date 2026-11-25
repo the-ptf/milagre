@@ -20,7 +20,7 @@ import { usePrPanel } from "./app/usePrPanel";
 import { useChatRowActions } from "./app/useChatRowActions";
 import { useSendPipeline } from "./app/useSendPipeline";
 import { NO_WORKTREE, shownPendingSend, withSendPreviews } from "./lib/send-pending";
-import { ChatApproval, PermissionCard, approvalShown, type ChatApprovalProps } from "./app/ChatApproval";
+import { PermissionCard, chatApprovalSlots, type ChatApprovalProps } from "./app/ChatApproval";
 import { ChooseProjectScreen, HostNotices, QuitErrorDialog, StartupErrorScreen } from "./app/StartupScreens";
 import { WorkspaceSlots } from "./app/WorkspaceSlots";
 import { ProjectChangesPanel } from "./app/ProjectChangesPanel";
@@ -2811,7 +2811,7 @@ function App() {
                         notice={notice}
                         onDismissNotice={() => setNotice(null)}
                         approvalHidden={questionSent && !pendingApproval && !remoteDelegations.length}
-                        approval={approvalShown(approvalProps) ? <ChatApproval {...approvalProps} /> : undefined}
+                        {...chatApprovalSlots(approvalProps)}
                       />
                     </EditorLinks>
                   </ChatGrid>

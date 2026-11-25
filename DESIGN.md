@@ -425,11 +425,18 @@ Hugeicons everywhere (`@hugeicons/core-free-icons`), drawn in the text colour.
 
 <!-- specimen: question -->
 
-- A bordered card (`line-strong`, `rounded-card`, `surface`): "Waiting for answer", the question at 15 semibold, then
-  each option as a bordered row (`rounded-control`) with a radio or checkbox, its label at 13 medium and its
-  description at 12 `ink-2`. A picked row turns `inset` with a `line-strong` border.
-- "Other…" is the last option row: a text field with the mic and image buttons inside it.
-- Its footer is Dismiss (`ghost`) and Send answer (`primary`), both 28 high, bottom right.
+- An agent's question is asked in the composer, so there is one place to type. While it waits, the composer's glass
+  holds the question above the prompt: the question at 15 semibold with Skip (`quiet`) on its right,
+  then each option as a borderless row (`rounded-control`) with a 20px number key (`field`, 11 semibold `ink-2`), its
+  label at 13 medium and its description at 12 `ink-2`. A picked row fills `hover-2` and its key turns `ink`; a
+  multi-select key shows a tick. A hairline (`line`) separates the options from the prompt.
+- The prompt is the typed answer ("Or type your own answer…"; "Choose an option above" when the agent takes none), and
+  Send answers the question or moves to the next one. The Chat's own draft waits until the question is answered or
+  skipped. Number keys pick an option on desktop while focus is in the question.
+- Several questions in one call show a chip per question (a tick once answered), with "1 of 3" and arrows on desktop.
+  A single choice on a lone question sends at once; in a batch it moves to the next question.
+- A Milagre secret, a bug report and a masked question keep a bordered card (`line-strong`, `rounded-card`), since the
+  prompt can't hide text.
 
 ### Toasts and notices
 

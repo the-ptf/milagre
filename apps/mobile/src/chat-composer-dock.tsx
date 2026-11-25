@@ -34,6 +34,8 @@ import { SimulatorChip } from "./simulator";
 import { QueuedMessages } from "./queued-messages";
 import { SubchatWaitingNote } from "./subchat-note";
 import { ActivityQuestions } from "./questions";
+import { ActivityComposerQuestion } from "./composer-question";
+import { asksInComposer } from "@milagre/shared/question-composer";
 import { UndoPanel, type CheckpointReview, type UndoIntent } from "./undo-panel";
 import type { KnownFiles } from "./file-mentions";
 import type { PastedImage } from "./attachment-picker";
@@ -468,9 +470,47 @@ type ChatComposerDockProps = {
   settle?: SettleActions;
 };
 
+function QuestionInComposer({
+  client,
+  project,
+  question,
+  ...props
+}: Pick<ChatComposerDockProps, "client" | "project" | "sessionId" | "actionBusy" | "onAnswer" | "composer"> & { question: Question }) {
+  const { composer } = props;
+  return (
+    <ActivityComposerQuestion
+      key={question.requestId}
+      hostId={client.url}
+      projectPath={project.path}
+      sessionId={props.sessionId}
+      request={question}
+      busy={props.actionBusy}
+      submit={props.onAnswer}
+      field={{
+        client,
+        projectPath: composer.projectPath,
+        skillScope: composer.skillScope,
+        chats: composer.chats,
+        computers: composer.computers,
+        currentId: composer.currentId,
+        known: composer.known,
+        onMention: composer.onMention,
+        commands: composer.commands,
+        chatTitle: composer.chatTitle,
+        provider: composer.provider,
+        focusRequest: composer.focusRequest,
+        onFocus: composer.onFocus,
+        onBlur: composer.onBlur,
+        onTouchStart: composer.onTouchStart,
+      }}
+    />
+  );
+}
+
 export function ChatComposerDock({ onRoom, onHeight, column, padding, ...props }: ChatComposerDockProps) {
   const { client, project, chat, chatId, chatsHomeOpen, question, answering } = props;
   const asking = !question || answering;
+  const inComposer = question && !answering && asksInComposer(question) ? question : undefined;
   return (
     <View
       ref={onRoom}
@@ -503,7 +543,7 @@ export function ChatComposerDock({ onRoom, onHeight, column, padding, ...props }
       ) : null}
       {props.waiting && <SubchatWaitingNote note={props.waiting} />}
       {props.approvals}
-      {question && (
+      {question && !asksInComposer(question) && (
         <View style={answering ? { display: "none" } : undefined}>
           <ActivityQuestions
             hostId={client.url}
@@ -521,12 +561,16 @@ export function ChatComposerDock({ onRoom, onHeight, column, padding, ...props }
       {props.undo.view !== "closed" && chat ? (
         <UndoPanel readOnly={!!chat.readOnlyReason} review={props.undo} intent={props.undoIntent} onOpenFile={props.onOpenUndoFile} />
       ) : (
-        asking && (
+        (asking || inComposer) && (
           <SettleDrag actions={props.settle}>
             <ComposerTray start={props.start} target={props.trayTarget}>
               {props.tray}
               <OfflineTray target={props.trayTarget} chip={!props.start} />
-              <DraftComposer {...props.composer} chatId={chatId} start={props.start} controls={<ComposerControls {...props.controls} />} />
+              {inComposer ? (
+                <QuestionInComposer {...props} question={inComposer} />
+              ) : (
+                <DraftComposer {...props.composer} chatId={chatId} start={props.start} controls={<ComposerControls {...props.controls} />} />
+              )}
             </ComposerTray>
           </SettleDrag>
         )

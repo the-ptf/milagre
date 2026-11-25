@@ -29,6 +29,7 @@ import { EMPTY_CHAT_MENTIONS } from "./ChatMentions";
 import { insertImageMentions } from "../lib/file-mentions";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { Button } from "./primitives/Button";
+import { ResumeBar } from "./composer/ResumeBar";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
 import { DraftPromptComposer } from "./DraftPromptComposer";
@@ -143,6 +144,7 @@ export function ChatComposer({
   onPermissionModeChange,
   onRecommendationSelect,
   approval,
+  question,
   approvalHidden = false,
   stepApproval = null,
   newChatProject,
@@ -427,14 +429,7 @@ export function ChatComposer({
                       mark={<ChatMarkDotInline mark="background" failed={false} background={activity?.background ?? 0} />}
                     />
                     {runtimeChat && !isSending && <NextCheck chatKey={runtimeChat} />}
-                    {resume && !isSending && (
-                      <div data-resume-bar className="flex w-full items-center gap-3 rounded-control border border-line px-3 py-2 text-12 text-ink-2">
-                        <span className="min-w-0 flex-1">Milagre closed while this Chat was working.</span>
-                        <Button size={24} onClick={resume.onContinue} disabled={sendBlocked}>
-                          Continue
-                        </Button>
-                      </div>
-                    )}
+                    {resume && !isSending && <ResumeBar onContinue={resume.onContinue} disabled={sendBlocked} />}
                   </div>
                 </MessageScroller>
               </div>
@@ -604,6 +599,7 @@ export function ChatComposer({
               <div className={`${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
                 <DraftPromptComposer
                   store={store}
+                  question={question}
                   offlineName={offlineName}
                   reconnectingName={reconnectingName}
                   imageDraft={imageDraft}
