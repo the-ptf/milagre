@@ -36,6 +36,7 @@ function ChipButton({
   label,
   open,
   chip,
+  iconOnly = false,
   onClick,
 }: {
   icon?: IconData;
@@ -43,8 +44,15 @@ function ChipButton({
   label: string;
   open: boolean;
   chip?: string;
+  iconOnly?: boolean;
   onClick: (trigger: HTMLElement) => void;
 }) {
+  if (iconOnly)
+    return (
+      <Tooltip label={label} asChild>
+        <Chip icon={leading ?? icon} chevron aria-label={label} aria-expanded={open} data-chip={chip} onClick={(event) => onClick(event.currentTarget)} />
+      </Tooltip>
+    );
   return (
     <Chip icon={leading ?? icon} chevron aria-expanded={open} data-chip={chip} className="max-w-full" onClick={(event) => onClick(event.currentTarget)}>
       <span className="min-w-0 truncate">{label}</span>
@@ -54,6 +62,7 @@ function ChipButton({
 
 function GithubIssueMenu({
   projectKey,
+  iconOnly,
   open,
   onToggle,
   onPick,
@@ -62,6 +71,7 @@ function GithubIssueMenu({
   style,
 }: {
   projectKey: string;
+  iconOnly: boolean;
   open: boolean;
   onToggle: (trigger: HTMLElement) => void;
   onPick: (issue: GithubIssue) => void;
@@ -71,7 +81,7 @@ function GithubIssueMenu({
 }) {
   return (
     <>
-      <ChipButton leading={<GithubLogo size={14} />} label="GitHub issue" chip="github-issue" open={open} onClick={onToggle} />
+      <ChipButton leading={<GithubLogo size={14} />} label="GitHub issue" chip="github-issue" iconOnly={iconOnly} open={open} onClick={onToggle} />
       {open && <GithubIssuePicker projectKey={projectKey} className={className} style={style} onPick={onPick} onClose={onClose} />}
     </>
   );
@@ -99,6 +109,8 @@ type NewChatHeaderProps = Pick<
 };
 
 const NO_COPIES: ProjectCopy[] = [];
+
+const WIDEST_PICKER = 420;
 
 const offersGithubIssue = (props: { chats: boolean; link: boolean; noGit: boolean; selected: unknown; onStartFromIssue: unknown }) =>
   !props.chats && !props.link && !props.noGit && !!props.selected && !!props.onStartFromIssue;
@@ -133,6 +145,7 @@ export function NewChatHeader({
   const [query, setQuery] = useState("");
   const [popover, setPopover] = useState({ left: 0, maxHeight: 480, up: true });
   const selected = worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? worktrees[0];
+  const linearChip = !chats && linearActive && !!onStartFromIssue;
   const githubProject = useGithubIssueProject(currentKey, offersGithubIssue({ chats, link, noGit, selected, onStartFromIssue }));
   const isolationOption = ISOLATIONS.find((option) => option.id === isolation) ?? ISOLATIONS[0];
   const search = query.trim().toLowerCase();
@@ -158,7 +171,8 @@ export function NewChatHeader({
     const button = trigger.getBoundingClientRect();
     const above = button.top - 24;
     const below = window.innerHeight - button.bottom - 24;
-    setPopover({ left: button.left - (row?.left ?? button.left), maxHeight: Math.max(above, below), up: above >= below });
+    const left = Math.max(row?.left ?? button.left, Math.min(button.left, window.innerWidth - WIDEST_PICKER - 16));
+    setPopover({ left: left - (row?.left ?? button.left), maxHeight: Math.max(above, below), up: above >= below });
   }
 
   useDismiss(
@@ -242,12 +256,19 @@ export function NewChatHeader({
               </>
             )
           )}
-          {!chats && linearActive && onStartFromIssue && (
-            <ChipButton leading={<LinearLogo size={14} />} label="Linear issue" open={menu === "issue"} onClick={(trigger) => toggle("issue", trigger)} />
+          {linearChip && (
+            <ChipButton
+              leading={<LinearLogo size={14} />}
+              label="Linear issue"
+              iconOnly={!!githubProject}
+              open={menu === "issue"}
+              onClick={(trigger) => toggle("issue", trigger)}
+            />
           )}
           {githubProject && (
             <GithubIssueMenu
               projectKey={githubProject}
+              iconOnly={linearChip}
               open={menu === "github"}
               onToggle={(trigger) => toggle("github", trigger)}
               onPick={(issue) => {
