@@ -48,9 +48,9 @@ The cask follows the [Homebrew Cask Cookbook](https://docs.brew.sh/Cask-Cookbook
 
 ### Validation and release
 
-**Build package candidates** runs on every push to `main`, on dispatch, and on a PR once it carries the `preview:installers` label. Windows pipe, ACL and process tests and Linux repository signing run on every PR in CI's `native-tests` job without an installer. It builds on native macOS, Windows and Ubuntu runners. It installs the NSIS/DEB packages and runs the real desktop against temporary profiles, including saved Chats, shared-host updates, crash recovery, and ownership errors. Windows also runs real named-pipe, NTFS ACL and process tests. Candidate installers are unsigned/ad-hoc Actions artifacts, kept for 14 days.
+**Build package candidates** runs when a push to `main` changes packaging inputs or installer checks, on dispatch, and on a PR once it carries the `preview:installers` label. CI runs affected Windows tests and Linux repository signing independently of installer builds. It builds on native macOS, Windows and Ubuntu runners. It installs the NSIS/DEB packages and runs the real desktop against temporary profiles, including saved Chats, shared-host updates, crash recovery, and ownership errors. Windows also runs real named-pipe, NTFS ACL and process tests. Candidate installers are unsigned/ad-hoc Actions artifacts, kept for 14 days.
 
-The `release` job of CI cuts a candidate (a tag and a draft release) for every push to `main` once `javascript` and `native-tests` pass. The non-required `desktop-checks` job does not gate it. Drafts are invisible to installed apps.
+The `next-beta` job refreshes the untagged draft once all three CI gates pass on a push to `main`. The release planner uses the latest installer run on the commit's first-parent history. Drafts are invisible to installed apps.
 
 **Publish** (`.github/workflows/publish.yml`) is the one release pipeline, for both channels. It picks a draft candidate (the `tag` input, or the newest draft newer than the published stable), builds every platform in parallel, then a single `publish` job collects the `installers-*` artifacts, checks the updater feeds with `finalize-update-feeds.cjs --check` and ships:
 

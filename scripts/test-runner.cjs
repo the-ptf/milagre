@@ -98,6 +98,7 @@ const WORKSPACES = {
   daemon: "apps/daemon/",
   relay: "apps/relay/",
   mobile: "apps/mobile/",
+  site: "apps/site/",
   scripts: "scripts/",
 };
 
@@ -177,13 +178,20 @@ function selectTests({ unit, electron, filters }) {
  */
 function affectedSelection({ root, changed, files, unit, electron }) {
   const extraDependencies = Object.fromEntries(electron.filter((file) => MANIFEST[path.basename(file)]?.needsBuild).map((file) => [file, ["apps/desktop/"]]));
-  return require("./affected-tests.cjs").selectAffected({
+  const { selectAffected, narrowWorkspace } = require("./affected-tests.cjs");
+  const selection = selectAffected({
     changed,
     files,
     tests: [...unit, ...electron],
     read: (file) => fs.readFileSync(path.join(root, file), "utf8"),
     extraDependencies,
   });
+  const workspace = narrowWorkspace(changed);
+  if (workspace && selection.tests) {
+    for (const file of unit)
+      if (file.startsWith(WORKSPACES[workspace]) || (workspace === "mobile" && file.startsWith("scripts/mobile-"))) selection.tests.add(file);
+  }
+  return selection;
 }
 
 const electronSeconds = (file) => MANIFEST[path.basename(file)]?.seconds ?? TYPICAL_CHECK_SECONDS;

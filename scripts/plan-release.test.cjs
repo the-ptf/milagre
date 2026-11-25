@@ -270,6 +270,8 @@ test("a beta ships the newest green main commit, or a requested one that is on m
   assert.equal(greenCommit({ exec: f.exec }), first);
   assert.equal(greenCommit({ exec: f.exec, requested: first }), first);
   assert.throws(() => greenCommit({ exec: f.exec, requested: second }), /CI has not passed on/);
+  f.state.runs.unshift(second);
+  assert.equal(greenCommit({ exec: f.exec }), second, "a green push can reuse its parent's installer check");
   f.git("checkout", "-q", "-b", "side", first);
   f.git("commit", "-q", "--allow-empty", "-m", "fix: off main");
   const side = head(f);
