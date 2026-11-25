@@ -172,12 +172,19 @@ const phone = {
   ],
 };
 
-const reportLink = `<a href="assets/report.xlsx" download="Monthly report.xlsx"><span>Download</span></a>
+const reportLink = `<style>
+.download { display:inline-block; padding:12px 20px; border-radius:8px; background:#2454c6; color:white; font:600 15px system-ui; text-decoration:none }
+.download:hover { background:#193e99 }
+.download:focus-visible { outline:3px solid #2454c6; outline-offset:3px }
+</style>
+<a class="download" href="assets/report.xlsx" download="Monthly report.xlsx"><span>Download workbook</span></a>
 <script>
 addEventListener("message", event => {
   if (event.data !== "test-download-focus") return;
-  document.querySelector("a[download]").focus();
-  parent.postMessage("test-download-focused", "*");
+  const link = document.querySelector("a[download]");
+  link.focus();
+  const style = getComputedStyle(link);
+  parent.postMessage({ type: "test-download-focused", display: style.display, radius: style.borderRadius }, "*");
 });
 </script>`;
 
@@ -1459,16 +1466,17 @@ async function browserChecks() {
         return { write: async chunk => bytes.push(...chunk), close: async () => { window.savedReport = { suggestedName, bytes } } };
       }
     }); true`);
-    await evaluate(`new Promise(resolve => {
+    const buttonStyle = await evaluate(`new Promise(resolve => {
       const frame = ${dock}.querySelector("[data-slot=artifact-page] iframe");
       function focused(event) {
-        if (event.source !== frame.contentWindow || event.data !== "test-download-focused") return;
+        if (event.source !== frame.contentWindow || event.data?.type !== "test-download-focused") return;
         removeEventListener("message", focused);
-        resolve(true);
+        resolve([event.data.display, event.data.radius]);
       }
       addEventListener("message", focused);
       frame.contentWindow.postMessage("test-download-focus", "*");
     })`);
+    assert.deepEqual(buttonStyle, ["inline-block", "8px"]);
     const input = window.webContents.debugger;
     if (!input.isAttached()) input.attach("1.3");
     for (const type of ["keyDown", "keyUp"])
