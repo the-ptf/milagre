@@ -62,6 +62,7 @@ export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, be
   const set = useTabSet(workspace);
   const chrome = useWindowChrome();
   const anchor = useRef<HTMLSpanElement>(null);
+  const [columnLeft, setColumnLeft] = useState(0);
   const scroller = useRef<HTMLDivElement>(null);
   const group = useRef<HTMLDivElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
@@ -90,7 +91,9 @@ export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, be
     if (!(host instanceof HTMLElement) || !box) return;
     const update = () => {
       measure();
-      setBookmarkReserve(box.getBoundingClientRect().right - host.getBoundingClientRect().left + 8);
+      const column = host.getBoundingClientRect().left;
+      setColumnLeft(column + 12);
+      setBookmarkReserve(box.getBoundingClientRect().right - column + 8);
     };
     update();
     const observer = new ResizeObserver(update);
@@ -151,7 +154,7 @@ export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, be
       {createPortal(
         <div
           data-workspace-tabs
-          style={{ left: chrome.controlsEnd, right: chrome.rightInset + 12 + (corner ? corner + 20 : 0) }}
+          style={{ left: Math.max(chrome.controlsEnd, columnLeft), right: chrome.rightInset + 12 + (corner ? corner + 20 : 0) }}
           className="pointer-events-none fixed top-[var(--window-chrome-top)] z-[55] flex h-8 select-none items-center"
         >
           <div ref={group} className="pointer-events-auto flex min-w-0 max-w-full items-center gap-0.5">
