@@ -71,8 +71,8 @@ test("a pasted link reads that issue, even from another repository or a Project 
     if (args[0] === "repo") throw failure("no git remotes found");
     return node(9, { url: "https://github.com/acme/api/issues/9", state: "CLOSED", stateReason: "NOT_PLANNED" });
   });
-  const result = await createGithubIssues({ exec: gh.exec }).list("/p", "https://github.com/acme/api/issues/9");
-  assert.equal(result.repo, "acme/api");
+  const result = await createGithubIssues({ exec: gh.exec }).list("/p", "https://github.com/acme/api-old/issues/9");
+  assert.equal(result.repo, "acme/api", "the repository the issue's own URL names, after a rename too");
   assert.deepEqual(
     result.issues.map((issue) => [issue.repo, issue.number, issue.state, issue.closedAs]),
     [["acme/api", 9, "closed", "not_planned"]],

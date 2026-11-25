@@ -148,7 +148,10 @@ function createGithubIssues({ exec = promisify(execFile), env = () => process.en
     const text = typeof query === "string" ? query.trim() : "";
     const ref = parseGithubIssueRef(text);
     try {
-      if (ref?.repo) return { repo: ref.repo, issues: [await readIssue(projectPath, ref, { thread: false })] };
+      if (ref?.repo) {
+        const issue = await readIssue(projectPath, ref, { thread: false });
+        return { repo: issue.repo, issues: [issue] };
+      }
       const { name, issues } = await projectRepo(projectPath, fresh);
       if (!issues) return { error: `Issues are turned off for ${name}.`, code: "issues-off" };
       const exact = ref ? await readIssue(projectPath, { repo: name, number: ref.number }, { thread: false }).catch(() => null) : null;
