@@ -1592,26 +1592,80 @@ test("a quit saves no resume for a Routine's turn, which the scheduler owns; a u
   assert.equal(saved.get(BETA).sessions[user.sessionId].resumeTurn.prompt, "fix the api");
 });
 
-test("a babysit Run's turn carries its level as a guard to the agent; other turns and the turn settings don't", async (t) => {
-  const { host, manager, session } = harness();
+const babysitContext = {
+  kind: "routine-run",
+  routineId: "r1",
+  runId: "run-1",
+  name: "Babysit PR #4",
+  at: NOW,
+  babysit: { level: 1, resolveThreads: false, offBranch: true },
+};
+
+for (const provider of ["claude", "codex", "pi", "antigravity", "kiro"]) {
+  test(`${provider}: Send now during a Report-only Babysit Run starts a user turn with the Chat's permissions`, async (t) => {
+    const { host, manager, session, states } = harness();
+    t.after(() => manager.closeAll());
+    const run = await host.send(message(ALPHA, "PR #4 changed", { provider, permissionMode: "auto", context: babysitContext }));
+    await run.started;
+    const { sessionId } = run;
+    const chatId = `${ALPHA}#${sessionId}`;
+    await host.receive(chatId, { type: "session-started", nativeId: "native-1" });
+    await host.receive(chatId, { type: "turn-started", turnId: "t1" });
+
+    const user = await host.send(message(ALPHA, "Commit, push and reply", { provider, sessionId, permissionMode: "full" }));
+    assert.equal(user.queued, true);
+    const [entry] = (await states.get(ALPHA)).sessions[sessionId].queued;
+    assert.deepEqual(await host.sendQueuedNow(chatId, entry.id), { interrupt: true });
+    const { turns } = session(ALPHA);
+    assert.equal(turns.length, 1);
+    assert.deepEqual(turns[0].guard, { level: 1, resolveThreads: false });
+    assert.equal(host.turnSettings(chatId).guard, undefined);
+
+    await host.receive(chatId, { type: "turn-cancelled" });
+    await user.started;
+    assert.equal(turns[1].prompt, "Commit, push and reply");
+    assert.equal(turns[1].permissionMode, "full");
+    assert.equal(turns[1].guard, undefined);
+  });
+}
+
+test("a user message sent while Babysit starts waits for its report", async (t) => {
+  const preparing = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const { host, manager, session } = harness({
+    hooks: {
+      beforeTask: async ({ context, sessionId }) => {
+        if (context === babysitContext) {
+          preparing.resolve(sessionId);
+          await release.promise;
+        }
+      },
+    },
+  });
   t.after(() => manager.closeAll());
-  const babysit = { level: 2, resolveThreads: false, offBranch: true };
-  const context = { kind: "routine-run", routineId: "r1", runId: "run-1", name: "Babysit PR #4", at: NOW, label: "PR #4", babysit };
-  const run = await host.send(message(ALPHA, "PR #4 changed", { permissionMode: "full", context }));
-  await waitUntil(() => session(ALPHA)?.turns.length === 1);
-  assert.deepEqual(session(ALPHA).turns[0].guard, { level: 2, resolveThreads: false });
-  const chatId = `${ALPHA}#${run.sessionId}`;
-  // Settings read for the Chat's next message (a Delegation, a beat) never pass the guard on.
-  assert.equal("guard" in host.turnSettings(chatId), false);
-  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
-  session(ALPHA).emit({ type: "turn-completed" });
-  await waitUntil(() => !host.runs[chatId]);
-  // A heartbeat's beat and a user's message are not guarded.
-  await host.send(
-    message(ALPHA, "Check CI", { sessionId: run.sessionId, context: { kind: "routine-run", routineId: "r2", runId: "run-2", name: "CI", at: NOW } }),
-  );
-  await waitUntil(() => session(ALPHA).turns.length === 2);
-  assert.equal(session(ALPHA).turns[1].guard, undefined);
+  const starting = host.send(message(ALPHA, "PR #4 changed", { context: babysitContext }));
+  const sessionId = await preparing.promise;
+  const chatId = `${ALPHA}#${sessionId}`;
+  const user = await host.send(message(ALPHA, "Push and reply", { sessionId, permissionMode: "ask" }));
+  release.resolve();
+  await (
+    await starting
+  ).started;
+  assert.equal(user.queued, true);
+  await host.receive(chatId, { type: "session-started", nativeId: "native-1" });
+  await host.receive(chatId, { type: "turn-completed" });
+  await user.started;
+  const [, followup] = session(ALPHA).turns;
+  assert.equal(followup.prompt, "Push and reply");
+  assert.equal(followup.permissionMode, "ask");
+  assert.equal(followup.guard, undefined);
+
+  await host.receive(chatId, { type: "turn-completed" });
+  const context = { kind: "routine-run", routineId: "r2", runId: "run-2", name: "CI", at: NOW };
+  await (
+    await host.send(message(ALPHA, "Check CI", { sessionId, context }))
+  ).started;
+  assert.equal(session(ALPHA).turns.at(-1).guard, undefined);
 });
 
 test("a Run's new Chat starts hidden, with the Routine's name as a generated title that a user's name beats", async (t) => {
@@ -2740,7 +2794,7 @@ test("a wake never steers: a busy Chat refuses it in the save, and nothing is wr
   const after = await h.states.get(ALPHA);
   assert.equal(after.messages.length, before.messages.length);
   assert.equal(after.sessions[sent.sessionId].queued, undefined);
-  assert.equal(h.host.wakeTurns.size, 0);
+  assert.equal(h.host.isWakeTurn(`${ALPHA}#${sent.sessionId}`), false);
 });
 
 test("a wake also waits for messages queued in the Chat", async (t) => {
@@ -2786,11 +2840,11 @@ test("an idle Chat starts a wake's turn with its guard, and the guard ends with 
   await sent.started;
   assert.deepEqual(session.turns.at(-1).guard, WAKE);
   assert.equal(session.turns.at(-1).prompt, "tell the human");
-  assert.equal(h.host.wakeTurns.has(chatId), true);
+  assert.equal(h.host.isWakeTurn(chatId), true);
   assert.equal(h.host.turnSettings(chatId).guard, undefined, "a message on these settings is not the wake");
   session.emit({ type: "turn-completed" });
   await waitUntil(() => !h.host.runs[chatId]);
-  assert.equal(h.host.wakeTurns.has(chatId), false);
+  assert.equal(h.host.isWakeTurn(chatId), false);
 });
 
 test("a message sent during a wake's turn queues behind it and runs unguarded, even on a provider that steers", async (t) => {
@@ -2808,7 +2862,7 @@ test("a message sent during a wake's turn queues behind it and runs unguarded, e
   await waitUntil(() => session.turns.length === turns + 1);
   assert.equal(session.turns.at(-1).prompt, "the user's own");
   assert.equal(session.turns.at(-1).guard, undefined);
-  assert.equal(h.host.wakeTurns.has(chatId), false);
+  assert.equal(h.host.isWakeTurn(chatId), false);
 });
 
 test("Send now on a message behind a wake's turn stops it instead of steering", async (t) => {

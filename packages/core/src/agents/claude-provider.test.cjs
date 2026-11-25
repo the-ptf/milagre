@@ -1470,9 +1470,9 @@ test("Claude's subagents are told to keep a to-do list as they start, and to des
   assert.match(SUBAGENT_PLAN_INSTRUCTIONS, /TodoWrite, or TaskCreate and TaskUpdate.*Never use the milagre tasks_set/s);
 });
 
-test("guarded turn denies push in full mode, and only that turn", async (t) => {
+test("Report only denies push and reply in Full, and the next user turn allows both", async (t) => {
   const { session, events, calls } = claude(t, { script: scripts.held });
-  await session.startTurn({ ...TURN, permissionMode: "full", guard: { level: 2, resolveThreads: false } });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: { level: 1, resolveThreads: false } });
   await waitUntil(() => calls.options);
   const hook = calls.options.hooks.PreToolUse[0].hooks[0];
   const bash = (command, id) => hook({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, tool_use_id: id }, id);
@@ -1480,7 +1480,7 @@ test("guarded turn denies push in full mode, and only that turn", async (t) => {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
-      permissionDecisionReason: "Babysit level Fix, don't push doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs.",
+      permissionDecisionReason: "Babysit level Report only doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs.",
     },
   });
   assert.equal((await bash("gh pr merge 4", "t2")).hookSpecificOutput.permissionDecisionReason, "Babysitting never merges.");
@@ -1488,11 +1488,14 @@ test("guarded turn denies push in full mode, and only that turn", async (t) => {
   // A message steered into the Run keeps its guard.
   await session.startTurn({ ...TURN, prompt: "also run lint", permissionMode: "full" });
   assert.equal((await bash("git push", "t4")).hookSpecificOutput.permissionDecision, "deny");
+  const reply = 'gh pr comment 4 --body "Fixed"';
+  assert.equal((await bash(reply, "reply-1")).hookSpecificOutput.permissionDecision, "deny");
   calls.release();
   await ended(events);
   // The Chat's next turn is the user's own: nothing is guarded.
   await session.startTurn({ ...TURN, permissionMode: "full" });
   assert.deepEqual(await bash("git push", "t5"), {});
+  assert.deepEqual(await bash(reply, "reply-2"), {});
 });
 
 test("a guarded command that reaches canUseTool is denied there too", async (t) => {
