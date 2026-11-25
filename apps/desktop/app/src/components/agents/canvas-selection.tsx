@@ -4,6 +4,7 @@ import { MAX_SHARED_SELECTION } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
+import { isModalOpen } from "../../lib/modal";
 
 /** The designs picked on a Chat's canvas to share as one presentation, in the order they were picked. */
 export type CanvasSelection = { ids: readonly string[]; toggle: (id: string) => void; clear: () => void };
@@ -79,7 +80,7 @@ export function SelectionBar({ selection, onShare }: { selection: CanvasSelectio
   useEffect(() => {
     if (!count) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector("dialog[open], [role=menu]")) return;
+      if (event.key !== "Escape" || event.defaultPrevented || isModalOpen() || document.querySelector("[role=menu]")) return;
       event.preventDefault();
       clear();
     };

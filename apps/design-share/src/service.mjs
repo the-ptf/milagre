@@ -1,7 +1,7 @@
 export { createQuotaService, quotaLimits } from "./quota.mjs";
 import { MAX_ASSET_BYTES, assetInline, byteRange } from "@milagre/shared/artifact-assets";
 import { DESIGN_CODE_HOSTS } from "@milagre/shared/artifact-document";
-import { designPageRunsCode, pageAssets } from "@milagre/shared/design-page";
+import { DESIGN_PAGE_KINDS, designPageRunsCode, pageAssets } from "@milagre/shared/design-page";
 import { VIEWER_HEAD } from "./viewer.mjs";
 export const CHUNK_BYTES = 96 * 1024;
 const encoder = new TextEncoder();
@@ -480,6 +480,7 @@ export async function routeRequest(request, env) {
   if (!local && (url.protocol !== "https:" || url.origin !== env.PUBLIC_ORIGIN)) return response("Not found", 404);
   if (url.username || url.password) return response("Not found", 404);
   if (url.pathname === "/health" && request.method === "GET") return response("ok");
+  if (url.pathname === "/capabilities" && request.method === "GET") return response(JSON.stringify({ kinds: DESIGN_PAGE_KINDS }), 200, "application/json");
   if (url.pathname === "/robots.txt") {
     if (!["GET", "HEAD"].includes(request.method)) return response("Method not allowed", 405);
     return response(request.method === "HEAD" ? null : ROBOTS_TXT);

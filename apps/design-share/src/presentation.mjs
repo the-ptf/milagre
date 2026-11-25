@@ -104,6 +104,7 @@ export function mvPresent(config) {
   next.addEventListener("click", () => show(current + 1));
   document.addEventListener("keydown", (event) => {
     if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key === " " && event.target.closest?.("button, a")) return;
     const keys = { ArrowLeft: -1, ArrowUp: -1, PageUp: -1, ArrowRight: 1, ArrowDown: 1, PageDown: 1, " ": 1 };
     if (event.key === "Home") show(0);
     else if (event.key === "End") show(frames.length - 1);

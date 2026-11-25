@@ -467,6 +467,11 @@ async function checkPresentation({ window, evaluate, ready, send, url }) {
   await evaluate("document.getElementById('mvp-next').click()");
   assert.equal((await state())[0], "2 of 3");
   assert.equal(await counted(), "1", "moving between screens keeps an interactive screen's state");
+  await evaluate("document.getElementById('mvp-prev').focus()");
+  await send("Input.dispatchKeyEvent", { type: "keyDown", key: " ", code: "Space", text: " ", windowsVirtualKeyCode: 32 });
+  await send("Input.dispatchKeyEvent", { type: "keyUp", key: " ", code: "Space", windowsVirtualKeyCode: 32 });
+  for (let tries = 0; tries < 100 && (await state())[0] !== "1 of 3"; tries++) await delay(10);
+  assert.equal((await state())[0], "1 of 3", "Space on a focused Previous button presses it");
 }
 
 async function checkTouch({ window, evaluate, ready, screenshot, send, url }) {

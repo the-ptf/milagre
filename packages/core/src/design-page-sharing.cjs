@@ -85,7 +85,7 @@ function createDesignPageSharing({
     (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname)))
   )
     throw Error("Design sharing requires an HTTPS service origin.");
-  const { healthy, send, sendFile } = createPageTransport({ fetcher, assetPath: (request) => artifacts.assetPath(request) });
+  const { availability, send, sendFile } = createPageTransport({ fetcher, assetPath: (request) => artifacts.assetPath(request) });
   let queue = Promise.resolve();
   const serial = (operation) => {
     const result = queue.then(operation);
@@ -113,17 +113,13 @@ function createDesignPageSharing({
   };
   const live = (entries, scope) => entries.filter((entry) => !entry.revoked && sameScope(entry, scope));
   const currentLink = (entries, scope) => live(entries, scope).findLast((entry) => entry.origin === endpoint.origin);
-  const status = async (request) => {
-    kindOf(request?.kind);
-    if (await healthy(endpoint.origin)) return { available: true };
-    return { available: false, reason: "Publishing is unavailable. The sharing service is not reachable. Try again later." };
-  };
+  const status = async (request) => availability(endpoint.origin, kindOf(request?.kind));
   const capture = async (chatId, scope) => {
     const named = String((await chatTitle(chatId).catch(() => null)) ?? "")
       .replace(/\s+/g, " ")
       .trim();
     const title = [...named].slice(0, 120).join("") || UNTITLED[scope.kind];
-    const availability = await status();
+    const availability = await status(scope);
     if (!availability.available) throw Object.assign(Error(availability.reason), { unreachable: true });
     const current = await artifacts.pageSnapshot({ chatId, title, ...scope });
     const snapshot = designPage().validateDesignPageSnapshot(current.kind === "artifacts" ? current : await embedImages(publicPageContent(current)));

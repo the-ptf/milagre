@@ -48,6 +48,7 @@ async function fixture(t) {
   for (const id of ["first", "second"]) await artifacts.showDesign({ chatId: CHAT, id, title: id, document: document() });
   const calls = [];
   let failure = false;
+  let capabilities = ["designs", "workspace", "artifacts", "selection"];
   const chat = { title: "My page" };
   const clock = fakeClock();
   const options = {
@@ -57,6 +58,8 @@ async function fixture(t) {
     validateChat,
     timers: clock.timers,
     fetch: async (url, options) => {
+      if (options.method === "GET" && new URL(url).pathname === "/capabilities")
+        return capabilities ? Response.json({ kinds: capabilities }) : new Response("Not found", { status: 404 });
       if (options.method === "GET") return new Response("ok");
       calls.push({ url, ...options });
       if (typeof failure === "number") return new Response("refused", { status: failure });
@@ -77,6 +80,9 @@ async function fixture(t) {
     api,
     fail: (value) => {
       failure = value;
+    },
+    workerKinds: (value) => {
+      capabilities = value;
     },
     request: { chatId: CHAT, acknowledgePublic: true },
   };
@@ -918,6 +924,24 @@ test("a selection is shared in its order as its own link, follows its designs' s
   assert.equal(current.designCount, 1, "the deleted design drops out and the rest stays published");
   await assert.rejects(api.revoke({ chatId: CHAT, id: share.id, kind: "design" }), /does not belong/);
   await api.revoke({ chatId: CHAT, id: share.id, ...scope });
+});
+
+test("a presentation is published only to a Worker that lists selection, since an older one would store a canvas", async (t) => {
+  const { api, calls, request, workerKinds } = await fixture(t);
+  const scope = { kind: "selection", designIds: ["first"] };
+  for (const kinds of [null, ["designs", "workspace", "artifacts"]]) {
+    workerKinds(kinds);
+    assert.deepEqual(await api.status({ ...scope, chatId: CHAT }), {
+      available: false,
+      reason: "The sharing service can't publish presentations yet. Try again after it is updated.",
+    });
+    await assert.rejects(api.publish({ ...request, ...scope }), /can't publish presentations yet/);
+    assert.equal((await api.status({ kind: "design", chatId: CHAT })).available, true, "other kinds still publish");
+  }
+  assert.equal(puts(calls).length, 0, "nothing reached the old Worker");
+  workerKinds(["designs", "workspace", "artifacts", "selection"]);
+  await api.publish({ ...request, ...scope });
+  assert.equal(puts(calls).length, 1);
 });
 
 test("a workspace's page files are uploaded before the snapshot, again on each live update", async (t) => {

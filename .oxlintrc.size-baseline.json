@@ -1124,19 +1124,6 @@
       }
     },
     {
-      "files": ["packages/core/src/design-page-sharing.cjs"],
-      "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 252,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ]
-      }
-    },
-    {
       "files": ["packages/core/src/git-actions.cjs"],
       "rules": {
         "max-lines-per-function": [

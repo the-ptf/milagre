@@ -16,6 +16,9 @@ const title = (value) => {
   return value.trim();
 };
 
+/** The page kinds this renderer validates, which the service lists at `/capabilities` so hosts publish only those. */
+export const DESIGN_PAGE_KINDS = Object.freeze(["designs", "workspace", "artifacts", "selection"]);
+
 /** Only design content crosses this boundary. Unknown envelope fields are never retained. */
 export function validateDesignPageSnapshot(value) {
   if (value?.kind === "artifacts") return validateArtifactPageSnapshot(value);

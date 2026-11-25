@@ -31,6 +31,7 @@ export interface SelectionPageSnapshot {
   designs: DesignPageSnapshot["designs"];
 }
 export type PageSnapshot = DesignPageSnapshot | ArtifactPageSnapshot | WorkspacePageSnapshot | SelectionPageSnapshot;
+export const DESIGN_PAGE_KINDS: readonly ("designs" | "workspace" | "artifacts" | "selection")[];
 export function validateDesignPageSnapshot(value: unknown): PageSnapshot;
 export function isSnapshotRaster(source: string): boolean;
 export function designPageRunsCode(snapshot: PageSnapshot | null | undefined): boolean;
