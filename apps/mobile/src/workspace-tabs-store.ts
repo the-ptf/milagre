@@ -102,7 +102,7 @@ type PhoneSession = {
 };
 
 /** The phone opening a Chat's Browser or Terminal: its Worktree's tab set gets a tab that opens it again. */
-export function notePhoneTab(session: PhoneSession, chatKey: string, tab: WorkspaceTab) {
+function notePhoneTab(session: PhoneSession, chatKey: string, tab: WorkspaceTab) {
   const snapshot = session.snapshot;
   if (!enabled || !session.client || !snapshot || !chatKey.startsWith(`${snapshot.project.path}#`)) return;
   const chatId = Number(chatKey.slice(chatKey.lastIndexOf("#") + 1));

@@ -31,7 +31,7 @@ import { tabSet, updateTabSet, useTabSet } from "./workspace-tabs-store";
 
 type Where = { hostId: string; projectPath: string; worktreeId: number };
 
-export function phoneWorkspace(where: Where, chatId: number) {
+function phoneWorkspace(where: Where, chatId: number) {
   return `${where.hostId}|${workspaceKey(where.projectPath, where.worktreeId, chatId)}`;
 }
 
@@ -169,7 +169,7 @@ export function WorkspaceTabsView({
 }
 
 /** The phone's right panel Tabs view: the Worktree's open tabs as rows, and + for a new one. */
-export function WorkspaceTabsList({
+function WorkspaceTabsList({
   where,
   activeChatId,
   onDone,

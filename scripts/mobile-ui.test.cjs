@@ -413,7 +413,6 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           useTabSet: () => ({ tabs: [], active: null }),
           tabSet: () => ({ tabs: [], active: null }),
           updateTabSet() {},
-          notePhoneTab() {},
           useNotePhoneTab() {},
         };
       if (base === "workspace-tabs-kinds" && !(id in modules)) return require("../apps/mobile/src/workspace-tabs-kinds.ts");
