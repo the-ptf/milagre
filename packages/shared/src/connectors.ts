@@ -4,6 +4,7 @@ import { providerName } from "./providers.mjs";
 /** `signed-in` has a saved sign-in Milagre hasn't used yet this run; `connected` answered a tool list. */
 /** `needs-app`: the server can't register Milagre by itself (Slack), so it needs the Client ID of an app made for it. */
 export type ConnectorState = "connected" | "signed-in" | "needs-sign-in" | "needs-app" | "failed";
+type ConnectorAccessGroup = { id?: string; name: string; off: string[] };
 
 /** A remote MCP server Milagre signed in to once on this computer. `id` prefixes its tools for agents. */
 export type ConnectorSummary = {
@@ -18,6 +19,7 @@ export type ConnectorSummary = {
   env?: string[];
   /** Linear workspaces signed in, for the built-in Linear connector. */
   workspaces?: string[];
+  workspaceAccess?: (ConnectorAccessGroup & { id: string })[];
   /** A command connector's process is running now. */
   running?: boolean;
   /** Set for servers without dynamic client registration (Slack): the OAuth app Milagre signs in as. */
@@ -159,6 +161,10 @@ export const connectorAccessKey = (provider: McpProvider, accountId: string) => 
 export const connectorAllows = (connector: Pick<ConnectorSummary, "off">, provider: McpProvider, accountId: string) =>
   !connector.off.includes(connectorAccessKey(provider, accountId));
 
+export function connectorAccessGroups(connector: ConnectorSummary): readonly ConnectorAccessGroup[] {
+  return connector.workspaceAccess?.length ? connector.workspaceAccess : [{ name: connector.name, off: connector.off }];
+}
+
 /** The row's second line: the address's host, the command a command connector runs, or the Linear workspaces. */
 export function connectorSubtitle(connector: ConnectorSummary): string {
   if (connector.kind === "command") return [connector.command, ...(connector.args ?? [])].join(" ");
@@ -185,7 +191,16 @@ export function connectorStateLine(connector: ConnectorSummary): string {
 }
 
 /** "All accounts", "2 of 3 accounts" or "No accounts", for the accounts listed. */
-export function connectorReach(connector: Pick<ConnectorSummary, "off">, accounts: readonly { provider: McpProvider; accountId: string }[]): string {
+export function connectorReach(
+  connector: Pick<ConnectorSummary, "off" | "workspaceAccess">,
+  accounts: readonly { provider: McpProvider; accountId: string }[],
+): string {
+  if (
+    connector.workspaceAccess?.some((workspace) =>
+      accounts.some(({ provider, accountId }) => connectorAllows(connector, provider, accountId) && !connectorAllows(workspace, provider, accountId)),
+    )
+  )
+    return "By workspace";
   const on = accounts.filter((account) => connectorAllows(connector, account.provider, account.accountId)).length;
   if (!accounts.length || on === accounts.length) return "All accounts";
   return on ? `${on} of ${accounts.length} accounts` : "No accounts";

@@ -213,7 +213,8 @@ function connectorsBridge(invoke, listen) {
     signIn: (id) => invoke("connectors:sign-in", id),
     cancelSignIn: () => invoke("connectors:cancel-sign-in"),
     signOut: (id) => invoke("connectors:sign-out", id),
-    setAccess: (id, provider, accountId, on) => invoke("connectors:access", id, provider, accountId, on),
+    setAccess: (id, provider, accountId, on, workspace = undefined) =>
+      workspace === undefined ? invoke("connectors:access", id, provider, accountId, on) : invoke("connectors:access", id, provider, accountId, on, workspace),
     tools: (id) => invoke("connectors:tools", id),
     movable: () => invoke("connectors:movable"),
     move: (name) => invoke("connectors:move", name),

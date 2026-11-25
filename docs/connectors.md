@@ -24,7 +24,9 @@ When the host starts it moves every Everywhere MCP server with an address or a c
 
 ## Linear
 
-Milagre's own Linear sign-in shows as a built-in Connector (id `linear`, reserved) while a workspace is signed in; the Linear preset in Add connector runs that sign-in (with Linear's MCP server one click away), and the expanded row holds Linear's own settings: the switch for issue features, workspaces, and Move issues to In Progress. There is no separate Integrations page; Babysit PRs lives in Settings › Worktrees. It keeps its GraphQL sign-in, so issue starts, Worktree issue links, In Progress moves and Routines triggers work as before; Available to decides which Accounts get the `linear_*` tools, stored in `connectors/builtin.json`. Add workspace and Sign out go through `linear:connect` and `linear:disconnect`. Linear's MCP server (`mcp.linear.app`) is a separate preset.
+Milagre's own Linear sign-in shows as a built-in Connector (id `linear`, reserved) while a workspace is signed in. Expand the row to change Available to for each workspace. An Account can use the `linear_*` tools when it has access to at least one workspace. The host checks access on every call and searches only the Account's workspaces when the tool needs to find an issue, team or file. The choices live in `connectors/builtin.json` and are kept when a workspace signs in again. A workspace without its own choices inherits the original Connector-wide defaults.
+
+The expanded row also holds the settings for issue starts, Worktree issue links and Move issues to In Progress. Those features and Routines use the host's GraphQL sign-in. Add workspace and Sign out go through `linear:connect` and `linear:disconnect`. The Linear preset starts Milagre's own sign-in and links to the separate Linear MCP preset (`mcp.linear.app`).
 
 ## Settings
 
@@ -45,7 +47,7 @@ Settings › Connectors (the `mcp` section) is one page with a **Connectors | MC
 
 A paired computer's Settings page on another desktop lists its Connectors in the same rows, through that computer's bridge: Available to (with that computer's Accounts), Sign out and Remove work from there; Add, Edit and sign-in say to use that computer, and Linear's own settings stay on it. An older computer without Connectors shows a line asking to update it.
 
-The CLI gets every operation from the command contracts: `milagre connectors add --input @slack.json`, `milagre connectors sign-in --id slack_company_a`, `milagre connectors access --id slack_company_a --provider codex --account-id ID --on false`.
+The CLI gets every operation from the command contracts. Use `milagre connectors access --id linear --workspace urbis --provider codex --account-id ID --on false` to change access to one Linear workspace. Pass the workspace's URL key. Omit `--workspace` to change access across all Linear workspaces and update the default for future connections.
 
 ## How agents see them
 

@@ -15052,6 +15052,60 @@ test("mobile Linear page shows the Mac's Linear switch and status, re-read on fo
   );
 });
 
+test("mobile Connectors edits provider access for one Linear workspace at a time", async () => {
+  const react = hookHost();
+  const focused = [];
+  const changes = [];
+  const workspaceAccess = [
+    { id: "urbis", name: "Urbis", off: [] },
+    { id: "rdplus", name: "RDPlus", off: [] },
+  ];
+  const client = {
+    async call(method, args) {
+      if (method === "connectors:list") return [{ id: "linear", kind: "linear", name: "Linear", state: "connected", tools: 6, off: [], workspaceAccess }];
+      if (method === "mcp:accounts") return [{ provider: "codex", accountId: "work", label: "Work" }];
+      if (method === "connectors:moved") return [];
+      if (method === "connectors:access") {
+        changes.push(Array.from(args));
+        workspaceAccess.find(({ id }) => id === args[4]).off = ["codex:work"];
+        return;
+      }
+      throw new Error(`unexpected ${method}`);
+    },
+  };
+  const { ConnectorsSection } = load("connectors-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "react-native-svg": { default: "Svg", Path: "Path" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/connectors": require("../packages/shared/src/connectors.ts"),
+    "./confirm-store": {},
+    "./linear-section": { LinearSection: "LinearSection" },
+    "./icons": { Icon: "Icon" },
+    "./session": { useSession: () => ({ client }) },
+    "./theme": {},
+    "./ui": { Group: "Group", ListRow: "ListRow", InlineError: "InlineError", useStyles: () => ({}) },
+  });
+  const render = () => {
+    react.begin();
+    return ConnectorsSection();
+  };
+  const toggle = (tree, name) => find(tree, (node) => node.props?.toggle?.label === `${name} for Codex · Work`).props.toggle;
+  render();
+  focused.at(-1)();
+  await new Promise(setImmediate);
+  find(render(), (node) => node.type === "ListRow" && node.props.title === "Linear").props.onPress();
+  toggle(render(), "RDPlus").onChange();
+  await new Promise(setImmediate);
+  const tree = render();
+  assert.deepEqual(changes, [["linear", "codex", "work", false, "rdplus"]]);
+  assert.equal(toggle(tree, "Urbis").value, true);
+  assert.equal(toggle(tree, "RDPlus").value, false);
+  assert.match(find(tree, (node) => node.type === "ListRow" && node.props.title === "Linear").props.subtitle, /By workspace/);
+});
+
 test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the Mac and rolled back when refused", async () => {
   const react = hookHost();
   const focused = [];

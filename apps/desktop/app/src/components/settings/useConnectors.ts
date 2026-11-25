@@ -98,7 +98,8 @@ export function useConnectors(bridge: MilagreBridge = window.milagre) {
     },
     signOut: (id: string) => run(() => bridge.connectors.signOut(id)),
     remove: (id: string) => run(() => bridge.connectors.remove(id)),
-    setAccess: (id: string, provider: McpProvider, accountId: string, on: boolean) => run(() => bridge.connectors.setAccess(id, provider, accountId, on)),
+    setAccess: (id: string, provider: McpProvider, accountId: string, on: boolean, workspace?: string) =>
+      run(() => bridge.connectors.setAccess(id, provider, accountId, on, ...(workspace === undefined ? [] : [workspace]))),
     move: (name: string) =>
       run(async () => {
         const moved = await bridge.connectors.move(name);
