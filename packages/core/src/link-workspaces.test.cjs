@@ -67,7 +67,7 @@ test("a Project gets its Worktree when the Chat asks, once; the others stay unto
   const { member, created } = await workspaces.addLinkWorktree({ link, chatId: 1, project: "API" });
   assert.equal(created, true);
   assert.equal(member.projectName, "api");
-  assert.equal(member.alias, "api-1");
+  assert.equal(member.alias, "api");
   assert.equal(await fs.realpath(path.join(prepared.workspacePath, member.alias)), member.worktreePath);
   assert.deepEqual(owned, [projects[0].path]);
   const again = await workspaces.addLinkWorktree({ link, chatId: 1, project: "api" });
@@ -86,6 +86,14 @@ test("a Project gets its Worktree when the Chat asks, once; the others stay unto
   assert.deepEqual((await reopened.get(link.id)).sessions, saved.sessions);
   assert.equal((await reopened.ownedWorktrees()).size, 1);
 });
+test("one Chat gives every Project the same branch, in folders named after the Projects", async (t) => {
+  const { link, store, workspaces } = await fixture(t);
+  const prepared = await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "change both", operationId: randomUUID() });
+  const [api, web] = await addBoth(link, workspaces, 1);
+  assert.equal(api.branch, web.branch);
+  assert.deepEqual((await fs.readdir(prepared.workspacePath)).sort(), ["api", "milagre-workspace.json", "web"]);
+  assert.equal((await workspaces.addLinkWorktree({ link, chatId: 1, project: "web" })).created, false);
+});
 test("an unknown Project names the Link's Projects", async (t) => {
   const { link, store, workspaces } = await fixture(t);
   await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "", operationId: randomUUID() });
@@ -98,7 +106,7 @@ test("each Chat gets its own Worktree in a Project", async (t) => {
   const first = await workspaces.addLinkWorktree({ link, chatId: 1, project: "web" });
   const second = await workspaces.addLinkWorktree({ link, chatId: 2, project: "web" });
   assert.notEqual(first.member.worktreePath, second.member.worktreePath);
-  assert.equal(first.member.alias, "web-2");
+  assert.equal(first.member.alias, "web");
 });
 test("failed setup retains a changed Worktree, names the Project and leaves it out of the Chat", async (t) => {
   const { root, link, store, workspaces } = await fixture(t, {
@@ -211,7 +219,7 @@ test("a Chat's agent reads the Projects it hasn't changed and owns the ones it h
   const after = await scopes.executionContext(key, 1);
   assert.deepEqual(after.workspaceRoots, [member.worktreePath]);
   assert.deepEqual(after.readOnlyRoots, [projects[0].path]);
-  assert.match(after.workspaceInstructions, new RegExp(`web-2: ${member.worktreePath}`));
+  assert.match(after.workspaceInstructions, new RegExp(`web: ${member.worktreePath}`));
 });
 test("a deferred setup leaves its review for later and the Worktree is the Chat's at once", async (t) => {
   const deferred = [];

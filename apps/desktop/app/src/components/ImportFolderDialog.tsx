@@ -2,7 +2,7 @@ import { useState } from "react";
 import { FolderOpenIcon, GitBranchIcon } from "@hugeicons/core-free-icons";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { treeLayout } from "@milagre/shared/chat-display";
-import type { FolderScan } from "@milagre/shared/project-list";
+import { folderImportText, folderScanName, offersFolderImport, type FolderScan } from "@milagre/shared/project-list";
 import type { OpenProject } from "../model";
 import { bridgeFor } from "../lib/computer-bridge";
 import { RECENT_PROJECTS_CHANGED } from "../lib/project-list";
@@ -14,8 +14,6 @@ import { EmptyState } from "./primitives/EmptyState";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
 import { ScrollArea } from "./primitives/ScrollArea";
-
-const folderName = (folder: string) => folder.split("/").findLast(Boolean) ?? folder;
 
 function ImportFolderDialog({
   scan,
@@ -32,7 +30,7 @@ function ImportFolderDialog({
   const [selected, setSelected] = useState<string[]>(() => choices.filter((child) => child.chosen).map((child) => child.path));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const name = folderName(scan.folder);
+  const name = folderScanName(scan);
   const chosen = choices.map((child) => child.path).filter((path) => selected.includes(path));
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -49,7 +47,7 @@ function ImportFolderDialog({
     <Dialog
       data-import-folder-dialog
       title={`Add ${name}`}
-      description={`${name} holds ${choices.filter((child) => child.git).length} repositories. Add the ones you check as Projects, grouped by a Link named ${name}.`}
+      description={folderImportText(scan)}
       onClose={onClose}
       width={520}
       footer="bar"
@@ -116,16 +114,16 @@ export function useOpenFolder(onOpened: (project: OpenProject) => void, onCancel
   const bridge = bridgeFor(null);
   async function open(folder: string) {
     const found = await bridge.scanFolder(folder).catch(() => null);
-    if (found?.detect && !found.git && found.children.some((child) => child.git)) setScan(found);
+    if (offersFolderImport(found)) setScan(found);
     else onOpened(await bridge.openProjectAt(folder));
   }
-  async function add(folder: string, paths: string[]) {
+  async function add(name: string, paths: string[]) {
     const opened: OpenProject[] = [];
     for (const path of paths) opened.push(await bridge.openProjectAt(path));
     if (opened.length > 1) {
       const registered = await bridge.listProjects();
       const projectIds = opened.map((project) => registered.find((entry) => entry.path === project.path)?.id).filter((id): id is string => !!id);
-      if (projectIds.length > 1) await bridge.createNamedLink({ name: folderName(folder), projectIds });
+      if (projectIds.length > 1) await bridge.createNamedLink({ name, projectIds });
       const layout = treeLayout(chatList);
       if (layout) updateSettings({ chatList: layout });
     }
@@ -140,7 +138,7 @@ export function useOpenFolder(onOpened: (project: OpenProject) => void, onCancel
         onCancel?.();
       }}
       onOpenSingle={async () => onOpened(await bridge.openProjectAt(scan.folder))}
-      onAdd={(paths) => add(scan.folder, paths)}
+      onAdd={(paths) => add(folderScanName(scan), paths)}
     />
   );
   return { open, dialog };

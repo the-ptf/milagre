@@ -41,6 +41,33 @@ test("a repository says it is one, and a folder reached through a symlink is rea
   );
 });
 
+test("a .code-workspace file adds its repositories, outside the folder too, and names the scan", async (t) => {
+  const root = await tree(t, ["platform/.git", "platform/docs", "api/.git", "web/.git", "unrelated/.git"]);
+  const platform = path.join(root, "platform");
+  await fs.writeFile(
+    path.join(platform, "Food.code-workspace"),
+    `{
+      // VS Code allows comments and trailing commas
+      "folders": [{ "path": "." }, { "path": "../api" }, { "path": "${path.join(root, "web")}" }, { "path": "../missing" },],
+    }`,
+  );
+  const scan = await scanFolder(platform);
+  assert.equal(scan.name, "Food");
+  assert.equal(scan.workspace, true);
+  assert.equal(scan.git, true);
+  assert.deepEqual(
+    scan.children.map((child) => [child.relative, child.git, child.chosen]),
+    [
+      ["docs", false, false],
+      ["../api", true, true],
+      ["../web", true, true],
+    ],
+  );
+  const plain = await scanFolder(root);
+  assert.equal(plain.name, path.basename(root));
+  assert.equal(plain.workspace, undefined);
+});
+
 test("a relative or unreadable folder is refused", async () => {
   await assert.rejects(scanFolder("relative/path"), /absolute/);
   await assert.rejects(scanFolder(path.join(os.tmpdir(), "milagre-missing-folder-for-test")), /can't read/);
