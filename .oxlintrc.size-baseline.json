@@ -128,15 +128,7 @@
     {
       "files": ["apps/design-share/src/service.mjs"],
       "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 289,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
-        "complexity": ["error", 49]
+        "complexity": ["error", 43]
       }
     },
     {

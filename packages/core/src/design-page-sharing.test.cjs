@@ -630,8 +630,8 @@ test("Artifact sharing keeps one link per page, separate from Designs", async (t
   assert.equal((await createDesignPageSharing(options).listAll()).length, 2);
 });
 
-test("republishing an expired hosted page creates a new link through the host used by desktop and mobile", async (t) => {
-  const { createPageService, createQuotaService, PAGE_TTL_MS } = await import("../../../apps/design-share/src/service.mjs");
+test("desktop and mobile share links survive idle time and can still be revoked through the host", async (t) => {
+  const { createPageService, createQuotaService, routeRequest } = await import("../../../apps/design-share/src/service.mjs");
   const { validateDesignPageSnapshot, renderDesignPage } = await import("@milagre/shared/design-page");
   const memory = () => {
     const values = new Map();
@@ -668,21 +668,21 @@ test("republishing an expired hosted page creates a new link through the host us
             deleteAlarm: async () => {},
           }),
         );
-      return pages.get(id).fetch(new Request(url, init), id);
+      return routeRequest(new Request(url, init), { PUBLIC_ORIGIN: new URL(url).origin, page: (pageId, req) => pages.get(pageId).fetch(req, pageId) });
     },
   });
-  for (const kind of ["designs", "artifacts", "workspace"]) {
-    const first = await api.publish({ ...request, kind });
-    time += PAGE_TTL_MS;
-    await pages.get(first.id).alarm();
-    const next = await api.publish({ ...request, kind });
-    assert.notEqual(next.id, first.id);
-    assert.deepEqual(
-      (await api.list({ chatId: CHAT, kind })).map((share) => share.id),
-      [next.id],
-    );
+  for (const scope of [{ kind: "designs" }, { kind: "artifacts" }, { kind: "workspace" }, { kind: "design", designId: "first" }]) {
+    const first = await api.publish({ ...request, ...scope });
+    time += 365 * 24 * 60 * 60 * 1000;
+    const page = pages.get(first.id);
+    await page.alarm();
+    assert.equal((await page.fetch(new Request(first.url, { method: "HEAD" }), first.id)).status, 200);
+    const next = await api.publish({ ...request, ...scope });
+    assert.equal(next.id, first.id);
+    await api.revoke({ chatId: CHAT, ...scope, id: first.id });
+    assert.equal((await page.fetch(new Request(first.url), first.id)).status, 404);
     assert.equal((await api.listAll()).find((share) => share.id === first.id).revoked, true);
-    await api.revoke({ chatId: CHAT, kind, id: next.id });
+    await page.alarm();
   }
   assert.equal(quotaStorage.get("activeBytes"), 0);
 });

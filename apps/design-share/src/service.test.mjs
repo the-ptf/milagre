@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 import { validateDesignPageSnapshot, renderDesignPage } from "@milagre/shared/design-page";
-import { authorized, boundedBody, CHUNK_BYTES, createPageService, createQuotaService, digest, PAGE_TTL_MS, quotaLimits, routeRequest } from "./service.mjs";
+import { authorized, boundedBody, CHUNK_BYTES, createPageService, createQuotaService, digest, quotaLimits, routeRequest } from "./service.mjs";
 import { VIEWER_HEAD } from "./viewer.mjs";
 
 function memory() {
@@ -62,7 +62,7 @@ async function fixture(options = {}) {
       headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", ...headers },
       ...(method === "PUT" ? { body: JSON.stringify(body) } : {}),
     });
-  const send = (method, body, headers) => service.fetch(request(method, body, headers), id, "192.0.2.1");
+  const send = (method, body, headers) => service.fetch(request(method, body, headers), id);
   return { id, secret, storage, service, settings, request, send, reservations };
 }
 
@@ -72,7 +72,7 @@ test("create, identical retries survive service restart, and public responses do
   assert.equal(first.status, 201);
   assert.deepEqual(await first.json(), { id: f.id, path: `/s/${f.id}` });
   const restarted = createPageService(f.settings);
-  assert.equal((await restarted.fetch(f.request("PUT"), f.id, "192.0.2.1")).status, 200);
+  assert.equal((await restarted.fetch(f.request("PUT"), f.id)).status, 200);
   assert.equal(f.reservations.length, 1);
   const publicPage = await f.send("GET", undefined, { Authorization: "" });
   assert.equal(publicPage.status, 200);
@@ -95,6 +95,7 @@ test("revoke deletes bytes and permanently prevents publication under the same i
   assert.equal((await f.send("GET")).status, 404);
   assert.equal((await f.send("PUT")).status, 410);
   assert.deepEqual(f.storage.keys("html:"), []);
+  await f.service.alarm();
   assert.deepEqual(f.storage.get("meta"), { deleted: true });
   assert.equal(f.reservations.length, 1);
 });
@@ -102,9 +103,10 @@ test("revoke deletes bytes and permanently prevents publication under the same i
 test("revoke before delayed upload reserves a durable tombstone and prevents publication", async () => {
   const f = await fixture();
   assert.equal((await f.send("DELETE")).status, 204);
+  await f.service.alarm();
   assert.deepEqual(f.storage.get("meta"), { deleted: true });
   const restarted = createPageService(f.settings);
-  assert.equal((await restarted.fetch(f.request("PUT"), f.id, "192.0.2.1")).status, 410);
+  assert.equal((await restarted.fetch(f.request("PUT"), f.id)).status, 410);
   assert.equal((await f.send("DELETE")).status, 204);
   assert.equal((await f.send("GET")).status, 404);
   assert.deepEqual(f.reservations, []);
@@ -113,7 +115,7 @@ test("revoke before delayed upload reserves a durable tombstone and prevents pub
 test("quota exhaustion never blocks revocation", async () => {
   const denied = await fixture({ reserve: async () => false });
   assert.equal((await denied.send("DELETE")).status, 204);
-  assert.deepEqual(denied.storage.get("meta"), { deleted: true });
+  assert.equal(denied.storage.get("meta").deleted, true);
   let allowed = true;
   const existing = await fixture({ reserve: async () => allowed });
   assert.equal((await existing.send("PUT")).status, 201);
@@ -262,33 +264,22 @@ test("public router rejects browser writes, unexpected origins, wrong methods an
   assert.equal((await routeRequest(incoming({ Origin: "https://share.milagre.cloud" }), env)).status, 403);
   assert.equal((await routeRequest(incoming({ Origin: "null" }), env)).status, 403);
   assert.equal((await routeRequest(incoming({ "Sec-Fetch-Site": "cross-site" }), env)).status, 403);
-  assert.equal((await routeRequest(f.request("PUT"), env)).status, 503);
+  assert.equal((await routeRequest(f.request("DELETE"), env)).status, 200, "revocation needs only the capability");
   assert.equal((await routeRequest(new Request(`https://share.milagre.cloud/s/${f.id}?fbclid=tracking`), env)).status, 200);
   assert.equal((await routeRequest(new Request(`https://share.milagre.cloud/s/${f.id}?fbclid=tracking`, { method: "HEAD" }), env)).status, 200);
   assert.equal((await routeRequest(new Request(`https://share.milagre.cloud/api/pages/${f.id}?fbclid=tracking`, incoming()), env)).status, 404);
   assert.equal((await routeRequest(new Request(`https://share.milagre.cloud/s/${f.id}`, { method: "POST" }), env)).status, 405);
   assert.equal((await routeRequest(new Request(`https://share.milagre.cloud/api/pages/${f.id}`), env)).status, 405);
   assert.equal((await routeRequest(new Request(`https://other.test/s/${f.id}`), env)).status, 404);
-  assert.equal(calls, 3);
+  assert.equal(calls, 4);
 });
 
-test("localhost mode is explicit and forwarded IP headers cannot change ingress identity", async () => {
+test("localhost mode is explicit", async () => {
   const f = await fixture();
-  let observed;
-  const env = {
-    PUBLIC_ORIGIN: "https://share.milagre.cloud",
-    page: async (_id, _request, ip) => {
-      observed = ip;
-      return new Response("ok");
-    },
-  };
-  const request = f.request("PUT", undefined, { "CF-Connecting-IP": "192.0.2.1", "X-Forwarded-For": "evil", "X-Milagre-Client-IP": "evil" });
-  assert.equal((await routeRequest(request, env)).status, 200);
-  assert.equal(observed, "192.0.2.1");
+  const env = { PUBLIC_ORIGIN: "https://share.milagre.cloud", page: async () => new Response("ok") };
   const local = new Request(`http://localhost:8787/s/${f.id}`);
   assert.equal((await routeRequest(local, env)).status, 404);
   assert.equal((await routeRequest(local, { ...env, ALLOW_LOCALHOST: "true" })).status, 200);
-  assert.equal(observed, "local-preview");
 });
 
 test("real shared validation publishes all page designs, escapes titles, and rejects remote assets", async () => {
@@ -538,39 +529,24 @@ async function lifecycle(options = {}) {
   };
 }
 
-test("identical republishing renews 30 days, reading does not, and expiry deletes and refunds", async () => {
-  const f = await lifecycle();
-  assert.equal((await f.send("PUT")).status, 201);
-  const charge = f.quotaStorage.get("activeBytes");
-  assert.ok(charge > 0);
-  assert.equal(f.alarm(), 1000 + PAGE_TTL_MS);
-  f.time(2000);
-  await f.send("HEAD");
-  assert.equal(f.alarm(), 1000 + PAGE_TTL_MS);
-  assert.equal((await f.send("PUT")).status, 200);
-  assert.equal(f.alarm(), 2000 + PAGE_TTL_MS);
-  assert.equal(f.quotaStorage.get("activeBytes"), charge);
-  f.time(1000 + PAGE_TTL_MS);
-  await f.service.alarm();
-  assert.equal((await f.send("HEAD")).status, 200, "an old alarm cannot expire a renewed page");
-  f.time(2000 + PAGE_TTL_MS);
-  await f.service.alarm();
-  assert.equal(f.quotaStorage.get("activeBytes"), 0);
-  assert.deepEqual(f.storage.keys("html:"), []);
-  assert.equal((await f.send("GET")).status, 404);
-  assert.equal((await f.send("PUT")).status, 410);
-  assert.equal(f.alarm(), undefined);
-});
-
-test("expiry is enforced on reads and streams even before the cleanup alarm runs", async () => {
-  const f = await lifecycle({ render: () => "x".repeat(CHUNK_BYTES * 2) });
-  await f.send("PUT");
-  const reader = (await f.send("GET")).body.getReader();
-  await reader.read();
-  f.time(1000 + PAGE_TTL_MS);
-  await assert.rejects(reader.read(), /Snapshot revoked/);
-  assert.equal((await f.send("HEAD")).status, 404);
-  assert.equal(f.quotaStorage.get("activeBytes"), 0);
+test("new pages and pages with an old expiry deadline remain published across reads, streams and alarms", async () => {
+  for (const legacy of [false, true]) {
+    const f = await lifecycle({ render: () => "x".repeat(CHUNK_BYTES * 2) });
+    assert.equal((await f.send("PUT")).status, 201);
+    const charge = f.quotaStorage.get("activeBytes");
+    if (legacy) f.storage.put("meta", { ...f.storage.get("meta"), expiresAt: 2000 });
+    const reader = (await f.send("GET")).body.getReader();
+    assert.equal((await reader.read()).value.byteLength, CHUNK_BYTES);
+    f.time(365 * 24 * 60 * 60 * 1000);
+    assert.equal((await reader.read()).value.byteLength, CHUNK_BYTES);
+    const restarted = createPageService(f.settings);
+    assert.equal((await restarted.fetch(f.request("HEAD"), f.id)).status, 200);
+    await restarted.alarm();
+    assert.equal((await (await f.send("GET")).text()).length, CHUNK_BYTES * 2);
+    assert.equal((await f.send("PUT")).status, 200);
+    assert.equal(f.alarm(), undefined);
+    assert.equal(f.quotaStorage.get("activeBytes"), charge);
+  }
 });
 
 test("lost reservation acknowledgement is aborted by a durable alarm after restart", async () => {
@@ -643,7 +619,8 @@ test("failed refunds retry after restart, and a lost refund reply cannot release
       },
     };
     const interrupted = createPageService(f.settings);
-    assert.equal((await interrupted.fetch(f.request("DELETE"), f.id)).status, 503);
+    assert.equal((await interrupted.fetch(f.request("DELETE"), f.id)).status, 204);
+    await assert.rejects(interrupted.alarm(), /quota offline/);
     assert.deepEqual(f.storage.keys("html:"), []);
     assert.equal(f.storage.get("meta").releasePending, true);
     assert.ok(f.alarm());
@@ -655,7 +632,7 @@ test("failed refunds retry after restart, and a lost refund reply cannot release
   }
 });
 
-test("legacy inventory blocks uploads until complete, accounts surviving HTML and schedules expiry", async () => {
+test("legacy inventory blocks uploads until complete and accounts surviving HTML without expiring the link", async () => {
   const quotaStorage = memory();
   quotaStorage.put("total", { pages: 999, bytes: 1000000 });
   const f = await lifecycle({ quotaStorage });
@@ -665,35 +642,35 @@ test("legacy inventory blocks uploads until complete, accounts surviving HTML an
   await f.service.migrate();
   await f.service.migrate();
   assert.equal(quotaStorage.get("activeBytes"), 6, "inventory is idempotent");
-  assert.equal(f.alarm(), 1000 + PAGE_TTL_MS);
+  assert.equal(f.alarm(), undefined);
   f.quota.finishMigration();
   assert.equal(f.quota.available("new-page"), 999994);
   await f.send("DELETE");
+  await f.service.alarm();
   assert.equal(quotaStorage.get("activeBytes"), 0);
 });
 
-test("expiry retries its refund after a quota outage without serving or retaining the content", async () => {
+test("quota recovery cannot take a published page offline or prevent its owner from revoking it", async () => {
   const f = await lifecycle();
-  await f.send("PUT");
-  const charge = f.quotaStorage.get("activeBytes");
-  const interrupted = createPageService({
-    ...f.settings,
-    quota: {
-      ...f.quota,
-      release: () => {
-        throw Error("quota offline");
-      },
-    },
-  });
-  f.time(1000 + PAGE_TTL_MS);
+  const unavailable = () => {
+    throw Error("quota offline");
+  };
+  assert.equal((await f.send("PUT")).status, 201);
+  const interrupted = createPageService({ ...f.settings, quota: { ...f.quota, commit: unavailable, release: unavailable } });
+  assert.equal((await interrupted.fetch(f.request("PUT", { title: "Updated" }), f.id)).status, 503);
+  assert.equal(await (await interrupted.fetch(f.request("GET"), f.id)).text(), "<html>Updated</html>");
+  for (const [method, status] of [
+    ["DELETE", 204],
+    ["GET", 404],
+    ["PUT", 410],
+    ["DELETE", 204],
+  ]) {
+    assert.equal((await interrupted.fetch(f.request(method), f.id)).status, status);
+  }
   await assert.rejects(interrupted.alarm(), /quota offline/);
-  assert.equal(f.storage.get("meta").deleted, true);
-  assert.deepEqual(f.storage.keys("html:"), []);
-  assert.equal(f.quotaStorage.get("activeBytes"), charge, "space remains charged until the refund succeeds");
-  assert.equal(f.alarm(), 1000 + PAGE_TTL_MS + 60000);
+  assert.ok(f.quotaStorage.get("activeBytes") > 0);
   await createPageService(f.settings).alarm();
   assert.equal(f.quotaStorage.get("activeBytes"), 0);
-  assert.equal((await f.send("GET")).status, 404);
 });
 
 test("rejected uploads drain their input without decoding or reserving it", async () => {
@@ -814,11 +791,32 @@ test("an Artifact page's files upload before the snapshot that names them, count
   assert.ok(f.active() < charged);
   assert.deepEqual([...f.bucket.objects.keys()], [`pages/${f.id}/${b.hash}`]);
 
+  const readFile = (method) =>
+    routeRequest(new Request(`https://share.milagre.cloud/s/${f.id}/files/${b.hash}`, { method }), {
+      PUBLIC_ORIGIN: "https://share.milagre.cloud",
+      page: (id, request) => f.service.fetch(request, id),
+    });
+  f.tick(365 * 24 * 60 * 60 * 1000);
+  await f.service.alarm();
+  assert.deepEqual(new Uint8Array(await (await readFile("GET")).arrayBuffer()), b.bytes);
+
   // Revoked: every file goes and the whole allocation returns.
   assert.equal((await f.send("DELETE")).status, 204);
+  assert.equal(f.bucket.objects.size, 1);
+  assert.equal((await readFile("GET")).status, 404);
+  assert.equal((await readFile("HEAD")).status, 404);
+  assert.equal((await f.upload(b)).status, 410, "a revoked page takes no more files");
+  const removeFiles = f.bucket.delete;
+  f.bucket.delete = async () => {
+    throw Error("bucket offline");
+  };
+  await f.service.alarm();
+  assert.ok(f.active() > 0, "files still awaiting deletion count toward the quota");
+  assert.equal((await readFile("GET")).status, 404);
+  f.bucket.delete = removeFiles;
+  await createPageService(f.settings).alarm();
   assert.equal(f.bucket.objects.size, 0);
   assert.equal(f.active(), 0);
-  assert.equal((await f.upload(b)).status, 410, "a revoked page takes no more files");
 });
 
 test("a workspace page's files follow the same rules as an Artifact's: missing ones refused, kept while named, then dropped", async () => {
@@ -911,7 +909,7 @@ test("a page of interactive designs runs them in sandboxed frames, with the pinn
   const snapshot = { schemaVersion: 1, title: "Prototype", designs: [{ title: "Flow", group: "Onboarding", interactive: { html, width: 390, height: 844 } }] };
   const f = await fixture({ validate: validateDesignPageSnapshot, render: renderDesignPage });
   assert.equal((await f.send("PUT", snapshot)).status, 201);
-  const page = await f.service.fetch(new Request(`https://share.milagre.cloud/s/${f.id}`), f.id, "");
+  const page = await f.service.fetch(new Request(`https://share.milagre.cloud/s/${f.id}`), f.id);
   const policy = page.headers.get("Content-Security-Policy");
   assert.match(policy, /script-src 'unsafe-inline' 'unsafe-eval' https:\/\/unpkg\.com/);
   assert.match(policy, /frame-src 'none'/);

@@ -3,11 +3,9 @@ import { validateDesignPageSnapshot, renderDesignPage } from "@milagre/shared/de
 import {
   createPageService,
   createQuotaService,
-  fileKey,
   quotaLimits,
   response,
   routeRequest,
-  serveFile,
   digest,
   type Storage,
   type PageQuota,
@@ -91,7 +89,6 @@ export default {
         previewImage,
         ALLOW_LOCALHOST: env.ALLOW_LOCALHOST,
         page: (id, incoming) => env.PAGES.get(env.PAGES.idFromName(id)).fetch(incoming),
-        file: (id, hash, incoming) => serveFile(files(env.FILES), fileKey(id, hash), incoming),
       });
     } catch {
       return response("Sharing unavailable", 503);
