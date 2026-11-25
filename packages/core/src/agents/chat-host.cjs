@@ -202,7 +202,6 @@ class ChatHost {
     this.startingTurns = new Map();
     this.queueWaiters = new Map();
     this.sendNext = new Map();
-    this.wakeTurns = new Set();
   }
 
   isBusy(chatId) {
@@ -228,6 +227,14 @@ class ChatHost {
     if (!this.turns.has(chatId)) return null;
     const { prompt: _prompt, guard: _guard, ...settings } = this.turns.get(chatId);
     return settings;
+  }
+
+  activeTurn(chatId) {
+    return this.startingTurns.get(chatId) ?? (this.runs[chatId] && this.turns.get(chatId));
+  }
+
+  isWakeTurn(chatId) {
+    return this.activeTurn(chatId)?.guard?.level === ESCALATION_LEVEL;
   }
 
   async notePermissionMode(chatId, mode) {
@@ -564,7 +571,7 @@ class ChatHost {
       this.runs[chatId] &&
       !this.preparing.has(chatId) &&
       !this.startingTurns.has(chatId) &&
-      !this.wakeTurns.has(chatId) &&
+      !this.activeTurn(chatId)?.guard &&
       providerCapabilities(session.provider).steer &&
       state.messages.findLast((item) => item.session_id === session.id && item.role === "user")?.context?.kind !== "compaction",
     );
@@ -669,7 +676,6 @@ class ChatHost {
 
   async settle(chatId, { state, changed, event, seq, added }) {
     const sessionId = sessionIdFromKey(chatId);
-    if (isTurnEnd(event)) this.wakeTurns.delete(chatId);
     this.publish(
       chatId,
       event.type === "subagent-update" && changed
@@ -856,6 +862,9 @@ class ChatHost {
       const earlier = await this.states.findMessage(projectPath, "clientMessageId", clientMessageId);
       if (earlier) return duplicateSend(earlier);
     }
+    const routine = routineRunOf(request);
+    const babysit = routine?.babysit;
+    const guard = babysit ? { level: babysit.level, resolveThreads: babysit.resolveThreads === true } : request.guard;
     const compaction = request.context?.kind === "compaction";
     let provider = request.provider;
     const execution = this.states.executionContext && request.sessionId != null ? await this.states.executionContext(projectPath, request.sessionId) : null;
@@ -968,14 +977,14 @@ class ChatHost {
           const { queueHeld: _held, ...rest } = withoutQueued(session, request.fromQueue);
           session = rest;
         }
-        const runningProvider = this.runs[chatId] ? (session.provider ?? provider) : waitFor ? waitFor.to : this.startingTurns.get(chatId);
+        const runningProvider = this.runs[chatId] ? (session.provider ?? provider) : waitFor ? waitFor.to : this.startingTurns.get(chatId)?.provider;
         const compacting =
           (this.runs[chatId] || this.startingTurns.has(chatId)) &&
           latest.messages.findLast((item) => item.session_id === session.id && item.role === "user")?.context?.kind === "compaction";
         if (
           runningProvider &&
           request.fromQueue === undefined &&
-          (request.delivery === "queue" || compaction || compacting || this.wakeTurns.has(chatId) || !providerCapabilities(runningProvider).steer)
+          (request.delivery === "queue" || compaction || compacting || this.activeTurn(chatId)?.guard || !providerCapabilities(runningProvider).steer)
         ) {
           queuedEntry = {
             id: randomUUID(),
@@ -1033,7 +1042,7 @@ class ChatHost {
         stagedSession = {
           ...(compaction ? session : withoutDraft(session)),
           provider: runProvider,
-          ...(PERMISSION_MODES.has(request.permissionMode) && !routineRunOf(request) ? { permissionMode: request.permissionMode } : {}),
+          ...(PERMISSION_MODES.has(request.permissionMode) && !routine ? { permissionMode: request.permissionMode } : {}),
           ...(firstMessage && body?.trim() && !session.title && !session.generatedTitle ? { titlePending: true } : {}),
         };
         if (handoff === "switch") {
@@ -1063,8 +1072,7 @@ class ChatHost {
           preparation = { controller: new AbortController(), done, settle, dividerId, catchUp, from: handoffFrom, to: provider, sessionId: session.id };
           this.preparing.set(chatId, preparation);
         }
-        if (!steering) this.startingTurns.set(chatId, runProvider);
-        if (request.guard?.level === ESCALATION_LEVEL) this.wakeTurns.add(chatId);
+        if (!steering) this.startingTurns.set(chatId, { provider: runProvider, guard });
         return {
           ...next,
           next_id: message.id + 1,
@@ -1075,10 +1083,7 @@ class ChatHost {
       { chats: request.sessionId == null ? [] : [request.sessionId] },
     );
     await saving.catch((error) => {
-      if (target) {
-        this.doneStarting(target.chatId);
-        if (request.guard?.level === ESCALATION_LEVEL) this.wakeTurns.delete(target.chatId);
-      }
+      if (target) this.doneStarting(target.chatId);
       throw error;
     });
     if (duplicate) return duplicateSend(duplicate);
@@ -1095,7 +1100,6 @@ class ChatHost {
       if (newTask && !compaction) await this.beforeTask({ ...request, ...target, messageId: pendingId });
     } catch (error) {
       this.doneStarting(target.chatId);
-      if (request.guard?.level === ESCALATION_LEVEL) this.wakeTurns.delete(target.chatId);
       if (preparation) {
         this.release(target.chatId, preparation);
         preparation.settle(null);
@@ -1132,6 +1136,18 @@ class ChatHost {
       this.broadcast(projectPath, state);
       throw error;
     }
+    const turn = {
+      provider: runProvider,
+      model: runModel,
+      permissionMode: request.permissionMode,
+      effort: request.effort,
+      ultracode: request.ultracode,
+      fastMode: request.fastMode,
+      replies: request.replies,
+      tldrEnabled: request.tldrEnabled,
+      ...(guard ? { guard } : {}),
+      prompt: brief !== undefined ? withLead(framedBrief(brief), request.prompt || body) : request.prompt || body || "Describe the attached images.",
+    };
     let seq;
     let added = [];
     const { state } = await this.states
@@ -1148,6 +1164,7 @@ class ChatHost {
           });
           added = sent.state.messages.slice(withoutPending.messages.length).filter((message) => message.role === "assistant");
           this.runs = sent.runs;
+          this.turns.set(target.chatId, turn);
           this.doneStarting(target.chatId);
           seq = ++this.seq;
           return { ...sent.state, messages: [...sent.state.messages, ...(divider ? [divider] : []), message] };
@@ -1162,30 +1179,14 @@ class ChatHost {
         }
         throw error;
       });
-    const routineRunId = routineRunOf(request)?.runId;
     this.publish(
       target.chatId,
-      { type: "message-sent", model: runModel, permissionMode: request.permissionMode, ...(routineRunId ? { routineRunId } : {}) },
+      { type: "message-sent", model: runModel, permissionMode: request.permissionMode, ...(routine?.runId ? { routineRunId: routine.runId } : {}) },
       state,
       seq,
     );
     if (state.sessions[target.sessionId].titlePending) void this.nameChat(projectPath, target.sessionId).catch(() => {});
-    const babysit = routineRunOf(request)?.babysit;
-    const guard = babysit ? { level: babysit.level, resolveThreads: babysit.resolveThreads === true } : request.guard;
-    const turn = {
-      provider: runProvider,
-      model: runModel,
-      permissionMode: request.permissionMode,
-      effort: request.effort,
-      ultracode: request.ultracode,
-      fastMode: request.fastMode,
-      replies: request.replies,
-      tldrEnabled: request.tldrEnabled,
-      ...(guard ? { guard } : {}),
-      prompt: brief !== undefined ? withLead(framedBrief(brief), request.prompt || body) : request.prompt || body || "Describe the attached images.",
-    };
-    this.turns.set(target.chatId, turn);
-    if (routineRunOf(request)) this.routineTurns.add(target.chatId);
+    if (routine) this.routineTurns.add(target.chatId);
     else this.routineTurns.delete(target.chatId);
     const ready = handoff
       ? this.prepareHandoff(projectPath, target, state, preparation)
@@ -1391,7 +1392,7 @@ class ChatHost {
     const byProject = new Map();
     for (const chatId of Object.keys(this.runs)) {
       const turn = this.turns.get(chatId);
-      if (!turn || abandoned.has(chatId) || this.routineTurns.has(chatId) || this.wakeTurns.has(chatId)) continue;
+      if (!turn || abandoned.has(chatId) || this.routineTurns.has(chatId) || this.isWakeTurn(chatId)) continue;
       const openQuestions = this.runs[chatId].questions.flatMap((request) => request.questions.map((question) => question.question));
       byProject.set(projectOfKey(chatId), [...(byProject.get(projectOfKey(chatId)) ?? []), [sessionIdFromKey(chatId), { ...turn, openQuestions }]]);
     }

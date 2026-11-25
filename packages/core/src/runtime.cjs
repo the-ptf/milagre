@@ -695,7 +695,7 @@ function createRuntime(options) {
       busy: (chatId) =>
         !chats.limitTurnIdle(projectOfKey(chatId), sessionIdFromKey(chatId)) || agents.isTurnActive(chatId) || agents.backgroundWork(chatId) > 0,
       isSeen: (chatId) => (options.isChatSeen ?? options.isChatFocused)?.(chatId) ?? (chats.openChat === chatId && isFocused()),
-      isWakeTurn: (chatId) => chats.wakeTurns.has(chatId),
+      isWakeTurn: (chatId) => chats.isWakeTurn(chatId),
       post: (chatId, note, change) => chats.postNow(chatId, note, change),
       remind: async (chatId, { requestId, title, body }) => {
         if (!(await projectSettings().hiddenPaths()).has(projectOfKey(chatId)))
