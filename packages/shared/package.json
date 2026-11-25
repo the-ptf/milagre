@@ -18,6 +18,7 @@
     "src/model-options.ts",
     "src/model-copy.ts",
     "src/approval-copy.ts",
+    "src/question-composer.ts",
     "src/project-list.ts",
     "src/provider-logos.ts",
     "src/reply-parts.ts",
@@ -347,6 +348,7 @@
     },
     "./model-copy": "./src/model-copy.ts",
     "./approval-copy": "./src/approval-copy.ts",
+    "./question-composer": "./src/question-composer.ts",
     "./project-list": "./src/project-list.ts",
     "./provider-logos": "./src/provider-logos.ts",
     "./reconcile": {

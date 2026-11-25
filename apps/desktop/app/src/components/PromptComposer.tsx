@@ -5,7 +5,7 @@ import { cliName, pickerProviders, providerName } from "@milagre/shared/provider
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { followUpDelivery, type MessageDelivery } from "@milagre/shared/queued-messages";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ComponentProps, KeyboardEvent } from "react";
+import type { ComponentProps, KeyboardEvent, ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowUp02Icon, Attachment01Icon, FlashIcon } from "@hugeicons/core-free-icons";
@@ -90,10 +90,16 @@ interface PromptComposerProps {
   contextUsage?: ContextUsage;
   canUndo?: boolean;
   placeholder?: string;
+  header?: ReactNode;
+  sendReady?: boolean;
 }
 
 const NO_HISTORY: string[] = [];
 const NO_QUOTES: readonly ComposerQuote[] = [];
+
+function promptContent(draft: string, quotes: readonly ComposerQuote[], imageDraft: ImageDraft) {
+  return { typed: draft.trim().length > 0, attached: quotes.length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0 };
+}
 
 const POPOVER_GAP = 12;
 const POPOVER_EDGE = 8;
@@ -152,6 +158,8 @@ export function PromptComposer({
   contextUsage,
   canUndo = false,
   placeholder,
+  header,
+  sendReady,
 }: PromptComposerProps) {
   const mentions = useChatMentions();
   const mentionComputers = useMentionComputers();
@@ -320,23 +328,11 @@ export function PromptComposer({
   const providerNotice = cliNotice(cliStatus?.[provider]);
   const providerTabs = pickerProviders(cliStatus, selectedModel.provider, provider);
   const modelRows = models.filter((model) => model.provider === provider && modelMatches(model, query));
-  const canSend = draft.trim().length > 0 || quotes.length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
+  const content = promptContent(draft, quotes, imageDraft);
+  const canSend = sendReady ?? (content.typed || content.attached);
   const canStop = !offlineName && running && Boolean(onStop) && !canSend;
-  const visibleSuggestion =
-    suggestion &&
-    !draft &&
-    !quotes.length &&
-    !running &&
-    !sendBlocked &&
-    !offlineName &&
-    selectedModel.provider === "claude" &&
-    !imageDraft.images.length &&
-    !imageDraft.files.length &&
-    !imageDraft.loading &&
-    !menu &&
-    !modelOpen
-      ? suggestion
-      : undefined;
+  const quietPrompt = !draft && !content.attached && !imageDraft.loading && !running && !sendBlocked && !offlineName;
+  const visibleSuggestion = suggestion && quietPrompt && selectedModel.provider === "claude" && !menu && !modelOpen ? suggestion : undefined;
 
   useEffect(() => {
     setActive(0);
@@ -741,6 +737,7 @@ export function PromptComposer({
           data-ultracode={ultracodeOn || undefined}
           className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-fast gap-2 rounded-window p-3`}
         >
+          {header}
           <input
             ref={fileInputRef}
             type="file"

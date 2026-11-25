@@ -1,11 +1,12 @@
 ---
 import {
   ArrowDown01Icon,
+  ArrowUp02Icon,
+  Attachment01Icon,
   BubbleChatQuestionIcon,
   CommandLineIcon,
   File01Icon,
   FlashIcon,
-  Image01Icon,
   Mic01Icon,
   Add01Icon,
   PencilEdit02Icon,
@@ -170,36 +171,32 @@ const at = (index: number) => `${8 + (index / (EFFORT.length - 1)) * 84}%`;
         {kind === "question" && (
           <div class="ds-card question">
             <div class="question-body">
-              <p class="ds-waiting">Waiting for answer</p>
-              <p class="question-title">Where should the page live?</p>
+              <div class="question-head">
+                <p class="question-title">Where should the page live?</p>
+                <span class="ds-btn ds-quiet s24">Skip</span>
+              </div>
               <div class="options">
-                <div class="ds-option" data-picked>
-                  <span class="ds-radio" />
+                <div class="question-option" data-picked>
+                  <span class="option-key">1</span>
                   <span>
                     <span class="option-label">/design</span>
                     <span class="option-detail">Short to share, a Design link in the nav</span>
                   </span>
                 </div>
-                <div class="ds-option">
-                  <span class="ds-radio" />
+                <div class="question-option">
+                  <span class="option-key">2</span>
                   <span>
                     <span class="option-label">/docs/design</span>
                     <span class="option-detail">Under Docs, beside the CLI reference</span>
                   </span>
                 </div>
-                <div class="ds-option other">
-                  <span class="ds-radio" />
-                  <span class="other-field">Other…</span>
-                  <span class="other-tools">
-                    <span set:html={glyph(Mic01Icon, 14)} />
-                    <span set:html={glyph(Image01Icon, 14)} />
-                  </span>
-                </div>
               </div>
             </div>
+            <p class="question-prompt">Or type your own answer…</p>
             <div class="line question-actions">
-              <span class="ds-btn ds-ghost s28">Dismiss</span>
-              <span class="ds-btn ds-primary s28">Send answer</span>
+              <span class="question-tool" set:html={glyph(Attachment01Icon, 16)} />
+              <span class="question-tool push" set:html={glyph(Mic01Icon, 16)} />
+              <span class="question-send" set:html={glyph(ArrowUp02Icon, 16)} />
             </div>
           </div>
         )}
@@ -295,18 +292,22 @@ const at = (index: number) => `${8 + (index / (EFFORT.length - 1)) * 84}%`;
   .approval-command { color: var(--ink-2); font-family: ui-monospace, "SF Mono", Menlo, monospace; overflow-wrap: anywhere; }
   .approval-actions { flex-wrap: nowrap; }
 
-  .question { display: grid; gap: 12px; padding-bottom: 12px; }
-  .question-body { display: grid; gap: 6px; padding: 12px 12px 0; }
-  .question-title { margin: 2px 0 6px; color: var(--ink); font-size: 15px; font-weight: 600; line-height: 20px; }
-  .options { display: grid; gap: 6px; }
+  .question { display: grid; gap: 8px; padding: 12px; border-radius: 14px; }
+  .question-body { display: grid; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .question-head { display: flex; align-items: center; gap: 8px; }
+  .question-title { flex: 1; margin: 0; padding: 0 4px; color: var(--ink); font-size: 15px; font-weight: 600; line-height: 20px; }
+  .options { display: grid; gap: 2px; }
+  .question-option { display: flex; align-items: flex-start; gap: 10px; padding: 6px; border-radius: 8px; }
+  .question-option[data-picked] { background: var(--hover-2); }
+  .option-key { display: grid; place-items: center; flex: none; width: 20px; height: 20px; margin-top: 1px; border-radius: 6px; background: var(--field); color: var(--ink-2); font-size: 11px; font-weight: 600; }
+  .question-option[data-picked] .option-key { background: var(--ink); color: var(--on-ink); }
   .option-label { display: block; color: var(--ink); font-size: 13px; font-weight: 500; line-height: 18px; }
   .option-detail { display: block; color: var(--ink-2); font-size: 12px; line-height: 16px; }
-  .other { align-items: center; min-height: 52px; }
-  .other .ds-radio { margin-top: 0; }
-  .other-field { flex: 1; color: var(--ink-3); font-size: 13px; font-weight: 500; }
-  .other-tools { display: flex; gap: 2px; color: var(--ink-2); }
-  .other-tools span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 999px; }
-  .question-actions { justify-content: flex-end; padding: 0 12px; }
+  .question-prompt { margin: 0; padding: 8px; color: var(--ink-3); font-size: 14px; line-height: 20px; }
+  .question-actions { gap: 4px; }
+  .question-tool { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; color: var(--ink-3); }
+  .question-tool.push { margin-left: auto; }
+  .question-send { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; background: var(--ink); color: var(--on-ink); }
 
   .picker { width: 100%; max-width: 320px; gap: 8px; }
   .picker-label { display: flex; justify-content: space-between; width: 100%; color: var(--ink); font-size: 12px; font-weight: 500; line-height: 16px; }
