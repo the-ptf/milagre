@@ -7,7 +7,7 @@ import { IconButton } from "./ui";
 import { useTheme } from "./theme";
 import { radius, space } from "./design-tokens";
 
-export const MAX_COMMENT_IMAGES = 4;
+const MAX_COMMENT_IMAGES = 4;
 
 export function CommentImageStrip({ photos, onRemove }: { photos: Attachment[]; onRemove: (id: string) => void }) {
   const { colors } = useTheme();

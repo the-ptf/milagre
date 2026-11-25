@@ -4,7 +4,7 @@ import { isModalOpen } from "../../lib/modal";
 export const COMMENT_KEY = "C";
 
 /** A bare letter press meant for the canvas: not typed into a field or a design, and with no dialog or menu open. */
-export function isCanvasKey(event: KeyboardEvent, key: string) {
+function isCanvasKey(event: KeyboardEvent, key: string) {
   if (event.key.toLowerCase() !== key.toLowerCase() || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
   if (event.repeat || event.isComposing || event.defaultPrevented) return false;
   const target = event.target instanceof Element ? event.target : null;

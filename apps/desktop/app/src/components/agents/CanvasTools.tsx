@@ -4,8 +4,8 @@ import Tooltip from "../primitives/Tooltip";
 import { Icon } from "../primitives/Icon";
 import { useCanvasKeys } from "./comment-key";
 
-export const POINTER_KEY = "V";
-export const HAND_KEY = "H";
+const POINTER_KEY = "V";
+const HAND_KEY = "H";
 
 export function CanvasToolButton({
   label,

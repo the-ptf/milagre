@@ -613,8 +613,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         };
       // The Orchestrator's pinned row reads its own host store; Chat-list tests render none.
       // The comment bubble's pasted images need the native paste module; UI tests paste none.
-      if (base === "comment-images" && !(id in modules))
-        return { CommentImageStrip: () => null, useCommentPaste: () => ({ onPaste: undefined, error: "" }), MAX_COMMENT_IMAGES: 4 };
+      if (base === "comment-images" && !(id in modules)) return { CommentImageStrip: () => null, useCommentPaste: () => ({ onPaste: undefined, error: "" }) };
       if (base === "use-image-paste" && !(id in modules)) return { useImagePaste: () => ({ onLayout() {}, onFocus() {} }) };
       if (base === "feedback-comment-number" && !(id in modules)) return load("feedback-comment-number.tsx", modules, "", cache);
       if (base === "design-comment-images" && !(id in modules)) return load("design-comment-images.ts", modules, "", cache);

@@ -2,7 +2,7 @@ import { designFeedbackMessage, newCommentId, type DesignComment } from "@milagr
 import type { ArtifactRef } from "@milagre/shared/model";
 import type { Attachment } from "./attachments";
 
-export const IMAGE_ONLY = "See the attached image.";
+const IMAGE_ONLY = "See the attached image.";
 
 type WrittenNote = DesignComment & { key: string; photos?: Attachment[] };
 
