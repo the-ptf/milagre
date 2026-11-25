@@ -639,6 +639,11 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           watchVisibleRunChats: () => () => {},
         };
       // The Orchestrator's pinned row reads its own host store; Chat-list tests render none.
+      // The comment bubble's pasted images need the native paste module; UI tests paste none.
+      if (base === "comment-images" && !(id in modules)) return { CommentImageStrip: () => null, useCommentPaste: () => ({ onPaste: undefined, error: "" }) };
+      if (base === "use-image-paste" && !(id in modules)) return { useImagePaste: () => ({ onLayout() {}, onFocus() {} }) };
+      if (base === "feedback-comment-number" && !(id in modules)) return load("feedback-comment-number.tsx", modules, "", cache);
+      if (base === "design-comment-images" && !(id in modules)) return load("design-comment-images.ts", modules, "", cache);
       if (base === "orchestrator-row" && !(id in modules)) return { OrchestratorRow: () => null };
       if (base === "orchestrator-church-row" && !(id in modules)) return { OrchestratorChurchRow: () => null };
       if (id === "@milagre/shared/orchestrator" && !(id in modules)) return require("@milagre/shared/orchestrator");

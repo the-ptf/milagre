@@ -23,7 +23,7 @@ import {
   type PageShareScope,
 } from "@milagre/shared/artifact";
 import { isModalOpen } from "../../lib/modal";
-import type { ArtifactRef } from "../../model";
+import type { ArtifactRef, ImageAttachment } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
@@ -67,7 +67,7 @@ type DockProps = {
   onCommentsAdded: () => void;
   openComment?: string;
   openNonce: number;
-  onSend?: (text: string) => Promise<boolean>;
+  onSend?: (text: string, images?: ImageAttachment[]) => Promise<boolean>;
   onClose: () => void;
   staged?: { beside: boolean };
 };

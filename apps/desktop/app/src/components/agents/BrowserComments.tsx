@@ -10,11 +10,10 @@ import Tooltip from "../primitives/Tooltip";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { CommentPin } from "./CommentPin";
+import { useSentImageSource } from "./CommentImages";
 import type { PagePinPosition } from "@milagre/shared/page-picker";
 import { TOAST } from "../../lib/toast";
-import { isRemoteKey, onAnyAgentEvent, useBridge, useScope } from "../../lib/computer-bridge";
-import { mediaUrl } from "../../lib/media";
-import { useRemoteMedia } from "../../lib/remote-media";
+import { onAnyAgentEvent, useBridge } from "../../lib/computer-bridge";
 import type { BrowserTab } from "../../lib/browser-panel";
 import { browserOverlay, cancelPagePick, capturePageElement, pickOnPage, setPagePins, pagePinPositions } from "../../lib/browser-webviews";
 import {
@@ -271,10 +270,7 @@ export function PageCommentsCard({ comments, images }: { comments: ParsedPageCom
 
 function PageCommentRow({ comment, image }: { comment: ParsedPageComment; image?: ImageAttachment }) {
   const saved = useSentComment(comment.id);
-  const scope = useScope();
-  const remote = isRemoteKey(scope);
-  const { sources } = useRemoteMedia(remote && !image?.dataUrl && image?.path ? scope : null, image?.path ? [image.path] : []);
-  const src = image?.dataUrl ?? (image?.path ? (remote ? sources[image.path] : mediaUrl(image.path)) : undefined);
+  const src = useSentImageSource(image);
   return (
     <div data-slot="page-comment" data-resolved={saved?.resolved ? "" : undefined} className="flex gap-3 border-b border-line px-3 py-3 last:border-b-0">
       <div className="relative h-10 w-14 shrink-0">

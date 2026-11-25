@@ -1,6 +1,6 @@
 import { commentActivity } from "./comment-activity";
 import { HtmlReply } from "./html-reply";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -42,6 +42,7 @@ import { artifactPageActions } from "./artifact-page-actions";
 import { readArtifactEvent, rememberPage, rememberedTab } from "./artifact-pages";
 import { pageWithFiles, usePageFiles } from "./artifact-files";
 import { CommentBox } from "./viewer-chrome";
+import { CommentNumber } from "./feedback-comment-number";
 import { useVisibleRunChatKeys } from "./visible-run-chats";
 
 let feedbackRequestId = 0;
@@ -50,10 +51,12 @@ export function DesignFeedbackCard({
   feedback,
   chatId,
   moved = 0,
+  renderImages,
 }: {
   feedback: { choice: ArtifactRef | null; comments: DesignComment[] };
   chatId?: string;
   moved?: number;
+  renderImages?: (numbers: number[]) => ReactNode;
 }) {
   const { colors } = useTheme();
   const { client, designs: feature } = useSession();
@@ -170,31 +173,7 @@ export function DesignFeedbackCard({
                 borderColor: colors.line,
               }}
             >
-              <View
-                style={{
-                  alignSelf: "flex-start",
-                  minWidth: 20,
-                  minHeight: 20,
-                  paddingHorizontal: 4,
-                  borderRadius: radius.full,
-                  borderTopLeftRadius: 0,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: resolved === undefined ? colors.accentInk : colors.greenInk,
-                }}
-              >
-                <Text
-                  maxFontSizeMultiplier={1.3}
-                  style={{
-                    color: resolved === undefined ? colors.onAccent : colors.onGreen,
-                    fontSize: type.caption2,
-                    lineHeight: lineHeight.caption2,
-                    fontWeight: "600",
-                  }}
-                >
-                  {index + 1}
-                </Text>
-              </View>
+              <CommentNumber number={index + 1} resolved={resolved !== undefined} />
               <View style={{ flex: 1, gap: space.xxs }}>
                 <Text
                   selectable
@@ -207,6 +186,7 @@ export function DesignFeedbackCard({
                 >
                   {comment.text}
                 </Text>
+                {comment.images && renderImages?.(comment.images)}
                 {resolved !== undefined && (
                   <View
                     accessibilityLabel={`Resolved: ${resolved}`}

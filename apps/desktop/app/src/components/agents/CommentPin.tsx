@@ -8,6 +8,7 @@ import { useDismiss } from "../../lib/use-dismiss";
 import { morphFace, useSize, HIDDEN_FACE } from "../motion/morph";
 import { Button } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
+import { CommentImageStrip, imageFilesOf, useCommentImages } from "./CommentImages";
 
 const SEND_KEYS = /Mac/.test(navigator.userAgent) ? "⌘Enter" : "Ctrl+Enter";
 
@@ -87,11 +88,11 @@ export function CommentPin({
   sent = false,
   offsetX = 0,
 }: {
-  pin: Pick<DesignPin, "key" | "x" | "y" | "text" | "resolved"> & { design: { title: string } };
+  pin: Pick<DesignPin, "key" | "x" | "y" | "text" | "resolved" | "images"> & { design: { title: string } };
   number: number;
   open: boolean;
   scale: number;
-  comments: Pick<PinControls, "onOpen" | "onText" | "onRemove" | "onSend">;
+  comments: Pick<PinControls, "onOpen" | "onText" | "onRemove" | "onSend"> & Partial<Pick<PinControls, "onImages">>;
   offsetX?: number;
   sent?: boolean;
 }) {
@@ -101,8 +102,11 @@ export function CommentPin({
   const [bubble, measureBubble] = useSize();
   const [lifted, setLifted] = useState(open);
   if (open && !lifted) setLifted(true);
+  const onImages = comments.onImages;
+  const attached = useCommentImages(pin.images, onImages && ((images) => onImages(pin.key, images)));
+  const written = !!pin.text.trim() || !!pin.images?.length;
   const close = () => {
-    if (!sent && !pin.text.trim()) comments.onRemove(pin.key);
+    if (!sent && !written) comments.onRemove(pin.key);
     comments.onOpen(null);
   };
   useDismiss(
@@ -171,6 +175,19 @@ export function CommentPin({
             animate={{ opacity: 1, transition: { duration: reduce ? 0 : DURATION.fast, delay: reduce ? 0 : 0.1, ease: EASE_OUT } }}
             exit={{ opacity: 0, transition: { duration: reduce ? 0 : DURATION.fast, ease: EASE_OUT } }}
             className="absolute top-0 left-0 flex w-64 cursor-default flex-col gap-2 p-2 text-ink"
+            onDragOver={(event) => {
+              if (sent || !attached.enabled || !event.dataTransfer.types.includes("Files")) return;
+              event.preventDefault();
+              event.stopPropagation();
+              event.dataTransfer.dropEffect = "copy";
+            }}
+            onDrop={(event) => {
+              const files = imageFilesOf(event.dataTransfer);
+              if (sent || !attached.enabled || !files.length) return;
+              event.preventDefault();
+              event.stopPropagation();
+              void attached.add(files);
+            }}
           >
             {sent ? (
               <>
@@ -188,6 +205,12 @@ export function CommentPin({
               <>
                 <textarea
                   autoFocus
+                  onPaste={(event) => {
+                    const files = imageFilesOf(event.clipboardData);
+                    if (!files.length || !attached.enabled) return;
+                    event.preventDefault();
+                    void attached.add(files);
+                  }}
                   aria-label={`Comment ${number} on ${pin.design.title}`}
                   value={pin.text}
                   placeholder="Add a comment"
@@ -196,7 +219,7 @@ export function CommentPin({
                     if (event.nativeEvent.isComposing) return;
                     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                       event.preventDefault();
-                      if (pin.text.trim()) comments.onSend();
+                      if (written) comments.onSend();
                       else close();
                     } else if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
@@ -208,6 +231,12 @@ export function CommentPin({
                   }}
                   className="field-sizing-content max-h-[8lh] min-h-[2lh] w-full resize-none rounded-chip bg-transparent px-1 text-13 outline-none"
                 />
+                <CommentImageStrip images={attached.images} onRemove={attached.remove} />
+                {attached.error && (
+                  <p role="alert" className="px-1 text-11 text-red-ink">
+                    {attached.error}
+                  </p>
+                )}
                 <div className="flex items-center justify-between text-11 text-ink-3">
                   <Button variant="danger-ghost" size={24} className="-ml-1" onClick={() => comments.onRemove(pin.key)}>
                     Delete

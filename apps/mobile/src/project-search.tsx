@@ -11,7 +11,7 @@ import { Field, InlineError, PillButton, RowCheckbox, pressStyle, useStyles } fr
 import { createStylesHook, useTheme, type Palette } from "./theme";
 import { treeLayout } from "@milagre/shared/chat-display";
 import { useChatList } from "./chat-display-setting";
-import type { FolderScan } from "@milagre/shared/project-list";
+import { folderImportText, folderScanName, offersFolderImport, type FolderScan } from "@milagre/shared/project-list";
 
 type Found = { path: string; name: string };
 
@@ -33,7 +33,7 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
     setChecking(true);
     const found = await client.call<FolderScan>("project:scan-children", [folder]).catch(() => null);
     setChecking(false);
-    if (found?.detect && !found.git && found.children.some((child) => child.git)) setScan(found);
+    if (offersFolderImport(found)) setScan(found);
     else onOpen(folder);
   }
   useEffect(() => {
@@ -212,7 +212,7 @@ function ImportFolderForm({ scan, onBack, onOpen }: { scan: FolderScan; onBack: 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [chatList, setChatList] = useChatList();
-  const name = scan.folder.split("/").findLast(Boolean) ?? scan.folder;
+  const name = folderScanName(scan);
   const chosen = scan.children.map((child) => child.path).filter((path) => selected.includes(path));
   const toggle = (path: string) => setSelected((current) => (current.includes(path) ? current.filter((item) => item !== path) : [...current, path]));
   async function add(grouped: boolean) {
@@ -241,9 +241,7 @@ function ImportFolderForm({ scan, onBack, onOpen }: { scan: FolderScan; onBack: 
   }
   return (
     <View style={{ flex: 1 }}>
-      <Text style={[styles.muted, { paddingHorizontal: 16, paddingBottom: 12 }]}>
-        {`${name} holds ${scan.children.filter((child) => child.git).length} repositories. Add the ones you check as Projects, grouped by a Link named ${name}.`}
-      </Text>
+      <Text style={[styles.muted, { paddingHorizontal: 16, paddingBottom: 12 }]}>{folderImportText(scan)}</Text>
       <FlatList
         data={scan.children}
         keyExtractor={(item) => item.path}

@@ -5,6 +5,7 @@ import { Segmented } from "../primitives/Segmented";
 import { ZoomBar } from "../primitives/ZoomBar";
 import { usePageDesignMode } from "../agents/design-mode";
 import { ArtifactCanvas, type CanvasHandle, type CanvasView, type ChoiceControls, type PinControls } from "../agents/ArtifactCanvas";
+import { CanvasTools } from "../agents/CanvasTools";
 import { LibraryEditContext, type LibraryEdit } from "../agents/DesignFrameMenu";
 
 const NO_PINS: PinControls = {
@@ -14,6 +15,7 @@ const NO_PINS: PinControls = {
   onPin: () => {},
   onOpen: () => {},
   onText: () => {},
+  onImages: () => {},
   onRemove: () => {},
   onSend: () => {},
 };
@@ -37,6 +39,7 @@ export function LibraryBoard({
 }) {
   const canvas = useRef<CanvasHandle>(null);
   const [view, setView] = useState<CanvasView | null>(null);
+  const [hand, setHand] = useState(false);
   const [versions, setVersions] = useState<Record<string, number | null>>({});
   const onVersion = useCallback((id: string, version: number | null) => setVersions((current) => ({ ...current, [id]: version })), []);
   const page = usePageDesignMode(
@@ -58,6 +61,7 @@ export function LibraryBoard({
           comments={NO_PINS}
           choice={NO_CHOICE}
           onView={setView}
+          hand={hand}
         />
       </LibraryEditContext>
       {page.modes.length > 1 && (
@@ -73,6 +77,7 @@ export function LibraryBoard({
       )}
       <ZoomBar
         className="absolute bottom-4 left-1/2 -translate-x-1/2"
+        leading={<CanvasTools tool={hand ? "hand" : "pointer"} onTool={(tool) => setHand(tool === "hand")} />}
         zoom={view?.scale ?? null}
         onZoomOut={() => canvas.current?.zoomBy(1 / 1.25)}
         onReset={() => canvas.current?.zoomTo(1)}
