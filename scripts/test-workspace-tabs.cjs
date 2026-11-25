@@ -107,6 +107,31 @@ async function browserChecks() {
       [],
       "every strip button sits in a no-drag area, so a mouse press reaches it instead of dragging the window",
     );
+    await evaluate(
+      `(() => {
+        const tab = document.querySelector('[data-workspace-tab="chat:3"]');
+        const box = tab.getBoundingClientRect();
+        tab.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: box.left + 8, clientY: box.top + box.height / 2 }));
+      })()`,
+    );
+    await waitFor(`document.querySelector("[data-menu-row]")`);
+    assert.equal(
+      await evaluate(`(() => {
+        let menu = document.querySelector("[data-menu-row]");
+        while (menu && getComputedStyle(menu).position !== "fixed") menu = menu.parentElement;
+        const box = menu.getBoundingClientRect();
+        return menu.contains(document.elementFromPoint(box.left + 12, box.top + 6));
+      })()`),
+      true,
+      "a tab's menu paints over the tab strip where they overlap",
+    );
+    assert.deepEqual(
+      await evaluate(`[...document.querySelectorAll("[data-menu-row]")].filter((row) => !row.querySelector("svg")).map((row) => row.textContent)`),
+      [],
+      "every row of a tab's menu has an icon, so the labels line up",
+    );
+    await evaluate(`document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))`);
+    await waitFor(`!document.querySelector("[data-menu-row]")`);
     await evaluate(`window.show(1)`);
     await expectTabs(["chat:3", "chat:1*"], "opening another Chat of the Worktree adds its tab at the end");
     await evaluate(`window.show(2)`);
@@ -179,7 +204,7 @@ async function browserChecks() {
     await screenshot("draft");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Chat and Subchat tabs open, switch by click and digit, reorder by drag, close by middle click, ask before the main Chat, drop archived Chats and show a New Chat draft, keep every button clear of the window drag area; Browser pages become tabs, unread when the agent opened them, and stage the page in front",
+      "PASS: Chat and Subchat tabs open, switch by click and digit, reorder by drag, close by middle click, ask before the main Chat, drop archived Chats and show a New Chat draft, keep every button clear of the window drag area, give every tab menu row an icon and paint it over the strip; Browser pages become tabs, unread when the agent opened them, and stage the page in front",
     );
     app.exit(0);
   } catch (error) {

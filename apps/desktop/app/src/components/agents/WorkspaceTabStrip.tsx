@@ -1,7 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
-import { ArrowDown01Icon, BubbleChatIcon, Cancel01Icon, CornerDownRightIcon, LayoutTwoColumnIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import {
+  ArrowDown01Icon,
+  BubbleChatIcon,
+  Cancel01Icon,
+  CornerDownRightIcon,
+  Layers01Icon,
+  LayoutTwoColumnIcon,
+  PlusSignIcon,
+} from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
 import {
   chatOf,
@@ -158,7 +166,7 @@ export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, be
         <div
           data-workspace-tabs
           style={{ left: Math.max(chrome.controlsEnd, columnLeft), right: chrome.rightInset + 12 + (corner ? corner + 20 : 0) }}
-          className="pointer-events-none fixed top-[var(--window-chrome-top)] z-[55] flex h-8 select-none items-center"
+          className="pointer-events-none fixed top-[var(--window-chrome-top)] z-50 flex h-8 select-none items-center"
         >
           <div ref={group} className="no-drag pointer-events-auto flex min-w-0 max-w-full items-center gap-0.5">
             <div
@@ -422,7 +430,7 @@ function TabMenu({
       {parent !== undefined && <MenuRow icon={CornerDownRightIcon} title="Go to parent Chat" onClick={pick(() => onParent(parent))} />}
       {beside !== undefined && <MenuRow icon={LayoutTwoColumnIcon} title={beside ? "Show on its own" : "Show beside the Chat"} onClick={pick(onBeside)} />}
       <MenuRow icon={Cancel01Icon} title="Close tab" onClick={pick(onCloseTab)} />
-      <MenuRow title="Close other tabs" onClick={pick(onCloseOthers)} />
+      <MenuRow icon={Layers01Icon} title="Close other tabs" onClick={pick(onCloseOthers)} />
     </Popover>
   );
 }
