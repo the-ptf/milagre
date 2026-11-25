@@ -227,8 +227,21 @@ export type ComputersSnapshot = { thisMac: string; computers: ComputerView[]; en
 /** What a pasted link names, read before any socket opens. */
 export type ComputerPreview = { name: string; hostId: string; relayHost: string };
 export type AddComputerResult = { ok: true; computer: ComputerView } | { ok: false; code: string; message: string };
+type ListenerPayload<Listen> = Listen extends (callback: (payload: infer Payload) => void) => unknown ? Payload : never;
+/** Each runtime channel a computer forwards, with the payload this Mac's own listener for it gets. */
+type ComputerEventPayloads = {
+  "runtime:snapshot": ListenerPayload<MilagreBridge["onRuntimeSnapshot"]>;
+  "project:state": ListenerPayload<MilagreBridge["onProjectState"]>;
+  "link:state": ListenerPayload<MilagreBridge["onLinkState"]>;
+  "agent:event": ListenerPayload<MilagreBridge["onAgentEvent"]>;
+  "agent:ports": ListenerPayload<MilagreBridge["onAgentPorts"]>;
+  "terminal:changed": ListenerPayload<MilagreBridge["onTerminalsChanged"]>;
+  "worktree:renamed": ListenerPayload<MilagreBridge["onWorktreeRenamed"]>;
+};
 /** An event from a computer's runtime: its channel and payload, tagged with the computer. */
-export type ComputerEvent = { computerId: string; channel: string; payload: any };
+export type ComputerEvent = {
+  [Channel in keyof ComputerEventPayloads]: { computerId: string; channel: Channel; payload: ComputerEventPayloads[Channel] };
+}[keyof ComputerEventPayloads];
 export type ComputersApi = {
   list: () => Promise<ComputersSnapshot>;
   preview: (link: string) => Promise<ComputerPreview>;
@@ -240,7 +253,7 @@ export type ComputersApi = {
   remove: (id: string) => Promise<ComputersSnapshot>;
   setEnabled: (on: boolean) => Promise<void>;
   /** One daemon call on the computer. */
-  invoke: (id: string, method: string, args?: unknown[]) => Promise<any>;
+  invoke: <Result = unknown>(id: string, method: string, args?: unknown[]) => Promise<Result>;
   /** Keeps a remote scope's state or a chat's window as its offline copy. */
   remember: (
     id: string,

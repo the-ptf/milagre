@@ -62,7 +62,7 @@ export function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () 
     if (computer?.state !== "online") return;
     let live = true;
     void Promise.all([
-      window.milagre.computers.invoke(id, "daemon:status").catch(() => null),
+      window.milagre.computers.invoke<{ version?: unknown }>(id, "daemon:status").catch(() => null),
       window.milagre.computers.invoke(id, "project:recent").catch(() => []),
     ]).then(([status, recent]) => {
       if (!live) return;

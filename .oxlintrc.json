@@ -11,7 +11,7 @@
   "rules": {
     "no-shadow": "warn",
     "react/react-in-jsx-scope": "off",
-    "typescript/no-explicit-any": "warn",
+    "typescript/no-explicit-any": "error",
     "react-hooks/exhaustive-deps": "warn",
     "import/no-unassigned-import": [
       "error",
@@ -68,6 +68,7 @@
       "files": ["**/*.test.*", "scripts/test-*.cjs"],
       "rules": {
         "no-shadow": "off",
+        "typescript/no-explicit-any": "off",
         "max-lines": "off",
         "max-lines-per-function": "off",
         "complexity": "off"
