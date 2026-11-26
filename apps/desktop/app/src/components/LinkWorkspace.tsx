@@ -3,7 +3,6 @@ import type { MessageDelivery } from "@milagre/shared/queued-messages";
 import { outbox, outboxAttachments, queueForComputer, hasQueuedChat } from "../lib/outbox";
 import { OfflineTray, useOfflineTray } from "./OfflineTray";
 import { useDisplayNow } from "../lib/display-clock";
-import { computerOfKey } from "@milagre/shared/chat-scopes";
 import { computerNameOf, offlineBanner, useComputers, useHiddenComputers } from "../lib/computers";
 import { archiveLinkChat } from "../lib/archive-flow";
 import { shortcutCommand } from "../lib/keybindings";
@@ -20,7 +19,7 @@ import { sectionOf } from "./changes/ChangesPanel";
 import type { DiffList } from "./changes/useDiffFiles";
 import { useLinkDiffLists } from "./changes/useLinkDiffLists";
 import { ChangesPanelSlot } from "./changes/ChangesPanelSlot";
-import { CanvasButton, ChangesToggle, DiffBar } from "./changes/ChangesChrome";
+import { DiffBar } from "./changes/ChangesChrome";
 import { DiffToolbar, useDiffPreferences } from "./changes/DiffPrefs";
 import { useDiffComments } from "./changes/useDiffComments";
 import { formatCommentsMessage } from "../lib/diff-comments";
@@ -29,15 +28,15 @@ import { prefetchChatMessages, useChatMessages } from "../lib/chat-messages";
 import { beginChatSwitch } from "../lib/chat-switch-timing";
 import { isLean } from "../lib/state-events";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import type { AgentPorts, LinkState, OpenLink, WorktreeBinding } from "@milagre/shared/model";
-import { chatKeyForScope, scopeKey } from "@milagre/shared/chat-scopes";
-import { associatedPullRequest } from "@milagre/shared/chats";
+import type { AgentPorts, LinkedWork, LinkState, OpenLink, WorktreeBinding } from "@milagre/shared/model";
+import { chatKeyForScope, computerOfKey, scopeKey } from "@milagre/shared/chat-scopes";
 import { showNotice } from "../lib/notice";
 import { chatTitle, createPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
+import { chatPullRequestLink } from "./markdown/LinkMenu";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { chatsNeedingAttention } from "@milagre/shared/attention";
 import { useHiddenProjects } from "../lib/hidden-projects";
-import { useSettings } from "../lib/settings";
+import { getSettings, useSettings } from "../lib/settings";
 import { useChatPins } from "../lib/chat-pins";
 import { projectOfKey } from "@milagre/shared/agent-runs";
 import { ipcErrorMessage } from "@milagre/shared/result";
@@ -58,7 +57,6 @@ import { sentDecision } from "../lib/agent-runs";
 import { PermissionCard } from "./agents/PermissionCard";
 import { cardQuestion, composerQuestionFor, questionAnswerer, questionCardProps } from "../app/ChatApproval";
 import { useStepApprovalScope } from "./agents/step-approval";
-import { getSettings } from "../lib/settings";
 import { EditorLinks } from "./editor-links";
 import { openInEditor } from "../lib/editors";
 import { appShortcutsBlocked, isModalOpen } from "../lib/modal";
@@ -69,9 +67,8 @@ import { InlineError } from "./primitives/InlineError";
 import { Dialog } from "./primitives/Dialog";
 import { Notice } from "./Notice";
 import { lazyView } from "../lib/lazy-view";
-import type { LinkedWork } from "@milagre/shared/model";
 import { TerminalPanel } from "./terminal/TerminalPanel";
-import { CORNER_PITCH, PanelToggles } from "./agents/PanelToggles";
+import { LinkCornerButtons, LinkTabStrip } from "./agents/LinkTopBar";
 import { queueControls } from "./QueuedMessages";
 import { BridgeContext, ScopeContext, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { useLinear } from "./useLinear";
@@ -723,6 +720,7 @@ export function LinkWorkspace({
                     </InlineError>
                   )}
 
+                  <LinkTabStrip owner={owner} state={state} rows={recents} chat={session} changes={changes} toggle={toggleChanges} pick={pick} />
                   <DiffBar
                     open={changes.diffOpen}
                     onBack={changes.closeDiff}
@@ -759,16 +757,13 @@ export function LinkWorkspace({
                         store={draftStore}
                         projectPath={root}
                         messageScope={owner}
-                        onOpenPullRequestLink={(url) => {
-                          const entry = associatedPullRequest(
-                            url,
-                            memberPrs.map((entry) => ({ ...entry, url: entry.pr.url })),
-                          );
-                          if (!entry) return false;
-                          pickPr(entry.member.projectId);
-                          if (!changes.open) changes.toggle();
-                          return true;
-                        }}
+                        pullRequestLink={chatPullRequestLink(
+                          memberPrs.map((entry) => ({ ...entry, url: entry.pr.url })),
+                          (entry) => {
+                            pickPr(entry.member.projectId);
+                            if (!changes.open) changes.toggle();
+                          },
+                        )}
                         earlier={earlierMessages}
                         trimHistory={lean ? chatWindow.trim : undefined}
                         messages={shownMessages}
@@ -935,15 +930,7 @@ export function LinkWorkspace({
               )}
             </ChangesPanelSlot>
           </div>
-          <CanvasButton
-            active={canvasOpen}
-            onToggle={() => {
-              changes.closeDiff();
-              setCanvasOpen(!canvasOpen);
-            }}
-          />
-          {!canvasOpen && session && <ChangesToggle open={changes.open} onToggle={toggleChanges} offset={1} />}
-          <PanelToggles right={!canvasOpen && session ? 12 + 2 * CORNER_PITCH : 12 + CORNER_PITCH} />
+          <LinkCornerButtons canvasOpen={canvasOpen} onCanvas={setCanvasOpen} chat={session} changes={changes} toggle={toggleChanges} />
           {gitChoice !== null && (
             <Dialog
               aria-label="Choose Project for Git"

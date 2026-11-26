@@ -16,7 +16,7 @@ const when = (share: DesignPageShare) =>
   `${share.updatedAt ? "Updated" : "Published"} ${new Date(share.updatedAt ?? share.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`;
 const olderLinksNotice = (count = 0) =>
   count ? `${count === 1 ? "An older link" : `${count} older links`} could not be revoked yet. Revoke in Settings > Milagre > Published pages.` : "";
-const FALLBACK_TITLE = { workspace: "Artifact", design: "Design", designs: "Designs", artifacts: "Artifact" } as const;
+const FALLBACK_TITLE = { workspace: "Artifact", design: "Design", selection: "Designs", designs: "Designs", artifacts: "Artifact" } as const;
 const WORKSPACE: ShareScope = { kind: "workspace" };
 
 function ShareLink({ share, act }: { share: DesignPageShare; act: (action: () => Promise<unknown>, success?: string) => void }) {
@@ -72,7 +72,12 @@ export function DesignPageShareSheet({
   const { colors } = useTheme();
   const styles = useStyles();
   const { kind, designId } = scope;
-  const sharing = useMemo(() => createDesignPageSharing(client, chatId, { kind, ...(designId ? { designId } : {}) }), [client, chatId, kind, designId]);
+  const selected = scope.designIds?.join(",") ?? "";
+  const sharing = useMemo(
+    () => createDesignPageSharing(client, chatId, { kind, ...(designId ? { designId } : {}), ...(selected ? { designIds: selected.split(",") } : {}) }),
+    [client, chatId, kind, designId, selected],
+  );
+  const count = scope.designIds?.length ?? 0;
   const state = useSyncExternalStore(sharing.subscribe, sharing.getSnapshot);
   useEffect(() => {
     onAvailabilityChange?.(state.checking ? null : (state.availability?.available ?? null));
@@ -205,7 +210,7 @@ export function DesignPageShareSheet({
         </Text>
         {share.pending && <Text style={styles.muted}>Not confirmed yet. Share again to retry.</Text>}
       </View>
-      <Text style={styles.muted}>{sharePublicNotice(kind, !share.live)}</Text>
+      <Text style={styles.muted}>{sharePublicNotice(kind, !share.live, count)}</Text>
       {availability}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md }}>
         {share.live && (
@@ -250,7 +255,7 @@ export function DesignPageShareSheet({
               shared(current)
             ) : (
               <>
-                <Text style={styles.muted}>{sharePublicNotice(kind)}</Text>
+                <Text style={styles.muted}>{sharePublicNotice(kind, false, count)}</Text>
                 {availability}
                 <PillButton
                   title="Share"

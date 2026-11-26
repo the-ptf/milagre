@@ -80,7 +80,7 @@ An interactive shell the user opens in a **Chat**. It starts in that **Chat**'s 
 _Avoid_: console, shell (the program running inside a **Terminal**)
 
 **Workspace tab**:
-A **Chat** or **Subchat** a **Worktree** has open on one device, in a strip across the top bar on a computer and an iPad and in the right panel on a phone (Settings › Experimental). Every **Chat** of the **Worktree** shares one tab set; a **Chat** without a **Worktree** has its own. Each device keeps its own tabs, order and the one in front. Closing a tab only takes it off the strip: the **Chat** stays in the sidebar, and closing the **Worktree**'s main **Chat** (its oldest **Chat** that is no one's **Subchat**) asks first.
+A **Chat** or **Subchat** a **Worktree** has open on one device, in a strip across the top bar on a computer and an iPad and in the right panel on a phone (Settings › Experimental). Every **Chat** of the **Worktree** shares one tab set, and so do the **Chats** of a **Link**; a **Chat** without a **Worktree** has its own. Each device keeps its own tabs, order and the one in front. Closing a tab only takes it off the strip: the **Chat** stays in the sidebar, and closing the **Worktree**'s main **Chat** (its oldest **Chat** that is no one's **Subchat**) asks first.
 _Avoid_: tab alone where a **Browser page** is meant
 
 **Task list**:

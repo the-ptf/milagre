@@ -1,5 +1,13 @@
 import { createContext, useContext, useRef, useState } from "react";
-import { Download04Icon, FolderTransferIcon, LibraryIcon, MoreHorizontalIcon, PencilEdit02Icon, Share08Icon } from "@hugeicons/core-free-icons";
+import {
+  Download04Icon,
+  FolderTransferIcon,
+  LibraryIcon,
+  MoreHorizontalIcon,
+  PencilEdit02Icon,
+  Presentation01Icon,
+  Share08Icon,
+} from "@hugeicons/core-free-icons";
 import { isInteractiveDesign, type DesignArtifact } from "@milagre/shared/artifact";
 import { DESIGN_MODE_LABELS, type DesignMode } from "@milagre/shared/design-modes";
 import type { ArtifactRef } from "../../model";
@@ -7,6 +15,7 @@ import Tooltip from "../primitives/Tooltip";
 import { IconButton } from "../primitives/Button";
 import { MenuRow, Popover } from "../primitives/Popover";
 import { DesignExportDialog } from "./DesignExportDialog";
+import { useSelection } from "./canvas-selection";
 
 function downloadHtml(html: string, filename: string) {
   const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
@@ -23,8 +32,8 @@ export type LibraryEdit = (design: ArtifactRef, kind: "rename" | "move") => void
 export const LibraryEditContext = createContext<LibraryEdit | null>(null);
 
 /**
- * A design frame's ⋯ menu on the canvas: pick its color mode, export it, share it on its own link, add it to the Project
- * library, and, on the Design library page, rename it or move it to another page.
+ * A design frame's ⋯ menu on the canvas: pick its color mode, export it, share it on its own link, add it to the
+ * presentation being picked, add it to the Project library, and, on the Design library page, rename it or move it.
  */
 export function DesignFrameMenu({
   artifact,
@@ -48,6 +57,7 @@ export function DesignFrameMenu({
   onAddToLibrary?: (design: ArtifactRef) => void;
 }) {
   const onLibraryEdit = useContext(LibraryEditContext);
+  const selection = useSelection();
   const anchor = useRef<HTMLSpanElement>(null);
   const [exporting, setExporting] = useState(false);
   return (
@@ -97,6 +107,17 @@ export function DesignFrameMenu({
               onClick={() => {
                 onOpen(false);
                 onShare(shown);
+              }}
+            />
+          )}
+          {selection && (
+            <MenuRow
+              data-slot="artifact-select-design"
+              icon={Presentation01Icon}
+              title={selection.ids.includes(shown.id) ? "Remove from presentation" : "Add to presentation"}
+              onClick={() => {
+                onOpen(false);
+                selection.toggle(shown.id);
               }}
             />
           )}

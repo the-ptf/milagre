@@ -27,6 +27,10 @@ on:
         required: true
       APPLE_TEAM_ID:
         required: true
+      # Base64 of the Developer ID provisioning profile for com.milagre.app. With it the app embeds the profile and
+      # claims the keychain group Touch ID passkeys live in; without it the build ships without passkeys.
+      MAC_PROVISIONING_PROFILE:
+        required: false
 jobs:
   package-macos:
     runs-on: macos-latest
@@ -102,8 +106,24 @@ jobs:
           NODE
       - name: Install dependencies
         run: npm ci
+      - name: Prepare the passkeys provisioning profile
+        id: profile
+        shell: bash
+        env:
+          MAC_PROVISIONING_PROFILE: ${{ secrets.MAC_PROVISIONING_PROFILE }}
+        run: |-
+          if [ -z "$MAC_PROVISIONING_PROFILE" ]; then
+            echo "No MAC_PROVISIONING_PROFILE secret: building without Touch ID passkeys."
+            exit 0
+          fi
+          profile="$RUNNER_TEMP/milagre.provisionprofile"
+          printf '%s' "$MAC_PROVISIONING_PROFILE" | base64 --decode > "$profile"
+          security cms -D -i "$profile" > "$RUNNER_TEMP/profile.plist"
+          /usr/libexec/PlistBuddy -c "Print :Entitlements:keychain-access-groups" "$RUNNER_TEMP/profile.plist"
+          echo "args=--config.mac.provisioningProfile=$profile --config.mac.entitlements=apps/desktop/build/entitlements.mac.passkeys.plist" >> "$GITHUB_OUTPUT"
       - name: Build macOS installers
         env:
+          PROFILE_ARGS: ${{ steps.profile.outputs.args }}
           ARCH: ${{ matrix.arch }}
           VERSION: ${{ inputs.version }}
           CHANNEL: ${{ inputs.channel }}
@@ -112,7 +132,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: node scripts/with-apple-credentials.cjs npm run package:mac -- --"${ARCH}" --config.extraMetadata.version="${VERSION}" --config.publish.channel="${CHANNEL}" --config.forceCodeSigning=true --config.dmg.sign=true --config.mac.notarize=false
+        run: node scripts/with-apple-credentials.cjs npm run package:mac -- --"${ARCH}" --config.extraMetadata.version="${VERSION}" --config.publish.channel="${CHANNEL}" --config.forceCodeSigning=true --config.dmg.sign=true --config.mac.notarize=false $PROFILE_ARGS
       - name: Notarize and staple the disk image and app
         shell: bash
         env:
@@ -135,6 +155,15 @@ jobs:
             codesign --verify --strict --verbose=2 "$dmg"
             xcrun stapler validate "$dmg"
             hdiutil verify "$dmg"
+          done
+      - name: Check the app may claim its passkey keychain group
+        if: steps.profile.outputs.args != ''
+        shell: bash
+        run: |-
+          for app in release/mac*/Milagre.app; do
+            codesign -d --entitlements - --xml "$app" | grep -q "YWMU5N9D6K.com.milagre.app.webauthn"
+            # macOS kills a binary at launch when its profile doesn't grant an entitlement it claims.
+            ELECTRON_RUN_AS_NODE=1 "$app/Contents/MacOS/Milagre" -e "process.exit(0)"
           done
       - name: Check the update ZIP's app passes Gatekeeper
         run: |-

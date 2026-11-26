@@ -82,7 +82,7 @@ The host renews each lease every two minutes with a ten-minute TTL and ends it a
 
 ## View the agent's browser
 
-1. Have the Chat's agent open a Chromium browser with a DevTools port, for example `--remote-debugging-port=0`, or tools such as chrome-devtools-mcp or agent-browser configured with one.
+1. Have the Chat's agent open a Chromium browser with a DevTools port, for example `--remote-debugging-port=0`, or tools such as chrome-devtools-mcp configured with one. agent-browser needs no setup: each Chat has its own session and its pages show by themselves.
 2. Select the **Browser** pill left of Simulators. A single page opens directly; with several, choose one by its title and URL.
 3. Interact with the site normally: select text, type, scroll and use Reload.
 

@@ -89,7 +89,7 @@ export function ChatTopBar({
   return <ChatIdentity title={fullChatTitle(session, messages)} project={project} corner={corner} />;
 }
 
-function useTabMenu(panels: Tabs["panels"]): TabMenuEntry[] {
+export function useTabMenu(panels: Tabs["panels"]): TabMenuEntry[] {
   const shown = useSidePanels();
   const { rules } = useKeybindings();
   const entries: (TabMenuEntry | null)[] = [

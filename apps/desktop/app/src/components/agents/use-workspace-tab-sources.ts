@@ -13,11 +13,14 @@ import type { SidePanel } from "./PanelToggles";
 
 export type TabPanels = { changes?: SidePanel; pullRequest?: SidePanel & { number: number } };
 
+/** What the tabs read of a Chat: a local Chat or a Link Chat. */
+export type TabSession = Pick<AgentSession, "id" | "parent" | "archived"> & { worktree_id?: AgentSession["worktree_id"] };
+
 type Sources = {
   workspace: string;
   projectPath: string;
-  sessions: Record<string, AgentSession> | undefined;
-  belongs: (session: AgentSession) => boolean;
+  sessions: Record<string, TabSession> | undefined;
+  belongs: (session: TabSession) => boolean;
   set: TabSet;
   activeChatId: number | null;
   panels: TabPanels;

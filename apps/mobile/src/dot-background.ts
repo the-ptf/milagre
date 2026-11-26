@@ -7,7 +7,8 @@ import { useTheme } from "./theme";
  * than as a view, because iOS finds the transcript for its native top edge blur only through each view's first child.
  */
 export function useDotBackground(): ViewStyle {
-  const { colors: palette, scheme } = useTheme();
+  const { colors: palette, scheme, settings } = useTheme();
+  if (settings.dots === "off") return { backgroundColor: palette.page };
   const dot = scheme === "dark" ? palette.line : palette.lineStrong;
   return {
     backgroundColor: palette.page,

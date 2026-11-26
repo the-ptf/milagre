@@ -38,6 +38,8 @@ export function splitQuotes(body: string): { quotes: string[]; text: string };
 export function formatChatMention(id: number): string;
 export const ORCHESTRATOR_MENTION: "@Orchestrator";
 export function mentionsOrchestrator(prompt: string): boolean;
+export const BROWSER_MENTION: "@Browser";
+export function mentionsBrowser(prompt: string): boolean;
 export function chatMentionTokens(prompt: string): { id: number; start: number; end: number }[];
 export function formatComputerMention(name: string): string;
 export function computerMentionTokens(prompt: string): { name: string; start: number; end: number }[];

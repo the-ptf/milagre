@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  mainChatCloseMessage,
+  newChatTabLabel,
   closeOtherTabs,
   closeTab,
   EMPTY_TABS,
@@ -130,4 +132,11 @@ test("a page tab can sit beside its Chat and go back on its own", () => {
   assert.equal(setBeside(beside, tabId(page), true), beside);
   assert.equal(setBeside(beside, tabId(page), false).tabs.at(-1)?.beside, undefined);
   assert.equal(openTab(three, chat(9), { focus: false, unread: false }).tabs.at(-1)?.unread, undefined);
+});
+
+test("a Link's tabs say Link, not Worktree, in the + menu and the main-Chat warning", () => {
+  assert.equal(newChatTabLabel("worktree"), "New Chat in this Worktree");
+  assert.equal(newChatTabLabel("link"), "New Chat in this Link");
+  assert.match(mainChatCloseMessage("Plan"), /“Plan” started this Worktree\./);
+  assert.match(mainChatCloseMessage("Plan", "link"), /“Plan” is this Link's first Chat\./);
 });

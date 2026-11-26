@@ -14,6 +14,7 @@ function ago(at: number, now: number) {
 export function shareScopeLabel(kind: ArtifactPageKind | undefined): string {
   if (kind === "workspace") return "Workspace";
   if (kind === "design") return "Design";
+  if (kind === "selection") return "Presentation";
   if (kind === "artifacts") return "Page";
   return "Designs";
 }
@@ -34,15 +35,28 @@ export function shareStatusLine(share: DesignPageShare, now: number): string {
   return `Live · ${changed}`;
 }
 
+const selectionWhat = (count: number) =>
+  count === 1
+    ? "the selected design, and nothing else in this Chat"
+    : `the ${count} selected designs, one at a time in the order you picked them, and nothing else in this Chat`;
+
 /** What anyone with the link sees, and whether it follows the agent: `snapshot` when the current link is frozen. */
-export function sharePublicNotice(kind: ArtifactPageKind, snapshot = false): string {
-  const what = kind === "design" ? "this design" : kind === "artifacts" ? "the page, hidden HTML included" : "every design and the page, hidden HTML included";
+export function sharePublicNotice(kind: ArtifactPageKind, snapshot = false, selected = 0): string {
+  const what =
+    kind === "design"
+      ? "this design"
+      : kind === "selection"
+        ? selectionWhat(selected)
+        : kind === "artifacts"
+          ? "the page, hidden HTML included"
+          : "every design and the page, hidden HTML included";
   const fonts = kind === "artifacts" ? "" : ` ${DESIGN_PAGE_FONT_NOTE}`;
   return `Anyone with the link can see ${what}.${fonts} ${snapshot ? "Share again for a link that keeps updating as the agent works." : "The link keeps updating as the agent works."}`;
 }
 
 export function shareSheetTitle(kind: ArtifactPageKind): string {
   if (kind === "design") return "Share this design";
+  if (kind === "selection") return "Share as a presentation";
   if (kind === "artifacts") return "Share this page";
   return "Share";
 }

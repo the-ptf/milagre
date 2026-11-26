@@ -46,12 +46,24 @@ export const designModeLabel = (artifact: Artifact | undefined, chosen: DesignMo
   return mode === "light" ? "" : DESIGN_MODE_LABELS[mode];
 };
 
-const SHARE_SECTION: MenuSection = {
-  items: [
-    { id: "share", title: "Share", systemImage: "square.and.arrow.up" },
-    { id: "share-design", title: "Share this design" },
-  ],
-};
+/** The share section: the workspace, this design, and the presentation being picked (`presented`, in order). */
+function shareSection(presented: readonly string[], shownId: string): MenuSection {
+  const at = presented.indexOf(shownId);
+  const count = presented.length === 1 ? "1 screen" : `${presented.length} screens`;
+  return {
+    items: [
+      { id: "share", title: "Share", systemImage: "square.and.arrow.up" },
+      { id: "share-design", title: "Share this design" },
+      { id: "present-toggle", title: at < 0 ? "Add to presentation" : `Remove from presentation (screen ${at + 1})`, systemImage: "rectangle.on.rectangle" },
+      ...(presented.length
+        ? [
+            { id: "share-presentation", title: `Share presentation (${count})` },
+            { id: "present-clear", title: "Clear presentation" },
+          ]
+        : []),
+    ],
+  };
+}
 
 /** A design's actions menu: resolved comments, choose, appearance, versions, share, then `extra` (the Project library) and delete. */
 export function designActionsMenu({
@@ -61,6 +73,7 @@ export function designActionsMenu({
   chosen,
   sent,
   sharing,
+  presentation = [],
   mode,
   extra,
 }: {
@@ -70,6 +83,8 @@ export function designActionsMenu({
   chosen: boolean;
   sent: boolean;
   sharing: boolean;
+  /** The designs picked for a presentation link, in order. */
+  presentation?: readonly string[];
   mode: DesignMode | undefined;
   extra: MenuSection[];
 }): MenuSection[] {
@@ -79,7 +94,7 @@ export function designActionsMenu({
     { items: [{ id: "choose", title: chosen ? "Chosen" : "Choose this design", checked: chosen, disabled: sent }] },
     ...designModeMenu(shown, mode),
     ...versionSections(latest, shown.version),
-    ...(sharing ? [SHARE_SECTION] : []),
+    ...(sharing ? [shareSection(presentation, shown.id)] : []),
     ...extra,
     { items: [{ id: "delete", title: "Delete design", systemImage: "trash", destructive: true }] },
   ];

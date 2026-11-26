@@ -40,6 +40,7 @@ import { CommentBox } from "./viewer-chrome";
 import type { Attachment } from "./attachments";
 import { designFeedback } from "./design-comment-images";
 import { designActionsMenu, designModeLabel, shownDesignMode } from "./design-modes-menu";
+import { useDesignShareActions } from "./design-share-actions";
 import type { DesignMode } from "@milagre/shared/design-modes";
 import { useVisibleRunChatKeys } from "./visible-run-chats";
 import { useDesignBuildIn } from "./design-build-in";
@@ -171,6 +172,7 @@ export function DesignsSheet({
 
   const rows = useMemo(() => designGroups(summaries ?? []), [summaries]);
   const ordered = useMemo(() => rows.flatMap((row) => row.designs), [rows]);
+  const shareActions = useDesignShareActions(hostId, chatId, ordered);
 
   const pendingLoads = useRef(new WeakMap<NonNullable<typeof source>, Map<string, Promise<Artifact>>>());
   useEffect(() => {
@@ -456,6 +458,7 @@ export function DesignsSheet({
     chosen: pendingHere || sentHere,
     sent: sentHere,
     sharing,
+    presentation: shareActions.presentation,
     mode: shown && modes[shown.id],
     extra: libraryAddSections(library),
   });
@@ -466,11 +469,9 @@ export function DesignsSheet({
     );
   };
   const choose = (action: string) => {
-    if (!shown) return;
+    if (!shown || shareActions.choose(action, shown.id)) return;
     if (action === "resolved") setShowResolved(!showResolved);
     else if (action === "choose") setChoice(pendingHere ? null : refOf(shown));
-    else if (action === "share") openArtifactShare(hostId, chatId, "workspace");
-    else if (action === "share-design") openArtifactShare(hostId, chatId, "design", shown.id);
     else if (action === "delete") remove(shown);
     else if (action.startsWith("mode:")) setModes((current) => ({ ...current, [shown.id]: action.slice("mode:".length) as DesignMode }));
     else if (isLibraryAdd(action)) addShownToLibrary(action, shown.id);

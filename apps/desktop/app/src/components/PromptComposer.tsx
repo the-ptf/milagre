@@ -24,7 +24,7 @@ import { QuotedField } from "./QuoteChips";
 import { useProjectFiles } from "./useProjectFiles";
 import { promptToken, fileMentionPath, insertImageMentions, insertPromptToken } from "../lib/file-mentions";
 import { mentionedImages, shiftImageMentions } from "../lib/prompt-mentions";
-import { isOrchestratorRow, ORCHESTRATOR_MENTION, orchestratorMentionRows } from "../lib/orchestrator-mention";
+import { milagreMention, milagreMentionRows } from "../lib/milagre-mentions";
 import { formatChatMention, formatComputerMention, formatFileMention, promptParts, type ComposerQuote } from "@milagre/shared/prompt-parts";
 import { rankSkillMatches } from "@milagre/shared/skill-catalog";
 import { useSkills } from "./useSkills";
@@ -300,7 +300,7 @@ export function PromptComposer({
   const rows: MenuRow[] =
     menu === "at"
       ? [
-          ...orchestratorMentionRows(menu === "at", tokenQuery),
+          ...milagreMentionRows(menu === "at", tokenQuery),
           ...fileSearch.files
             .slice(0, chatMatches.length || computerMatches.length ? 3 : undefined)
             .map((path) => ({ key: `file:${path}`, name: path.split("/").at(-1) || path, desc: path, path, group: "Files" })),
@@ -486,8 +486,8 @@ export function PromptComposer({
 
   function pick(row: MenuRow) {
     if (menu === "at") {
-      if (token && (row.chatId !== undefined || row.computer || isOrchestratorRow(row))) {
-        const mention = isOrchestratorRow(row) ? ORCHESTRATOR_MENTION : row.computer ? formatComputerMention(row.computer) : formatChatMention(row.chatId!);
+      if (token && (row.chatId !== undefined || row.computer || milagreMention(row))) {
+        const mention = milagreMention(row) ?? (row.computer ? formatComputerMention(row.computer) : formatChatMention(row.chatId!));
         onDraftChange(insertPromptToken(draft, token, mention));
         inputRef.current?.setSelection(token.start + mention.length + 1);
       } else if (token && row.path) {

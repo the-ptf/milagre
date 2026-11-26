@@ -1,4 +1,4 @@
-const { chatMentionTokens, mentionsOrchestrator } = require("@milagre/shared/prompt-parts");
+const { chatMentionTokens, mentionsBrowser, mentionsOrchestrator } = require("@milagre/shared/prompt-parts");
 const { chatMentionChoices } = require("@milagre/shared/prompt-mentions");
 const { neutralizeTags } = require("@milagre/shared/untrusted-text");
 const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
@@ -10,9 +10,16 @@ const ORCHESTRATOR_NOTE = [
   "</orchestrator_mention>",
 ].join("\n");
 
+const BROWSER_NOTE = [
+  "<browser_mention>",
+  "The user asked for Milagre's browser with @Browser. For every web page in this request, use the milagre browser_ tools (browser_list, then browser_open or the page already open, browser_snapshot, browser_click, browser_fill, browser_screenshot and the rest), so the user watches it in this Chat's Browser panel. Don't use another browser, a browser CLI, Playwright or a headless browser for it. If the milagre browser_ tools aren't in your tool list, say so instead of switching.",
+  "</browser_mention>",
+].join("\n");
+
 async function chatMentionsContext(request, readState) {
+  const prompt = request.prompt ?? "";
   const chats = await mentionedChats(request, readState);
-  return mentionsOrchestrator(request.prompt ?? "") ? [chats, ORCHESTRATOR_NOTE].filter(Boolean).join("\n\n") : chats;
+  return [chats, mentionsOrchestrator(prompt) && ORCHESTRATOR_NOTE, mentionsBrowser(prompt) && BROWSER_NOTE].filter(Boolean).join("\n\n");
 }
 
 async function mentionedChats(request, readState) {

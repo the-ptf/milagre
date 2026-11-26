@@ -255,6 +255,7 @@ async function browserChecks() {
     await key("Escape");
     await waitFor(`!document.querySelector('dialog')`);
     await evaluate("window.fileReads = []");
+
     const replyLink = (text) => `[...document.querySelectorAll('article a')].find(a => a.textContent === ${JSON.stringify(text)})`;
     await evaluate(`${replyLink("archive")}.click(); window.failDownload = true;`);
     await waitFor(`!!document.querySelector('dialog[open]')`);
@@ -297,6 +298,75 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('dialog[open] [data-file-code]')`);
     assert.equal(await evaluate("window.fileReads.at(-1)"), "/fixture/src/greeting.ts");
     assert.equal(await evaluate(`document.querySelector('dialog[open] [aria-pressed]')`), null, "Only markdown offers the formatted view");
+    await key("Escape");
+    await waitFor(`!document.querySelector('dialog')`);
+    await evaluate("window.fileReads = []");
+    const { clipboard } = require("electron");
+    const rightClickLink = (text) =>
+      evaluate(`(() => {
+        const link = ${replyLink(text)};
+        const box = link.getBoundingClientRect();
+        link.focus();
+        link.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: box.left + 4, clientY: box.top + 4 }));
+      })()`);
+    const press = async (selector) => {
+      const box = await evaluate(
+        `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`,
+      );
+      window.webContents.focus();
+      window.webContents.sendInputEvent({ type: "mouseMove", ...box });
+      window.webContents.sendInputEvent({ type: "mouseDown", ...box, button: "left", clickCount: 1 });
+      window.webContents.sendInputEvent({ type: "mouseUp", ...box, button: "left", clickCount: 1 });
+    };
+    const menuRows = () =>
+      evaluate(
+        `[...document.querySelectorAll('[data-context-menu] [data-menu-row]')].map((row) => [row.dataset.menuRow, row.querySelector('.text-12')?.textContent ?? ''])`,
+      );
+    await rightClickLink("the site");
+    await waitFor(`!!document.querySelector('[data-context-menu]')`);
+    assert.equal(await evaluate(`document.querySelector('[data-context-menu]').getAttribute('aria-label')`), "Link options");
+    assert.ok((await evaluate(`document.querySelector('[data-context-menu]').textContent`)).includes("https://example.com"), "The menu names the address");
+    assert.deepEqual(
+      await menuRows(),
+      [
+        ["panel", "Click"],
+        ["browser", process.platform === "darwin" ? "⌘ Click" : "Ctrl+Click"],
+        ["copy-link", ""],
+        ["copy-markdown", ""],
+      ],
+      "A link the Chat doesn't know as a PR opens in the Browser panel on click, the default browser on ⌘-click",
+    );
+    assert.equal(await evaluate(`document.activeElement?.dataset.menuRow`), "panel", "The first row takes focus");
+    await screenshot("link-menu-web");
+    await clipboard.writeText("before");
+    await press('[data-context-menu] [data-menu-row="copy-markdown"]');
+    await waitFor(`!document.querySelector('[data-context-menu]')`);
+    for (let n = 0; n < 40 && (await clipboard.readText()) === "before"; n++) await delay(25);
+    assert.equal(await clipboard.readText(), "[the site](https://example.com)");
+    await rightClickLink("the site");
+    await waitFor(`!!document.querySelector('[data-context-menu]')`);
+    await key("Escape");
+    await waitFor(`!document.querySelector('[data-context-menu]')`);
+    assert.equal(await evaluate(`document.activeElement?.textContent`), "the site", "Escape returns focus to the link");
+
+    await rightClickLink("the helper");
+    await waitFor(`!!document.querySelector('[data-context-menu]')`);
+    assert.equal(await evaluate(`document.querySelector('[data-context-menu]').getAttribute('aria-label')`), "File link options");
+    assert.ok((await evaluate(`document.querySelector('[data-context-menu]').textContent`)).includes("src/greeting.ts:3"));
+    assert.deepEqual(
+      (await menuRows()).map(([row]) => row),
+      ["viewer", "reveal", "copy-path", "copy-relative-path"],
+      "No editor is set up, so the file menu offers the viewer, reveal and both copies",
+    );
+    await screenshot("link-menu-file");
+    await press('[data-context-menu] [data-menu-row="copy-relative-path"]');
+    for (let n = 0; n < 40 && (await clipboard.readText()) !== "src/greeting.ts:3"; n++) await delay(25);
+    assert.equal(await clipboard.readText(), "src/greeting.ts:3");
+    await rightClickLink("the helper");
+    await waitFor(`!!document.querySelector('[data-context-menu]')`);
+    await click('[data-context-menu] [data-menu-row="viewer"]');
+    await waitFor(`!!document.querySelector('dialog[open] [data-file-code]')`);
+    assert.equal(await evaluate("window.fileReads.at(-1)"), "/fixture/src/greeting.ts", "File viewer opens the linked file");
     await key("Escape");
     await waitFor(`!document.querySelector('dialog')`);
     await evaluate("window.fileReads = []");

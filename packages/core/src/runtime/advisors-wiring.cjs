@@ -1,4 +1,5 @@
 const path = require("node:path");
+const { withBrowserOwner } = require("../browser-owner.cjs");
 const { PROVIDERS } = require("@milagre/shared/providers");
 const fs = require("node:fs/promises");
 const { ClaudeSession } = require("../agents/claude-provider.cjs");
@@ -147,7 +148,7 @@ function createAdvisorsWiring({
         ...(executionAdvisor ? { mcpExtras: () => mcp.forSession(record.provider, record.launchIdentity.accountId ?? "default") } : {}),
         resumeId: record.nativeId,
         command: provider.command,
-        env: provider.env,
+        env: withBrowserOwner(record.chatId, provider.env ?? process.env),
         linked: { tools, url: () => advisorMcp.url(record.id), toolsAvailable: () => {} },
         emit: send,
       };

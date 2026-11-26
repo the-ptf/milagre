@@ -48,6 +48,7 @@ async function fixture(t) {
   for (const id of ["first", "second"]) await artifacts.showDesign({ chatId: CHAT, id, title: id, document: document() });
   const calls = [];
   let failure = false;
+  let capabilities = ["designs", "workspace", "artifacts", "selection"];
   const chat = { title: "My page" };
   const clock = fakeClock();
   const options = {
@@ -57,6 +58,8 @@ async function fixture(t) {
     validateChat,
     timers: clock.timers,
     fetch: async (url, options) => {
+      if (options.method === "GET" && new URL(url).pathname === "/capabilities")
+        return capabilities ? Response.json({ kinds: capabilities }) : new Response("Not found", { status: 404 });
       if (options.method === "GET") return new Response("ok");
       calls.push({ url, ...options });
       if (typeof failure === "number") return new Response("refused", { status: failure });
@@ -77,6 +80,9 @@ async function fixture(t) {
     api,
     fail: (value) => {
       failure = value;
+    },
+    workerKinds: (value) => {
+      capabilities = value;
     },
     request: { chatId: CHAT, acknowledgePublic: true },
   };
@@ -423,8 +429,8 @@ test("consent, Chat scope and page kind are enforced before any public request",
   await assert.rejects(api.publish({ ...request, acknowledgePublic: false }), /Confirm/);
   await assert.rejects(api.publish({ ...request, chatId: "/other#1" }), /Unknown Chat/);
   await assert.rejects(api.revoke({ chatId: CHAT, id: "x".repeat(43) }), /does not belong/);
-  await assert.rejects(api.publish({ ...request, kind: "other" }), /Choose the workspace, one design or the page/);
-  await assert.rejects(api.list({ chatId: CHAT, kind: "other" }), /Choose the workspace, one design or the page/);
+  await assert.rejects(api.publish({ ...request, kind: "other" }), /Choose the workspace, one design, a selection of designs or the page/);
+  await assert.rejects(api.list({ chatId: CHAT, kind: "other" }), /Choose the workspace, one design, a selection of designs or the page/);
   assert.equal(calls.length, 0);
 });
 test("page capture is ordered with edits", async (t) => {
@@ -884,6 +890,58 @@ test("one design is shared alone, follows only its own saves and stops once it i
   assert.equal(puts(calls).length, 2);
   await assert.rejects(api.revoke({ chatId: CHAT, id: share.id, kind: "design", designId: "second" }), /does not belong/);
   await api.revoke({ chatId: CHAT, id: share.id, kind: "design", designId: "first" });
+});
+
+test("a selection is shared in its order as its own link, follows its designs' saves and outlives a deleted one", async (t) => {
+  const { api, artifacts, calls, clock, request } = await fixture(t);
+  await assert.rejects(api.publish({ ...request, kind: "selection" }), /Choose the designs/);
+  await assert.rejects(api.publish({ ...request, kind: "selection", designIds: ["first", "first"] }), /each design once/);
+  await assert.rejects(api.publish({ ...request, kind: "selection", designIds: ["Bad id"] }), /Choose the designs/);
+  const scope = { kind: "selection", designIds: ["second", "first"] };
+  const share = await api.publish({ ...request, ...scope });
+  assert.deepEqual([share.kind, share.designIds, share.designCount, share.live], ["selection", ["second", "first"], 2, true]);
+  const snapshot = JSON.parse(puts(calls).at(-1).body);
+  assert.equal(snapshot.kind, "selection");
+  assert.deepEqual(
+    snapshot.designs.map((design) => design.title),
+    ["second", "first"],
+  );
+  assert.deepEqual(await api.list({ chatId: CHAT, kind: "selection", designIds: ["first", "second"] }), [], "another order is another link");
+  assert.deepEqual(
+    (await api.list({ chatId: CHAT, ...scope })).map((entry) => entry.id),
+    [share.id],
+  );
+  assert.equal((await api.publish({ ...request, ...scope })).id, share.id, "sharing the same selection again keeps its link");
+  await edit(artifacts, "first", 1, "Picked");
+  await settled();
+  await clock.next();
+  assert.equal(JSON.parse(puts(calls).at(-1).body).designs[1].document.nodes[0].text, "Picked");
+  await artifacts.deleteDesign({ chatId: CHAT, id: "second" });
+  await settled();
+  await clock.next();
+  const [current] = await api.list({ chatId: CHAT, ...scope });
+  assert.equal(current.stale, undefined);
+  assert.equal(current.designCount, 1, "the deleted design drops out and the rest stays published");
+  await assert.rejects(api.revoke({ chatId: CHAT, id: share.id, kind: "design" }), /does not belong/);
+  await api.revoke({ chatId: CHAT, id: share.id, ...scope });
+});
+
+test("a presentation is published only to a Worker that lists selection, since an older one would store a canvas", async (t) => {
+  const { api, calls, request, workerKinds } = await fixture(t);
+  const scope = { kind: "selection", designIds: ["first"] };
+  for (const kinds of [null, ["designs", "workspace", "artifacts"]]) {
+    workerKinds(kinds);
+    assert.deepEqual(await api.status({ ...scope, chatId: CHAT }), {
+      available: false,
+      reason: "The sharing service can't publish presentations yet. Try again after it is updated.",
+    });
+    await assert.rejects(api.publish({ ...request, ...scope }), /can't publish presentations yet/);
+    assert.equal((await api.status({ kind: "design", chatId: CHAT })).available, true, "other kinds still publish");
+  }
+  assert.equal(puts(calls).length, 0, "nothing reached the old Worker");
+  workerKinds(["designs", "workspace", "artifacts", "selection"]);
+  await api.publish({ ...request, ...scope });
+  assert.equal(puts(calls).length, 1);
 });
 
 test("a workspace's page files are uploaded before the snapshot, again on each live update", async (t) => {

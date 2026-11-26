@@ -2,6 +2,7 @@ export const CHAT_WIDTH_IDS = ["comfortable", "wide", "full", "custom"];
 export const SIDEBAR_USAGE_IDS = ["expanded", "compact"];
 export const SIDEBAR_ROW_IDS = ["classic", "edge"];
 export const GRAIN_IDS = ["on", "off"];
+export const DOT_IDS = ["on", "off"];
 export const PROVIDER_ICON_IDS = ["original", "simplified"];
 export const DIFF_COLOR_IDS = ["red-green", "blue-orange", "purple-yellow"];
 export const MOTION_IDS = ["normal", "fast", "off"];
@@ -18,6 +19,8 @@ export const DEFAULT_APPEARANCE = {
   sidebarRows: "classic",
   /** Film grain over the window background and the side panels (desktop). */
   grain: "on",
+  /** The dot grid behind the window (desktop) and the Chat (phone). */
+  dots: "on",
   providerIcons: "original",
   diffColors: "red-green",
   motion: "normal",
@@ -161,6 +164,7 @@ const VALID = {
   sidebarUsage: SIDEBAR_USAGE_IDS,
   sidebarRows: SIDEBAR_ROW_IDS,
   grain: GRAIN_IDS,
+  dots: DOT_IDS,
   providerIcons: PROVIDER_ICON_IDS,
   diffColors: DIFF_COLOR_IDS,
   motion: MOTION_IDS,
