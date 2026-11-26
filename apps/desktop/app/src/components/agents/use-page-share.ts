@@ -12,7 +12,11 @@ const TICK = 30_000;
 
 export type PageShareBusy = "publish" | "pause" | "revoke" | null;
 
-const scopeOf = (scope: PageShareScope): PageShareScope => ({ kind: scope.kind ?? "workspace", ...(scope.designId ? { designId: scope.designId } : {}) });
+const scopeOf = (scope: PageShareScope): PageShareScope => ({
+  kind: scope.kind ?? "workspace",
+  ...(scope.designId ? { designId: scope.designId } : {}),
+  ...(scope.designIds ? { designIds: scope.designIds } : {}),
+});
 
 /**
  * One scope's link in a Chat, kept current while the Share dialog is open: read again whenever the Chat's artifacts
@@ -20,7 +24,11 @@ const scopeOf = (scope: PageShareScope): PageShareScope => ({ kind: scope.kind ?
  * ago" stays true.
  */
 export function usePageShare(chatId: string, scope: PageShareScope, revision: string) {
-  const request = useMemo(() => scopeOf({ kind: scope.kind, designId: scope.designId }), [scope.kind, scope.designId]);
+  const selected = scope.designIds?.join(",");
+  const request = useMemo(
+    () => scopeOf({ kind: scope.kind, designId: scope.designId, designIds: selected ? selected.split(",") : undefined }),
+    [scope.kind, scope.designId, selected],
+  );
   const api = bridgeForKey(chatId).artifacts;
   const alive = useRef(false);
   const working = useRef(false);

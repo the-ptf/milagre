@@ -12,14 +12,14 @@ export type PageSharingState = {
   availability: { available: boolean; reason?: string } | null;
 };
 
-export type ShareScope = { kind: ArtifactPageKind; designId?: string };
+export type ShareScope = { kind: ArtifactPageKind; designId?: string; designIds?: string[] };
 
 /**
  * One published scope of a Chat's Artifact (`chatId`), or every published page of the computer (no `chatId`). The
  * workspace is every design and the HTML page; a new link follows the agent's saves until paused or stopped.
  */
-export function createDesignPageSharing(client: Caller, chatId?: string | null, { kind, designId }: ShareScope = { kind: "workspace" }) {
-  const scope = { kind, ...(designId ? { designId } : {}) };
+export function createDesignPageSharing(client: Caller, chatId?: string | null, { kind, designId, designIds }: ShareScope = { kind: "workspace" }) {
+  const scope = { kind, ...(designId ? { designId } : {}), ...(designIds?.length ? { designIds } : {}) };
   let state: PageSharingState = {
     shares: [],
     loading: false,

@@ -3,7 +3,10 @@ import { ago } from "@milagre/shared/main-sync";
 
 export type ShareState = "Live" | "Paused" | "Snapshot" | "Revoked";
 
-const SCOPES: Record<ArtifactPageKind, string> = { workspace: "Workspace", design: "Design", artifacts: "Page", designs: "Designs" };
+const SCOPES: Record<ArtifactPageKind, string> = { workspace: "Workspace", design: "Design", selection: "Presentation", artifacts: "Page", designs: "Designs" };
+
+/** One string per scope a Chat can share: the kind, and the design or designs it names. */
+export const shareScopeKey = (scope: PageShareScope) => `${scope.kind ?? "workspace"}:${scope.designId ?? scope.designIds?.join(",") ?? ""}`;
 
 export const scopeLabel = (share: Pick<DesignPageShare, "kind">) => SCOPES[share.kind ?? "designs"];
 
@@ -31,14 +34,26 @@ export function shareTone(share: DesignPageShare): "green" | "red" | "muted" {
 
 export function shareTitle(scope: PageShareScope): string {
   if (scope.kind === "design") return "Share this design";
+  if (scope.kind === "selection") return "Share as a presentation";
   if (scope.kind === "artifacts") return "Share this page";
   return "Share";
 }
 
+const selectionWhat = (count: number) =>
+  count === 1
+    ? "the selected design, and nothing else in this Chat"
+    : `the ${count} selected designs, one at a time in the order you picked them, and nothing else in this Chat`;
+
 /** What anyone with the link sees, and whether it follows the agent: `snapshot` when the current link is frozen. */
 export function shareNotice(scope: PageShareScope, snapshot = false): string {
   const what =
-    scope.kind === "design" ? "this design" : scope.kind === "artifacts" ? "the page, hidden HTML included" : "every design and the page, hidden HTML included";
+    scope.kind === "design"
+      ? "this design"
+      : scope.kind === "selection"
+        ? selectionWhat(scope.designIds?.length ?? 0)
+        : scope.kind === "artifacts"
+          ? "the page, hidden HTML included"
+          : "every design and the page, hidden HTML included";
   const fonts = scope.kind === "artifacts" ? "" : ` ${DESIGN_PAGE_FONT_NOTE}`;
   return `Anyone with the link can see ${what}.${fonts} ${snapshot ? "Share again for a link that keeps updating as the agent works." : "The link keeps updating as the agent works."}`;
 }

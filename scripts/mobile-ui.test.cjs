@@ -518,7 +518,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "side-panels" && !(id in modules)) return { useChatPanelTabs: () => null };
       // The Artifact's page menu and its Share entries load with the sheet's own fakes; the pages each Chat last viewed
       // (artifact-pages.ts) and a link's status copy (page-share-status.ts) are pure, one copy for every sheet.
-      if (["artifact-page-menu", "use-share-available"].includes(base) && !(id in modules))
+      if (["artifact-page-menu", "use-share-available", "design-share-actions"].includes(base) && !(id in modules))
         return load(base === "artifact-page-menu" ? `${base}.tsx` : `${base}.ts`, modules, "", cache);
       if (["artifact-pages", "page-share-status"].includes(base) && !(id in modules)) return require(`../apps/mobile/src/${base}.ts`);
       // The Project library's reads and Add to Project library load with the sheet's own fakes; the iPad tab picks its sheet

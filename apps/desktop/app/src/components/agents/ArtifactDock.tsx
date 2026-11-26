@@ -41,6 +41,7 @@ import { COMMENT_KEY, useCommentKey } from "./comment-key";
 import { CanvasBody, PageBody, commentLabel } from "./ArtifactDockBodies";
 import { useDockFeedback, type DockFeedback, type DockPage } from "./dock-feedback";
 import { libraryDockPage, libraryPageId, libraryRefs } from "./design-library";
+import { shareScopeKey } from "../../lib/page-share-status";
 import { openDesignLibrary } from "../../lib/design-library-page";
 
 const OPEN_LIBRARY = "open-library";
@@ -165,6 +166,8 @@ export function ArtifactDock(props: DockProps) {
   useCommentKey(!!onSend, active.toggleComment);
   useSendShortcut(onSend, active);
   const shareDesign = useCallback((design: ArtifactRef) => setSharing({ kind: "design", designId: design.id }), []);
+  const shareSelection = useCallback((designIds: string[]) => setSharing({ kind: "selection", designIds }), []);
+  const canShare = sharingAvailable && !libraryPage;
   const addDesign = useCallback((design: ArtifactRef) => setAdding({ designId: design.id, title: design.title }), []);
   const addPage =
     html && !html.assets?.length
@@ -221,7 +224,7 @@ export function ArtifactDock(props: DockProps) {
           if (!expanded) window.dispatchEvent(new Event(ARTIFACT_EXPANDED));
           setExpanded(!expanded);
         }}
-        onShare={sharingAvailable && !libraryPage ? setSharing : undefined}
+        onShare={canShare ? setSharing : undefined}
         onAddPage={addPage}
         onClose={onClose}
       />
@@ -238,7 +241,8 @@ export function ArtifactDock(props: DockProps) {
           chosen={props.chosen}
           feedback={canvasFeedback}
           canComment={!!onSend && !libraryPage}
-          onShare={sharingAvailable && !libraryPage ? shareDesign : undefined}
+          onShare={canShare ? shareDesign : undefined}
+          onShareSelection={canShare ? shareSelection : undefined}
           onAddToLibrary={libraryPage ? undefined : addDesign}
         />
       ) : entered ? (
@@ -269,7 +273,7 @@ export function ArtifactDock(props: DockProps) {
       )}
       {sharing && (
         <DesignPageShareDialog
-          key={`${chatId}:${sharing.kind}:${sharing.designId ?? ""}`}
+          key={`${chatId}:${shareScopeKey(sharing)}`}
           chatId={chatId}
           scope={sharing}
           revision={props.revision}

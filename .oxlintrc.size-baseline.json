@@ -172,7 +172,7 @@
         "max-lines": [
           "error",
           {
-            "max": 836,
+            "max": 830,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -185,7 +185,7 @@
             "skipComments": true
           }
         ],
-        "complexity": ["error", 73]
+        "complexity": ["error", 71]
       }
     },
     {
@@ -1117,19 +1117,6 @@
           "error",
           {
             "max": 995,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ]
-      }
-    },
-    {
-      "files": ["packages/core/src/design-page-sharing.cjs"],
-      "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 252,
             "skipBlankLines": true,
             "skipComments": true
           }

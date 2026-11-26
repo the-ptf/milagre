@@ -27,6 +27,8 @@ const refused = (status, tooLarge, other) =>
     { status },
   );
 
+const NEEDS_CAPABILITY = new Set(["selection"]);
+
 /** Requests to the sharing service under a page's capability. Unreachable-service errors carry `unreachable: true`. */
 function createPageTransport({ fetcher, assetPath }) {
   const healthy = async (origin) => {
@@ -36,6 +38,28 @@ function createPageTransport({ fetcher, assetPath }) {
       await response.body?.cancel();
     } catch {}
     return false;
+  };
+  /** Whether the service says it publishes pages of `kind`. A Worker from before `/capabilities` supports none of the
+   * kinds that need it: it would store them as an older kind and answer success. */
+  const supports = async (origin, kind) => {
+    try {
+      const response = await fetcher(`${origin}/capabilities`, { method: "GET", redirect: "error", signal: AbortSignal.timeout(5000) });
+      if (response.status !== 200) {
+        await response.body?.cancel();
+        return false;
+      }
+      const kinds = JSON.parse(await boundedResponseText(response, 1024))?.kinds;
+      return Array.isArray(kinds) && kinds.includes(kind);
+    } catch {
+      return false;
+    }
+  };
+  /** Whether the service can publish a page of `kind` now, with the reason shown when it can't. */
+  const availability = async (origin, kind) => {
+    if (!(await healthy(origin))) return { available: false, reason: "Publishing is unavailable. The sharing service is not reachable. Try again later." };
+    if (NEEDS_CAPABILITY.has(kind) && !(await supports(origin, kind)))
+      return { available: false, reason: "The sharing service can't publish presentations yet. Try again after it is updated." };
+    return { available: true };
   };
   const send = async (entry, method, body) => {
     let response;
@@ -89,7 +113,7 @@ function createPageTransport({ fetcher, assetPath }) {
     if (response.status === 200 || response.status === 201) return;
     throw refused(response.status, "A file on this page is too large to publish.", "The sharing service refused a file of this page");
   };
-  return { healthy, send, sendFile };
+  return { availability, send, sendFile };
 }
 
 module.exports = { createPageTransport, uploadTimeout };
