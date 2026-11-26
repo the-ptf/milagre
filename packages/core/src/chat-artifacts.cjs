@@ -740,7 +740,7 @@ function artifactToolDefinitions(
   authorization,
   { renderPng = renderDesignPng, warnings = (...args) => designImplementation().designWarnings(...args), screenshot = screenshotDesign } = {},
 ) {
-  const feedback = { renderPng, warnings };
+  const feedback = { renderPng, warnings, notes: { api, chatId } };
   return [
     {
       name: "design_show",
