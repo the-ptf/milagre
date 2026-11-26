@@ -26,6 +26,7 @@ const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = requir
 const { mcpContent, runTool } = require("../linked-tools.cjs");
 const { advisorPolicy } = require("./advisor-policy.cjs");
 const { babysitDenial } = require("../babysit-guard.cjs");
+const { commandRisk } = require("./command-risk.cjs");
 const { ONLY_READS, claudeCall, turnGuards } = require("../escalation-guard.cjs");
 const { toClaudeConfig } = require("../mcp/definitions.cjs");
 const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
@@ -451,6 +452,11 @@ class ClaudeSession {
       this.access.learned(decided.learn);
       const added = decided.learn.length ? { updatedPermissions: [{ type: "addDirectories", directories: decided.learn, destination: "session" }] } : {};
       return Promise.resolve({ behavior: "allow", updatedInput: input, ...added });
+    }
+    if (this.permissions.mode === "auto" && request.kind === "command" && !options.blockedPath) {
+      const risk = commandRisk(request.command, { cwd: this.access.cwd, roots: [this.access.cwd, ...(this.access.roots ?? [])] });
+      if (!risk) return Promise.resolve({ behavior: "allow", updatedInput: input });
+      request.reason = `${risk[0].toUpperCase()}${risk.slice(1)}.`;
     }
     return new Promise((resolve) => {
       const abort = () => this.permissions.resolve(request.requestId, "cancelled");

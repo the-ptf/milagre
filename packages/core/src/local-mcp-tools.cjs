@@ -156,7 +156,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
             {
               ...projectInput,
               baseBranch: z.string().min(1).max(1024).optional().describe("Omit to use the Project default base branch"),
-              prompt: z.string().max(10000).default(""),
+              prompt: z.string().max(10000).default("").describe("Names the branch and folder only. Start the new Chat with chat_start."),
             },
             (args, operationId, assertActive) => host.createWorktree(args, operationId, assertActive),
           ),

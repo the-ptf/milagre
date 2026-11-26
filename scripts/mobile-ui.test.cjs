@@ -24099,3 +24099,46 @@ test("the phone mic menu replays at the selection and saves the user's last edit
     ["dictation:correct", ["/Project", "insert dictation", "insertDictation"]],
   ]);
 });
+
+test("a launch without a path, as in Expo Go, opens on Computers rather than the first route group", () => {
+  const appDir = path.join(__dirname, "../apps/mobile/src/app");
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(entry.name)) files.push(`./${path.relative(appDir, full).split(path.sep).join("/")}`);
+    }
+  };
+  walk(appDir);
+  const stub = new Proxy(function () {}, { get: (_, key) => (key === "__esModule" ? false : stub), apply: () => stub, construct: () => stub });
+  const layoutSource = fs.readFileSync(path.join(appDir, "_layout.tsx"), "utf8");
+  const layout = {};
+  vm.runInNewContext(ts.transpileModule(layoutSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText, {
+    exports: layout,
+    require: () => stub,
+  });
+  const context = (key) => (key === "./_layout.tsx" ? { default: () => null, unstable_settings: layout.unstable_settings } : { default: () => null });
+  context.keys = () => files;
+  context.resolve = (key) => key;
+  const router = (name) => require(require.resolve(`expo-router/build/${name}`, { paths: [path.join(__dirname, "../apps/mobile")] }));
+  const root = router("getRoutesCore").getRoutes(context, { platform: "ios", skipGenerated: true, importMode: "sync", getSystemRoute: () => null });
+  const anchor = router("layoutAnchor").getLayoutAnchor(root);
+  const seeded = anchor ?? [...root.children].sort(router("sortRoutes").sortRoutesWithInitial(anchor))[0].route;
+  assert.ok(
+    root.children.some((child) => child.route === "(pr)"),
+    "a route group sorts before index, so the root needs its own anchor",
+  );
+  assert.equal(seeded, "index");
+});
+
+test("the app icon picker hides instead of crashing where the native module is missing, as in Expo Go", () => {
+  const { AppIconSection } = load("app-icon-section.tsx", {
+    react: { useState: (value) => [typeof value === "function" ? value() : value, () => {}] },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Alert: { alert() {} }, Image: "Image", Platform: { OS: "ios" }, Pressable: "Pressable", Text: "Text", View: "View" },
+    "expo-modules-core": { requireOptionalNativeModule: () => null },
+    "./settings-find": { Findable: "Findable" },
+  });
+  assert.equal(AppIconSection(), null);
+});

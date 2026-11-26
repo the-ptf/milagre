@@ -58,6 +58,9 @@ test("milagre serves a persistent default profile without a UI and can be contro
   const sessionId = Object.values(opened.state.sessions)[0].id;
   await call("chat", "patch", "--project-path", project, "--session-id", String(sessionId), "--patch", JSON.stringify({ title: "Named CLI input" }));
   assert.equal((await call("project", "current")).state.sessions[sessionId].title, "Named CLI input");
+  assert.equal((await call("command", "run", "project:current")).path, project);
+  await call("command", "run", "chat:patch", "--project-path", project, "--session-id", String(sessionId), "--patch", JSON.stringify({ title: "Owner run" }));
+  assert.equal((await call("project", "current")).state.sessions[sessionId].title, "Owner run");
   await assert.rejects(
     exec(process.execPath, [command, "chat", "patch", "--project-path", project, "--session-id", "wrong", "--patch", "{}"], { env }),
     /session-id/,

@@ -6606,7 +6606,8 @@
           "description": "A configured Project base wins over a remembered or fallback client selection."
         },
         "prompt": {
-          "type": "string"
+          "type": "string",
+          "description": "Names the branch and folder only. The new Chat starts empty: send its first message with `chat send`."
         },
         "issueKey": {
           "type": "string"

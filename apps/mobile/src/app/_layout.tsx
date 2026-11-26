@@ -33,6 +33,8 @@ setPromptPresenter(() => router.push("/prompt-sheet"));
 setChatPageDisk(chatPageDisk);
 setLinkPresenter(() => router.push("/link-chat"));
 
+export const unstable_settings = { anchor: "index" };
+
 export default function Layout() {
   const { colors: palette, scheme } = useTheme();
   const insets = useSafeAreaInsets();
