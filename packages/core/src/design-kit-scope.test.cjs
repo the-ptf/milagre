@@ -22,11 +22,10 @@ async function fixture(t, group) {
     ],
     projectGroups: [{ id: LINK, name: "Shop", projectIds: ["web", "app"], ...group }],
   };
-  const raw = createDesignKits({ directory, projectForChat: async (chatId) => chatId.slice(0, chatId.lastIndexOf("#")) });
   const scope = createDesignKitScope({
     projectRegistry: () => ({ snapshot: async () => registry }),
     scopeStates: () => new Map([[linkKey, Promise.resolve({ sessions: { 1: {} } })]]),
-    kits: raw,
+    kits: { adopt: (...args) => kits.adopt(...args) },
   });
   const kits = createDesignKits({ directory, projectForChat: async (chatId) => scope.project(chatId.slice(0, chatId.lastIndexOf("#"))) });
   return { directory, registry, scope, kits };
@@ -37,6 +36,9 @@ test("a Named Link's Chats follow its chosen member's design system, adopting th
   const before = createDesignKits({ directory, projectForChat: async () => linkKey });
   await before.save({ chatId: `${linkKey}#1`, expectedVersion: 0, kit: { ...kit, title: "Link kit" } });
   await kits.save({ chatId: "/repos/app#1", expectedVersion: 0, kit: { ...kit, title: "App kit" } });
+  registry.projectGroups[0].designSystemProjectId = "web";
+  await kits.save({ chatId: `${linkKey}#1`, expectedVersion: 1, kit: { ...kit, title: "Link kit" } });
+  delete registry.projectGroups[0].designSystemProjectId;
 
   assert.equal((await kits.read({ chatId: `${linkKey}#1` })).title, "Link kit");
   assert.equal((await kits.read({ chatId: "/repos/web#1" })).title, "Link kit");

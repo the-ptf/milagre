@@ -84,7 +84,7 @@ function createDesignKits({ directory, projectForChat }) {
     }
   }
   return {
-    adopt: (from, to) => serial(() => adopt(from, to)),
+    adopt,
     read: ({ chatId, id = "project", version }) => serial(async () => readKit(await file(chatId, id), id, version)),
     readProject: ({ project, id = "project", version }) => serial(() => readKit(projectFile(project, id), id, version)),
     history: ({ chatId, id = "project" }) =>

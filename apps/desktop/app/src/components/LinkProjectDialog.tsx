@@ -153,7 +153,7 @@ export function LinkProjectDialog({
       </ScrollArea>
       <p className="mt-2 text-12 text-ink-3">{selected.length} selected. Choose at least two Projects.</p>
       {selected.length >= 2 && (
-        <div className="mt-4 flex items-center justify-between gap-3">
+        <div className="mt-4 mb-1 flex items-center justify-between gap-3">
           <span className="min-w-0">
             <span className={`block ${FIELD_LABEL}`}>Design system</span>
             <span className="block text-12 text-ink-3">
