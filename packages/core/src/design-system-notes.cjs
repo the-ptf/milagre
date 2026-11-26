@@ -28,7 +28,7 @@ async function designSystemNotes({ api, chatId, id, document, warnings }) {
   const repeated = await repeatedComponents({ api, chatId, id, document });
   if (repeated.length)
     notes.push(
-      `Local component ${repeated.join(", ")}: the same piece on two screens belongs in the design system. Propose adding it to the kit's components; after the user agrees, save it with design_kit_save and the screens follow it.`,
+      `Local component ${repeated.join(", ")}: the same piece on two screens belongs in the design system. Propose adding it to the kit's components; after the user agrees, save it with design_kit_save, then migrate each screen's copy with design_apply: replace its main frame with the kit component's layers under the kit's id and point its instances there. Only copies under the kit's id follow later kit versions.`,
     );
   return notes;
 }

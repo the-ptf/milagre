@@ -288,7 +288,11 @@ test("each design system version records its decision for the log, outside the s
   assert.ok(log.every((entry) => Number.isFinite(entry.savedAt)));
   const latest = await kits.read({ chatId: "a#2" });
   assert.equal(latest.version, 2);
-  assert.equal("decision" in latest || "savedAt" in latest, false);
+  const [folder] = await fs.readdir(directory);
+  const stored = JSON.parse(await fs.readFile(path.join(directory, folder, "project.json"), "utf8"));
+  const { designKitSchema } = require("@milagre/shared/design");
+  for (const entry of stored) designKitSchema.parse(entry);
+  assert.deepEqual(stored.at(-1), latest);
 });
 
 test("a saved screen names off-system values and local components another screen repeats", async (t) => {

@@ -29,10 +29,19 @@ function createDesignKits({ directory, projectForChat }) {
     const all = await versions(target);
     const found = version === undefined ? all.at(-1) : all.find((kit) => kit.version === version);
     if (!found && version !== undefined) throw Error(`Kit "${id}" version ${version} does not exist in this Project.`);
-    if (!found) return null;
-    const { decision: _decision, savedAt: _savedAt, ...kit } = found;
-    return require("@milagre/shared/design").validateDesignKit(kit);
+    return found ? require("@milagre/shared/design").validateDesignKit(found) : null;
   };
+  const decisionsFile = (target) => target.replace(/\.json$/, ".decisions.json");
+  async function writeAtomic(target, content, assertActive) {
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    try {
+      await fs.writeFile(temporary, content, { mode: 0o600 });
+      await assertActive?.();
+      await fs.rename(temporary, target);
+    } finally {
+      await fs.rm(temporary, { force: true });
+    }
+  }
   async function versions(target) {
     try {
       const value = JSON.parse(await fs.readFile(target, "utf8"));
@@ -47,14 +56,14 @@ function createDesignKits({ directory, projectForChat }) {
     read: ({ chatId, id = "project", version }) => serial(async () => readKit(await file(chatId, id), id, version)),
     readProject: ({ project, id = "project", version }) => serial(() => readKit(projectFile(project, id), id, version)),
     history: ({ chatId, id = "project" }) =>
-      serial(async () =>
-        (await versions(await file(chatId, id))).map((entry) => ({
-          version: entry.version,
-          title: entry.title,
-          ...(entry.savedAt ? { savedAt: entry.savedAt } : {}),
-          ...(entry.decision ? { decision: entry.decision } : {}),
-        })),
-      ),
+      serial(async () => {
+        const target = await file(chatId, id);
+        const log = new Map((await versions(decisionsFile(target))).map((entry) => [entry.version, entry]));
+        return (await versions(target)).map((kit) => {
+          const { savedAt, decision } = log.get(kit.version) ?? {};
+          return { version: kit.version, title: kit.title, ...(savedAt ? { savedAt } : {}), ...(decision ? { decision } : {}) };
+        });
+      }),
     save: ({ chatId, id = "project", expectedVersion, kit, decision }, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
@@ -66,15 +75,10 @@ function createDesignKits({ directory, projectForChat }) {
         if (all.length >= 100) throw Error("This kit has 100 immutable versions. Create a new kit id.");
         const saved = require("@milagre/shared/design").validateDesignKit({ ...designKitDataSchema.parse(kit), id, version: actual + 1 });
         await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-        const temporary = `${target}.${randomUUID()}.tmp`;
-        try {
-          const entry = { ...saved, savedAt: Date.now(), ...(decision ? { decision: DECISION.parse(decision) } : {}) };
-          await fs.writeFile(temporary, JSON.stringify([...all, entry]), { mode: 0o600 });
-          await assertActive?.();
-          await fs.rename(temporary, target);
-        } finally {
-          await fs.rm(temporary, { force: true });
-        }
+        const record = { version: saved.version, savedAt: Date.now(), ...(decision ? { decision: DECISION.parse(decision) } : {}) };
+        await writeAtomic(target, JSON.stringify([...all, saved]), assertActive);
+        const log = (await versions(decisionsFile(target))).filter((entry) => entry.version !== saved.version);
+        await writeAtomic(decisionsFile(target), JSON.stringify([...log, record]));
         return saved;
       }),
     close: () => queue,
