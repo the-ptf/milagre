@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   chatMentionTokens,
+  mentionsBrowser,
   mentionsOrchestrator,
   computerMentionTokens,
   formatComputerMention,
@@ -250,4 +251,13 @@ test("@Orchestrator is a call to the Orchestrator, never a file chip", () => {
   assert.equal(mentionsOrchestrator("`@orchestrator`"), false);
   const parts = promptParts("@Orchestrator go", { skills: [], files: () => true });
   assert.ok(!parts.some((part) => "path" in part && part.path === "Orchestrator"));
+});
+
+test("@Browser asks for the Browser panel, never a file chip", () => {
+  assert.equal(mentionsBrowser("@Browser check the signup page"), true);
+  assert.equal(mentionsBrowser("then @browser."), true);
+  assert.equal(mentionsBrowser("@browsers"), false);
+  assert.equal(mentionsBrowser("`@browser`"), false);
+  const parts = promptParts("@Browser go", { skills: [], files: () => true });
+  assert.ok(!parts.some((part) => "path" in part && part.path === "Browser"));
 });

@@ -7,7 +7,7 @@ import { Pressable, Text, View } from "react-native";
 import Animated, { Easing, FadeInDown, ReduceMotion } from "react-native-reanimated";
 import type { SkillCatalog } from "@milagre/shared/model";
 import { formatChatMention, formatComputerMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
-import { OrchestratorMentionRow } from "./orchestrator-mention-row";
+import { MilagreMentionRows } from "./milagre-mention-rows";
 import {
   PROMPT_PLACEHOLDER,
   matchingMentionChats,
@@ -503,7 +503,7 @@ export function PromptField({
             {(onMention ? files.items : []).slice(0, chatRows.length || computerRows.length ? 1 : 40).map((path) => (
               <ListRow key={path} title={path.split("/").pop()!} subtitle={path} onPress={() => chooseMention(formatFileMention(path), path)} />
             ))}
-            <OrchestratorMentionRow client={client} query={fileToken.query} onPick={chooseMention} />
+            <MilagreMentionRows client={client} query={fileToken.query} onPick={chooseMention} />
             <MenuSection shown={chatRows.length > 0}>Chats</MenuSection>
             {chatRows.map((chat) => (
               <ListRow key={`chat:${chat.id}`} title={chat.title} subtitle={chat.branch} onPress={() => chooseMention(formatChatMention(chat.id))} />

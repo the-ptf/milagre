@@ -651,7 +651,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // The local-model speed line under the composer renders nothing without a Pi turn.
       if (base === "pi-stats" && !(id in modules)) return { PiStats: () => null };
       if (base === "orchestrator-answer-line" && !(id in modules)) return { OrchestratorAnswerLine: () => null };
-      if (base === "orchestrator-mention-row" && !(id in modules)) return { OrchestratorMentionRow: () => null };
+      if (base === "milagre-mention-rows" && !(id in modules)) return { MilagreMentionRows: () => null };
       if (base === "use-orchestrator" && !(id in modules)) return { useTaskEffort: () => null };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
