@@ -1,4 +1,4 @@
-import { deletedLinkText, LINK_CHAT_WORKTREES_TEXT, LINK_UPDATE_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
+import { deletedLinkText, LINK_CHAT_WORKTREES_TEXT, LINK_UPDATE_WORKTREES_TEXT, linkDesignSystem } from "@milagre/shared/worktree-link";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -38,9 +38,8 @@ export default function LinkProjects() {
   const [selected, setSelected] = useState<string[]>(() => editing?.link?.projectIds ?? []);
   const [name, setName] = useState(editing?.name ?? "");
   const saved = editing?.link;
-  const [designSystem, setDesignSystem] = useState(saved?.designSystemProjectId ?? saved?.projectIds[0]);
-  const designSystemLeft = !!saved && !saved.projectIds.includes(saved.designSystemProjectId ?? saved.projectIds[0] ?? "");
-  const designSystemProjectId = designSystem && selected.includes(designSystem) ? designSystem : selected[0];
+  const [picked, setPicked] = useState<string>();
+  const { designSystem, request: designSystemRequest } = linkDesignSystem(saved, selected, picked);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -56,14 +55,14 @@ export default function LinkProjects() {
     setError("");
     try {
       if (linkId) {
-        await client.call<NamedProjectLink>("link:update", [{ id: linkId, name: name.trim(), projectIds: selected, designSystemProjectId }]);
+        await client.call<NamedProjectLink>("link:update", [{ id: linkId, name: name.trim(), projectIds: selected, ...designSystemRequest }]);
         if (current.current !== client) return;
         await session.reloadProjects();
         await session.refresh().catch(() => {});
         router.back();
         return;
       }
-      const link = await client.call<NamedProjectLink>("link:create", [{ name: name.trim(), projectIds: selected, designSystemProjectId }]);
+      const link = await client.call<NamedProjectLink>("link:create", [{ name: name.trim(), projectIds: selected, ...designSystemRequest }]);
       if (current.current !== client) {
         setError("The Link was created on the previous computer. Switch back to open it.");
         return;
@@ -186,16 +185,16 @@ export default function LinkProjects() {
         {selected.length >= 2 ? (
           <View accessibilityRole="radiogroup" accessibilityLabel="Design system" style={{ gap: 4 }}>
             <Text style={styles.caption}>
-              {designSystemLeft
-                ? "Design system: its Project left this Link, so the Link's screens are frozen until you choose one."
+              {!designSystem
+                ? "Design system: its Project isn't in this Link, so the Link's screens stay frozen until you choose one."
                 : "Design system: the Link's Chats design with this Project's."}
             </Text>
             {selected.map((id) => (
               <ChoiceRow
                 key={id}
                 title={projects.find((project) => project.id === id)?.name ?? "Project"}
-                selected={id === designSystemProjectId}
-                onPress={() => setDesignSystem(id)}
+                selected={id === designSystem}
+                onPress={() => setPicked(id)}
               />
             ))}
           </View>

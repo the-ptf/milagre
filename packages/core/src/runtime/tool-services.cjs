@@ -191,12 +191,11 @@ function createDesignTools({ options, dataDir, emit, commands, existingChat, sco
     artifacts: designs,
     designToolDefinitions: (chatId) => [
       ...designKitToolDefinitions(chatId, designKits, {
-        changed: async (savedBy) => {
-          for (const key of await kitScope.followers(await kitScope.project(projectOfKey(savedBy))))
-            emit("design-library:changed", { projectPath: key, kit: true });
+        changed: async (_savedBy, _kit, project) => {
+          for (const key of await kitScope.followers(project)) emit("design-library:changed", { projectPath: key, kit: true });
         },
-        report: async (savedBy, kit) => {
-          const chats = await kitScope.chats(await kitScope.project(projectOfKey(savedBy)));
+        report: async (savedBy, kit, project) => {
+          const chats = await kitScope.chats(project);
           return designKitReport({ kit, chatId: savedBy, chats, designs, library: designLibrary });
         },
       }),

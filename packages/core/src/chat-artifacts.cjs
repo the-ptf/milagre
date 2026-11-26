@@ -52,13 +52,13 @@ const summary = (artifact, entry) => ({
   ...(interactiveOf(entry) ? { interactive: true } : {}),
   ...(entry.inline ? { inline: true } : {}),
   ...(entry.group ? { group: entry.group } : {}),
-  ...(entry.kit ? { kit: entry.kit } : {}),
+  ...(entry.kit ? { kit: { id: entry.kit.id, version: entry.kit.version, title: entry.kit.title } } : {}),
   ...(entry.kitFrozen ? { kitFrozen: true } : {}),
   ...(entry.kitFollowed ? { kitFollowed: entry.kitFollowed } : {}),
   ...(entry.consistency ? { consistency: entry.consistency } : {}),
 });
-const kitFields = (document) => ({
-  ...(document.kit ? { kit: { id: document.kit.id, version: document.kit.version, title: document.kit.title } } : {}),
+const kitFields = (document, fingerprint) => ({
+  ...(document.kit ? { kit: { id: document.kit.id, version: document.kit.version, title: document.kit.title, fingerprint: fingerprint(document.kit) } } : {}),
   ...(document.kitFrozen ? { kitFrozen: true } : {}),
   ...(document.consistency ? { consistency: { mode: document.consistency.mode } } : {}),
 });
@@ -446,22 +446,22 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
           return summary(artifact, entry);
         }
         if (request.edits !== undefined) throw Error("This design is made of layers: change the copy with operations. edits are for interactive designs.");
-        const inheritedConsistency = existing ? (await readVersion(folder, existing)).document?.consistency : undefined;
+        const prior = existing ? (await readVersion(folder, existing)).document : undefined;
         const document = source
           ? request.operations?.length
             ? designImplementation().applyDesignOperations(source.document, request.operations)
             : designImplementation().validateDesignDocument(source.document)
           : designImplementation().validateDesignDocument({
               ...request.document,
-              ...(!request.document?.consistency && inheritedConsistency ? { consistency: inheritedConsistency } : {}),
+              ...(!request.document?.consistency && prior?.consistency ? { consistency: prior.consistency } : {}),
             });
-        await liveDesigns.verify(request.chatId, document);
+        await liveDesigns.verify(request.chatId, document, source, prior);
         designImplementation().validateDesignConsistency(document);
         const entry = {
           version: (previous.at(-1)?.version ?? 0) + 1,
           title: request.title.trim().slice(0, 120),
           ...(group ? { group } : {}),
-          ...kitFields(document),
+          ...kitFields(document, liveDesigns.fingerprint),
           width: document.width,
           height: document.height,
           format: "design",
@@ -499,13 +499,13 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
         }
         if (request.edits !== undefined) throw Error("This design is made of layers: change it with operations. edits are for interactive designs.");
         const document = designImplementation().applyDesignOperations(current.document, request.operations, request.intent);
-        await liveDesigns.verify(request.chatId, document);
+        await liveDesigns.verify(request.chatId, document, current);
         designImplementation().validateDesignConsistency(document);
         const entry = {
           version: current.version + 1,
           title: current.title,
           ...(current.group ? { group: current.group } : {}),
-          ...kitFields(document),
+          ...kitFields(document, liveDesigns.fingerprint),
           width: document.width,
           height: document.height,
           format: "design",

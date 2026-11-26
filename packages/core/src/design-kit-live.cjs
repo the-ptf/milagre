@@ -1,10 +1,12 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { randomUUID } = require("node:crypto");
+const { createHash, randomUUID } = require("node:crypto");
 const { isDeepStrictEqual } = require("node:util");
 
 const LAYOUT = new Set(["clipped-text", "overflow", "off-canvas"]);
-const CACHE = /^v(\d+)\.kit\.[a-zA-Z0-9_.-]+\.(\d+)\.json$/;
+const CACHE = /^v(\d+)\.kit\.[a-zA-Z0-9_.-]+\.json$/;
+/** Tells two kits apart across owners: a Named Link's member and the Link before it can both have a "project" v1. */
+const fingerprint = (kit) => createHash("sha256").update(JSON.stringify(kit)).digest("hex").slice(0, 16);
 
 async function writeAtomic(file, content) {
   const temporary = `${file}.${randomUUID()}.tmp`;
@@ -25,18 +27,20 @@ function createLiveDesigns({ readKit, implementation }) {
       );
     return cache.get(id);
   }
+  const pinnedHere = (chatId, id, version) => readKit({ chatId, id, version }).catch(() => null);
   return {
-    async verify(chatId, document) {
-      if (!document.kit || !readKit) return;
-      const kit = await readKit({ chatId, id: document.kit.id, version: document.kit.version }).catch((error) => {
-        if (error.code === "DESIGN_KIT_FROZEN") return document.kit;
-        throw error;
-      });
+    fingerprint,
+    /** `from` is the version the document came from: the design it was copied from, else its own previous document. */
+    async verify(chatId, document, from, previous) {
+      if (!document.kit || !readKit || isDeepStrictEqual(document.kit, (from?.document ?? previous)?.kit)) return;
+      const kit = await readKit({ chatId, id: document.kit.id, version: document.kit.version });
       if (!isDeepStrictEqual(kit, document.kit))
         throw Error("The pinned kit differs from this Project's saved version. Read it with design_kit_read and use that snapshot.");
     },
     async entry(chatId, entry, cache) {
       if (!readKit || !entry?.kit || entry.kitFrozen) return entry;
+      const pinned = entry.kit.fingerprint && (await pinnedHere(chatId, entry.kit.id, entry.kit.version));
+      if (entry.kit.fingerprint && (!pinned || fingerprint(pinned) !== entry.kit.fingerprint)) return entry;
       const kit = await latestKit(chatId, entry.kit.id, cache);
       return kit && kit.version > entry.kit.version
         ? { ...entry, kit: { ...entry.kit, version: kit.version }, kitFollowed: { from: entry.kit.version, to: kit.version } }
@@ -46,8 +50,8 @@ function createLiveDesigns({ readKit, implementation }) {
       const pinned = current.document?.kit;
       if (!readKit || !pinned || current.document.kitFrozen || current.version !== current.latest) return current;
       const kit = await latestKit(chatId, pinned.id, new Map());
-      if (!kit || kit.version <= pinned.version) return current;
-      const file = path.join(folder, `v${current.version}.kit.${pinned.id}.${kit.version}.json`);
+      if (!kit || kit.version <= pinned.version || !isDeepStrictEqual(await pinnedHere(chatId, pinned.id, pinned.version), pinned)) return current;
+      const file = path.join(folder, `v${current.version}.kit.${pinned.id}.${kit.version}.${fingerprint(kit)}.json`);
       let live;
       try {
         live = JSON.parse(await fs.readFile(file, "utf8"));

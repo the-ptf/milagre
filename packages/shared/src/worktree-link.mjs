@@ -92,3 +92,14 @@ export function isDeletedLinkState(state) {
 export function linkDeletedElsewhereText(name) {
   return `${name} was deleted on another device.`;
 }
+
+/**
+ * The design system member a Link form shows, and what it sends: only a member the user picked, so editing members
+ * never switches the Link's design system by itself. An empty `designSystem` means none of `selected` holds it.
+ */
+export function linkDesignSystem(link, selected, picked) {
+  const choice = picked && selected.includes(picked) ? picked : undefined;
+  const saved = link ? (link.designSystemProjectId ?? link.projectIds[0] ?? "") : undefined;
+  const designSystem = choice ?? (saved === undefined ? (selected[0] ?? "") : selected.includes(saved) ? saved : "");
+  return { designSystem, request: choice ? { designSystemProjectId: choice } : {} };
+}

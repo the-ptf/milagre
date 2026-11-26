@@ -1,4 +1,4 @@
-import { LINK_CHAT_WORKTREES_TEXT, LINK_UPDATE_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
+import { LINK_CHAT_WORKTREES_TEXT, LINK_UPDATE_WORKTREES_TEXT, linkDesignSystem } from "@milagre/shared/worktree-link";
 import { useEffect, useState } from "react";
 import type { NamedProjectLink } from "@milagre/shared/model";
 import { UI_COPY } from "@milagre/shared/model-copy";
@@ -30,8 +30,8 @@ export function LinkProjectDialog({
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string[]>(() => link?.projectIds ?? []);
   const [name, setName] = useState(link?.name ?? "");
-  const [designSystem, setDesignSystem] = useState(link?.designSystemProjectId ?? link?.projectIds[0]);
-  const designSystemLeft = !!link && !link.projectIds.includes(link.designSystemProjectId ?? link.projectIds[0] ?? "");
+  const [picked, setPicked] = useState<string>();
+  const { designSystem, request: designSystemRequest } = linkDesignSystem(link, selected, picked);
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -63,8 +63,7 @@ export function LinkProjectDialog({
     setSaving(true);
     setError(null);
     try {
-      const designSystemProjectId = designSystem && selected.includes(designSystem) ? designSystem : selected[0];
-      const request = { name: name.trim(), projectIds: selected, designSystemProjectId };
+      const request = { name: name.trim(), projectIds: selected, ...designSystemRequest };
       onCreated(await (link ? bridge.updateNamedLink({ id: link.id, ...request }) : bridge.createNamedLink(request)));
     } catch (error) {
       setError(ipcErrorMessage(error));
@@ -157,8 +156,8 @@ export function LinkProjectDialog({
           <span className="min-w-0">
             <span className={`block ${FIELD_LABEL}`}>Design system</span>
             <span className="block text-12 text-ink-3">
-              {designSystemLeft
-                ? "Its Project left this Link, so the Link's screens are frozen until you choose one."
+              {!designSystem
+                ? "Its Project isn't in this Link, so the Link's screens stay frozen until you choose one."
                 : "The Link's Chats design with this Project's."}
             </span>
           </span>
@@ -166,9 +165,12 @@ export function LinkProjectDialog({
             label="Design system"
             width={200}
             disabled={saving}
-            value={(designSystem && selected.includes(designSystem) ? designSystem : selected[0]) ?? ""}
-            options={selected.map((id) => ({ value: id, label: [...projects, ...missing].find((project) => project.id === id)?.name ?? "Project" }))}
-            onChange={setDesignSystem}
+            value={designSystem}
+            options={[
+              ...(designSystem ? [] : [{ value: "", label: "Choose a Project" }]),
+              ...selected.map((id) => ({ value: id, label: [...projects, ...missing].find((project) => project.id === id)?.name ?? "Project" })),
+            ]}
+            onChange={setPicked}
           />
         </div>
       )}

@@ -9,6 +9,7 @@ import {
   isLinkGone,
   linkDeletedElsewhereText,
   linkDeleteFailure,
+  linkDesignSystem,
   linkedSummaryText,
   linkRunningText,
   worktreeLinkLabel,
@@ -93,4 +94,13 @@ test("a Link deleted elsewhere is told by its marked state or by a refused read"
   assert.equal(isLinkGone("Error invoking remote method 'link:open': Error: Link no longer exists"), true);
   assert.equal(isLinkGone("This Link is being deleted"), false);
   assert.equal(linkDeletedElsewhereText("Food"), "Food was deleted on another device.");
+});
+
+test("a Link form sends a design system member only when the user picks one", () => {
+  const link = { projectIds: ["web", "app"], designSystemProjectId: "app" };
+  assert.deepEqual(linkDesignSystem(undefined, ["web", "app"], undefined), { designSystem: "web", request: {} });
+  assert.deepEqual(linkDesignSystem(link, ["web", "app"], undefined), { designSystem: "app", request: {} });
+  assert.deepEqual(linkDesignSystem(link, ["web", "other"], undefined), { designSystem: "", request: {} });
+  assert.deepEqual(linkDesignSystem(link, ["web", "other"], "other"), { designSystem: "other", request: { designSystemProjectId: "other" } });
+  assert.deepEqual(linkDesignSystem(link, ["web", "app"], "gone"), { designSystem: "app", request: {} });
 });

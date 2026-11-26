@@ -24,7 +24,7 @@ function createDesignKits({ directory, projectForChat }) {
     if (typeof project !== "string" || !project) throw Error("This Chat has no design kit scope.");
     return path.join(projectFolder(project), `${id}.json`);
   }
-  const file = async (chatId, id) => projectFile(await projectForChat(chatId), id);
+  const file = async (chatId, id, project) => projectFile(project ?? (await projectForChat(chatId)), id);
   const readKit = async (target, id, version) => {
     const all = await versions(target);
     const found = version === undefined ? all.at(-1) : all.find((kit) => kit.version === version);
@@ -96,18 +96,19 @@ function createDesignKits({ directory, projectForChat }) {
           return { version: kit.version, title: kit.title, ...(savedAt ? { savedAt } : {}), ...(decision ? { decision } : {}) };
         });
       }),
-    recordDecision: ({ chatId, id = "project", version, decision }) =>
+    owner: (chatId) => projectForChat(chatId),
+    recordDecision: ({ chatId, project, id = "project", version, decision }) =>
       serial(async () => {
-        const target = decisionsFile(await file(chatId, id));
+        const target = decisionsFile(await file(chatId, id, project));
         const record = { version, savedAt: Date.now(), ...(decision ? { decision: DECISION.parse(decision) } : {}) };
         const log = (await versions(target)).filter((entry) => entry.version !== version);
         await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
         await writeAtomic(target, JSON.stringify([...log, record]));
       }),
-    save: ({ chatId, id = "project", expectedVersion, kit }, { assertActive } = {}) =>
+    save: ({ chatId, project, id = "project", expectedVersion, kit }, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
-        const target = await file(chatId, id);
+        const target = await file(chatId, id, project);
         const all = await versions(target);
         const actual = all.at(-1)?.version ?? 0;
         if (!Number.isInteger(expectedVersion) || expectedVersion !== actual)
@@ -144,13 +145,14 @@ function designKitToolDefinitions(chatId, kits, { report, changed } = {}) {
       readOnly: false,
       run: async ({ decision, ...args }) => {
         const checked = decision === undefined ? undefined : DECISION.parse(decision);
-        const kit = await kits.save({ chatId, ...args });
+        const project = await kits.owner(chatId);
+        const kit = await kits.save({ chatId, project, ...args });
         const logged = await kits
-          .recordDecision({ chatId, id: kit.id, version: kit.version, decision: checked })
+          .recordDecision({ chatId, project, id: kit.id, version: kit.version, decision: checked })
           .then(() => null)
           .catch((error) => `Version ${kit.version} is saved, but its decision wasn't recorded: ${error.message}`);
-        await changed?.(chatId, kit);
-        const screens = report ? await report(chatId, kit) : undefined;
+        await changed?.(chatId, kit, project);
+        const screens = report ? await report(chatId, kit, project) : undefined;
         return JSON.stringify(screens || logged ? { kit, ...(screens ? { screens } : {}), ...(logged ? { decisionLog: logged } : {}) } : kit);
       },
     },
