@@ -3,10 +3,13 @@ import { sessionIdFromKey } from "../../lib/agent-runs";
 import { requestClose, requestTab, useStage, useWorkspaceTabsOn } from "../../lib/workspace-stage";
 import type { DockPage } from "./dock-feedback";
 
+const announcedIn = new Map<string, string>();
+
 /**
  * With Workspace tabs, a Chat's designs show while their tab is in front: opening them (a card, the agent starting a
  * design) asks for the tab, unread when the agent did it, and the tab coming forward opens its page; the panel shows only
- * while its tab is in front.
+ * while its tab is in front. A Chat's transcript waits in a hidden <Activity> while another Chat shows, and its effects run
+ * again when it comes back: an opening is announced once, so coming back keeps the tab the user left in front.
  */
 export function useDesignsStage(
   chatId: string | null,
@@ -17,9 +20,15 @@ export function useDesignsStage(
   const stage = useStage();
   const staged = tabsOn && stage?.tab.kind === "designs" && stage.chatKey === chatId ? stage : null;
   const stagedPage = staged?.tab.kind === "designs" ? (staged.tab.page as DockPage) : null;
-  const announced = tabsOn && opened && chatId ? `${opened.page}#${opened.focus.nonce}` : null;
+  const opening = opened && chatId ? `${opened.page}#${opened.focus.nonce}` : null;
+  const announced = tabsOn ? opening : null;
   useEffect(() => {
-    if (announced && chatId && opened) requestTab(chatId, { kind: "designs", chatId: sessionIdFromKey(chatId), page: opened.page }, !opened.agent);
+    if (chatId && !opening) announcedIn.delete(chatId);
+  }, [chatId, opening]);
+  useEffect(() => {
+    if (!announced || !chatId || !opened || announcedIn.get(chatId) === announced) return;
+    announcedIn.set(chatId, announced);
+    requestTab(chatId, { kind: "designs", chatId: sessionIdFromKey(chatId), page: opened.page }, !opened.agent);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- asks once per opening, named by its page and nonce
   }, [announced]);
   useEffect(() => {
