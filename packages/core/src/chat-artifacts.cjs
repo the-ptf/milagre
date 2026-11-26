@@ -13,7 +13,6 @@ const { pageSnapshot } = require("./chat-artifacts-snapshot.cjs");
 const { renderDesignPng } = require("./design-raster.cjs");
 const { screenshotDesign } = require("./html-render.cjs");
 const { createLiveDesigns } = require("./design-kit-live.cjs");
-const { designSystemNotes } = require("./design-system-notes.cjs");
 const { MAX_TABS, checkTabs } = require("./artifact-tabs.cjs");
 const { designFeedback, interactiveFeedback, inspectLayerDesign, INTERACTIVE_GUIDE, DESIGN_MODE_INPUT } = require("./design-feedback.cjs");
 const { BUNDLED_SKILLS_DIRECTORY } = require("./bundled-skills.cjs");
@@ -741,7 +740,7 @@ function artifactToolDefinitions(
   authorization,
   { renderPng = renderDesignPng, warnings = (...args) => designImplementation().designWarnings(...args), screenshot = screenshotDesign } = {},
 ) {
-  const feedback = { renderPng, warnings, system: (id, document, found) => designSystemNotes({ api, chatId, id, document, warnings: found }) };
+  const feedback = { renderPng, warnings, notes: { api, chatId } };
   return [
     {
       name: "design_show",
