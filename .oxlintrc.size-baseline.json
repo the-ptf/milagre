@@ -799,12 +799,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 547,
+            "max": 546,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 71]
+        "complexity": ["error", 67]
       }
     },
     {

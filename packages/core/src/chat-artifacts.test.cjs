@@ -745,7 +745,7 @@ test("the design tools tell any agent, a subagent too, to design on the Chat's c
   );
   assert.match(tools.design_show.description, /bundled design skill \(.+SKILL\.md\)/);
   assert.match(tools.design_show.description, /to revise a design, keep its id/);
-  assert.match(tools.design_apply.description, /^Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent/);
+  assert.match(tools.design_apply.description, /^Revise a design on this Chat's Paradise, keeping its id; any agent or subagent/);
 });
 
 test("page snapshots capture every design beyond the former 20-design cap", async (t) => {

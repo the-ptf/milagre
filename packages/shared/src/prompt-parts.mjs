@@ -63,14 +63,24 @@ export function splitQuotes(body) {
 
 const TRAILING_PUNCTUATION = /[.,!?;:)\]}]+$/;
 const IMAGE_TOKEN = /\[Image #([1-9]\d*)\]/g;
+const PARADISE_FILE_NAME = /^paradise[.,!?;:)\]}]*$/i;
 
-/** `@path`, or `@"path"` when the path has whitespace or a quote. */
+/** `@path`, or `@"path"` for paths with whitespace, quotes or reserved names. */
 export function formatFileMention(path) {
-  return /[\s"]/.test(path) || /^chat:[1-9]\d*[.,!?;:)\]}]*$/.test(path) || path.startsWith("computer:") ? `@"${path}"` : `@${path}`;
+  return /[\s"]/.test(path) || /^chat:[1-9]\d*[.,!?;:)\]}]*$/.test(path) || path.startsWith("computer:") || PARADISE_FILE_NAME.test(path)
+    ? `@"${path}"`
+    : `@${path}`;
 }
 
 export const ORCHESTRATOR_MENTION = "@Orchestrator";
 export const BROWSER_MENTION = "@Browser";
+export const PARADISE_MENTION = "@paradise";
+export const PARADISE_NAME = "Paradise";
+
+export function matchesParadiseMention(query) {
+  const needle = query.trim().toLowerCase();
+  return PARADISE_MENTION.slice(1).startsWith(needle);
+}
 
 const namesMention = (prompt, name) => new RegExp(`(^|\\s)@${name}(?=$|\\s|[.,!?;:)\\]}])`, "i").test(prosePrompt(prompt));
 
@@ -82,6 +92,12 @@ export function mentionsOrchestrator(prompt) {
 /** Whether the prompt's prose asks for Milagre's Browser panel with `@Browser` (any case), outside code and quotes. */
 export function mentionsBrowser(prompt) {
   return namesMention(prompt, "browser");
+}
+
+export function mentionsParadise(prompt) {
+  const { text } = splitQuotes(prompt);
+  const prose = prosePrompt(text).replace(/(^|\s)@"[^"\n]+"/g, "$1");
+  return /(^|\s)@paradise(?=$|\s|[.,!?;:)\]}]+(?=$|\s))/i.test(prose);
 }
 
 export function formatChatMention(id) {
@@ -176,7 +192,8 @@ function fileTokens(prompt, files) {
       if (files(match[2])) tokens.push({ path: match[2], start, end: match.index + match[0].length });
       continue;
     }
-    if (/^(chat:[1-9]\d*|orchestrator|browser)[.,!?;:)\]}]*$/i.test(match[3]) || match[3].startsWith("computer:")) continue;
+    if (/^(chat:[1-9]\d*|orchestrator|browser)[.,!?;:)\]}]*$/i.test(match[3]) || match[3].startsWith("computer:") || PARADISE_FILE_NAME.test(match[3]))
+      continue;
     let path = match[3];
     if (!files(path)) path = path.replace(TRAILING_PUNCTUATION, "");
     if (path && files(path)) tokens.push({ path, start, end: start + 1 + path.length });

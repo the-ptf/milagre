@@ -347,7 +347,7 @@ test("one interactive Artifact publishes as a sandboxed page, updates in place a
   const html = await page.text();
   assert.match(html, /sandbox="allow-scripts"/);
   assert.match(html, /Explore/);
-  assert.doesNotMatch(html.replace(VIEWER_HEAD, ""), /allow-same-origin|Canvas zoom/);
+  assert.doesNotMatch(html.replace(VIEWER_HEAD, ""), /allow-same-origin|Paradise zoom/);
   snapshot.artifacts[0].html = "<h1>Later edit</h1>";
   assert.equal((await f.send("PUT", snapshot)).status, 200);
   const updated = await (await f.send("GET")).text();

@@ -6,7 +6,7 @@ import * as Font from "expo-font";
 import { Pressable, Text, View } from "react-native";
 import Animated, { Easing, FadeInDown, ReduceMotion } from "react-native-reanimated";
 import type { SkillCatalog } from "@milagre/shared/model";
-import { formatChatMention, formatComputerMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
+import { formatChatMention, formatComputerMention, formatFileMention, matchesParadiseMention, promptParts } from "@milagre/shared/prompt-parts";
 import { MilagreMentionRows } from "./milagre-mention-rows";
 import {
   PROMPT_PLACEHOLDER,
@@ -374,8 +374,9 @@ export function PromptField({
         .filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(query.query))
         .sort((a, b) => Number(b.name.toLowerCase().startsWith(query.query)) - Number(a.name.toLowerCase().startsWith(query.query)))
     : [];
-  const fileToken = focused && (onMention || chats.length || nameable.length) && !query ? fileQueryAt(draft, selection.start) : null;
+  const fileToken = focused && !query ? fileQueryAt(draft, selection.start) : null;
   const files = useFileSearch(client, projectPath, onMention ? (fileToken?.query ?? null) : null);
+  const paradiseOffered = fileToken && matchesParadiseMention(fileToken.query);
   const chatRows = fileToken ? matchingMentionChats(chats, fileToken.query, currentId) : [];
   const computerRows = fileToken ? matchingMentionComputers(nameable, fileToken.query) : [];
   const chooseMention = (mention: string, path?: string) => {
@@ -495,15 +496,15 @@ export function PromptField({
       {fileToken ? (
         <Animated.View entering={openSkills(motionScale)}>
           <PageScroll
-            accessibilityLabel={nameable.length ? "Files, Chats and computers" : "Files and Chats"}
+            accessibilityLabel="Mentions"
             style={menuStyle}
             contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 0 }}
             keyboardShouldPersistTaps="always"
           >
+            <MilagreMentionRows client={client} query={fileToken.query} onPick={chooseMention} />
             {(onMention ? files.items : []).slice(0, chatRows.length || computerRows.length ? 1 : 40).map((path) => (
               <ListRow key={path} title={path.split("/").pop()!} subtitle={path} onPress={() => chooseMention(formatFileMention(path), path)} />
             ))}
-            <MilagreMentionRows client={client} query={fileToken.query} onPick={chooseMention} />
             <MenuSection shown={chatRows.length > 0}>Chats</MenuSection>
             {chatRows.map((chat) => (
               <ListRow key={`chat:${chat.id}`} title={chat.title} subtitle={chat.branch} onPress={() => chooseMention(formatChatMention(chat.id))} />
@@ -517,19 +518,17 @@ export function PromptField({
                 onPress={() => chooseMention(formatComputerMention(computer.name))}
               />
             ))}
-            {!onMention && !chatRows.length && !computerRows.length && <Text style={[styles.muted, { padding: 12 }]}>No matches</Text>}
-            {onMention &&
-              (files.error ? (
-                isOldMacError(files.error) ? (
-                  <ListRow title={OLD_MAC_ROW} onPress={files.retry} />
-                ) : (
-                  <ListRow title="Could not load files" subtitle={`${files.error} Tap to retry`} onPress={files.retry} />
-                )
-              ) : files.loading && !files.items.length ? (
-                <Text style={[styles.muted, { padding: 12 }]}>Loading files...</Text>
-              ) : !files.items.length && !chatRows.length && !computerRows.length ? (
-                <Text style={[styles.muted, { padding: 12 }]}>No matching files or Chats</Text>
-              ) : null)}
+            {onMention && files.error ? (
+              isOldMacError(files.error) ? (
+                <ListRow title={OLD_MAC_ROW} onPress={files.retry} />
+              ) : (
+                <ListRow title="Could not load files" subtitle={`${files.error} Tap to retry`} onPress={files.retry} />
+              )
+            ) : onMention && files.loading && !files.items.length ? (
+              <Text style={[styles.muted, { padding: 12 }]}>Loading files...</Text>
+            ) : !files.items.length && !chatRows.length && !computerRows.length && !paradiseOffered ? (
+              <Text style={[styles.muted, { padding: 12 }]}>No matching mentions</Text>
+            ) : null}
           </PageScroll>
         </Animated.View>
       ) : null}

@@ -32,6 +32,7 @@ import { useReducedMotion } from "./motion";
 import { markDesignDeleted } from "./use-design-catalog";
 import { useShareAvailable } from "./use-share-available";
 import { ArtifactPageTitle, artifactPageMenu, openArtifactShare, showArtifactPage, usePageTabs } from "./artifact-page-menu";
+import { PARADISE_NAME } from "@milagre/shared/prompt-parts";
 import { rememberCanvas } from "./artifact-pages";
 import { addToLibrary, isLibraryAdd, libraryAddSections, useDesignLibrary } from "./design-library";
 import type { DesignsTab } from "./panel-tabs";
@@ -486,7 +487,7 @@ export function DesignsSheet({
       ? `Option ${row.designs.indexOf(summary) < 26 ? String.fromCharCode(65 + row.designs.indexOf(summary)) : row.designs.indexOf(summary) + 1}`
       : "";
   const modeLabel = designModeLabel(shown, shown && modes[shown.id]);
-  const title = canvasMode ? "All designs" : (summary?.title ?? shown?.title ?? "Designs");
+  const title = canvasMode ? PARADISE_NAME : (summary?.title ?? shown?.title ?? PARADISE_NAME);
   const subtitle = canvasMode
     ? `${ordered.length} ${ordered.length === 1 ? "design" : "designs"}${rows.length > 1 ? ` · ${rows.length} screens` : ""}`
     : [row?.group, position, shown ? `v${shown.version}` : "", isInteractiveDesign(shown) ? "Interactive" : "", modeLabel, designKitLabel(shown)]
@@ -521,7 +522,7 @@ export function DesignsSheet({
           source && ordered.length > 0 && (
             <CircleButton
               key="overview"
-              label={canvasMode ? "Open the design" : "All designs"}
+              label={canvasMode ? "Open the design" : `Open ${PARADISE_NAME}`}
               icon={DashboardSquare01Icon}
               selected={canvasMode}
               onPress={() => command(canvasMode && shownId ? { t: "focus", id: shownId } : { t: "overview" })}

@@ -83,3 +83,21 @@ test("@Browser asks the Chat's agent to use the Browser panel tools, but not ins
   const all = await chatMentionsContext({ chatId: "/my/project#1", prompt: "@chat:2 @Orchestrator, @Browser." }, read);
   assert.ok(all.includes("</chat_mentions>") && all.includes("</orchestrator_mention>") && all.includes("</browser_mention>"));
 });
+
+test("@paradise refers the agent to this Chat's Paradise", async () => {
+  const read = async () => state;
+  const chatId = "/my/project#1";
+  const context = await chatMentionsContext({ chatId, prompt: "Revise o protótipo no @Paradise." }, read);
+  assert.match(context, /<paradise_mention>[\s\S]*Paradise[\s\S]*design_apply/);
+  for (const prompt of [
+    "`@paradise`",
+    "me@paradise.dev",
+    "@paradise.ts",
+    "@canvas",
+    "@paraiso",
+    '@"notes @paradise plan.txt"',
+    "> Edit @paradise\n\nWhat did they mean?",
+  ]) {
+    assert.equal(await chatMentionsContext({ chatId, prompt }, read), "");
+  }
+});
