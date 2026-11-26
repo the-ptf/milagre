@@ -75,7 +75,7 @@ The menu refreshes when reopened and when switching worktrees. Skill names and d
 ## Permission modes
 
 - **Ask approval**: the agent stops before a file edit or command it isn't already allowed to run, and shows the exact command or change. Claude asks before edits and before commands outside its allow rules; Codex asks before any command it doesn't already trust.
-- **Auto**: file edits inside the workspace go ahead. Claude still asks before commands outside its allow rules; Codex works inside its workspace sandbox and asks only to go beyond it.
+- **Auto**: file edits inside the workspace go ahead. Claude, Kiro and Pi run commands that stay inside the Worktree and ask only for risky ones (writing to GitHub, reaching outside the Worktree, hard to undo), saying why on the card; Codex works inside its workspace sandbox and asks only to go beyond it.
 - **Full**: no agent tool approvals, and Codex runs without its sandbox. Use only when you trust the prompt and the workspace.
 
 Escape denies an open approval card and dismisses an open question card. "Always allow in this chat" lasts while the chat's agent stays open, which ends after 10 idle minutes or when Milagre quits, and never changes your Claude or Codex settings files.
