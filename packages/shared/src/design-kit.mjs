@@ -105,6 +105,15 @@ export function resolveDesignKit(document) {
   return document;
 }
 
+const sameToken = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+/** The document's color tokens on `nextKit`: its own tokens and deliberate overrides of `previousKit` kept, the colors it took from `previousKit` replaced. */
+export function designKitTokens(tokens, previousKit, nextKit) {
+  const own = Object.entries(tokens ?? {}).filter(
+    ([name, value]) => !previousKit || !Object.hasOwn(previousKit.colors, name) || !sameToken(previousKit.colors[name], value),
+  );
+  return { ...nextKit.colors, ...Object.fromEntries(own) };
+}
+
 const colorKey = (value) => {
   if (typeof value !== "string") return null;
   const paint = designPaint(value);

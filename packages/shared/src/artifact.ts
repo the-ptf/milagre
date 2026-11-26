@@ -14,7 +14,13 @@ export type ArtifactSummary = ArtifactRef & {
   height: number;
   format: "design" | "html";
   interactive?: boolean;
+  /** The design system version the screen is drawn with: its latest, unless `kitFrozen` keeps the one it was saved on. */
   kit?: { id: string; version: number; title: string };
+  kitFrozen?: boolean;
+  /** The screen's saved version is on `from` and is drawn on the design system's newer `to`. */
+  kitFollowed?: { from: number; to: number; local?: string[]; layout?: string[] };
+  /** The design system's `version` removed something the screen uses, so it stays drawn on the version it was saved on. */
+  kitBroken?: { version: number; message: string };
   consistency?: { mode: "advisory" | "strict" };
   /** On a Project library design: who saved each version kept. */
   edits?: DesignLibraryEdit[];
@@ -26,8 +32,10 @@ export const DESIGN_PAGE_FONT_NOTE = "Apple's SF fonts, New York and SF Symbols 
 export const isInteractiveDesign = (design: { format?: string; interactive?: boolean } | null | undefined): boolean =>
   design?.format === "design" && design.interactive === true;
 
-export function designKitLabel(design: Pick<ArtifactSummary, "kit" | "consistency"> | null | undefined): string {
-  return design?.kit ? `${design.consistency?.mode === "strict" ? "Strict · " : ""}${design.kit.title} · kit v${design.kit.version}` : "";
+export function designKitLabel(design: Pick<ArtifactSummary, "kit" | "kitFrozen" | "kitBroken" | "consistency"> | null | undefined): string {
+  if (!design?.kit) return "";
+  const state = design.kitFrozen ? " · frozen" : design.kitBroken ? ` · can't follow v${design.kitBroken.version}` : "";
+  return `${design.consistency?.mode === "strict" ? "Strict · " : ""}${design.kit.title} · kit v${design.kit.version}${state}`;
 }
 
 export type LayerDesignArtifact = ArtifactSummary & {
@@ -134,7 +142,8 @@ export interface ArtifactApi {
   updateLibraryDesign(request: DesignScope & { id: string; title?: string; page?: string }): Promise<DesignLibraryEntry>;
   /** Renames a library page; `page` is its id or current name. */
   renameLibraryPage(request: DesignScope & { page: string; name: string }): Promise<{ id: string; name: string }>;
-  onLibraryChanged(callback: (payload: { projectPath: string }) => void): () => void;
+  /** The Project's library changed, or with `kit`, its design system, which every screen on it follows. */
+  onLibraryChanged(callback: (payload: { projectPath: string; kit?: boolean }) => void): () => void;
 }
 
 /** Whose designs: a Chat's, or, for Project library designs, the Project's own by its path. */

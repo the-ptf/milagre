@@ -110,6 +110,7 @@ function createDeviceTools({ options, dataDir, emit, commands, existingChat, cha
 function createDesignTools({ options, dataDir, emit, commands, existingChat, scopeStates }) {
   const { createChatArtifacts } = require("../chat-artifacts.cjs");
   const { createDesignKits, designKitToolDefinitions } = require("../design-kits.cjs");
+  const { designKitReport } = require("../design-kit-report.cjs");
   const { createDesignLibrary, withDesignLibrary, designLibraryToolDefinitions } = require("../design-library.cjs");
   const designKits = createDesignKits({
     directory: path.join(dataDir, "design-kits"),
@@ -182,7 +183,18 @@ function createDesignTools({ options, dataDir, emit, commands, existingChat, sco
   return {
     designKits,
     artifacts: designs,
-    designToolDefinitions: (chatId) => [...designKitToolDefinitions(chatId, designKits), ...designLibraryToolDefinitions(chatId, designLibrary)],
+    designToolDefinitions: (chatId) => [
+      ...designKitToolDefinitions(chatId, designKits, {
+        changed: (savedBy) => emit("design-library:changed", { projectPath: projectOfKey(savedBy), kit: true }),
+        report: async (savedBy, kit) => {
+          const project = projectOfKey(savedBy);
+          const sessions = (await scopeStates().get(project))?.sessions ?? {};
+          const chats = Object.keys(sessions).map((id) => `${project}#${id}`);
+          return designKitReport({ kit, chatId: savedBy, chats, designs, library: designLibrary });
+        },
+      }),
+      ...designLibraryToolDefinitions(chatId, designLibrary),
+    ],
     closePageSharing: () => Promise.all([pageSharing?.close(), designLibrary.close()]),
   };
 }

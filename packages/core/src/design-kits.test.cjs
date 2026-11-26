@@ -39,10 +39,32 @@ test("kits are shared by project, isolated between projects and immutable across
     artifacts.showDesign({ chatId: "a#1", id: "forged", title: "Screen", document: { ...document, kit: { ...first, title: "Changed" } } }),
     /differs/,
   );
-  assert.equal((await artifacts.get({ chatId: "a#1", id: "screen" })).document.kit.version, 1);
-  const migrated = await artifacts.apply({ chatId: "a#1", id: "screen", expectedVersion: 1, operations: [{ op: "document", patch: { kit: updated } }] });
-  assert.equal(migrated.document.tokens.ink, "#abcdef");
+  const live = await artifacts.get({ chatId: "a#1", id: "screen" });
+  assert.equal(live.version, 1);
+  assert.equal(live.document.tokens.ink, "#abcdef");
+  assert.deepEqual(live.kitFollowed, { from: 1, to: 2 });
+  assert.match(live.html, /#abcdef/);
+  assert.deepEqual((await artifacts.list({ chatId: "a#1", format: "design" }))[0].kit, { id: "project", version: 2, title: "App" });
+  const edited = await artifacts.apply({
+    chatId: "a#1",
+    id: "screen",
+    expectedVersion: 1,
+    operations: [{ op: "update", id: "text", patch: { text: "Hello" } }],
+  });
+  assert.equal(edited.document.kit.version, 2);
   assert.equal((await artifacts.get({ chatId: "a#1", id: "screen", version: 1 })).document.tokens.ink, "#123456");
+  await artifacts.apply({ chatId: "a#1", id: "screen", expectedVersion: 2, operations: [{ op: "document", patch: { kitFrozen: true } }] });
+  await store.save({ chatId: "a#2", expectedVersion: 2, kit: { ...kit, colors: { ink: "#000000" } } });
+  const frozen = await artifacts.get({ chatId: "a#1", id: "screen" });
+  assert.equal(frozen.document.tokens.ink, "#abcdef");
+  assert.equal(frozen.kitFrozen, true);
+  await artifacts.apply({ chatId: "a#1", id: "screen", expectedVersion: 3, operations: [{ op: "document", patch: { kitFrozen: false } }] });
+  assert.equal((await artifacts.get({ chatId: "a#1", id: "screen" })).document.tokens.ink, "#000000");
+  await store.save({ chatId: "a#2", expectedVersion: 3, kit: { ...kit, textStyles: {} } });
+  const broken = await artifacts.get({ chatId: "a#1", id: "screen" });
+  assert.equal(broken.document.kit.version, 2);
+  assert.equal(broken.kitBroken.version, 4);
+  assert.match(broken.kitBroken.message, /Text style "body" does not exist/);
 });
 
 test("invalid component trees and authorization failure do not save a kit", async (t) => {
@@ -205,4 +227,38 @@ test("intent preflight and agent/client writes enforce the same atomic contract"
   const feedback = await apply.run({ ...request, expectedVersion: 2, intent: { mode: "text-only", textIds: ["title"] }, operations: [request.operations[0]] });
   assert.match(feedback.text, /text-only edit: report clipping/);
   assert.doesNotMatch(feedback.text, /fix what looks wrong/);
+});
+
+test("a kit save reports which screens of the Project follow it, stay frozen or can't follow it", async (t) => {
+  const { designKitReport } = require("./design-kit-report.cjs");
+  const { designKitToolDefinitions } = require("./design-kits.cjs");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "design-kit-report-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const kits = createDesignKits({ directory: path.join(directory, "kits"), projectForChat: async (id) => id.split("#")[0] });
+  const designs = createChatArtifacts({ directory: path.join(directory, "artifacts"), validateChat: async () => {}, readKit: (request) => kits.read(request) });
+  const first = await kits.save({ chatId: "a#1", expectedVersion: 0, kit: { ...kit, textStyles: { body: { fontSize: 17 }, title: { fontSize: 28 } } } });
+  const screen = (textStyle) => ({
+    schemaVersion: 1,
+    width: 390,
+    height: 844,
+    kit: first,
+    nodes: [{ id: "text", type: "text", textStyle, text: "Hi", width: 100, height: 40, fill: "$ink" }],
+  });
+  await designs.showDesign({ chatId: "a#1", id: "home", title: "Home", document: screen("body") });
+  await designs.showDesign({ chatId: "a#2", id: "hero", title: "Hero", document: screen("title") });
+  await designs.showDesign({ chatId: "a#2", id: "old", title: "Old", document: { ...screen("body"), kitFrozen: true } });
+  const changes = [];
+  const save = designKitToolDefinitions("a#2", kits, {
+    changed: (chatId, saved) => changes.push([chatId, saved.version]),
+    report: (chatId, saved) => designKitReport({ kit: saved, chatId, chats: ["a#1", "a#2"], designs }),
+  }).find((tool) => tool.name === "design_kit_save");
+  const result = JSON.parse(await save.run({ expectedVersion: 1, kit: { ...kit, textStyles: { body: { fontSize: 18 } } } }));
+  assert.equal(result.kit.version, 2);
+  assert.deepEqual(changes, [["a#2", 2]]);
+  assert.equal(result.screens.following, 1);
+  assert.deepEqual(result.screens.frozen, [{ id: "old", title: "Old", chatId: "a#2", version: 1 }]);
+  assert.equal(result.screens.broken.length, 1);
+  assert.equal(result.screens.broken[0].id, "hero");
+  assert.match(result.screens.broken[0].error, /"title" does not exist/);
+  assert.equal((await designs.get({ chatId: "a#1", id: "home" })).document.nodes[0].fontSize, 18);
 });

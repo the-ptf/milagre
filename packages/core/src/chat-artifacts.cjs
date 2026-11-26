@@ -1,4 +1,3 @@
-const { isDeepStrictEqual } = require("node:util");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
@@ -13,6 +12,8 @@ const { openAttachment } = require("./attachment-preview.cjs");
 const { pageSnapshot } = require("./chat-artifacts-snapshot.cjs");
 const { renderDesignPng } = require("./design-raster.cjs");
 const { screenshotDesign } = require("./html-render.cjs");
+const { createLiveDesigns } = require("./design-kit-live.cjs");
+const { MAX_TABS, checkTabs } = require("./artifact-tabs.cjs");
 const { designFeedback, interactiveFeedback, inspectLayerDesign, INTERACTIVE_GUIDE, DESIGN_MODE_INPUT } = require("./design-feedback.cjs");
 const { BUNDLED_SKILLS_DIRECTORY } = require("./bundled-skills.cjs");
 const DESIGN_SKILL = path.join(BUNDLED_SKILLS_DIRECTORY, "design", "SKILL.md");
@@ -23,24 +24,6 @@ const formatOf = (entry) => (entry?.format === "design" ? "design" : "html");
 const interactiveOf = (entry) => entry?.format === "design" && entry.interactive === true;
 const KIND_MISMATCH =
   "A design stays layers or interactive HTML for all its versions. Use a new id for the other kind, such as an interactive version of a layer design.";
-const MAX_TABS = 20;
-function checkTabs(tabs, current) {
-  if (tabs === undefined) return null;
-  if (!Array.isArray(tabs) || !tabs.length || tabs.length > MAX_TABS) throw Error(`A page has between 1 and ${MAX_TABS} tabs.`);
-  const seen = new Set();
-  const checked = tabs.map((tab) => {
-    if (typeof tab?.id !== "string" || !ID.test(tab.id)) throw Error("Tab ids are lowercase letters, digits and dashes.");
-    if (seen.has(tab.id)) throw Error(`Two tabs have the id ${tab.id}.`);
-    seen.add(tab.id);
-    if (typeof tab.title !== "string" || !tab.title.trim()) throw Error(`The tab ${tab.id} needs a title.`);
-    const html = tab.html ?? current?.find((item) => item.id === tab.id)?.html;
-    if (typeof html !== "string" || !html.trim())
-      throw Error(`The tab ${tab.id} needs its HTML: only a tab the page already has keeps its HTML when you leave it out.`);
-    return { id: tab.id, title: tab.title.trim().slice(0, 60), html };
-  });
-  if (checked.reduce((sum, tab) => sum + tab.html.length, 0) > MAX_HTML) throw Error(`A page's tabs are limited to ${MAX_HTML} characters together.`);
-  return checked;
-}
 const ASSET_CHUNK = 256 * 1024;
 const megabytes = (bytes) => `${Math.ceil(bytes / (1024 * 1024))} MB`;
 const size = (value, fallback, minimum = 240) => (Number.isInteger(value) && value >= minimum && value <= 3840 ? value : fallback);
@@ -70,7 +53,14 @@ const summary = (artifact, entry) => ({
   ...(entry.inline ? { inline: true } : {}),
   ...(entry.group ? { group: entry.group } : {}),
   ...(entry.kit ? { kit: entry.kit } : {}),
+  ...(entry.kitFrozen ? { kitFrozen: true } : {}),
+  ...(entry.kitFollowed ? { kitFollowed: entry.kitFollowed } : {}),
   ...(entry.consistency ? { consistency: entry.consistency } : {}),
+});
+const kitFields = (document) => ({
+  ...(document.kit ? { kit: { id: document.kit.id, version: document.kit.version, title: document.kit.title } } : {}),
+  ...(document.kitFrozen ? { kitFrozen: true } : {}),
+  ...(document.consistency ? { consistency: { mode: document.consistency.mode } } : {}),
 });
 
 function checkVersion(request, existing, required = false) {
@@ -111,13 +101,8 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
     await validateChat(chatId);
     return chatDirectory(chatId);
   }
-  async function verifyKit(chatId, document) {
-    if (!document.kit || !readKit) return;
-    const kit = await readKit({ chatId, id: document.kit.id, version: document.kit.version });
-    if (!isDeepStrictEqual(kit, document.kit))
-      throw Error("The pinned kit differs from this Project's saved version. Read it with design_kit_read and use that snapshot.");
-  }
   const designFolder = (folder, id) => path.join(folder, checkId(id));
+  const liveDesigns = createLiveDesigns({ readKit, implementation: designImplementation });
   const htmlFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.html`);
   const documentFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.design.json`);
   const tabsFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.tabs.json`);
@@ -243,10 +228,11 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
       else if (item.tabs) expired.push(tabsFile(folder, id, item.version));
     }
     await Promise.all(expired.map((file) => fs.rm(file, { force: true }).catch(() => {})));
+    await liveDesigns.prune(designFolder(folder, id), entry.version);
     if (formatOf(entry) === "html") await pruneAssets(folder, id, entry.assets);
     return artifact;
   }
-  async function readVersion(folder, artifact, version) {
+  async function readVersion(folder, artifact, version, chatId) {
     const entry = version === undefined ? artifact.versions.at(-1) : artifact.versions.find((item) => item.version === version);
     if (!entry) throw Error(`Version ${version} of this design is no longer kept.`);
     const html = await readVersionFile(htmlFile(folder, artifact.id, entry.version));
@@ -254,7 +240,7 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
       formatOf(entry) === "design" && !interactiveOf(entry) ? JSON.parse(await readVersionFile(documentFile(folder, artifact.id, entry.version))) : undefined;
     const tabs = formatOf(entry) === "html" && entry.tabs ? JSON.parse(await readVersionFile(tabsFile(folder, artifact.id, entry.version))) : undefined;
     const assets = formatOf(entry) === "html" && entry.assets?.length ? entry.assets : undefined;
-    return {
+    const current = {
       ...summary(artifact, entry),
       latest: artifact.versions.at(-1).version,
       html,
@@ -262,6 +248,7 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
       ...(tabs ? { tabs } : {}),
       ...(assets ? { assets } : {}),
     };
+    return chatId ? liveDesigns.follow(chatId, designFolder(folder, artifact.id), current) : current;
   }
   async function activeArtifacts(folder, format) {
     const names = await fs.readdir(folder).catch((error) => (error.code === "ENOENT" ? [] : Promise.reject(error)));
@@ -362,7 +349,7 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
               const html = await readVersionFile(htmlFile(folder, entry.id, latest.version));
               return { title: latest.title, ...group, interactive: { html, width: latest.width, height: latest.height } };
             }
-            return { title: latest.title, ...group, document: JSON.parse(await readVersionFile(documentFile(folder, entry.id, latest.version))) };
+            return { title: latest.title, ...group, document: (await readVersion(folder, entry, undefined, request.chatId)).document };
           },
         });
       }),
@@ -411,7 +398,7 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
       }),
     validateDesign: async ({ chatId, document }) => {
       await chat(chatId);
-      await verifyKit(chatId, document);
+      await liveDesigns.verify(chatId, document);
       designImplementation().validateDesignConsistency(document);
       return document;
     },
@@ -431,7 +418,7 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
           const from = await load(folder, request.from?.id);
           if (!from) throw Error(`The design ${request.from?.id} to start from is no longer available.`);
           editable(from);
-          source = await readVersion(folder, from, request.from.version);
+          source = await readVersion(folder, from, request.from.version, request.chatId);
         } else if (request.operations !== undefined || request.edits !== undefined)
           throw Error("operations and edits go with from; to revise a design in place, use design_apply.");
         if (request.html !== undefined && request.document !== undefined) throw Error("Send document OR html, not both.");
@@ -468,14 +455,13 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
               ...request.document,
               ...(!request.document?.consistency && inheritedConsistency ? { consistency: inheritedConsistency } : {}),
             });
-        await verifyKit(request.chatId, document);
+        await liveDesigns.verify(request.chatId, document);
         designImplementation().validateDesignConsistency(document);
         const entry = {
           version: (previous.at(-1)?.version ?? 0) + 1,
           title: request.title.trim().slice(0, 120),
           ...(group ? { group } : {}),
-          ...(document.kit ? { kit: { id: document.kit.id, version: document.kit.version, title: document.kit.title } } : {}),
-          ...(document.consistency ? { consistency: { mode: document.consistency.mode } } : {}),
+          ...kitFields(document),
           width: document.width,
           height: document.height,
           format: "design",
@@ -493,7 +479,7 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
         if (!existing) throw Error("This design is no longer available.");
         editable(existing);
         checkVersion(request, existing, true);
-        const current = await readVersion(folder, existing);
+        const current = await readVersion(folder, existing, undefined, request.chatId);
         if (current.interactive) {
           if (request.operations !== undefined || request.intent !== undefined)
             throw Error("This design is interactive HTML: change it with edits (the text to find and its replacement), not layer operations.");
@@ -513,14 +499,13 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
         }
         if (request.edits !== undefined) throw Error("This design is made of layers: change it with operations. edits are for interactive designs.");
         const document = designImplementation().applyDesignOperations(current.document, request.operations, request.intent);
-        await verifyKit(request.chatId, document);
+        await liveDesigns.verify(request.chatId, document);
         designImplementation().validateDesignConsistency(document);
         const entry = {
           version: current.version + 1,
           title: current.title,
           ...(current.group ? { group: current.group } : {}),
-          ...(document.kit ? { kit: { id: document.kit.id, version: document.kit.version, title: document.kit.title } } : {}),
-          ...(document.consistency ? { consistency: { mode: document.consistency.mode } } : {}),
+          ...kitFields(document),
           width: document.width,
           height: document.height,
           format: "design",
@@ -540,7 +525,7 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
         if (request.format && formatOf(artifact.versions.at(-1)) !== request.format) throw Error(FORMAT_MISMATCH);
         const isHtml = formatOf(artifact.versions.at(-1)) === "html";
         if (isHtml && !artifact.versions.at(-1).inline) artifact = (await activeArtifacts(folder, "html"))[0] ?? artifact;
-        const current = await readVersion(folder, artifact, isHtml ? undefined : request.version);
+        const current = await readVersion(folder, artifact, isHtml ? undefined : request.version, request.chatId);
         if (!Array.isArray(request.fonts?.have) || current.format !== "design") return current;
         const block =
           /^<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=\d+, initial-scale=1"><style>[^<]*<\/style><style>((?:@font-face\{font-family:"[^"<>;{}]+";font-weight:\d+(?: \d+)?;font-style:normal;src:url\(data:font\/ttf;base64,[A-Za-z0-9+/=]+\) format\("truetype"\)\})+)<\/style><\/head><body><main id="design-root">/.exec(
@@ -562,7 +547,7 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
         const artifact = await load(folder, request?.id);
         if (!artifact) throw Error("This design is no longer available.");
         editable(artifact);
-        const current = await readVersion(folder, artifact, request.version);
+        const current = await readVersion(folder, artifact, request.version, request.chatId);
         if (request.format === "html")
           return { id: current.id, version: current.version, filename: `${current.id}-v${current.version}.html`, mimeType: "text/html", content: current.html };
         if (current.interactive) throw Error("An interactive design exports as html.");
@@ -580,7 +565,9 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
       serial(async () => {
         const folder = await chat(request?.chatId);
         checkFormat(request.format);
-        return (await activeArtifacts(folder, request.format)).map((artifact) => summary(artifact, artifact.versions.at(-1)));
+        const kits = new Map();
+        const artifacts = await activeArtifacts(folder, request.format);
+        return Promise.all(artifacts.map(async (artifact) => summary(artifact, await liveDesigns.entry(request.chatId, artifact.versions.at(-1), kits))));
       }),
     deleteDesign: (request, { assertActive } = {}) =>
       serial(async () => {

@@ -9,7 +9,7 @@ export {
 } from "./design-schemas.mjs";
 import { designError } from "./design-errors.mjs";
 export { designErrorIssues, conciseDesignError } from "./design-errors.mjs";
-import { designKitSchema, resolveDesignKit } from "./design-kit.mjs";
+import { designKitSchema, designKitTokens, resolveDesignKit } from "./design-kit.mjs";
 export { designKitSchema, designKitDataSchema, validateDesignConsistency } from "./design-kit.mjs";
 import { z } from "zod";
 import { designFontFamily, designFontFaces } from "./design-fonts.mjs";
@@ -107,6 +107,63 @@ export function validateDesignDocument(value) {
   return checkedDesignDocument(value);
 }
 
+const PLACEMENT = ["x", "y", "parentId", "hidden", "locked"];
+const canonical = (value) =>
+  Array.isArray(value)
+    ? `[${value.map(canonical).join(",")}]`
+    : value && typeof value === "object"
+      ? `{${Object.keys(value)
+          .sort()
+          .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
+          .join(",")}}`
+      : JSON.stringify(value);
+const unplaced = (node) => Object.fromEntries(Object.entries(node).filter(([key]) => !PLACEMENT.includes(key)));
+function kitComponentNodes(kit, id) {
+  return validateDesignDocument({ schemaVersion: 1, width: 390, height: 844, kit: { ...kit, components: {} }, nodes: kit.components[id] }).nodes;
+}
+function subtree(nodes, rootId) {
+  const ids = new Set([rootId]);
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const node of nodes)
+      if (ids.has(node.parentId) && !ids.has(node.id)) {
+        ids.add(node.id);
+        changed = true;
+      }
+  }
+  return nodes.filter((node) => ids.has(node.id));
+}
+
+/**
+ * The document on a newer version of its kit: colors, text styles, bindings and the kit components it still holds unchanged follow `kit`.
+ * A frozen document, one on another kit, or one already on this version comes back as it is. `local` names the kit components the document changed, which keep its copy.
+ */
+export function rebaseDesignOnKit(document, kit) {
+  const previous = document.kit;
+  if (document.kitFrozen || !previous || previous.id !== kit.id || previous.version >= kit.version) return { document, local: [] };
+  let nodes = document.nodes;
+  const local = [];
+  for (const main of document.nodes.filter((node) => node.component && Object.hasOwn(previous.components ?? {}, node.id))) {
+    if (!Object.hasOwn(kit.components ?? {}, main.id)) continue;
+    const held = subtree(nodes, main.id);
+    if (canonical(held.map(unplaced)) !== canonical(kitComponentNodes(previous, main.id).map(unplaced))) {
+      local.push(main.id);
+      continue;
+    }
+    const placement = Object.fromEntries(PLACEMENT.filter((key) => main[key] !== undefined).map((key) => [key, main[key]]));
+    const [root, ...children] = kit.components[main.id];
+    const replaced = new Set(held.map((node) => node.id));
+    const at = nodes.findIndex((node) => node.id === main.id);
+    nodes = [
+      ...nodes.slice(0, at).filter((node) => !replaced.has(node.id)),
+      { ...root, ...placement },
+      ...children,
+      ...nodes.slice(at + 1).filter((node) => !replaced.has(node.id)),
+    ];
+  }
+  return { document: validateDesignDocument({ ...document, kit, tokens: designKitTokens(document.tokens, previous, kit), nodes }), local };
+}
+
 export function validateDesignKit(value) {
   const kit = designKitSchema.parse(value);
   if (JSON.stringify(kit).length > 250000) throw Error("A design kit is limited to 250,000 characters.");
@@ -152,7 +209,8 @@ export function applyDesignOperations(document, operations, intent) {
   for (const operation of parsed) {
     if (operation.op === "document") {
       const patch = operation.patch;
-      const tokens = patch.kit ? { ...patch.kit.colors, ...patch.tokens } : patch.tokens ? { ...result.tokens, ...patch.tokens } : result.tokens;
+      const own = patch.kit ? designKitTokens(result.tokens, result.kit, patch.kit) : result.tokens;
+      const tokens = patch.tokens ? { ...own, ...patch.tokens } : own;
       Object.assign(result, patch);
       if (tokens) result.tokens = tokens;
       continue;
