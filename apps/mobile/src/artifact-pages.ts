@@ -68,7 +68,7 @@ export function artifactPageSections({
           systemImage: "books.vertical",
           checked: current.kind === "library" && current.page === item.id,
         })),
-        ...(openLibrary ? [{ id: OPEN_DESIGN_LIBRARY, title: "Open Design library", systemImage: "arrow.up.forward.square" }] : []),
+        ...(openLibrary ? [{ id: OPEN_DESIGN_LIBRARY, title: "Open Designs", systemImage: "arrow.up.forward.square" }] : []),
       ],
     });
   return sections;

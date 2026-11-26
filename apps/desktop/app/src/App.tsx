@@ -26,6 +26,7 @@ import { WorkspaceSlots } from "./app/WorkspaceSlots";
 import { ProjectChangesPanel } from "./app/ProjectChangesPanel";
 import { ProjectPalette } from "./app/ProjectPalette";
 import { LinkProjectDialog } from "./components/LinkProjectDialog";
+import { onOpenRequests } from "./lib/design-library-page";
 import { DeleteLinkDialog, linkDeletesInFlight } from "./components/DeleteLinkDialog";
 import { createScopeDrafts } from "./lib/link-scope";
 import type { LinkState, NamedLinkDeleted, NamedProjectLink, OpenLink } from "@milagre/shared/model";
@@ -89,9 +90,8 @@ import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPromp
 import { COMPACT_COMMAND } from "@milagre/shared/compaction";
 import { providerForId, resolveModel } from "./lib/models";
 import { chatMark, chatTitle, isChatListed, orderChats } from "./lib/chat-list";
-import { deleteUndoWindow, worktreeShared } from "./lib/archive";
+import { deleteUndoWindow, worktreeShared, type ArchiveMode, type ArchivePlan } from "./lib/archive";
 import { archiveChat as runArchive } from "./lib/archive-flow";
-import type { ArchiveMode, ArchivePlan } from "./lib/archive";
 import { changesPanelButtons } from "./app/changes-panel-buttons";
 import { setKeyContext } from "./lib/keybindings";
 import { CORNER_PITCH, PanelMenu, PanelToggles, cornerButtonCount, useSidePanels } from "./components/agents/PanelToggles";
@@ -1248,7 +1248,7 @@ function App() {
     pendingNotificationChat.current = chatId;
     void switchProject(chatId.slice(0, separator));
   });
-  useEffect(() => window.milagre.onOpenChat(openChatByKey), []);
+  useEffect(() => onOpenRequests(window.milagre.onOpenChat, openChatByKey, (id) => void editLink(id)), []);
 
   useEffect(
     () =>

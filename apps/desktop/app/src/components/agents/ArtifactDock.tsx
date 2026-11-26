@@ -326,9 +326,7 @@ function PageMenu({
       group: "Project library",
       display: titled("Project library", item.name),
     })),
-    ...(library.length
-      ? [{ value: OPEN_LIBRARY, label: "Open Design library", icon: <Icon icon={LinkSquare02Icon} size={16} />, group: "Project library" }]
-      : []),
+    ...(library.length ? [{ value: OPEN_LIBRARY, label: "Open Designs", icon: <Icon icon={LinkSquare02Icon} size={16} />, group: "Project library" }] : []),
   ];
   const value = page === "page" ? `page:${tabs && shownTab ? shownTab.id : ""}` : page;
   const shownLibrary = library.find((item) => item.id === libraryPageId(page));

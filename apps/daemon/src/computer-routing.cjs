@@ -185,9 +185,20 @@ const RESULTS = {
   "design-library:list": (id, result) =>
     field(id, result, "pages", (id, pages) =>
       each(id, pages, (id, page) =>
-        field(id, page, "designs", (id, designs) => each(id, designs, (id, design) => field(id, design, "edits", (id, edits) => each(id, edits, withChat)))),
+        field(id, page, "designs", (id, designs) =>
+          each(id, designs, (id, design) =>
+            field(
+              id,
+              field(id, design, "edits", (id, edits) => each(id, edits, withChat)),
+              "from",
+              withChat,
+            ),
+          ),
+        ),
       ),
     ),
+  "design-library:chats": (id, result) => each(id, result, withChat),
+  "design-system:read": (id, result) => field(id, result, "owner", key),
   "design-library:add": (id, result) => field(id, result, "edits", (id, edits) => each(id, edits, withChat)),
   "design-library:update": (id, result) => field(id, result, "edits", (id, edits) => each(id, edits, withChat)),
   "accounts:scopes": (id, result) =>

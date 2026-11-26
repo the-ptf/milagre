@@ -7,7 +7,7 @@ export function projectMenuActions(isMac: boolean): Array<{ key: ProjectMenuKey;
     { key: "reveal", label: isMac ? "Reveal in Finder" : `Show in ${fileManager}` },
     { key: "copy-path", label: "Copy path" },
     { key: "copy-name", label: "Copy name" },
-    { key: "design-library", label: "Design library" },
+    { key: "design-library", label: "Designs" },
     { key: "settings", label: "Project settings" },
   ];
 }

@@ -438,7 +438,7 @@ test("a library version names the Chat that saved it, or says it was this one", 
   assert.equal(libraryEditLabel(design, 1, "/p#5"), "Edited in Login flow · Codex");
   assert.equal(libraryEditLabel(design, 2, "/p#5"), "Edited here · Claude", "an untitled Chat that is the open one");
   assert.equal(libraryEditLabel(design, 2, "/p#2"), "Edited in another Chat · Claude");
-  assert.equal(libraryEditLabel(design, 3, "/p#5"), "Edited in the Design library", "renamed on the Project's Design library page");
+  assert.equal(libraryEditLabel(design, 3, "/p#5"), "Edited in Designs", "renamed on the Project's Design library page");
   assert.equal(libraryEditLabel(design, 4), "");
 });
 
@@ -448,7 +448,7 @@ test("a library card says its version, who saved it and when", () => {
     { version: 2, at: 60_000 },
   ];
   assert.equal(libraryCardLine({ version: 1, edits: edits.slice(0, 1) }, 2 * 3_600_000), "v1 · Edited in Login flow · Codex · 2 h ago");
-  assert.equal(libraryCardLine({ version: 2, edits }, 90_000), "v2 · Edited in the Design library · just now");
+  assert.equal(libraryCardLine({ version: 2, edits }, 90_000), "v2 · Edited in Designs · just now");
   assert.equal(libraryCardLine({ version: 3, edits: [] }, 0), "v3");
 });
 
@@ -471,7 +471,7 @@ test("Recent edits list the library's designs by their last edit, newest first, 
     { version: 2, at: 60_000 },
   ];
   assert.equal(libraryRecentLine({ edits: edits.slice(0, 1) }, 2 * 3_600_000), "Codex in Login flow · 2 h ago");
-  assert.equal(libraryRecentLine({ edits }, 90_000), "Design library · just now");
+  assert.equal(libraryRecentLine({ edits }, 90_000), "Designs · just now");
   assert.equal(libraryRecentLine({ edits: [{ version: 1, chatId: "/p#3", at: 0 }] }, 0), "Another Chat · just now");
   assert.equal(libraryRecentLine({ edits: [] }, 0), "");
 });

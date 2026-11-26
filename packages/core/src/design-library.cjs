@@ -133,7 +133,13 @@ function createDesignLibrary({ directory, projectForChat, projectForPath, chatIn
   async function recordEdit(record, chatId, version) {
     record.edits = [...(record.edits ?? []), await edit(chatId, version)].slice(-MAX_EDITS);
   }
-  const entryOf = (saved, record) => ({ ...saved, id: LIBRARY + saved.id, page: record.page, edits: record.edits ?? [] });
+  const entryOf = (saved, record) => ({
+    ...saved,
+    id: LIBRARY + saved.id,
+    page: record.page,
+    edits: record.edits ?? [],
+    ...(record.from?.chatId ? { from: { chatId: record.from.chatId, id: record.from.id } } : {}),
+  });
   const changed = (project) =>
     Promise.resolve()
       .then(() => onChange?.({ project }))

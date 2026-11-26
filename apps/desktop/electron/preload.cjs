@@ -191,6 +191,8 @@ function artifactBridge(invoke, listen) {
     addComments: (request) => invoke("artifact:add-comments", request),
     comments: (request) => invoke("artifact:comments", request),
     library: (request) => invoke("design-library:list", request),
+    libraryChats: (request) => invoke("design-library:chats", request),
+    designSystem: (request) => invoke("design-system:read", request),
     addToLibrary: (request) => invoke("design-library:add", request),
     updateLibraryDesign: (request) => invoke("design-library:update", request),
     renameLibraryPage: (request) => invoke("design-library:rename-page", request),

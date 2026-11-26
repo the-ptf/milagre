@@ -205,7 +205,7 @@ function actionCommands(ctx: AppCommandContext): Command[] {
       ? [
           {
             id: "design-library",
-            label: "Design library",
+            label: "Designs",
             group: "Actions",
             icon: "library" as const,
             detail: ctx.current.name,

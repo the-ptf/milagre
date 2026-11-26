@@ -57,7 +57,7 @@ export function useScopeRowHandles({ scopeStates, scopeChatActions, onScopeArchi
         onReopen: (id) => void patchChatShowingDone(key, Number(id), { done: false }).catch(() => {}),
         onSnooze: (id, until) => void snoozeChat(key, Number(id), until).catch(() => {}),
         onWake: (id) => void snoozeChat(key, Number(id), null).catch(() => {}),
-        ...(key.startsWith("milagre-link:") ? {} : { onDesignLibrary: () => openDesignLibrary(key) }),
+        onDesignLibrary: () => openDesignLibrary(key),
         ...(archivable
           ? {
               onArchiveCheck: (id: string) => scopeArchive.current.check!(key, id),

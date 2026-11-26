@@ -156,6 +156,20 @@ function createDesignTools({ options, dataDir, emit, commands, existingChat, sco
   commands.handle("design-library:add", (_context, request) => designLibrary.add(request));
   commands.handle("design-library:update", (_context, request) => designLibrary.update(request));
   commands.handle("design-library:rename-page", (_context, request) => designLibrary.renamePage(request));
+  const home = require("../design-home.cjs").createDesignHome({
+    scope: async (request) => {
+      if (typeof request?.chatId === "string") return (await existingChat("opening Designs")(request.chatId), projectOfKey(request.chatId));
+      if (!scopeStates().has(request?.projectPath)) throw new Error("Open this project in Milagre first.");
+      return request.projectPath;
+    },
+    kitScope,
+    kits: designKits,
+    designs: artifacts,
+    scopeStates,
+    chatTitle: (session) => session.title || session.generatedTitle || "New Chat",
+  });
+  commands.handle("design-system:read", (_context, request) => home.system(request));
+  commands.handle("design-library:chats", (_context, request) => home.chats(request));
   let pageSharing;
   const designPageSharing = () =>
     (pageSharing ??= require("../design-page-sharing.cjs").createDesignPageSharing({

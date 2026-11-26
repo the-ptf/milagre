@@ -220,3 +220,43 @@ test("a kit component copy whose layers were reordered stays local", () => {
   );
   assert.deepEqual(rebaseDesignOnKit(validateDesignDocument({ ...document, kit: v1, nodes: card }), v2).local, []);
 });
+
+test("the design system board draws every token and component of a kit as one valid layer design", async () => {
+  const { designSystemBoard, designHtml } = await import("./design.mjs");
+  const full = {
+    ...kit,
+    version: 3,
+    colors: { ink: "#123456", accent: { light: "#16a34a", dark: "#3cbb72" }, paper: "#ffffff", line: "#e0e1e3", danger: "#c62935" },
+    textStyles: { title: { fontSize: 28, fontWeight: 700 }, body: { fontSize: 17, fontWeight: 500 } },
+    spacing: { sm: 8, md: 16 },
+    radii: { card: 12, pill: 999 },
+    components: {
+      button: [
+        { id: "button", type: "frame", component: true, width: 140, height: 44, fill: "$accent", bindings: { radius: "card" } },
+        { id: "label", parentId: "button", type: "text", x: 16, y: 10, width: 108, height: 24, text: "Place order", textStyle: "body", fill: "$paper" },
+      ],
+      chip: [{ id: "chip", type: "frame", component: true, width: 90, height: 28, fill: "$line", bindings: { radius: "pill" } }],
+    },
+  };
+  const board = validateDesignDocument(designSystemBoard(full, { subtitle: "Version 3 · 12 screens follow it" }));
+  const ids = new Set(board.nodes.map((node) => node.id));
+  for (const id of [
+    "color-accent",
+    "color-danger",
+    "type-title-sample",
+    "spacing-md",
+    "radius-pill",
+    "component-button-button",
+    "component-button-label",
+    "component-chip-chip",
+  ])
+    assert.ok(ids.has(id), id);
+  assert.equal(board.nodes.find((node) => node.id === "component-button-label").parentId, "component-button-button");
+  assert.equal(board.nodes.find((node) => node.id === "type-title-sample").fontSize, 28);
+  assert.ok(board.height > 400);
+  assert.match(designHtml(board), /Place order/);
+  assert.equal(
+    validateDesignDocument(designSystemBoard({ ...kit, components: undefined })).nodes.some((node) => node.id.startsWith("component-")),
+    false,
+  );
+});

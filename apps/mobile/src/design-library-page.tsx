@@ -4,7 +4,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, Stack, useFocusEffect } from "expo-router";
 import { ArrowLeft01Icon, ArrowRight01Icon, DashboardSquare01Icon, LibraryIcon, PaintBoardIcon } from "@hugeicons/core-free-icons";
-import { designScope, libraryCardLine, libraryRecent, libraryRecentLine, type DesignLibrary, type DesignLibraryEntry } from "@milagre/shared/artifact";
+import {
+  DESIGNS_COPY,
+  designScope,
+  libraryCardLine,
+  libraryRecent,
+  libraryRecentLine,
+  type DesignLibrary,
+  type DesignLibraryEntry,
+} from "@milagre/shared/artifact";
+import { DesignChatsSection, DesignSystemSection } from "./designs-sections";
 import { useSession } from "./session";
 import { allComputers } from "./all-computers";
 import { editLibraryDesign, libraryEditSections, renameLibraryPage, useDesignLibrary } from "./design-library";
@@ -14,9 +23,14 @@ import { lineHeight, radius, space, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { LibrarySheet } from "./library-sheet";
 import { useSplitLayout } from "./split-context";
-import { CircleButton, EmptyState, ErrorNotice, Group, PageScroll, PullDown, SheetHeader, useStyles, type MenuSection } from "./ui";
+import { CircleButton, EmptyState, ErrorNotice, Group, PageScroll, PullDown, Segmented, SheetHeader, useStyles, type MenuSection } from "./ui";
 
 const RECENT = 6;
+const SECTIONS = [
+  { value: "system", title: DESIGNS_COPY.designSystem },
+  { value: "library", title: "Library" },
+  { value: "chats", title: DESIGNS_COPY.chats },
+];
 const PAGE_SECTIONS: MenuSection[] = [{ items: [{ id: "rename-page", title: "Rename page", systemImage: "pencil" }] }];
 
 /** A recent edit's menu: rename it, move it to another page or a new one, delete it. */
@@ -71,12 +85,13 @@ export function DesignLibraryScreen({
   }, []);
   useFocusEffect(reread);
   const library = useDesignLibrary(source, path, reads);
+  const [section, setSection] = useState("system");
   const pages = library?.pages ?? [];
   const recent = libraryRecent(library, RECENT);
   const sheetHost = hostId ?? source?.url ?? "";
   const shownPage = pages.find((item) => item.id === pageParam) ?? pages[0];
   const shownId = shownPage && shownPage.id === pageParam ? idParam : undefined;
-  const twoColumns = wide && !!shownPage && !!path;
+  const twoColumns = section === "library" && wide && !!shownPage && !!path;
   const open = (page: string, id?: string) =>
     wide
       ? router.setParams({ library: page, id: id ?? "" })
@@ -90,15 +105,18 @@ export function DesignLibraryScreen({
   const lists = (
     <PageScroll style={{ flex: 1 }} contentContainerStyle={{ gap: 12 }}>
       {name && !twoColumns ? <Text style={styles.caption}>{name}</Text> : null}
-      {!source || !path ? <ErrorNotice message="Reconnect to your computer to open this Project's Design library." /> : null}
-      {library && !pages.length ? (
+      {!source || !path ? <ErrorNotice message="Reconnect to your computer to open this Project's Designs page." /> : null}
+      <Segmented label="Section" value={section} options={SECTIONS} onChange={setSection} />
+      {section === "system" && <DesignSystemSection source={source ?? null} path={path} reads={reads} now={now} onRetry={reread} />}
+      {section === "chats" && <DesignChatsSection source={source ?? null} hostId={sheetHost} path={path} reads={reads} library={library} onChanged={reread} />}
+      {section === "library" && library && !pages.length ? (
         <EmptyState icon={LibraryIcon} title="No designs in this Project's library yet">
           {
             "Add one from a design's actions in a Chat's Artifact, choosing Add to Project library, or ask an agent to add it. Every Chat in this Project can then open it."
           }
         </EmptyState>
       ) : null}
-      {pages.length > 0 && (
+      {section === "library" && pages.length > 0 && (
         <Group title="Pages" inset="full">
           {pages.map((page) => (
             <PullDown
@@ -119,7 +137,7 @@ export function DesignLibraryScreen({
           ))}
         </Group>
       )}
-      {recent.length > 0 && (
+      {section === "library" && recent.length > 0 && (
         <Group title="Recent edits" inset="full">
           {recent.map(({ design, page }) => (
             <PullDown
@@ -144,7 +162,7 @@ export function DesignLibraryScreen({
   );
   return (
     <>
-      <Stack.Screen options={{ title: "Design library", headerBackTitle: name, headerShown: !twoColumns }} />
+      <Stack.Screen options={{ title: "Designs", headerBackTitle: name, headerShown: !twoColumns }} />
       {twoColumns ? (
         <View style={{ flex: 1, flexDirection: "row" }}>
           <View style={{ width: 340, paddingTop: insets.top }}>
@@ -154,7 +172,7 @@ export function DesignLibraryScreen({
               locations={[0, 0.12, 0.88, 1]}
               style={{ position: "absolute", top: 0, bottom: 0, right: 0, width: StyleSheet.hairlineWidth }}
             />
-            <SheetHeader title="Design library" subtitle={name} leading={<CircleButton label="Back" icon={ArrowLeft01Icon} onPress={() => router.back()} />} />
+            <SheetHeader title="Designs" subtitle={name} leading={<CircleButton label="Back" icon={ArrowLeft01Icon} onPress={() => router.back()} />} />
             {lists}
           </View>
           <View style={{ flex: 1 }}>

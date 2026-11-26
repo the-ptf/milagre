@@ -34,11 +34,12 @@ import { isModalOpen } from "/src/lib/modal";
 import "/src/styles.css";
 const docs = { home: ${JSON.stringify(screen("Home", "#2f6f4f"))}, watch: ${JSON.stringify(screen("Rings", "#c2410c"))}, kit: ${JSON.stringify(screen("Buttons", "#6d28d9"))} };
 const entry = (id, title, page, version, edits) => ({ id: "library:" + id, title, page, version, versions: version, format: "design", width: 390, height: 844, edits });
+const docsEntry = (id, title) => ({ id, title, version: 1, versions: 1, format: "design", width: 390, height: 844 });
 window.calls = [];
 window.listeners = new Set();
 window.pages = { iphone: "iPhone", watch: "Watch" };
 window.designs = [
-  entry("home", "Home", "iphone", 2, [{ version: 1, chatId: "/repo#3", chat: "Onboarding", agent: "Claude", at: Date.now() - 3 * 3600000 }, { version: 2, chatId: "/repo#4", chat: "Polish", agent: "Codex", at: Date.now() - 2 * 3600000 }]),
+  { ...entry("home", "Home", "iphone", 2, [{ version: 1, chatId: "/repo#3", chat: "Onboarding", agent: "Claude", at: Date.now() - 3 * 3600000 }, { version: 2, chatId: "/repo#4", chat: "Polish", agent: "Codex", at: Date.now() - 2 * 3600000 }]), from: { chatId: "/repo#4", id: "home" } },
   entry("watch", "Rings", "watch", 1, [{ version: 1, chatId: "/repo#5", chat: "Watch face", agent: "Claude", at: Date.now() - 600000 }]),
 ];
 window.changed = () => window.listeners.forEach((listener) => listener({ projectPath: "/repo" }));
@@ -83,6 +84,26 @@ window.milagre = {
       window.pages[request.page] = request.name;
       window.changed();
       return { id: request.page, name: request.name };
+    },
+    designSystem: async (request) => {
+      window.calls.push(["design-system", request]);
+      return {
+        kit: { id: "project", version: 3, title: "Habits" },
+        history: [
+          { version: 3, title: "Habits", savedAt: Date.now() - 2 * 3600000 - 600000, decision: { summary: "Cards use a 20 px radius", reason: "Softer cards everywhere" } },
+          { version: 2, title: "Habits" },
+        ],
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" width="720" height="400"><rect width="720" height="400" fill="#fff"/><text x="32" y="48">Habits design system</text></svg>',
+        width: 720,
+        height: 400,
+      };
+    },
+    libraryChats: async (request) => {
+      window.calls.push(["chats", request]);
+      return [
+        { chatId: "/repo#4", title: "Polish", archived: false, designs: [{ ...docsEntry("home", "Home") }, { ...docsEntry("kit", "Buttons") }] },
+        { chatId: "/repo#2", title: "Old ideas", archived: true, designs: [{ ...docsEntry("watch", "Rings") }] },
+      ];
     },
     onLibraryChanged: (listener) => {
       window.listeners.add(listener);
@@ -168,8 +189,23 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[data-scope-menu]")');
     await click("[data-scope-menu]");
     await waitFor('!!document.querySelector("[data-scope-menu-item=design-library]")');
-    assert.equal(await evaluate('document.querySelector("[data-scope-menu-item=design-library]").textContent'), "Design library");
+    assert.equal(await evaluate('document.querySelector("[data-scope-menu-item=design-library]").textContent'), "Designs");
     await click("[data-scope-menu-item=design-library]");
+    // The page opens on the design system: the host's board and its decision log, newest first.
+    await waitFor(`!!${page}?.querySelector("[data-slot=design-system-board]") && ${page}.querySelectorAll("[data-slot=design-decision]").length === 2`);
+    assert.deepEqual(await evaluate('window.calls.find(([kind]) => kind === "design-system")[1]'), { projectPath: "/repo" });
+    assert.deepEqual(await evaluate(`[...${page}.querySelectorAll("[data-slot=design-decision]")].map((node) => node.textContent)`), [
+      "Cards use a 20 px radiusSofter cards everywherev3 · 2 h ago",
+      "No decision recordedv2",
+    ]);
+    await screenshot("design-system");
+    // The Chats section lists every Chat's designs, archived ones last; one already in the library says where.
+    await click("[data-slot=designs-section-row][data-page=chats] button");
+    await waitFor(`${page}?.querySelectorAll("[data-slot=design-chat]").length === 2`);
+    assert.deepEqual(await evaluate(`[...${page}.querySelectorAll("[data-slot=design-chat] h3")].map((node) => node.textContent)`), ["Polish", "Old ideas"]);
+    assert.match(await evaluate(`${page}.querySelector("[data-slot=design-chat]").textContent`), /In iPhone.*Add to library/);
+    await screenshot("chats");
+    await click("[data-slot=library-page-row][data-page=all] button");
     await waitFor(`${frames}?.length === 2 && ${painted("home")} && ${painted("watch")}`);
     assert.deepEqual(await evaluate('window.calls.find(([kind]) => kind === "list")[1]'), { projectPath: "/repo" });
     assert.equal(
@@ -183,7 +219,7 @@ async function browserChecks() {
       await evaluate('!!document.querySelector("[data-workspace-main] [data-slot=design-library-page]") && !document.querySelector("dialog[open]")'),
       true,
     );
-    assert.equal(await evaluate(`${page}.querySelector("[data-slot=library-title]").textContent`), "Habits · Design library");
+    assert.equal(await evaluate(`${page}.querySelector("[data-slot=library-title]").textContent`), "Habits · Designs");
     // The pages down the left, All first; All lays the designs out in a row per page, with who saved each version.
     assert.deepEqual(await evaluate(`${rows}.map((node) => node.querySelector("button").textContent)`), ["All designs2", "iPhone1", "Watch1"]);
     assert.equal(await evaluate(current), "All designs2");
@@ -256,7 +292,7 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[data-slot=library-rename] [data-slot=library-name]")');
     await type("[data-slot=library-name]", "Start");
     await click("[data-slot=library-rename-save]");
-    await waitFor(`/v3 of 3.*Edited in the Design library/.test(${frame("home")}?.textContent ?? "") && /Start/.test(${recent}[0]?.textContent ?? "")`);
+    await waitFor(`/v3 of 3.*Edited in Designs/.test(${frame("home")}?.textContent ?? "") && /Start/.test(${recent}[0]?.textContent ?? "")`);
     assert.deepEqual(await evaluate('window.calls.findLast(([kind]) => kind === "update")[1]'), { projectPath: "/repo", id: "library:home", title: "Start" });
 
     // Move to a new page: its row appears and the emptied page's goes.
@@ -295,18 +331,22 @@ async function browserChecks() {
     await waitFor('window.appView === "chat" && !document.querySelector("[data-slot=design-library-page]")');
     // The palette and the Artifact panel open it the same way; choosing a Chat in the sidebar leaves it.
     await evaluate('window.dispatchEvent(new CustomEvent("milagre:design-library", { detail: { projectKey: "/repo", name: "Habits" } }))');
-    await waitFor(`window.appView === "design-library" && ${frames}?.length === 1`);
+    await waitFor('window.appView === "design-library" && !!document.querySelector("[data-slot=library-page-row][data-page=all] button")');
+    await click("[data-slot=library-page-row][data-page=all] button");
+    await waitFor(`${frames}?.length === 1`);
     await click("[data-fixture-chat]");
     await waitFor('window.appView === "chat" && !document.querySelector("[data-slot=design-library-page]")');
     await click("[data-scope-menu]");
     await waitFor('!!document.querySelector("[data-scope-menu-item=design-library]")');
     await click("[data-scope-menu-item=design-library]");
+    await waitFor('!!document.querySelector("[data-slot=library-page-row][data-page=all] button")');
+    await click("[data-slot=library-page-row][data-page=all] button");
     await waitFor(`${frames}?.length === 1`);
 
     // With nothing left the page says how designs get here.
     await evaluate("window.designs = []; window.changed();");
     await waitFor(`!!${page}.querySelector("[data-slot=library-empty]")`);
-    assert.match(await evaluate(`${page}.querySelector("[data-slot=library-empty]").textContent`), /Add to Project library.*ask an agent/);
+    assert.match(await evaluate(`${page}.querySelector("[data-slot=library-empty]").textContent`), /Chats here, or ask an agent/);
     await screenshot("empty");
     console.log(
       "PASS: the Project menu opens the Design library as a view of the main area with no Chat, titled in the top bar; Escape (past a dialog) or a Chat leaves it; pages and recent edits down the left, the page's designs on the library canvas with versions and who saved each; a recent edit moves to its page; rename, move, page rename and delete go through the host; changes from any Chat show; an empty library says how designs get there",

@@ -23521,7 +23521,7 @@ test("the phone's Artifact menu lists the Project library's pages, and Add to Pr
     JSON.parse(JSON.stringify(library.items.map((item) => [item.id, item.title, item.checked]))),
     [
       ["library:iphone", "iPhone", false],
-      ["open-library", "Open Design library", null],
+      ["open-library", "Open Designs", null],
     ],
     "after the Chat's own pages come the library's, then the whole Design library",
   );
@@ -23668,7 +23668,7 @@ test("Open Design library in the phone's Artifact menu opens the Project's whole
   const library = title.props.sections.find((section) => section.title === "Project library");
   assert.deepEqual(JSON.parse(JSON.stringify(library.items.map((item) => [item.id, item.title]))), [
     ["library:iphone", "iPhone"],
-    ["open-library", "Open Design library"],
+    ["open-library", "Open Designs"],
   ]);
   title.props.onSelect("open-library");
   assert.deepEqual(globalThis.openedDesignLibrary, ["mac", "/work/habits", "habits"]);
@@ -23815,7 +23815,7 @@ test("on an iPad the Design library page shows its lists beside the chosen page'
   assert.equal(typeof sheet().props.onClose, "function", "embedded: no close button");
   assert.equal(find(tree, (node) => node.type === "Stack.Screen").props.options.headerShown, false, "the lists column has its own header");
   const header = find(tree, (node) => node.type === "SheetHeader");
-  same([header.props.title, header.props.subtitle, header.props.leading.props.label], ["Design library", "Habits", "Back"]);
+  same([header.props.title, header.props.subtitle, header.props.leading.props.label], ["Designs", "Habits", "Back"]);
   const selected = () => findAll(tree, (node) => node.type?.name === "LibraryRow" && node.props.selected).map((node) => node.props.title);
   same(selected(), ["iPhone"]);
   const rows = (title) =>
@@ -23880,7 +23880,7 @@ test("the phone project menu opens its Design library page", async () => {
   const nav = navigationHost(deferred().promise);
   const menu = nav.open(nav.row("project"));
   const items = menu.props.sections.flatMap((section) => section.items);
-  assert.equal(items.find((item) => item.id === "design-library")?.title, "Design library");
+  assert.equal(items.find((item) => item.id === "design-library")?.title, "Designs");
   menu.props.onSelect("design-library");
   await settleAll();
   assert.deepEqual(JSON.parse(JSON.stringify(nav.routes.at(-1))), { pathname: "/design-library", params: { hostId: "mac", path: "/last", name: "last" } });
@@ -23890,7 +23890,7 @@ test("the phone project menu opens its Design library page", async () => {
 test("a phone Chat row's menu opens its Project's Design library page, in any list view", async () => {
   const nav = withTwoWorktrees(navigationHost(deferred().promise));
   const menu = nav.more(nav.row("chat", 0));
-  assert.equal(menu.props.sections.flatMap((section) => section.items).find((item) => item.id === "design-library")?.title, "Design library");
+  assert.equal(menu.props.sections.flatMap((section) => section.items).find((item) => item.id === "design-library")?.title, "Designs");
   menu.props.onSelect("design-library");
   await settleAll();
   assert.deepEqual(JSON.parse(JSON.stringify(nav.routes.at(-1))), { pathname: "/design-library", params: { hostId: "mac", path: "/last", name: "web" } });
