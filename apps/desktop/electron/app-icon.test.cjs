@@ -120,7 +120,7 @@ test("the macOS bundle gets the chosen icon once, again after an update drops it
   assert.equal(runs.length, 4);
 });
 
-test("notifications carry the chosen icon on Windows and Linux; macOS takes it from the bundle", (t) => {
+test("notifications carry the chosen icon; on macOS only a non-default one", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-app-icon-install-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const handlers = new Map();
@@ -136,9 +136,13 @@ test("notifications carry the chosen icon on Windows and Linux; macOS takes it f
       run: async () => assert.fail("an unpackaged app never touches a bundle"),
     });
   const linux = install("linux");
+  assert.equal(linux.notificationOptions().icon.file, appIconFile(PUBLIC, "default"));
   handlers.get("app-icon:set")(null, "eight-bit");
   assert.equal(linux.notificationOptions().icon.file, appIconFile(PUBLIC, "eight-bit"));
-  assert.deepEqual(install("darwin").notificationOptions(), {});
+  const mac = install("darwin");
+  assert.equal(mac.notificationOptions().icon.file, appIconFile(PUBLIC, "eight-bit"));
+  handlers.get("app-icon:set")(null, "default");
+  assert.deepEqual(mac.notificationOptions(), {});
 });
 
 test("the renderer's type and picker list the same icons", () => {
