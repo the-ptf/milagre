@@ -131,7 +131,7 @@ function generate() {
       native.push(node.arguments[0].text);
     ts.forEachChild(node, nativeVisit);
   }
-  for (const name of ["main.cjs", "main-window.cjs", "host-methods.cjs", "quit-flow.cjs", "app-icon.cjs"])
+  for (const name of ["main.cjs", "main-window.cjs", "host-methods.cjs", "quit-flow.cjs", "app-icon.cjs", "reveal.cjs"])
     nativeVisit(ts.createSourceFile(name, fs.readFileSync(path.join(root, "apps/desktop/electron", name), "utf8"), ts.ScriptTarget.Latest, true));
   return { commands, native: [...new Set(native)].sort(), $defs: defs };
 }

@@ -35,7 +35,7 @@ import type { ChatMessage, LinkIssueResult, PullRequestActionContext } from "@mi
 import { BtwDock, messageForkAction } from "../chat-branch-actions";
 import { CHAT_COMMANDS, STORAGE_COMMANDS, NO_CHECKPOINTS, composerCommandHandler, readComposerDraft } from "../chat-commands";
 import { useBtw } from "../use-btw";
-import { associatedPullRequest, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId } from "@milagre/shared/chats";
+import { chatTitle, createPendingChat, createResendMemory, pendingChatSessionId } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
@@ -49,7 +49,7 @@ import { issueChoiceId, issueSendFields, issueStartContext, issueStartMessage, i
 import { pickGithubIssue, pickLinearIssue } from "../issue-pickers";
 import { useGithubIssuesAvailable } from "../use-github-issues";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
-import { ChatLinkProvider } from "../chat-link-context";
+import { ChatLinkProvider, chatLinks } from "../chat-link-context";
 import { composerQuote, quotedMessage, quoteSource, type ComposerQuote } from "@milagre/shared/prompt-parts";
 import type { QuoteFrom } from "../message-actions";
 import { useReachableHost } from "../routes-native";
@@ -953,11 +953,10 @@ function ChatPane({
     else openPullRequest(route);
     return true;
   }
-  function openChatLink(url: string) {
-    const entry = associatedPullRequest(url, rowPrs);
-    if (entry && openPr(entry.number, undefined, placeOf(entry)?.cwd)) return true;
-    return internalBrowser && openBrowserLink(client.url, chatId, url, panels.openInPanel);
-  }
+  const links = chatLinks(rowPrs, (entry) => openPr(entry.number, undefined, placeOf(entry)?.cwd), {
+    on: internalBrowser,
+    open: (url) => openBrowserLink(client.url, chatId, url, panels.openInPanel),
+  });
   prChat.current = {
     send: (body) => send(body, false),
     prefill: (text) => composer.setDrafts((current) => ({ ...current, [chatId]: text })),
@@ -2020,7 +2019,7 @@ function ChatPane({
   );
   return (
     <GenerativeUIProvider send={genuiSend}>
-      <ChatLinkProvider reachable={reachable} openLink={openChatLink} ask={askAboutPassage} steps={history.steps} liveSteps={liveSteps}>
+      <ChatLinkProvider reachable={reachable} links={links} ask={askAboutPassage} steps={history.steps} liveSteps={liveSteps}>
         <PanelTabsContext value={panels.openInPanel}>
           <View style={[styles.screen, dots]}>
             {!paired && <ChatStackOptions title={title} starting={startingChat} header={header} />}

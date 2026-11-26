@@ -222,6 +222,8 @@ export function registerBrowserHost(chatKey: string) {
   };
 }
 
+export const hasBrowserPanel = () => hosts.length > 0;
+
 export function openInBrowserPanel(url: string): boolean {
   const chatKey = hosts.at(-1);
   if (!chatKey) return false;
