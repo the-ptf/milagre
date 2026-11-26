@@ -62,6 +62,7 @@ A Browser page belongs to a Chat on evidence, never on a name, title or URL.
 - **Agent tools.** `browser_list`, `browser_attach` and `browser_detach` are bound to the agent's own Chat. They attach existing browsers; they never register a page by URL or name. Lineage stays first because it needs no prompt changes and a tool argument can't spoof it.
 - Only browsers with a loopback DevTools port qualify. `--remote-debugging-pipe` (Playwright MCP's default) has no endpoint to attach to.
 - Opening a page in a device's Browser panel loads its address in that device's own WebView. Each device has its own navigation, inputs and sign-ins; ownership decides which addresses a Chat offers, not page state. Remote Chats' pages are covered in [computers.md](computers.md#browser-pages-on-another-computer).
+- On macOS a release signed with the provisioning profile ([release.md](agents/release.md)) lets desktop Browser panel pages create and use Touch ID passkeys. They stay on that Mac, in that session (one per computer a page belongs to), and are not iCloud Keychain passkeys: Electron can't reach those for arbitrary sites. The phone's WebView has none: iOS gives a WebView passkeys only for the app's own associated domains or in a browser Apple entitles.
 - Phones reach a page over a LAN or Tailscale address, else an authenticated Cloudflare Quick Tunnel to a per-origin proxy.
 
 ## Window decoration
