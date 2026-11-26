@@ -317,9 +317,8 @@ test("releaseLinkWorktrees removes worktrees across distinct repositories concur
   let overlapReached;
   const sawOverlap = new Promise((resolve) => (overlapReached = resolve));
   const releases = [];
-  const removedPaths = [];
   const { link, store, workspaces, projects } = await fixture(t, {
-    removeWorktree: async ({ path: worktreePath, projectPath }) => {
+    removeWorktree: async ({ projectPath }) => {
       const perRepo = (activeByProject.get(projectPath) ?? 0) + 1;
       assert.equal(perRepo, 1, "worktrees in the same repository never run together");
       activeByProject.set(projectPath, perRepo);
@@ -329,7 +328,6 @@ test("releaseLinkWorktrees removes worktrees across distinct repositories concur
       await new Promise((resolve) => releases.push(resolve));
       activeTotal--;
       activeByProject.set(projectPath, 0);
-      removedPaths.push(worktreePath);
     },
   });
   await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "one", operationId: randomUUID() });
@@ -337,9 +335,10 @@ test("releaseLinkWorktrees removes worktrees across distinct repositories concur
   await readyChat(link, store, workspaces, { link, chatId: 2, prompt: "two", operationId: randomUUID() });
   const second = await addBoth(link, workspaces, 2);
 
-  const releasing = workspaces.releaseLinkWorktrees(link.id);
-  await sawOverlap;
-  while (removedPaths.length < 4) {
+  const release = { settled: false };
+  const releasing = workspaces.releaseLinkWorktrees(link.id).finally(() => (release.settled = true));
+  await Promise.race([sawOverlap, releasing]);
+  while (!release.settled) {
     while (releases.length) releases.shift()();
     await new Promise((resolve) => setImmediate(resolve));
   }
