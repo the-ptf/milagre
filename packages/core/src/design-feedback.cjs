@@ -86,7 +86,7 @@ const namedLayers = (ids) =>
     .map((id) => `"${id}"`)
     .join(", ") + (ids.length > MAX_NAMED_LAYERS ? ` and ${ids.length - MAX_NAMED_LAYERS} more` : "");
 
-async function designFeedback(saved, source, { renderPng, warnings: findWarnings, intent, mode }) {
+async function designFeedback(saved, source, { renderPng, warnings: findWarnings, intent, mode, system }) {
   const problems = [];
   let warnings = [];
   const document = mode ? designImplementation().designDocumentForMode(source, mode) : source;
@@ -130,6 +130,7 @@ async function designFeedback(saved, source, { renderPng, warnings: findWarnings
     notes.push(`The preview could not be rendered: ${error?.message ?? String(error)}. Check the warnings below.`);
   }
   notes.push(...problems);
+  if (system) notes.push(...(await system(saved.id, source, warnings).catch(() => [])));
   const text = designImplementation().designWarningText(warnings.filter((warning) => warning.kind !== "remote-image"));
   if (text) notes.push(`Warnings:\n${text}`);
   const remote = designImplementation().designWarningText(warnings.filter((warning) => warning.kind === "remote-image"));

@@ -5,6 +5,12 @@ const { z } = require("zod");
 const { designFontToolDefinitions } = require("./design-font-tools.cjs");
 const { designKitDataSchema } = require("@milagre/shared/design-schemas");
 const ID = /^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/;
+const DECISION = z
+  .object({
+    summary: z.string().trim().min(1).max(300).describe('What changed, in the user\'s words, such as "Primary buttons use a 12 px radius".'),
+    reason: z.string().trim().max(600).optional().describe("Why the user decided it."),
+  })
+  .strict();
 
 function createDesignKits({ directory, projectForChat }) {
   let queue = Promise.resolve();
@@ -23,7 +29,9 @@ function createDesignKits({ directory, projectForChat }) {
     const all = await versions(target);
     const found = version === undefined ? all.at(-1) : all.find((kit) => kit.version === version);
     if (!found && version !== undefined) throw Error(`Kit "${id}" version ${version} does not exist in this Project.`);
-    return found ? require("@milagre/shared/design").validateDesignKit(found) : null;
+    if (!found) return null;
+    const { decision: _decision, savedAt: _savedAt, ...kit } = found;
+    return require("@milagre/shared/design").validateDesignKit(kit);
   };
   async function versions(target) {
     try {
@@ -38,7 +46,16 @@ function createDesignKits({ directory, projectForChat }) {
   return {
     read: ({ chatId, id = "project", version }) => serial(async () => readKit(await file(chatId, id), id, version)),
     readProject: ({ project, id = "project", version }) => serial(() => readKit(projectFile(project, id), id, version)),
-    save: ({ chatId, id = "project", expectedVersion, kit }, { assertActive } = {}) =>
+    history: ({ chatId, id = "project" }) =>
+      serial(async () =>
+        (await versions(await file(chatId, id))).map((entry) => ({
+          version: entry.version,
+          title: entry.title,
+          ...(entry.savedAt ? { savedAt: entry.savedAt } : {}),
+          ...(entry.decision ? { decision: entry.decision } : {}),
+        })),
+      ),
+    save: ({ chatId, id = "project", expectedVersion, kit, decision }, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
         const target = await file(chatId, id);
@@ -51,7 +68,8 @@ function createDesignKits({ directory, projectForChat }) {
         await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
         const temporary = `${target}.${randomUUID()}.tmp`;
         try {
-          await fs.writeFile(temporary, JSON.stringify([...all, saved]), { mode: 0o600 });
+          const entry = { ...saved, savedAt: Date.now(), ...(decision ? { decision: DECISION.parse(decision) } : {}) };
+          await fs.writeFile(temporary, JSON.stringify([...all, entry]), { mode: 0o600 });
           await assertActive?.();
           await fs.rename(temporary, target);
         } finally {
@@ -76,13 +94,26 @@ function designKitToolDefinitions(chatId, kits, { report, changed } = {}) {
       name: "design_kit_save",
       description:
         "Create or revise this Project's design system (its kit). Use the app's existing identity (its DESIGN.md first, when it has one) and confirmed decisions. expectedVersion is 0 for a new kit, otherwise read the latest first. Saves an immutable version that every screen on this kit follows live, in every Chat of the Project and its library: colors, text styles, bindings and the kit components a screen holds unchanged. Frozen screens (kitFrozen) keep their version. Returns the kit and a report of the screens: how many follow it, which are frozen, which can't follow it (a removed style or token: they stay on their old version until fixed), which gained layout problems and which keep a changed copy of a kit component. Tell the user about broken and layout screens; fix them only when asked. Components are ordinary layer arrays, each with one main frame whose id matches its map key.",
-      input: { id: z.string().regex(ID).optional(), expectedVersion: z.number().int().nonnegative(), kit: designKitDataSchema },
+      input: {
+        id: z.string().regex(ID).optional(),
+        expectedVersion: z.number().int().nonnegative(),
+        kit: designKitDataSchema,
+        decision: DECISION.describe("The decision this version records, shown in the design system's decision log."),
+      },
       readOnly: false,
       run: async (args) => {
         const kit = await kits.save({ chatId, ...args });
         await changed?.(chatId, kit);
         return JSON.stringify(report ? { kit, screens: await report(chatId, kit) } : kit);
       },
+    },
+    {
+      name: "design_kit_history",
+      description:
+        "Read the decision log of this Project's design system: every saved version with what changed and why. Read it before proposing a change, so you don't reopen a decision the user already made.",
+      input: { id: z.string().regex(ID).optional() },
+      readOnly: true,
+      run: async (args) => JSON.stringify(await kits.history({ chatId, ...args })),
     },
     ...designFontToolDefinitions(),
   ];

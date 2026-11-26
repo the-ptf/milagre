@@ -262,3 +262,53 @@ test("a kit save reports which screens of the Project follow it, stay frozen or 
   assert.match(result.screens.broken[0].error, /"title" does not exist/);
   assert.equal((await designs.get({ chatId: "a#1", id: "home" })).document.nodes[0].fontSize, 18);
 });
+
+test("each design system version records its decision for the log, outside the snapshot screens pin", async (t) => {
+  const { designKitToolDefinitions } = require("./design-kits.cjs");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "design-kit-decisions-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const kits = createDesignKits({ directory, projectForChat: async (id) => id.split("#")[0] });
+  const tools = designKitToolDefinitions("a#1", kits);
+  const save = tools.find((tool) => tool.name === "design_kit_save");
+  const history = tools.find((tool) => tool.name === "design_kit_history");
+  await save.run({ expectedVersion: 0, kit, decision: { summary: "Start from DESIGN.md" } });
+  await save.run({
+    expectedVersion: 1,
+    kit: { ...kit, radii: { card: 20 } },
+    decision: { summary: "Cards use a 20 px radius", reason: "The user wants softer cards everywhere" },
+  });
+  const log = JSON.parse(await history.run({}));
+  assert.deepEqual(
+    log.map(({ version, decision }) => ({ version, decision })),
+    [
+      { version: 1, decision: { summary: "Start from DESIGN.md" } },
+      { version: 2, decision: { summary: "Cards use a 20 px radius", reason: "The user wants softer cards everywhere" } },
+    ],
+  );
+  assert.ok(log.every((entry) => Number.isFinite(entry.savedAt)));
+  const latest = await kits.read({ chatId: "a#2" });
+  assert.equal(latest.version, 2);
+  assert.equal("decision" in latest || "savedAt" in latest, false);
+});
+
+test("a saved screen names off-system values and local components another screen repeats", async (t) => {
+  const { artifactToolDefinitions } = require("./chat-artifacts.cjs");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "design-system-notes-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const api = createChatArtifacts({ directory, validateChat: async () => {} });
+  const tools = artifactToolDefinitions("a", api, undefined, { renderPng: async () => ({ type: "image", data: "", mimeType: "image/png" }) });
+  const show = tools.find((tool) => tool.name === "design_show");
+  const chip = (id) => ({ id, type: "frame", component: true, name: "Chip", width: 80, height: 32, fill: "#eeeeee" });
+  const screen = (nodes) => ({ schemaVersion: 1, width: 390, height: 844, kit: { ...kit, id: "project", version: 1 }, nodes });
+  await show.run({ id: "one", title: "One", document: { ...screen([chip("chip")]), kit: undefined } });
+  const second = await show.run({ id: "two", title: "Two", document: { ...screen([chip("tag")]), kit: undefined } });
+  assert.match(second.text, /Local component "tag" \(also on "One"\)/);
+  const drift = await show.run({ id: "three", title: "Three", document: screen([{ id: "box", type: "frame", width: 100, height: 100, fill: "red" }]) });
+  assert.match(drift.text, /outside the design system/);
+  const clean = await show.run({
+    id: "four",
+    title: "Four",
+    document: { ...screen([{ id: "box", type: "frame", width: 100, height: 100, fill: "$ink" }]), background: "$ink" },
+  });
+  assert.doesNotMatch(clean.text, /outside the design system|Local component/);
+});
