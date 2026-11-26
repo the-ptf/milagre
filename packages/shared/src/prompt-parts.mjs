@@ -70,10 +70,18 @@ export function formatFileMention(path) {
 }
 
 export const ORCHESTRATOR_MENTION = "@Orchestrator";
+export const BROWSER_MENTION = "@Browser";
+
+const namesMention = (prompt, name) => new RegExp(`(^|\\s)@${name}(?=$|\\s|[.,!?;:)\\]}])`, "i").test(prosePrompt(prompt));
 
 /** Whether the prompt's prose calls the Orchestrator with `@Orchestrator` (any case), outside code and quotes. */
 export function mentionsOrchestrator(prompt) {
-  return /(^|\s)@orchestrator(?=$|\s|[.,!?;:)\]}])/i.test(prosePrompt(prompt));
+  return namesMention(prompt, "orchestrator");
+}
+
+/** Whether the prompt's prose asks for Milagre's Browser panel with `@Browser` (any case), outside code and quotes. */
+export function mentionsBrowser(prompt) {
+  return namesMention(prompt, "browser");
 }
 
 export function formatChatMention(id) {
@@ -168,7 +176,7 @@ function fileTokens(prompt, files) {
       if (files(match[2])) tokens.push({ path: match[2], start, end: match.index + match[0].length });
       continue;
     }
-    if (/^(chat:[1-9]\d*|orchestrator)[.,!?;:)\]}]*$/i.test(match[3]) || match[3].startsWith("computer:")) continue;
+    if (/^(chat:[1-9]\d*|orchestrator|browser)[.,!?;:)\]}]*$/i.test(match[3]) || match[3].startsWith("computer:")) continue;
     let path = match[3];
     if (!files(path)) path = path.replace(TRAILING_PUNCTUATION, "");
     if (path && files(path)) tokens.push({ path, start, end: start + 1 + path.length });

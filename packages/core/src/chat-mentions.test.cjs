@@ -74,3 +74,12 @@ test("@Orchestrator asks the Chat's agent to hand the request to the Orchestrato
   const both = await chatMentionsContext({ chatId: "/my/project#1", prompt: "@chat:2 and @orchestrator." }, read);
   assert.ok(both.includes("</chat_mentions>") && both.includes("</orchestrator_mention>"));
 });
+
+test("@Browser asks the Chat's agent to use the Browser panel tools, but not inside code or an address", async () => {
+  const read = async () => state;
+  const called = await chatMentionsContext({ chatId: "/my/project#1", prompt: "@browser open localhost:5173 and sign in" }, read);
+  assert.match(called, /<browser_mention>[\s\S]*browser_open/);
+  assert.equal(await chatMentionsContext({ chatId: "/my/project#1", prompt: "see `@Browser` and me@browser.dev" }, read), "");
+  const all = await chatMentionsContext({ chatId: "/my/project#1", prompt: "@chat:2 @Orchestrator, @Browser." }, read);
+  assert.ok(all.includes("</chat_mentions>") && all.includes("</orchestrator_mention>") && all.includes("</browser_mention>"));
+});
