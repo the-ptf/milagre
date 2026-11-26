@@ -146,7 +146,7 @@ export function rebaseDesignOnKit(document, kit) {
   for (const main of document.nodes.filter((node) => node.component && Object.hasOwn(previous.components ?? {}, node.id))) {
     if (!Object.hasOwn(kit.components ?? {}, main.id)) continue;
     const held = subtree(nodes, main.id);
-    const comparable = (nodes) => canonical(nodes.map((node) => (node.id === main.id ? unplaced(node) : node)).toSorted((a, b) => a.id.localeCompare(b.id)));
+    const comparable = (nodes) => canonical([unplaced(nodes.find((node) => node.id === main.id)), ...nodes.filter((node) => node.id !== main.id)]);
     if (comparable(held) !== comparable(kitComponentNodes(previous, main.id))) {
       local.push(main.id);
       continue;
