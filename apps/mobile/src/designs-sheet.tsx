@@ -11,6 +11,7 @@ import { Cancel01Icon, CommentAdd01Icon, DashboardSquare01Icon, MoreHorizontalIc
 import {
   designGroups,
   designKitLabel,
+  designShowsKit,
   designsCanvasShell,
   isInteractiveDesign,
   newCommentId,
@@ -59,6 +60,24 @@ const refOf = (design: Artifact): ArtifactRef => ({ id: design.id, version: desi
  * `onClose` is set where the canvas is a tab of the right panel docked beside its Chat (an iPad), and closes the tab;
  * `onPage` shows another page of the Artifact in that tab.
  */
+/** The screens whose drawn copy is missing or out of date, the one in view first. */
+function designsToLoad(
+  ordered: ArtifactSummary[],
+  versions: Record<string, number | null>,
+  loaded: Record<string, Artifact>,
+  viewId: string | null | undefined,
+) {
+  return ordered
+    .map((design) => {
+      const pinned = versions[design.id] ?? null;
+      const have = loaded[design.id];
+      const target = pinned ?? design.version;
+      return { design, target, stale: !have || have.version !== target || (pinned === null && !designShowsKit(have, design.kit?.version)) };
+    })
+    .filter((item) => item.stale)
+    .sort((a, b) => Number(b.design.id === viewId) - Number(a.design.id === viewId));
+}
+
 export function DesignsSheet({
   hostId,
   chatId,
@@ -165,15 +184,7 @@ export function DesignsSheet({
       pendingLoads.current.set(source, pending);
     }
     const inFlight = pending;
-    const wanted = ordered
-      .map((design) => {
-        const pinned = versions[design.id] ?? null;
-        const have = loaded[design.id];
-        const target = pinned ?? design.version;
-        return { design, target, stale: !have || have.version !== target || (pinned === null && have.kit?.version !== design.kit?.version) };
-      })
-      .filter((item) => item.stale)
-      .sort((a, b) => Number(b.design.id === view.id) - Number(a.design.id === view.id));
+    const wanted = designsToLoad(ordered, versions, loaded, view.id);
     const load = async (queue: typeof wanted) => {
       for (const { design, target } of queue) {
         if (!live) return;

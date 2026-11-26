@@ -262,3 +262,31 @@ test("a kit save reports which screens of the Project follow it, stay frozen or 
   assert.match(result.screens.broken[0].error, /"title" does not exist/);
   assert.equal((await designs.get({ chatId: "a#1", id: "home" })).document.nodes[0].fontSize, 18);
 });
+
+test("a strict screen the newer kit would put in drift stays on its saved version", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "design-kit-strict-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const kits = createDesignKits({ directory: path.join(directory, "kits"), projectForChat: async (id) => id.split("#")[0] });
+  const designs = createChatArtifacts({ directory: path.join(directory, "artifacts"), validateChat: async () => {}, readKit: (request) => kits.read(request) });
+  const first = await kits.save({ chatId: "a#1", expectedVersion: 0, kit });
+  await designs.showDesign({
+    chatId: "a#1",
+    id: "strict",
+    title: "Strict",
+    document: {
+      schemaVersion: 1,
+      width: 390,
+      height: 844,
+      background: "$ink",
+      kit: first,
+      consistency: { mode: "strict" },
+      nodes: [{ id: "card", type: "frame", width: 100, height: 100, fill: "$ink", radius: 12 }],
+    },
+  });
+  await kits.save({ chatId: "a#1", expectedVersion: 1, kit: { ...kit, radii: { card: 20 } } });
+  const read = await designs.get({ chatId: "a#1", id: "strict" });
+  assert.equal(read.document.kit.version, 1);
+  assert.equal(read.kitBroken.version, 2);
+  const edited = await designs.apply({ chatId: "a#1", id: "strict", expectedVersion: 1, operations: [{ op: "update", id: "card", patch: { width: 120 } }] });
+  assert.equal(edited.version, 2);
+});
