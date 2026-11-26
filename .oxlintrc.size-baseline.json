@@ -137,7 +137,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2846,
+            "max": 2844,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -145,7 +145,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2635,
+            "max": 2633,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -265,7 +265,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 598,
+            "max": 594,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -321,7 +321,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1031,
+            "max": 1029,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -329,7 +329,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 942,
+            "max": 939,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -529,7 +529,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 619,
+            "max": 612,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -575,7 +575,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2399,
+            "max": 2398,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -583,7 +583,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2147,
+            "max": 2146,
             "skipBlankLines": true,
             "skipComments": true
           }

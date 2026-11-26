@@ -334,7 +334,14 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // Where the phone reaches the Chat's computer: none unless a test says so, so localhost links stay as written.
       if (base === "reachable-host" && !(id in modules)) return { ReachableHostContext: "ReachableHostContext" };
       if (base === "chat-link-context" && !(id in modules))
-        return { ChatLinkContext: "ChatLinkContext", ChatLinkProvider: "ChatLinkProvider", ChatFilesContext: "ChatFilesContext" };
+        return {
+          ChatLinkContext: "ChatLinkContext",
+          ChatLinkActionsContext: "ChatLinkActionsContext",
+          ChatLinkProvider: "ChatLinkProvider",
+          ChatFilesContext: "ChatFilesContext",
+          chatLinks: load("reply-links.ts", { "@milagre/shared/chats": require("../packages/shared/src/chats.mjs") }, "", cache).chatLinks,
+        };
+      if (base === "link-sheet" && !(id in modules)) return { showWebLinkSheet() {}, showFileLinkSheet() {} };
       if (base === "browser-link" && !(id in modules)) return load("browser-link.ts", modules, "", cache);
       if (base === "routes-native") return { useReachableHost: () => null, ...modules[id] };
       if (id === "@milagre/shared/loopback-url" && !(id in modules)) return require(id);
@@ -2466,6 +2473,7 @@ function markdownHost({
   basePath,
   reachable = null,
   openChatLink,
+  linkActions,
   reactCompiler = false,
   copy = async () => {},
   haptic = () => {},
@@ -2481,13 +2489,16 @@ function markdownHost({
         ? reachable
         : context === "ChatLinkContext"
           ? openChatLink
-          : context === "ChatFilesContext"
-            ? { current: steps }
-            : undefined,
+          : context === "ChatLinkActionsContext"
+            ? linkActions
+            : context === "ChatFilesContext"
+              ? { current: steps }
+              : undefined,
   };
   const viewer = require("../apps/mobile/src/viewer-store.ts");
   const routes = [],
-    links = [];
+    links = [],
+    sheets = [];
   const { Markdown } = load(
     "markdown.tsx",
     {
@@ -2526,6 +2537,10 @@ function markdownHost({
       "./markdown-image": require("../apps/mobile/src/markdown-image.ts"),
       "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
       "./ui": { PageScroll: "PageScroll", colors: {}, styles: { muted: {}, code: {} } },
+      "./link-sheet": {
+        showWebLinkSheet: (sheet) => sheets.push({ kind: "web", ...sheet }),
+        showFileLinkSheet: (sheet) => sheets.push({ kind: "file", ...sheet }),
+      },
     },
     "",
     new Map(),
@@ -2548,6 +2563,7 @@ function markdownHost({
     },
     routes,
     links,
+    sheets,
     viewer,
     unmount: () => react.unmount(),
   };
@@ -2786,6 +2802,46 @@ test("mobile reply links honor the Chat destination and retain an external fallb
     await find(screen.render("https://github.com/other/project/pull/12", streaming), (node) => node.props?.accessibilityRole === "link").props.onPress();
     assert.deepEqual(screen.links, ["https://github.com/other/project/pull/12"]);
   }
+});
+
+test("a long press or the VoiceOver action on a reply link opens its own sheet; other text keeps the message's", () => {
+  const actions = () => ({ review: null, panel: null });
+  const screen = markdownHost({ basePath: "/repo", linkActions: actions });
+  const tree = screen.render("See [the PR](https://github.com/o/r/pull/7), [the helper](src/a.ts#L3) and plain words.");
+  const [web, file] = findAll(tree, (node) => node.props?.accessibilityRole === "link");
+  web.props.onLongPress();
+  assert.deepEqual(screen.sheets.at(-1), {
+    kind: "web",
+    text: "the PR",
+    url: "https://github.com/o/r/pull/7",
+    written: "https://github.com/o/r/pull/7",
+    actions,
+  });
+  file.props.onAccessibilityAction({ nativeEvent: { actionName: "linkOptions" } });
+  assert.deepEqual(screen.sheets.at(-1), { kind: "file", text: "the helper", path: "/repo/src/a.ts" });
+  assert.equal(JSON.stringify(web.props.accessibilityActions), JSON.stringify([{ name: "linkOptions", label: "Link options" }]));
+  assert.equal(
+    findAll(tree, (node) => node.type === "Text" && node.props?.onLongPress).length,
+    2,
+    "Only links take the long press; the rest of the message keeps the Message sheet",
+  );
+});
+
+test("a Chat's reply links name Code review only for its own PRs, and the Browser panel only when it is on", () => {
+  const { chatLinks } = load("reply-links.ts", { "@milagre/shared/chats": require("../packages/shared/src/chats.mjs") });
+  const opened = [];
+  const prs = [{ url: "https://github.com/o/r/pull/7", number: 7 }];
+  const withPanel = chatLinks(prs, (pr) => (opened.push(["pr", pr.number]), true), { on: true, open: (url) => (opened.push(["panel", url]), true) });
+  const known = withPanel.actions("https://github.com/o/r/pull/7/files");
+  assert.ok(known.review && known.panel);
+  known.review();
+  assert.deepEqual(opened, [["pr", 7]]);
+  assert.equal(withPanel.actions("https://example.com").review, null);
+  assert.equal(withPanel.open("https://example.com"), true);
+  assert.deepEqual(opened.at(-1), ["panel", "https://example.com"]);
+  const noPanel = chatLinks(prs, () => false, { on: false, open: () => true });
+  assert.equal(noPanel.actions("https://example.com").panel, null);
+  assert.equal(noPanel.open("https://github.com/o/r/pull/7"), false, "A PR that can't open falls back to the system");
 });
 
 test("mobile reply links preserve localhost for the internal Browser instead of rewriting it to the phone's LAN route", async () => {
@@ -4479,10 +4535,10 @@ test("a Link Chat's PRs are its Projects' branch PRs, each opened in its own Wor
     const title = chatScreen(tree).props.options.headerTitle();
     find(title, (node) => node.type === "HeaderPullRequestChip").props.onPress();
     assert.equal(JSON.stringify(globalThis.openedPullRequests), JSON.stringify([{ worktreeId: "42", number: "12", chat: key, cwd: "/wt/web" }]));
-    const links = find(tree, (node) => node.type === "ChatLinkProvider").props;
-    assert.equal(links.openLink("https://github.com/o/api/pull/12/files#diff-123"), true);
+    const links = find(tree, (node) => node.type === "ChatLinkProvider").props.links;
+    assert.equal(links.open("https://github.com/o/api/pull/12/files#diff-123"), true);
     assert.equal(JSON.stringify(globalThis.openedPullRequests.at(-1)), JSON.stringify({ worktreeId: "42", number: "12", chat: key, cwd: "/wt/api" }));
-    assert.equal(links.openLink("https://github.com/o/unrelated/pull/12"), true);
+    assert.equal(links.open("https://github.com/o/unrelated/pull/12"), true);
     assert.equal(chat.router.pushed.at(-1).pathname, "/browser-sheet");
     assert.equal(chat.router.pushed.at(-1).params.url, "https://github.com/o/unrelated/pull/12");
     assert.equal(globalThis.openedPullRequests.length, 2);
@@ -21291,7 +21347,7 @@ test("Chat web links use the iPad panel or phone sheet, and respect this device'
     const tabs = [];
     chat.panels.openInPanel = docked ? (tab) => tabs.push(tab) : null;
     chat.params.id = "2";
-    const link = () => find(chat.render(), (node) => node.type === "ChatLinkProvider").props.openLink;
+    const link = () => find(chat.render(), (node) => node.type === "ChatLinkProvider").props.links.open;
     try {
       assert.equal(link()("http://localhost:5173"), true);
       if (docked) {

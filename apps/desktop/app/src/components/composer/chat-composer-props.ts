@@ -1,3 +1,4 @@
+import type { PullRequestLink } from "../markdown/LinkMenu";
 import type { MessageDelivery } from "@milagre/shared/queued-messages";
 import type { AgentSession } from "@milagre/shared/model";
 import type { AgentPort, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, Subagent } from "../../model";
@@ -36,7 +37,7 @@ export interface ChatComposerProps {
   onSendDesignMessage?: (text: string, images?: ImageAttachment[]) => Promise<boolean>;
   onSendPageComments?: (text: string, images: ImageAttachment[]) => Promise<boolean>;
   onOpenDiff?: (path: string, worktree: string) => void;
-  onOpenPullRequestLink?: (url: string) => boolean;
+  pullRequestLink?: PullRequestLink;
   scopeKind?: "project" | "link";
   findOpen?: boolean;
   findSignal?: number;

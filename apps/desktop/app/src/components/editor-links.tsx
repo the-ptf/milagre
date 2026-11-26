@@ -33,14 +33,14 @@ export function ChatFiles({ steps, children }: { steps: readonly StepFile[]; chi
   return <ChatFilesContext.Provider value={latest}>{children}</ChatFilesContext.Provider>;
 }
 
-export function useFileOpener(): { open: (path: string, line?: number) => void; title: string } | null {
+export function useFileOpener(): { open: (path: string, line?: number) => void; title: string; name: string } | null {
   const root = useContext(RootContext);
   const steps = useContext(ChatFilesContext);
   const { editor } = useEditors();
   return useMemo(() => {
     if (!root || !editor) return null;
     const open = (path: string, line?: number) => void openInEditor(root, { path, line, fallbacks: touchedFileMatches(path, steps.current) });
-    return { open, title: `Open in ${editor.name}` };
+    return { open, title: `Open in ${editor.name}`, name: editor.name };
   }, [root, editor, steps]);
 }
 

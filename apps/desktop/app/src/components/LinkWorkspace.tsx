@@ -31,7 +31,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentPr
 import type { AgentPorts, LinkedWork, LinkState, OpenLink, WorktreeBinding } from "@milagre/shared/model";
 import { chatKeyForScope, computerOfKey, scopeKey } from "@milagre/shared/chat-scopes";
 import { showNotice } from "../lib/notice";
-import { associatedPullRequest, chatTitle, createPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
+import { chatTitle, createPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
+import { chatPullRequestLink } from "./markdown/LinkMenu";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { chatsNeedingAttention } from "@milagre/shared/attention";
 import { useHiddenProjects } from "../lib/hidden-projects";
@@ -756,16 +757,13 @@ export function LinkWorkspace({
                         store={draftStore}
                         projectPath={root}
                         messageScope={owner}
-                        onOpenPullRequestLink={(url) => {
-                          const entry = associatedPullRequest(
-                            url,
-                            memberPrs.map((entry) => ({ ...entry, url: entry.pr.url })),
-                          );
-                          if (!entry) return false;
-                          pickPr(entry.member.projectId);
-                          if (!changes.open) changes.toggle();
-                          return true;
-                        }}
+                        pullRequestLink={chatPullRequestLink(
+                          memberPrs.map((entry) => ({ ...entry, url: entry.pr.url })),
+                          (entry) => {
+                            pickPr(entry.member.projectId);
+                            if (!changes.open) changes.toggle();
+                          },
+                        )}
                         earlier={earlierMessages}
                         trimHistory={lean ? chatWindow.trim : undefined}
                         messages={shownMessages}

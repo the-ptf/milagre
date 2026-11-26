@@ -43,7 +43,7 @@ const { loadLoginEnvironment } = require("@milagre/core/agents/environment");
 const { detectEditors, openInEditor, requireWorktreeRoot } = require("@milagre/core/editors");
 const { copyImage, saveImage } = require("./generated-images.cjs");
 const { createDictation } = require("./dictation.cjs");
-const { revealFolder } = require("./reveal.cjs");
+const { handleReveal } = require("./reveal.cjs");
 const { applyWindowBackground, OPAQUE_BACKGROUND } = require("./window-background.cjs");
 const { guardNavigation } = require("./links.cjs");
 const { forwardAppShortcuts, setForwardedRules } = require("./app-shortcuts.cjs");
@@ -338,14 +338,7 @@ async function startDesktop() {
     inputIdleSeconds: () => powerMonitor.getSystemIdleTime(),
   });
 
-  ipcMain.handle("project:reveal", (_event, folder) =>
-    revealFolder(folder, {
-      checkRoot: async (root) => {
-        await checkEditorRoot(root);
-      },
-      open: (target) => shell.openPath(target),
-    }),
-  );
+  handleReveal(ipcMain, { shell, checkRoot: async (root) => void (await checkEditorRoot(root)) });
 
   const copyImageFile = (file) =>
     copyImage(file, {
