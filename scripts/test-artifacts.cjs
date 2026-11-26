@@ -661,7 +661,7 @@ async function browserChecks() {
         `[...document.querySelectorAll("[role=listbox] [data-picker-row]")].find((row) => row.textContent.includes(${JSON.stringify(label)})).click()`,
       );
     };
-    assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-dock-title]").textContent`), "Canvas");
+    assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-dock-title]").textContent`), "Paradise");
     await evaluate(
       `window.dockNode = ${dock}; window.dockSlides = 0; window.dockWatch = new MutationObserver(() => { if (${dock} !== window.dockNode) window.dockSlides++; }); window.dockWatch.observe(document.body, { childList: true, subtree: true }); true`,
     );
@@ -697,7 +697,7 @@ async function browserChecks() {
     );
     await evaluate(`${shareDialog}.querySelector("[aria-label='Close']").click()`);
     await waitFor(`!${shareDialog} && !!${dock}`);
-    await chooseInMenu("Canvas");
+    await chooseInMenu("Paradise");
     await waitFor(`${dock}.dataset.page === "canvas" && ${frames}?.length === 2`);
     assert.equal(await evaluate(`${dock} === window.dockNode && window.dockSlides === 0`), true, "and back, still the same panel");
     await evaluate("window.dockWatch.disconnect()");
@@ -739,7 +739,7 @@ async function browserChecks() {
     await waitFor("!!window.openedLibrary");
     assert.equal(await evaluate("window.openedLibrary.projectKey"), "milagre-link:fixture");
     assert.equal(await evaluate(`${dock}.dataset.page`), "library:iphone", "the panel stays where it was");
-    await chooseInMenu("Canvas");
+    await chooseInMenu("Paradise");
     await waitFor(`${dock}.dataset.page === "canvas" && ${frames}?.length === 2`);
 
     // The group card's Open frames every design it showed.
@@ -1368,7 +1368,7 @@ async function browserChecks() {
     await waitFor(`!${dock}`);
     await evaluate(`${toggle}.click()`);
     await waitFor(`${dock}?.dataset.page === "page" && !!${dock}.querySelector("[data-slot=artifact-page] iframe")`);
-    await chooseInMenu("Canvas");
+    await chooseInMenu("Paradise");
     await waitFor(`${dock}.dataset.page === "canvas" && ${dock}.querySelectorAll("[data-slot=artifact-frame]").length === 2`);
 
     // The git changes panel opens at the window's right edge: the design docks beside it instead of covering it.
@@ -1634,7 +1634,7 @@ async function browserChecks() {
     if (keepOpen) {
       await evaluate("window.designsEnabled=true; window.designsChanged({enabled:true})");
       await waitFor(`!!${dock}.querySelector("header button[aria-haspopup=listbox]")`);
-      await chooseInMenu("Canvas");
+      await chooseInMenu("Paradise");
       await waitFor(`${dock}.dataset.page === "canvas"`);
       await evaluate(`${dock}.querySelector("[aria-label='Comment on a design']").click()`);
       await waitFor(`!!${frame("login")}.querySelector("[data-slot=artifact-comment-layer]")`);

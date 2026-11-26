@@ -217,7 +217,7 @@ export function renderDesignPage(input, { files } = {}) {
   const description = descriptionMeta(page.kind === "workspace" ? workspaceDescription(page) : designsDescription(page));
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>${escape(page.title)} | Milagre Designs</title>${description}<style>
 *{box-sizing:border-box}html,body{margin:0;font-family:system-ui,sans-serif;background:#111922;color:#e5edf3}#viewport{display:block;overflow:auto;padding:48px}#canvas{display:flex;${grouped ? "flex-direction:column;align-items:flex-start;" : ""}gap:${GAP}px;width:${width}px}${grouped ? GROUP_STYLE : ""}figure{margin:0;flex-shrink:0}figcaption{height:42px;padding:10px 0;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}img,iframe.live{display:block;border:0;box-shadow:0 4px 24px #0005;background:white}.sr{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-</style></head><body><h1 class="sr">${escape(page.title)}</h1><main id="viewport" aria-label="${presentation ? "Designs presentation" : "Designs canvas"}"><div id="canvas"${presentation ? " data-present" : ""}>${renderFrames()}</div></main></body></html>`;
+</style></head><body><h1 class="sr">${escape(page.title)}</h1><main id="viewport" aria-label="${presentation ? "Designs presentation" : "Paradise"}"><div id="canvas"${presentation ? " data-present" : ""}>${renderFrames()}</div></main></body></html>`;
 }
 
 function validateArtifactPageSnapshot(value) {

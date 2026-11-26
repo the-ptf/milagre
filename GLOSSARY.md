@@ -54,6 +54,9 @@ _Avoid_: session, thread (the providers' names for the agent process behind a **
 The designs a **Project** keeps past its **Chats**, on named pages (such as iPhone, Watch, Kit). A design or the HTML page is added from a **Chat**'s Artifact panel as a copy, and agents in any **Chat** of the **Project** revise it by its `library:<id>`; every save is a version recorded with its **Chat** ([designs](docs/designs.md)). The **Project**'s Design library page shows the whole library and renames, moves and deletes its designs without a **Chat**.
 _Avoid_: shared designs, global canvas
 
+**Paradise**:
+The **Chat**'s design space on desktop and phone. Users view, try, and comment on designs there. `@paradise` refers to Paradise in a Chat message.
+
 **Design system**:
 A **Project**'s **Tokens** and **Components**, which every layer design of the **Project** follows live: a change reaches every screen that uses it, in every **Chat** and in the **Project library**, unless that screen was frozen at an earlier version on the user's request. Only agents change it, when the user asks; an agent that sees a request meant for every screen proposes it as a change to the **Design system** instead of one screen's fix. Interactive designs don't follow it.
 A **Named Link** has none of its own: its **Chats** follow the **Design system** of the one member **Project** it names (its first member until the user picks another), and a change asked from them changes that **Project**'s. When that **Project** leaves the **Named Link**, its **Chats** stay frozen at the last version until the user names another member. A **Project** never follows another through a canvas **Link**. For a **Project** with an app, its code and `DESIGN.md` are the origin: the **Design system** is imported from them, and a change made in Milagre reaches the code only when the user accepts the agent's offer to carry it there.

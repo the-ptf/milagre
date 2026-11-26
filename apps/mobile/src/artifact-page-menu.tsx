@@ -24,7 +24,7 @@ import { PullDown, useStyles } from "./ui";
 
 type Caller = { call: <T>(method: string, args: unknown[]) => Promise<T> };
 
-/** The Artifact header's title. With more than one page to show it opens the page menu: Canvas and the HTML page. */
+/** The Artifact header's title. With more than one page to show it opens the page menu: Paradise and the HTML page. */
 export function ArtifactPageTitle({
   title,
   subtitle,

@@ -1,3 +1,4 @@
+import { PARADISE_NAME } from "@milagre/shared/prompt-parts";
 import { useEffect, useRef } from "react";
 import { ComputerTerminal01Icon, FileDiffIcon, Globe02Icon, GitPullRequestIcon, PaintBoardIcon } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
@@ -47,7 +48,7 @@ export function pageLabel(projectPath: string, tab: OpenTab): string {
       return page?.title || (page && page.url !== "about:blank" ? addressText(page.url) : "New page");
     }
     case "designs":
-      return tab.page === "canvas" ? "Designs" : tab.page === "page" ? "Artifact" : "Design library";
+      return tab.page === "canvas" ? PARADISE_NAME : tab.page === "page" ? "Artifact" : "Design library";
     case "terminal":
       return (chatKey && chatTerminals(chatKey).terminals.find((terminal) => terminal.id === tab.terminalId)?.title) || "Terminal";
     case "diff":

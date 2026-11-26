@@ -1,4 +1,5 @@
 import { readPageMessage } from "@milagre/shared/artifact";
+import { PARADISE_NAME } from "@milagre/shared/prompt-parts";
 import type { MenuSection } from "./primitives/menu";
 import type { DesignsTab } from "./panel-tabs";
 
@@ -29,7 +30,7 @@ export function rememberedTab(hostId: string | undefined, chatId: string | undef
 }
 
 /**
- * The page menu of the Artifact's header: Canvas when the Chat has designs, then the HTML page as its tabs (or its title
+ * The page menu of the Artifact's header: Paradise when the Chat has designs, then the HTML page as its tabs (or its title
  * when it has none), then the pages of the Project library. `current` is checked.
  */
 /** The page menu entry that opens the Project's Design library page. */
@@ -50,7 +51,7 @@ export function artifactPageSections({
   openLibrary?: boolean;
 }): MenuSection[] {
   const sections: MenuSection[] = [];
-  if (canvas) sections.push({ items: [{ id: "canvas", title: "Canvas", systemImage: "square.grid.2x2", checked: current.kind === "canvas" }] });
+  if (canvas) sections.push({ items: [{ id: "canvas", title: PARADISE_NAME, systemImage: "square.grid.2x2", checked: current.kind === "canvas" }] });
   if (page) {
     const tabs = page.tabs.length ? page.tabs : [{ id: "", title: page.title }];
     sections.push({

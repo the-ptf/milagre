@@ -52,7 +52,7 @@ export type CanvasTool = "pointer" | "hand" | "comment";
 export function CanvasTools({ tool, onTool, comment }: { tool: CanvasTool; onTool: (tool: CanvasTool) => void; comment?: ReactNode }) {
   useCanvasKeys(true, { [POINTER_KEY]: () => onTool("pointer"), [HAND_KEY]: () => onTool("hand") });
   return (
-    <div role="group" aria-label="Canvas tools" className="flex items-center gap-0.5">
+    <div role="group" aria-label="Paradise tools" className="flex items-center gap-0.5">
       <CanvasToolButton
         label="View and try designs"
         keyHint={POINTER_KEY}

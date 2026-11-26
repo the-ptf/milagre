@@ -1,9 +1,9 @@
-import { BROWSER_MENTION, ORCHESTRATOR_MENTION } from "@milagre/shared/prompt-parts";
+import { BROWSER_MENTION, PARADISE_MENTION, ORCHESTRATOR_MENTION, PARADISE_NAME, matchesParadiseMention } from "@milagre/shared/prompt-parts";
 import type { OrchestratorClient } from "./orchestrator-store";
 import { ListRow } from "./ui";
 import { useOrchestrator } from "./use-orchestrator";
 
-/** The @ menu's Milagre rows whose name fits the query: Orchestrator while this computer has it on, and Browser. */
+/** The @ menu's Milagre rows whose name fits the query. */
 export function MilagreMentionRows({
   client,
   query,
@@ -21,6 +21,7 @@ export function MilagreMentionRows({
       {orchestrator && fits("orchestrator") && (
         <ListRow title="Orchestrator" subtitle="Hand this to the Orchestrator" onPress={() => onPick(ORCHESTRATOR_MENTION)} />
       )}
+      {matchesParadiseMention(query) && <ListRow title={PARADISE_NAME} subtitle={PARADISE_MENTION} onPress={() => onPick(PARADISE_MENTION)} />}
       {fits("browser") && <ListRow title="Browser" subtitle="Use Milagre's Browser panel" onPress={() => onPick(BROWSER_MENTION)} />}
     </>
   );

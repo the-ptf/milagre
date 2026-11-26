@@ -22,6 +22,7 @@ import {
   type HtmlArtifact,
   type PageShareScope,
 } from "@milagre/shared/artifact";
+import { PARADISE_NAME } from "@milagre/shared/prompt-parts";
 import { isModalOpen } from "../../lib/modal";
 import type { ArtifactRef, ImageAttachment } from "../../model";
 import Tooltip from "../primitives/Tooltip";
@@ -317,7 +318,7 @@ function PageMenu({
     </span>
   );
   const options = [
-    ...(hasCanvas ? [{ value: "canvas", label: "Canvas", icon: canvasIcon, display: titled("Canvas") }] : []),
+    ...(hasCanvas ? [{ value: "canvas", label: PARADISE_NAME, icon: canvasIcon, display: titled(PARADISE_NAME) }] : []),
     ...(htmlRef
       ? tabs
         ? tabs.map((item) => ({ value: `page:${item.id}`, label: item.title, icon: pageIcon, group: title, display: titled(title, item.title) }))
@@ -337,7 +338,7 @@ function PageMenu({
   if (options.length < 2)
     return shownLibrary
       ? titled("Project library", shownLibrary.name)
-      : titled(page === "canvas" ? "Canvas" : title, page === "page" && tabs && shownTab ? shownTab.title : undefined);
+      : titled(page === "canvas" ? PARADISE_NAME : title, page === "page" && tabs && shownTab ? shownTab.title : undefined);
   const current = options.find((option) => option.value === value) ?? options[0]!;
   return (
     <Select

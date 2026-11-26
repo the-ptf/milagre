@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   chatMentionTokens,
   mentionsBrowser,
+  matchesParadiseMention,
   mentionsOrchestrator,
   computerMentionTokens,
   formatComputerMention,
@@ -116,6 +117,14 @@ test("code spans are text", () => {
 test("formatFileMention quotes paths with spaces", () => {
   assert.equal(formatFileMention("a b.ts"), '@"a b.ts"');
   assert.equal(formatFileMention("a.ts"), "@a.ts");
+});
+
+test("the Paradise row matches @paradise and a file named paradise still has a quoted mention", () => {
+  for (const query of ["", "par", "PARADISE", "Paradise", "Paradis"]) assert.ok(matchesParadiseMention(query));
+  for (const query of ['"paradise', "paradise.ts", "canvas"]) assert.equal(matchesParadiseMention(query), false);
+  const options = { skills: [], files: (path: string) => path === "paradise" };
+  assert.deepEqual(promptParts("@paradise", options), [{ kind: "text", text: "@paradise" }]);
+  assert.deepEqual(promptParts(formatFileMention("paradise"), options), [{ kind: "file", text: '@"paradise"', path: "paradise" }]);
 });
 
 test("skillLabel title-cases the slug", () => {

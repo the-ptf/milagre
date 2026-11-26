@@ -7,7 +7,7 @@ description: Create screen designs in a Milagre Chat, as named layers with layou
 
 Use this for UI screens, mockups, prototypes and visual designs. For an explainer, report or topic page, use `artifact_show` and the artifacts skill instead. If the user named another design tool (Pencil, Figma, Paper or any other MCP or app), use that tool.
 
-Only agents change designs. The user views them on the Designs canvas on desktop and phone, tries interactive ones, pins comments, chooses one and asks for changes through Chat. A design is one of two kinds, fixed for all its versions:
+Only agents change designs. The user views them on the Paradise on desktop and phone, tries interactive ones, pins comments, chooses one and asks for changes through Chat. A design is one of two kinds, fixed for all its versions:
 
 - **Layers** (`document`): a static screen drawn from named layers. Best for quick exploration, many variants, and work held to the Project's kit.
 - **Interactive** (`html` with `width` and `height`): your own HTML page, run live. Best when the screen has behaviour worth trying (navigation, tabs, toggles, forms, menus, animation) or the user asks for a prototype.

@@ -12,7 +12,7 @@ import {
   versionSections,
 } from "./artifact-pages.ts";
 
-test("the page menu offers Canvas when the Chat has designs, then the page's tabs or its title", () => {
+test("the page menu offers Paradise when the Chat has designs, then the page's tabs or its title", () => {
   const tabs = [
     { id: "overview", title: "Overview" },
     { id: "headers", title: "Headers" },
@@ -21,7 +21,7 @@ test("the page menu offers Canvas when the Chat has designs, then the page's tab
   assert.deepEqual(
     both.flatMap((section) => section.items.map((item) => [item.id, item.title, !!item.checked])),
     [
-      ["canvas", "Canvas", false],
+      ["canvas", "Paradise", false],
       ["page:overview", "Overview", false],
       ["page:headers", "Headers", true],
     ],
@@ -31,7 +31,7 @@ test("the page menu offers Canvas when the Chat has designs, then the page's tab
   assert.deepEqual(
     plain.flatMap((section) => section.items.map((item) => [item.id, item.title, !!item.checked])),
     [
-      ["canvas", "Canvas", true],
+      ["canvas", "Paradise", true],
       ["page:", "HTTP", false],
     ],
   );

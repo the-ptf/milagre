@@ -1,4 +1,4 @@
-const { chatMentionTokens, mentionsBrowser, mentionsOrchestrator } = require("@milagre/shared/prompt-parts");
+const { chatMentionTokens, mentionsBrowser, mentionsParadise, mentionsOrchestrator } = require("@milagre/shared/prompt-parts");
 const { chatMentionChoices } = require("@milagre/shared/prompt-mentions");
 const { neutralizeTags } = require("@milagre/shared/untrusted-text");
 const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
@@ -16,10 +16,18 @@ const BROWSER_NOTE = [
   "</browser_mention>",
 ].join("\n");
 
+const PARADISE_NOTE = [
+  "<paradise_mention>",
+  "The user's @paradise refers to Paradise, the design space in this Chat. Use the milagre design tools when the request calls for them: artifact_list to find existing designs, design_read to inspect one, design_show to create one, and design_apply to revise it.",
+  "</paradise_mention>",
+].join("\n");
+
 async function chatMentionsContext(request, readState) {
   const prompt = request.prompt ?? "";
   const chats = await mentionedChats(request, readState);
-  return [chats, mentionsOrchestrator(prompt) && ORCHESTRATOR_NOTE, mentionsBrowser(prompt) && BROWSER_NOTE].filter(Boolean).join("\n\n");
+  return [chats, mentionsOrchestrator(prompt) && ORCHESTRATOR_NOTE, mentionsBrowser(prompt) && BROWSER_NOTE, mentionsParadise(prompt) && PARADISE_NOTE]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 async function mentionedChats(request, readState) {

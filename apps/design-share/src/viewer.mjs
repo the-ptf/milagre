@@ -124,7 +124,7 @@ function mvDesigns(config) {
   const port = document.createElement("main");
   port.id = "mv-port";
   port.tabIndex = 0;
-  port.setAttribute("aria-label", "Designs canvas. Drag to pan, pinch or use plus and minus to zoom. Right-click a frame to download it.");
+  port.setAttribute("aria-label", "Paradise. Drag to pan, pinch or use plus and minus to zoom. Right-click a frame to download it.");
   const canvas = document.createElement("div");
   canvas.id = "mv-canvas";
   canvas.append(...old.childNodes);
@@ -506,11 +506,11 @@ function mvMenu(view) {
     frame?.fig.classList.add("menu");
     menu.replaceChildren();
     menu.className = sheet ? "sheet" : "";
-    menu.setAttribute("aria-label", frame ? frame.name : "Canvas");
+    menu.setAttribute("aria-label", frame ? frame.name : "Paradise");
     if (sheet) {
       const head = document.createElement("div");
       head.className = "head";
-      head.textContent = frame ? frame.name : "Canvas";
+      head.textContent = frame ? frame.name : "Paradise";
       menu.append(head);
     }
     for (const entry of entries(frame)) {
@@ -579,7 +579,7 @@ function mvDock(view) {
   const { icons } = view.config;
   const dock = document.createElement("div");
   dock.className = "mv-dock";
-  dock.innerHTML = `<nav class="mv-bar" aria-label="Canvas zoom"><button id="mv-out" class="step" type="button" aria-label="Zoom out">${icons.minus}</button><button id="mv-zoom" type="button" aria-label="Zoom to 100%"></button><button id="mv-in" class="step" type="button" aria-label="Zoom in">${icons.plus}</button><i aria-hidden="true"></i><button id="mv-fit" type="button" aria-label="Fit everything">${icons.fit}Fit</button></nav><a class="mv-logo" href="https://milagre.cloud" target="_blank" rel="noopener noreferrer" aria-label="Made with Milagre">${icons.logo}</a>`;
+  dock.innerHTML = `<nav class="mv-bar" aria-label="Paradise zoom"><button id="mv-out" class="step" type="button" aria-label="Zoom out">${icons.minus}</button><button id="mv-zoom" type="button" aria-label="Zoom to 100%"></button><button id="mv-in" class="step" type="button" aria-label="Zoom in">${icons.plus}</button><i aria-hidden="true"></i><button id="mv-fit" type="button" aria-label="Fit everything">${icons.fit}Fit</button></nav><a class="mv-logo" href="https://milagre.cloud" target="_blank" rel="noopener noreferrer" aria-label="Made with Milagre">${icons.logo}</a>`;
   document.body.append(dock);
   document.getElementById("mv-in").addEventListener("click", () => view.zoomAt(1.25, undefined, undefined, true));
   document.getElementById("mv-out").addEventListener("click", () => view.zoomAt(0.8, undefined, undefined, true));
