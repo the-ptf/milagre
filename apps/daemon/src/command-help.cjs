@@ -74,13 +74,14 @@ const COMMANDS = {
     usage: "milagre command <list|describe NAME|run NAME> [flags]",
     commands: [
       ["list", "List owner operations, or scoped commands with --chat."],
-      ["describe <name>", "Describe a command and its input schema with --chat."],
-      ["run <name>", "Run a scoped command. Requires --chat."],
+      ["describe <name>", "Describe a command and its input schema, or a scoped command with --chat."],
+      ["run <name>", "Run an owner operation, or a scoped command with --chat."],
     ],
     examples: [
       "milagre command list",
       "milagre project registry",
       "milagre command list --chat '/project#1'",
+      "milagre command run project:current",
       "milagre command run tasks_read --chat '/project#1'",
       'milagre chat patch --input \'["/project",1,{"title":"Review"}]\'',
     ],
