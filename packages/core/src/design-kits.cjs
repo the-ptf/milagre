@@ -22,7 +22,7 @@ function createDesignKits({ directory, projectForChat }) {
   function projectFile(project, id) {
     if (typeof id !== "string" || !ID.test(id)) throw Error("Invalid design kit id.");
     if (typeof project !== "string" || !project) throw Error("This Chat has no design kit scope.");
-    return path.join(directory, createHash("sha256").update(project).digest("hex"), `${id}.json`);
+    return path.join(projectFolder(project), `${id}.json`);
   }
   const file = async (chatId, id) => projectFile(await projectForChat(chatId), id);
   const readKit = async (target, id, version) => {
@@ -52,7 +52,39 @@ function createDesignKits({ directory, projectForChat }) {
       throw error;
     }
   }
+  const projectFolder = (project) => path.join(directory, createHash("sha256").update(project).digest("hex"));
+  /** Copies the kits `from` holds and `to` lacks, with their decision logs; a kit `to` already has stays its own. */
+  async function adopt(from, to) {
+    const source = projectFolder(from);
+    const names = (await fs.readdir(source).catch(() => [])).filter((name) => name.endsWith(".json") && ID.test(name.slice(0, -5)));
+    for (const name of names) {
+      const target = path.join(projectFolder(to), name);
+      if (
+        await fs.stat(target).then(
+          () => true,
+          () => false,
+        )
+      )
+        continue;
+      await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+      await fs.copyFile(source + path.sep + name, target, fs.constants.COPYFILE_EXCL).catch((error) => {
+        if (error.code !== "EEXIST") throw error;
+      });
+      const log = decisionsFile(path.join(source, name));
+      const copied = decisionsFile(target);
+      if (
+        await fs.stat(log).then(
+          () => true,
+          () => false,
+        )
+      ) {
+        await fs.mkdir(path.dirname(copied), { recursive: true, mode: 0o700 });
+        await fs.copyFile(log, copied).catch(() => {});
+      }
+    }
+  }
   return {
+    adopt: (from, to) => serial(() => adopt(from, to)),
     read: ({ chatId, id = "project", version }) => serial(async () => readKit(await file(chatId, id), id, version)),
     readProject: ({ project, id = "project", version }) => serial(() => readKit(projectFile(project, id), id, version)),
     history: ({ chatId, id = "project" }) =>

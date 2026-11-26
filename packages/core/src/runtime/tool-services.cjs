@@ -108,15 +108,21 @@ function createDeviceTools({ options, dataDir, emit, commands, existingChat, cha
 }
 
 function createDesignTools({ options, dataDir, emit, commands, existingChat, scopeStates }) {
+  const registry = require("../project-registry.cjs").createProjectRegistry(path.join(dataDir, "project-registry.json"));
   const { createChatArtifacts } = require("../chat-artifacts.cjs");
   const { createDesignKits, designKitToolDefinitions } = require("../design-kits.cjs");
   const { designKitReport } = require("../design-kit-report.cjs");
   const { createDesignLibrary, withDesignLibrary, designLibraryToolDefinitions } = require("../design-library.cjs");
+  const kitScope = require("../design-kit-scope.cjs").createDesignKitScope({
+    projectRegistry: () => registry,
+    scopeStates,
+    kits: { adopt: (...args) => designKits.adopt(...args) },
+  });
   const designKits = createDesignKits({
     directory: path.join(dataDir, "design-kits"),
     projectForChat: async (chatId) => {
       await existingChat("using a design kit")(chatId);
-      return projectOfKey(chatId);
+      return kitScope.project(projectOfKey(chatId));
     },
   });
   const artifacts = createChatArtifacts({
@@ -140,7 +146,7 @@ function createDesignTools({ options, dataDir, emit, commands, existingChat, sco
       return { title: session?.title || session?.generatedTitle, agent: session?.provider ? providerName(session.provider) : undefined };
     },
     artifacts,
-    readKit: (request) => designKits.readProject(request),
+    readKit: async ({ project, ...request }) => designKits.readProject({ project: await kitScope.project(project), ...request }),
     onChange: ({ project }) => emit("design-library:changed", { projectPath: project }),
   });
   const designs = withDesignLibrary(artifacts, designLibrary);
@@ -185,11 +191,12 @@ function createDesignTools({ options, dataDir, emit, commands, existingChat, sco
     artifacts: designs,
     designToolDefinitions: (chatId) => [
       ...designKitToolDefinitions(chatId, designKits, {
-        changed: (savedBy) => emit("design-library:changed", { projectPath: projectOfKey(savedBy), kit: true }),
+        changed: async (savedBy) => {
+          for (const key of await kitScope.followers(await kitScope.project(projectOfKey(savedBy))))
+            emit("design-library:changed", { projectPath: key, kit: true });
+        },
         report: async (savedBy, kit) => {
-          const project = projectOfKey(savedBy);
-          const sessions = (await scopeStates().get(project))?.sessions ?? {};
-          const chats = Object.keys(sessions).map((id) => `${project}#${id}`);
+          const chats = await kitScope.chats(await kitScope.project(projectOfKey(savedBy)));
           return designKitReport({ kit, chatId: savedBy, chats, designs, library: designLibrary });
         },
       }),

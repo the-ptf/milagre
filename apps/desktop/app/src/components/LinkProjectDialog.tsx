@@ -6,6 +6,7 @@ import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { Button } from "./primitives/Button";
 import { Checkbox } from "./primitives/Checkbox";
+import { Select } from "./primitives/Select";
 import { Dialog } from "./primitives/Dialog";
 import { EmptyState } from "./primitives/EmptyState";
 import { FIELD, FIELD_LABEL } from "./primitives/Field";
@@ -29,6 +30,8 @@ export function LinkProjectDialog({
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string[]>(() => link?.projectIds ?? []);
   const [name, setName] = useState(link?.name ?? "");
+  const [designSystem, setDesignSystem] = useState(link?.designSystemProjectId ?? link?.projectIds[0]);
+  const designSystemLeft = !!link && !link.projectIds.includes(link.designSystemProjectId ?? link.projectIds[0] ?? "");
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -60,7 +63,8 @@ export function LinkProjectDialog({
     setSaving(true);
     setError(null);
     try {
-      const request = { name: name.trim(), projectIds: selected };
+      const designSystemProjectId = designSystem && selected.includes(designSystem) ? designSystem : selected[0];
+      const request = { name: name.trim(), projectIds: selected, designSystemProjectId };
       onCreated(await (link ? bridge.updateNamedLink({ id: link.id, ...request }) : bridge.createNamedLink(request)));
     } catch (error) {
       setError(ipcErrorMessage(error));
@@ -148,6 +152,26 @@ export function LinkProjectDialog({
         {!loading && !error && !filtered.length && <EmptyState size="compact" title={UI_COPY.noProjects} />}
       </ScrollArea>
       <p className="mt-2 text-12 text-ink-3">{selected.length} selected. Choose at least two Projects.</p>
+      {selected.length >= 2 && (
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <span className="min-w-0">
+            <span className={`block ${FIELD_LABEL}`}>Design system</span>
+            <span className="block text-12 text-ink-3">
+              {designSystemLeft
+                ? "Its Project left this Link, so the Link's screens are frozen until you choose one."
+                : "The Link's Chats design with this Project's."}
+            </span>
+          </span>
+          <Select
+            label="Design system"
+            width={200}
+            disabled={saving}
+            value={(designSystem && selected.includes(designSystem) ? designSystem : selected[0]) ?? ""}
+            options={selected.map((id) => ({ value: id, label: [...projects, ...missing].find((project) => project.id === id)?.name ?? "Project" }))}
+            onChange={setDesignSystem}
+          />
+        </div>
+      )}
       <InlineError size={12} className="mt-3 whitespace-pre-wrap">
         {error}
       </InlineError>

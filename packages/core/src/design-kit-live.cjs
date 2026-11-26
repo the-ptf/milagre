@@ -28,7 +28,10 @@ function createLiveDesigns({ readKit, implementation }) {
   return {
     async verify(chatId, document) {
       if (!document.kit || !readKit) return;
-      const kit = await readKit({ chatId, id: document.kit.id, version: document.kit.version });
+      const kit = await readKit({ chatId, id: document.kit.id, version: document.kit.version }).catch((error) => {
+        if (error.code === "DESIGN_KIT_FROZEN") return document.kit;
+        throw error;
+      });
       if (!isDeepStrictEqual(kit, document.kit))
         throw Error("The pinned kit differs from this Project's saved version. Read it with design_kit_read and use that snapshot.");
     },
