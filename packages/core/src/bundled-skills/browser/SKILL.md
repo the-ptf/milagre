@@ -33,10 +33,19 @@ wait. These pages exist only while Milagre's desktop app is open on this compute
 ## Other browsers
 
 1. Call Milagre's `browser_list`. `targets` are the pages already in this Chat: those of browsers this Chat's agent started (`source: "agent"`) and attached ones (`source: "attached"`). `others` are browsers on this computer that no Chat's agent started, with their id, product and page count.
-2. A browser you launch yourself with `--remote-debugging-port` joins the Chat on its own while it stays in your process tree: Milagre reads the OS process table and attributes it to this Chat. Check `browser_list` after launching; if its pages are in `targets`, nothing else is needed.
-3. If the browser is under `others`, call `browser_attach` with its id. This happens when the browser left your process tree (a daemon such as agent-browser's, a shell that backgrounded it and exited, `open -a`), or when the user started it. The tool supplies the current Chat identity; do not pass a Chat id.
+2. A browser you launch yourself with `--remote-debugging-port` joins the Chat on its own while it stays in your process tree: Milagre reads the OS process table and attributes it to this Chat. A browser that a daemon you launched starts (agent-browser, an MCP server that forks) joins too: it inherits this Chat's `MILAGRE_BROWSER_OWNER` from your environment, so keep that variable. Check `browser_list` after launching; if its pages are in `targets`, nothing else is needed.
+3. If the browser is under `others`, call `browser_attach` with its id. This happens when the browser left your process tree without your environment (`open -a`, a launcher that clears the environment), or when the user started it. The tool supplies the current Chat identity; do not pass a Chat id.
 4. Keep driving the browser with your own automation tools. Attaching makes its pages available in this Chat's Browser panel on desktop and phone; it never starts a capture, navigates or takes control. Keep it attached when finishing work so the user can inspect it.
 5. Call `browser_detach` with the browser id when the user asks to remove it or you replace it. Detach closes this Chat's viewers of that browser, preserves other Chats' attachments and leaves the browser running. Browsers attributed by lineage cannot be detached; they leave the Chat when they exit.
+
+## agent-browser
+
+When the `agent-browser` CLI is installed (`command -v agent-browser`) and the work needs a browser of your own rather
+than the Browser panel (a separate session, headless runs, or the user asks for it), use it. Run
+`agent-browser skills get core` first for its commands. Milagre gives each Chat its own agent-browser session through
+`AGENT_BROWSER_SESSION`: don't pass `--session`, or two Chats can end up on one browser. Its pages show in this Chat's
+Browser panel on desktop and phone with no `browser_attach`. Run `agent-browser close` when done, unless the user
+should inspect the page. When the user mentions `@Browser`, use the Browser panel tools instead.
 
 A browser appears only if it exposes a loopback DevTools HTTP endpoint. Playwright MCP's default `--remote-debugging-pipe` and browsers without a debugging port never appear; launch with a port (`--remote-debugging-port=0` picks a free one) when the user should be able to watch. A browser another Chat's agent started is never offered; do not attach every browser you discover, and never close another Chat's browser to clean up this one. Attachments live in the host's memory and end when the browser exits or the host restarts.
 

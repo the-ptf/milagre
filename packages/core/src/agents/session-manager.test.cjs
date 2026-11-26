@@ -100,6 +100,7 @@ test("account switches keep active replies, then resume their history with the n
   assert.equal(created.length, 1);
   assert.equal(created[0].closed, false);
   assert.equal(created[0].options.env.CODEX_HOME, "/personal");
+  assert.match(created[0].options.env.MILAGRE_BROWSER_OWNER, /^[a-f0-9]{16}$/, "browsers its daemons start find their way back to this Chat");
   created[0].turnActive = false;
   await manager.startTurn(next);
   assert.equal(created.length, 2);
