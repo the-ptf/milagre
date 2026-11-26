@@ -1,13 +1,23 @@
 const { chatTitle } = require("@milagre/shared/chats");
+const { projectOfKey } = require("@milagre/shared/agent-runs");
 const { withDesignHost } = require("./design-host-fonts.cjs");
 const design = () => withDesignHost(require("@milagre/shared/design"));
 
 /**
  * The reads behind a Project's Designs page: its design system drawn as one board with its decision log, and the
- * designs of every Chat of the Project (a Named Link's own Chats for a Link). `scope` turns a request's `{chatId}` or
- * `{projectPath}` into the Project or Link key.
+ * designs of every Chat of the Project (a Named Link's own Chats for a Link).
  */
-function createDesignHome({ scope, kitScope, kits, designs, scopeStates }) {
+function createDesignHome({ existingChat, kitScope, kits, designs, scopeStates }) {
+  /** The one Project or Link a request names, by a Chat of it or by its path; a request naming both is refused. */
+  async function scope(request) {
+    if (request?.chatId !== undefined && request?.projectPath !== undefined) throw new Error("Send chatId or projectPath, not both.");
+    if (typeof request?.chatId === "string") {
+      await existingChat(request.chatId);
+      return projectOfKey(request.chatId);
+    }
+    if (typeof request?.projectPath !== "string" || !scopeStates().has(request.projectPath)) throw new Error("Open this project in Milagre first.");
+    return request.projectPath;
+  }
   return {
     async system(request) {
       const key = await scope(request);
@@ -21,14 +31,13 @@ function createDesignHome({ scope, kitScope, kits, designs, scopeStates }) {
       const [kit, history] = await Promise.all([kits.readProject({ project }), kits.history({ project })]);
       const owner = project === key ? undefined : project;
       if (!kit) return { state: "none", ...(owner ? { owner } : {}) };
-      const board = design().validateDesignDocument(design().designSystemBoard(kit, { subtitle: `Version ${kit.version}` }));
       return {
         state: "ready",
         kit: { id: kit.id, version: kit.version, title: kit.title },
         history: history.toReversed(),
-        svg: design().designSvg(board, { embedFonts: false }),
-        width: board.width,
-        height: board.height,
+        boards: design()
+          .designSystemBoards(kit, { subtitle: `Version ${kit.version}` })
+          .map((board) => ({ svg: design().designSvg(board, { embedFonts: false }), width: board.width, height: board.height })),
         ...(owner ? { owner } : {}),
       };
     },

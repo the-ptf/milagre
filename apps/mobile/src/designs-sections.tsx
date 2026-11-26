@@ -74,15 +74,20 @@ export function DesignSystemSection({
         {DESIGNS_COPY.noSystemBody}
       </EmptyState>
     );
-  const shown = Math.min(width - space.lg * 2, value.width);
   return (
     <View style={{ gap: space.lg }}>
-      <View
-        accessibilityLabel={`${value.kit.title} design system, version ${value.kit.version}`}
-        style={{ borderRadius: radius.card, borderCurve: "continuous", overflow: "hidden", backgroundColor: colors.paper }}
-      >
-        <SvgXml xml={value.svg} width={shown} height={(shown * value.height) / value.width} />
-      </View>
+      {value.boards.map((board, index) => {
+        const shown = Math.min(width - space.lg * 2, board.width);
+        return (
+          <View
+            key={index}
+            accessibilityLabel={index ? undefined : `${value.kit.title} design system, version ${value.kit.version}`}
+            style={{ borderRadius: radius.card, borderCurve: "continuous", overflow: "hidden", backgroundColor: colors.paper }}
+          >
+            <SvgXml xml={board.svg} width={shown} height={(shown * board.height) / board.width} />
+          </View>
+        );
+      })}
       <Group title={DESIGNS_COPY.decisions} inset="full">
         {value.history.map((entry) => (
           <View key={entry.version} style={{ paddingVertical: space.md, gap: 2 }}>

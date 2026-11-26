@@ -157,11 +157,7 @@ function createDesignTools({ options, dataDir, emit, commands, existingChat, sco
   commands.handle("design-library:update", (_context, request) => designLibrary.update(request));
   commands.handle("design-library:rename-page", (_context, request) => designLibrary.renamePage(request));
   const home = require("../design-home.cjs").createDesignHome({
-    scope: async (request) => {
-      if (typeof request?.chatId === "string") return (await existingChat("opening Designs")(request.chatId), projectOfKey(request.chatId));
-      if (!scopeStates().has(request?.projectPath)) throw new Error("Open this project in Milagre first.");
-      return request.projectPath;
-    },
+    existingChat: existingChat("opening Designs"),
     kitScope,
     kits: designKits,
     designs: artifacts,

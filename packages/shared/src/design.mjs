@@ -56,7 +56,7 @@ import { synchronizeDesignComponents, designInstanceRoot, detachDesignInstance }
 export { designLayout, designTextLayout } from "./design-layout.mjs";
 export { designWarnings, designWarningText, designDiagnostics } from "./design-lint.mjs";
 export { createDesignInstance, detachDesignInstance, designInstanceRoot } from "./design-components.mjs";
-export { designSystemBoard } from "./design-system-board.mjs";
+export { designSystemBoards } from "./design-system-board.mjs";
 
 function checkedDesignDocument(value, synchronize = true) {
   const document = resolveDesignKit(designDocumentSchema.parse(value));

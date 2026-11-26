@@ -21,7 +21,9 @@ async function fixture(t, { frozen = false } = {}) {
     4: { title: "No designs" },
   };
   const home = createDesignHome({
-    scope: async (request) => request.projectPath,
+    existingChat: async (chatId) => {
+      if (!chatId.startsWith("/repos/shop#")) throw new Error("Open an existing Chat before opening Designs.");
+    },
     kitScope: {
       project: async (key) => {
         if (frozen) throw Object.assign(new Error("frozen"), { code: "DESIGN_KIT_FROZEN" });
@@ -51,8 +53,8 @@ test("the Designs page reads the Project's design system as one board with its d
     view.history.map((entry) => entry.decision.summary),
     ["Softer cards", "Start"],
   );
-  assert.match(view.svg, /^<svg[\s\S]*Shop design system/);
-  assert.ok(view.width > 0 && view.height > 0);
+  assert.match(view.boards[0].svg, /^<svg[\s\S]*Shop design system/);
+  assert.ok(view.boards[0].width > 0 && view.boards[0].height > 0);
 });
 
 test("a frozen Named Link's Designs page says so instead of failing", async (t) => {
@@ -74,4 +76,12 @@ test("the Designs page lists every Chat with designs, archived ones last", async
       ["Onboarding", true, ["welcome"]],
     ],
   );
+});
+
+test("the Designs page reads one scope: a request naming a Chat and a Project is refused", async (t) => {
+  const { home } = await fixture(t);
+  await assert.rejects(home.chats({ chatId: "/other#1", projectPath: "/repos/shop" }), /not both/);
+  await assert.rejects(home.system({ chatId: "/other#1", projectPath: "/repos/shop" }), /not both/);
+  await assert.rejects(home.chats({ projectPath: "/other" }), /Open this project/);
+  assert.equal((await home.chats({ chatId: "/repos/shop#1" })).length, 0);
 });

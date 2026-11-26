@@ -94,9 +94,13 @@ window.milagre = {
           { version: 3, title: "Habits", savedAt: Date.now() - 2 * 3600000 - 600000, decision: { summary: "Cards use a 20 px radius", reason: "Softer cards everywhere" } },
           { version: 2, title: "Habits" },
         ],
-        svg: '<svg xmlns="http://www.w3.org/2000/svg" width="720" height="400"><rect width="720" height="400" fill="#fff"/><text x="32" y="48">Habits design system</text></svg>',
-        width: 720,
-        height: 400,
+        boards: [
+          {
+            svg: '<svg xmlns="http://www.w3.org/2000/svg" width="720" height="400"><rect width="720" height="400" fill="#fff"/><text x="32" y="48">Habits design system</text></svg>',
+            width: 720,
+            height: 400,
+          },
+        ],
       };
     },
     libraryChats: async (request) => {

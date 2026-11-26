@@ -39,23 +39,26 @@ export function DesignSystemPanel({ projectKey, now }: { projectKey: string; now
 type Ready = Extract<DesignSystemView, { state: "ready" }>;
 
 function Board({ view }: { view: Ready }) {
-  const source = useMemo(() => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(view.svg)}`, [view.svg]);
+  const sources = useMemo(() => view.boards.map((board) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(board.svg)}`), [view.boards]);
   return (
     <ScrollArea className="min-h-0 flex-1" aria-label="Design system board">
-      <div className="p-6">
+      <div className="flex flex-col gap-4 p-6">
         {view.owner && (
           <p data-slot="design-system-owner" className="mb-3 text-12 text-ink-3">
             From {designProjectName(view.owner)}
           </p>
         )}
-        <img
-          data-slot="design-system-board"
-          src={source}
-          width={view.width}
-          height={view.height}
-          alt={`${view.kit.title} design system, version ${view.kit.version}`}
-          className="max-w-full rounded-card bg-paper shadow-raised"
-        />
+        {view.boards.map((board, index) => (
+          <img
+            key={index}
+            data-slot="design-system-board"
+            src={sources[index]}
+            width={board.width}
+            height={board.height}
+            alt={index ? "" : `${view.kit.title} design system, version ${view.kit.version}`}
+            className="h-auto max-w-full rounded-card bg-paper shadow-raised"
+          />
+        ))}
       </div>
     </ScrollArea>
   );

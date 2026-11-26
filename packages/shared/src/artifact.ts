@@ -153,7 +153,7 @@ export type DesignLibraryChat = { chatId: string; title: string; archived: boole
 export type DesignDecision = { version: number; title: string; savedAt?: number; decision?: { summary: string; reason?: string } };
 /**
  * A Project's design system for its Designs page: none yet, frozen (its Named Link's chosen Project left the Link), or
- * ready with its board as SVG (drawn with the platform's own fonts) and its decision log, newest first. `owner` is the
+ * ready with its boards as SVG (drawn with the platform's own fonts) and its decision log, newest first. `owner` is the
  * member Project's path when the scope is a Named Link.
  */
 export type DesignSystemView =
@@ -163,9 +163,8 @@ export type DesignSystemView =
       state: "ready";
       kit: { id: string; version: number; title: string };
       history: DesignDecision[];
-      svg: string;
-      width: number;
-      height: number;
+      /** The board, split into as many as the screen limit needs. */
+      boards: { svg: string; width: number; height: number }[];
       owner?: string;
     };
 
