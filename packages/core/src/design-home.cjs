@@ -1,3 +1,4 @@
+const { chatTitle } = require("@milagre/shared/chats");
 const { withDesignHost } = require("./design-host-fonts.cjs");
 const design = () => withDesignHost(require("@milagre/shared/design"));
 
@@ -6,7 +7,7 @@ const design = () => withDesignHost(require("@milagre/shared/design"));
  * designs of every Chat of the Project (a Named Link's own Chats for a Link). `scope` turns a request's `{chatId}` or
  * `{projectPath}` into the Project or Link key.
  */
-function createDesignHome({ scope, kitScope, kits, designs, scopeStates, chatTitle }) {
+function createDesignHome({ scope, kitScope, kits, designs, scopeStates }) {
   return {
     async system(request) {
       const key = await scope(request);

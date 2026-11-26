@@ -166,7 +166,6 @@ function createDesignTools({ options, dataDir, emit, commands, existingChat, sco
     kits: designKits,
     designs: artifacts,
     scopeStates,
-    chatTitle: (session) => session.title || session.generatedTitle || "New Chat",
   });
   commands.handle("design-system:read", (_context, request) => home.system(request));
   commands.handle("design-library:chats", (_context, request) => home.chats(request));

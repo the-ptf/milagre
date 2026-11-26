@@ -14,7 +14,12 @@ async function fixture(t, { frozen = false } = {}) {
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const kits = createDesignKits({ directory: path.join(directory, "kits"), projectForChat: async (chatId) => chatId.slice(0, chatId.lastIndexOf("#")) });
   const designs = createChatArtifacts({ directory: path.join(directory, "artifacts"), validateChat: async () => {} });
-  const sessions = { 1: { title: "Checkout" }, 2: { generatedTitle: "Onboarding", archived: true }, 3: {}, 4: { title: "No designs" } };
+  const sessions = {
+    1: { title: "Checkout" },
+    2: { generatedTitle: "Onboarding", archived: true },
+    3: { summary: { titleLine: "Draw the account screen" } },
+    4: { title: "No designs" },
+  };
   const home = createDesignHome({
     scope: async (request) => request.projectPath,
     kitScope: {
@@ -26,7 +31,6 @@ async function fixture(t, { frozen = false } = {}) {
     kits,
     designs,
     scopeStates: () => new Map([["/repos/shop", Promise.resolve({ sessions })]]),
-    chatTitle: (session) => session.title || session.generatedTitle || "New Chat",
   });
   return { kits, designs, home };
 }
@@ -64,7 +68,7 @@ test("the Designs page lists every Chat with designs, archived ones last", async
   assert.deepEqual(
     chats.map((chat) => [chat.title, chat.archived, chat.designs.map((item) => item.id)]),
     [
-      ["New Chat", false, ["account"]],
+      ["Draw the account screen", false, ["account"]],
       ["Checkout", false, ["cart"]],
       ["Onboarding", true, ["welcome"]],
     ],
