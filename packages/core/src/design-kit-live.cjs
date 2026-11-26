@@ -18,24 +18,27 @@ async function writeAtomic(file, content) {
   }
 }
 
-function createLiveDesigns({ readKit, implementation }) {
-  const read = (chatId, id, version, cache = new Map()) => {
-    const key = `${id}@${version ?? "latest"}`;
+function createLiveDesigns({ readKit, kitOwner = async () => undefined, implementation }) {
+  const read = (chatId, owner, id, version, cache) => {
+    const key = `${owner ?? ""}\n${id}@${version ?? "latest"}`;
     if (!cache.has(key))
       cache.set(
         key,
-        readKit({ chatId, id, version }).catch(() => null),
+        readKit({ chatId, owner, id, version }).catch(() => null),
       );
     return cache.get(key);
   };
   /**
    * The newer kit version a screen pinned to `pin` follows, or null: frozen, already latest, or pinned to a kit that isn't
-   * in this scope's history (a Named Link that changed Projects). A `pin` saved before fingerprints counts as this scope's.
+   * in this scope's history (a Named Link that changed Projects). Both versions come from one resolved owner. A list entry
+   * saved before fingerprints can't be checked without its document, so it keeps its saved version.
    */
   async function followable(chatId, pin, frozen, cache) {
-    if (!readKit || !pin || frozen) return null;
-    const [pinned, latest] = await Promise.all([pin.fingerprint && read(chatId, pin.id, pin.version, cache), read(chatId, pin.id, undefined, cache)]);
-    if (pin.fingerprint && (!pinned || fingerprint(pinned) !== pin.fingerprint)) return null;
+    if (!readKit || !pin?.fingerprint || frozen) return null;
+    const owner = await kitOwner(chatId).catch(() => null);
+    if (owner === null) return null;
+    const [pinned, latest] = await Promise.all([read(chatId, owner, pin.id, pin.version, cache), read(chatId, owner, pin.id, undefined, cache)]);
+    if (!pinned || fingerprint(pinned) !== pin.fingerprint) return null;
     return latest && latest.version > pin.version ? latest : null;
   }
   return {

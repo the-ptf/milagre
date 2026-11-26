@@ -52,11 +52,12 @@ async function titled(index, chatInfo) {
   return { ...index, designs };
 }
 
-function createDesignLibrary({ directory, projectForChat, projectForPath, chatInfo = async () => ({}), artifacts, readKit, onChange }) {
+function createDesignLibrary({ directory, projectForChat, projectForPath, chatInfo = async () => ({}), artifacts, readKit, kitOwner, onChange }) {
   const store = createChatArtifacts({
     directory: path.join(directory, "designs"),
     validateChat: async () => {},
-    ...(readKit ? { readKit: ({ chatId: project, id, version }) => readKit({ project, id, version }) } : {}),
+    ...(readKit ? { readKit: ({ chatId: project, owner, id, version }) => readKit({ project, owner, id, version }) } : {}),
+    kitOwner,
   });
   let queue = Promise.resolve();
   const serial = (fn) => {

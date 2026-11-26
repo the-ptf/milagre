@@ -139,3 +139,21 @@ test("a Named Link adopts its old kits into a member once, not on every read", a
     [linkKey, "/repos/app"],
   ]);
 });
+
+test("following a kit reads the pinned and latest versions from one resolved owner, and old entries keep their saved version", async () => {
+  const { createLiveDesigns } = require("./design-kit-live.cjs");
+  const v1 = { ...kit, id: "project", version: 1 };
+  const v2 = { ...kit, id: "project", version: 2, title: "Newer" };
+  const owners = ["/repos/web", "/repos/app"];
+  const reads = [];
+  const live = createLiveDesigns({
+    kitOwner: async () => owners.shift(),
+    readKit: async ({ owner, version }) => (reads.push(owner), version === 1 ? v1 : v2),
+    implementation: () => ({}),
+  });
+  const entry = { version: 1, title: "Home", kit: { id: "project", version: 1, title: "App", fingerprint: live.fingerprint(v1) } };
+  assert.equal((await live.entry("a#1", entry, new Map())).kit.version, 2);
+  assert.deepEqual(reads, ["/repos/web", "/repos/web"]);
+  const { fingerprint: _fingerprint, ...older } = entry.kit;
+  assert.equal((await live.entry("a#1", { ...entry, kit: older }, new Map())).kit.version, 1);
+});

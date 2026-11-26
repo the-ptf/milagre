@@ -128,7 +128,8 @@ function createDesignTools({ options, dataDir, emit, commands, existingChat, sco
   const artifacts = createChatArtifacts({
     directory: path.join(dataDir, "artifacts"),
     validateChat: existingChat("showing a design"),
-    readKit: (request) => designKits.read(request),
+    readKit: ({ owner, ...request }) => (owner ? designKits.readProject({ project: owner, ...request }) : designKits.read(request)),
+    kitOwner: (chatId) => designKits.owner(chatId),
     onChange: ({ chatId }) => designPageSharing().changed(chatId),
   });
   const designLibrary = createDesignLibrary({
@@ -146,7 +147,8 @@ function createDesignTools({ options, dataDir, emit, commands, existingChat, sco
       return { title: session?.title || session?.generatedTitle, agent: session?.provider ? providerName(session.provider) : undefined };
     },
     artifacts,
-    readKit: async ({ project, ...request }) => designKits.readProject({ project: await kitScope.project(project), ...request }),
+    readKit: async ({ project, owner, ...request }) => designKits.readProject({ project: owner ?? (await kitScope.project(project)), ...request }),
+    kitOwner: (project) => kitScope.project(project),
     onChange: ({ project }) => emit("design-library:changed", { projectPath: project }),
   });
   const designs = withDesignLibrary(artifacts, designLibrary);

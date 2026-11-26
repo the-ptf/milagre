@@ -85,7 +85,7 @@ const readVersionFile = (file) =>
     throw error;
   });
 
-function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
+function createChatArtifacts({ directory, validateChat, readKit, kitOwner, onChange }) {
   let queue = Promise.resolve();
   const serial = (fn) => {
     const result = queue.then(fn);
@@ -102,7 +102,7 @@ function createChatArtifacts({ directory, validateChat, readKit, onChange }) {
     return chatDirectory(chatId);
   }
   const designFolder = (folder, id) => path.join(folder, checkId(id));
-  const liveDesigns = createLiveDesigns({ readKit, implementation: designImplementation });
+  const liveDesigns = createLiveDesigns({ readKit, kitOwner, implementation: designImplementation });
   const htmlFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.html`);
   const documentFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.design.json`);
   const tabsFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.tabs.json`);
