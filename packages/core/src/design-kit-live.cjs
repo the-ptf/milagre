@@ -55,6 +55,7 @@ function createLiveDesigns({ readKit, implementation }) {
         try {
           const design = implementation();
           const rebased = design.rebaseDesignOnKit(current.document, kit);
+          design.validateDesignConsistency(rebased.document);
           await design.loadDesignFonts(current.document);
           await design.loadDesignFonts(rebased.document);
           const layout = (document) =>
