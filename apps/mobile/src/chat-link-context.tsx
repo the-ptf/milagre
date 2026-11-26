@@ -2,8 +2,14 @@ import { createContext, useCallback, useLayoutEffect, useMemo, useRef, type Reac
 import { ReachableHostContext, type ReachableHost } from "./reachable-host";
 import { MessageAskContext, type QuoteFrom } from "./message-actions";
 
+export { chatLinks } from "./reply-links";
+
 /** Opens a link associated with the containing Chat. False keeps the usual external link behavior. */
 export const ChatLinkContext = createContext<((url: string) => boolean) | null>(null);
+
+/** Where a reply link can open besides the browser: Code review for a PR the Chat knows, the Browser panel when it is on. */
+export type ChatLinkActions = (url: string) => { review: (() => void) | null; panel: (() => void) | null };
+export const ChatLinkActionsContext = createContext<ChatLinkActions | null>(null);
 
 type StepFiles = { file?: string; files?: readonly string[] };
 const NO_STEPS: readonly StepFiles[] = [];
@@ -16,20 +22,20 @@ export const ChatFilesContext = createContext<{ readonly current: readonly StepF
 
 /**
  * The containing Chat supplies its computer's reachable address, its internal link destinations, Quote for selected text
- * and the steps whose files its replies may name relative to a subfolder. `openLink` and `ask` reach the contexts through
+ * and the steps whose files its replies may name relative to a subfolder. `links` and `ask` reach the contexts through
  * wrappers made once, which call the latest functions: a Chat that hands over a new function on each render must not
  * re-render every reply's markdown (a streamed batch renders the Chat).
  */
 export function ChatLinkProvider({
   reachable,
-  openLink,
+  links,
   ask,
   steps,
   liveSteps,
   children,
 }: {
   reachable: ReachableHost;
-  openLink: (url: string) => boolean;
+  links: { open: (url: string) => boolean; actions?: ChatLinkActions };
   ask?: (passage: string, from: QuoteFrom) => void;
   steps?: readonly StepFiles[];
   /** The streaming turn's steps, after `steps`: kept by the live reply itself, so its batches never render the Chat. */
@@ -38,13 +44,13 @@ export function ChatLinkProvider({
 }) {
   const latest = useRef(steps ?? NO_STEPS);
   const live = useRef(liveSteps);
-  const openRef = useRef(openLink);
+  const linksRef = useRef(links);
   const askRef = useRef(ask);
   // Before any effect or tap handler of the children can run, as the steps ref.
   useLayoutEffect(() => {
     latest.current = steps ?? NO_STEPS;
     live.current = liveSteps;
-    openRef.current = openLink;
+    linksRef.current = links;
     askRef.current = ask;
   });
   // Read when a file is tapped, never while rendering: the saved steps, then the streaming turn's.
@@ -57,17 +63,21 @@ export function ChatLinkProvider({
     }),
     [],
   );
-  const stableOpen = useCallback((url: string) => openRef.current(url), []);
+  const stableOpen = useCallback((url: string) => linksRef.current.open(url), []);
+  const hasActions = Boolean(links.actions);
+  const stableActions = useMemo(() => (hasActions ? (url: string) => linksRef.current.actions?.(url) ?? { review: null, panel: null } : null), [hasActions]);
   // Only whether Quote is offered at all changes the value.
   const hasAsk = Boolean(ask);
   const stableAsk = useMemo(() => (hasAsk ? (passage: string, from: QuoteFrom) => askRef.current?.(passage, from) : null), [hasAsk]);
   return (
     <ChatLinkContext value={stableOpen}>
-      <ReachableHostContext value={reachable}>
-        <MessageAskContext value={stableAsk}>
-          <ChatFilesContext value={files}>{children}</ChatFilesContext>
-        </MessageAskContext>
-      </ReachableHostContext>
+      <ChatLinkActionsContext value={stableActions}>
+        <ReachableHostContext value={reachable}>
+          <MessageAskContext value={stableAsk}>
+            <ChatFilesContext value={files}>{children}</ChatFilesContext>
+          </MessageAskContext>
+        </ReachableHostContext>
+      </ChatLinkActionsContext>
     </ChatLinkContext>
   );
 }

@@ -1,5 +1,5 @@
 import { Children, createContext, isValidElement, memo, useContext, useState, useEffect, useRef } from "react";
-import type { CSSProperties, ReactElement, ReactNode } from "react";
+import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactElement, ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import type { Components } from "react-markdown";
 import type { ImageAttachment } from "@milagre/shared/model";
@@ -29,6 +29,7 @@ import { openInBrowserPanel } from "../../lib/browser-panel";
 import { opensInPanel } from "../../lib/link-target";
 import { remoteImageDataUrl } from "../../lib/remote-media";
 import { MediaLightbox } from "../motion/LazyMediaLightbox";
+import { LinkMenu, type LinkMenuTarget } from "./LinkMenu";
 
 const AttachmentPreview = lazyView(() => import("../AttachmentPreview").then((module) => module.AttachmentPreview));
 
@@ -153,29 +154,58 @@ function MediaLinkLightbox({ path, name, kind, close }: { path: string; name: st
   return <MediaLightbox items={[{ id: path, name, src, kind, file: remote ? src : path }]} start={0} close={close} thumbFor={() => null} />;
 }
 
+/** A right-click puts the menu at the pointer; Shift+F10 or the context-menu key on a focused link, under the link. */
+function useLinkMenu() {
+  const [menu, setMenu] = useState<{ x: number; y: number; anchor: HTMLElement } | null>(null);
+  const onContextMenu = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    const anchor = event.currentTarget;
+    const keyboard = event.button !== 2 && event.clientX === 0 && event.clientY === 0;
+    const rect = anchor.getBoundingClientRect();
+    setMenu(keyboard ? { x: rect.left, y: rect.bottom + 4, anchor } : { x: event.clientX, y: event.clientY, anchor });
+  };
+  const show = (target: LinkMenuTarget) =>
+    menu && (
+      <LinkMenu
+        target={target}
+        position={menu}
+        onClose={(refocus) => {
+          if (refocus) menu.anchor.focus();
+          setMenu(null);
+        }}
+      />
+    );
+  return { onContextMenu, show };
+}
+
 function Link({ href, children }: { href?: string; children?: ReactNode }) {
   const root = useFilesRoot();
   const [open, setOpen] = useState(false);
   const file = href ? localFileLink(href, root ?? undefined) : null;
   const scope = useScope();
   const reachable = useReachableHref(file ? undefined : href);
+  const menu = useLinkMenu();
 
   if (!file)
     return (
-      <a
-        href={reachable}
-        title={reachable}
-        target="_blank"
-        rel="noreferrer"
-        onClick={(event) => {
-          if (!reachable || !/^https?:\/\//i.test(reachable) || event.shiftKey || !opensInPanel(event)) return;
-          event.preventDefault();
-          if (!openInBrowserPanel(isRemoteKey(scope) && href ? href : reachable)) window.open(reachable, "_blank", "noreferrer");
-        }}
-        className={LINK_CLASS}
-      >
-        {reachable !== href && Children.toArray(children).join("") === href ? reachable : children}
-      </a>
+      <>
+        <a
+          href={reachable}
+          onContextMenu={reachable ? menu.onContextMenu : undefined}
+          title={reachable}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(event) => {
+            if (!reachable || !/^https?:\/\//i.test(reachable) || event.shiftKey || !opensInPanel(event)) return;
+            event.preventDefault();
+            if (!openInBrowserPanel(isRemoteKey(scope) && href ? href : reachable)) window.open(reachable, "_blank", "noreferrer");
+          }}
+          className={LINK_CLASS}
+        >
+          {reachable !== href && Children.toArray(children).join("") === href ? reachable : children}
+        </a>
+        {href && reachable && menu.show({ kind: "web", href, reachable, text: Children.toArray(children).join("") })}
+      </>
     );
 
   const name = fileLinkName(file.path);
@@ -193,10 +223,12 @@ function Link({ href, children }: { href?: string; children?: ReactNode }) {
           setOpen(true);
         }}
         onMouseEnter={supportedMedia ? undefined : AttachmentPreview.preload}
+        onContextMenu={menu.onContextMenu}
         className={`${LINK_CLASS} cursor-pointer`}
       >
         {children}
       </a>
+      {menu.show({ kind: "file", path: file.path, line: file.line, openViewer: () => setOpen(true) })}
       {open && supportedMedia ? (
         <MediaLinkLightbox path={file.path} name={name} kind={kind} close={() => setOpen(false)} />
       ) : open ? (

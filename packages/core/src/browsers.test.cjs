@@ -1,9 +1,12 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createBrowsers } = require("./browsers.cjs");
+const { browserOwnerToken } = require("./browser-owner.cjs");
 
 const BROWSER = "0b5c2e5e-1111-4222-8333-944444444444";
 const OTHER = "0b5c2e5e-1111-4222-8333-955555555555";
+const DAEMON = "0b5c2e5e-1111-4222-8333-966666666666";
+const DAEMON_PAGE = "D".repeat(32);
 const PAGE = "A".repeat(32),
   SECOND = "B".repeat(32),
   FOREIGN = "C".repeat(32);
@@ -124,6 +127,38 @@ test("an execution advisor's browser belongs to its parent Chat", async (t) => {
   const other = await f.service.list({ chatId: "chat-b" });
   assert.ok(!other.targets.some((page) => page.id === target(PAGE)));
   assert.ok(!other.others.some((browser) => browser.id === BROWSER));
+});
+test("a browser a detached daemon started belongs to the Chat whose owner token it inherited", async (t) => {
+  const f = fixture(t);
+  f.world.processes.push({ pid: 50, ppid: 1 }, { pid: 51, ppid: 50 });
+  f.world.browsers.push({
+    id: DAEMON,
+    pid: 51,
+    ownerToken: browserOwnerToken("chat-b"),
+    product: "Chrome 158",
+    pages: [{ id: DAEMON_PAGE, title: "Shop", url: "https://example.net/" }],
+  });
+  const owner = await f.service.list({ chatId: "chat-b" });
+  assert.ok(owner.targets.some((page) => page.id === target(DAEMON_PAGE, DAEMON) && page.source === "agent"));
+  const other = await f.service.list({ chatId: "chat-a" });
+  assert.ok(!other.targets.some((page) => page.id === target(DAEMON_PAGE, DAEMON)));
+  assert.ok(!other.others.some((browser) => browser.id === DAEMON));
+  f.roots.delete("chat-b");
+  f.advance(5000);
+  assert.ok((await f.service.list({ chatId: "chat-b" })).targets.some((page) => page.id === target(DAEMON_PAGE, DAEMON)));
+});
+test("an owner token no running Chat holds leaves the browser under other browsers", async (t) => {
+  const f = fixture(t);
+  f.world.processes.push({ pid: 50, ppid: 1 });
+  f.world.browsers.push({
+    id: DAEMON,
+    pid: 50,
+    ownerToken: browserOwnerToken("chat-gone"),
+    product: "Chrome 158",
+    pages: [{ id: DAEMON_PAGE, title: "Shop", url: "https://example.net/" }],
+  });
+  const list = await f.service.list({ chatId: "chat-a" });
+  assert.ok(list.others.some((browser) => browser.id === DAEMON));
 });
 async function controller(f, owner = "owner-a", chatId = "chat-a", pageId = PAGE) {
   const viewer = await f.service.open({ chatId, targetId: target(pageId) }, owner);

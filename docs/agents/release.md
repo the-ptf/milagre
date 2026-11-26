@@ -135,6 +135,7 @@ Public releases use a **Developer ID Application** certificate for direct distri
 | `APPLE_ID`                    | Apple Account email used for notarization                                 |
 | `APPLE_APP_SPECIFIC_PASSWORD` | Dedicated app-specific password                                           |
 | `APPLE_TEAM_ID`               | Team ID associated with the signing certificate                           |
+| `MAC_PROVISIONING_PROFILE`    | Optional: base64 Developer ID provisioning profile for `com.milagre.app`  |
 
 Use the GitHub CLI without placing secret values in shell arguments or history:
 
@@ -148,6 +149,14 @@ gh secret set APPLE_ID --repo the-ptf/milagre-ade
 gh secret set APPLE_APP_SPECIFIC_PASSWORD --repo the-ptf/milagre-ade
 gh secret set APPLE_TEAM_ID --repo the-ptf/milagre-ade
 ```
+
+`MAC_PROVISIONING_PROFILE` turns on Touch ID passkeys in the Browser panel (`apps/desktop/electron/passkeys.cjs`). They are stored under the keychain group `YWMU5N9D6K.com.milagre.app.webauthn`, and macOS lets a Developer ID app claim `keychain-access-groups` only with a provisioning profile, so without one a release ships without passkeys rather than failing to launch. To create it, on the team that owns the Developer ID certificate:
+
+1. Register the App ID `com.milagre.app` (macOS) in [Identifiers](https://developer.apple.com/account/resources/identifiers/list).
+2. Create a **Developer ID** provisioning profile for that App ID and the Developer ID Application certificate in `CSC_LINK`.
+3. `base64 -i /absolute/path/Milagre.provisionprofile | gh secret set MAC_PROVISIONING_PROFILE --repo the-ptf/milagre-ade`
+
+Build macOS then embeds the profile, signs the main app with `entitlements.mac.passkeys.plist`, and checks that the signed app still launches. If the profile's App ID prefix isn't `YWMU5N9D6K`, change the group in that plist and in `passkeys.cjs` together.
 
 Do not commit certificates, private keys, passwords or credential files. Keep the exported `.p12` outside the repository. `electron-builder` imports the certificate into a temporary keychain on each macOS runner.
 

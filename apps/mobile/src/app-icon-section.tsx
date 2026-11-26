@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { Alert, Image, Platform, Pressable, Text, View, type ImageSourcePropType } from "react-native";
-import { getAppIconName, setAlternateAppIcon, supportsAlternateIcons } from "expo-alternate-app-icons";
+import { requireOptionalNativeModule } from "expo-modules-core";
 import { Findable } from "./settings-find";
 import { useTheme } from "./theme";
 import { radius, space } from "./design-tokens";
 import { pressStyle, SectionLabel, tap, useStyles } from "./ui";
+
+type AppIcons = { supportsAlternateIcons: boolean; getAppIconName(): string | null; setAlternateAppIcon(name: string | null): Promise<string | null> };
+const appIcons = requireOptionalNativeModule<AppIcons>("ExpoAlternateAppIcons");
 
 /** The alternate icons app.json's expo-alternate-app-icons entry compiles into the build. `id` null is the main icon. */
 const APP_ICONS: { id: string | null; name: string; thumb: ImageSourcePropType }[] = [
@@ -22,15 +25,16 @@ const APP_ICONS: { id: string | null; name: string; thumb: ImageSourcePropType }
 export function AppIconSection() {
   const { colors } = useTheme();
   const styles = useStyles();
-  const [current, setCurrent] = useState<string | null>(() => (supportsAlternateIcons ? getAppIconName() : null));
-  if (Platform.OS !== "ios" || !supportsAlternateIcons) return null;
+  const [current, setCurrent] = useState<string | null>(() => (appIcons?.supportsAlternateIcons ? appIcons.getAppIconName() : null));
+  if (Platform.OS !== "ios" || !appIcons?.supportsAlternateIcons) return null;
+  const icons = appIcons;
   async function choose(id: string | null) {
     if (id === current) return;
     tap();
     const previous = current;
     setCurrent(id);
     try {
-      await setAlternateAppIcon(id as Parameters<typeof setAlternateAppIcon>[0]);
+      await icons.setAlternateAppIcon(id);
     } catch (error) {
       setCurrent(previous);
       Alert.alert("Couldn't change the icon", error instanceof Error ? error.message : String(error));

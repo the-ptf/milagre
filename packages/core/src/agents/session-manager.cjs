@@ -1,4 +1,5 @@
 const { active: activeSubagent } = require("./subagents.cjs");
+const { withBrowserOwner } = require("../browser-owner.cjs");
 const { isTerminal } = require("./events.cjs");
 const { PERMISSION_MODES, USER_DECISIONS, WorkspaceAccess, turnMode } = require("./permissions.cjs");
 const { validAnswers } = require("./questions.cjs");
@@ -129,7 +130,7 @@ class SessionManager {
       tldrEnabled,
       accountId,
       command: request.command,
-      ...(request.env ? { env: request.env } : {}),
+      env: withBrowserOwner(chatId, request.env),
       // An ACP agent's companion binary and launch arguments, from its resolved install (Antigravity only).
       ...(request.harness ? { harness: request.harness } : {}),
       ...(request.args ? { args: request.args } : {}),

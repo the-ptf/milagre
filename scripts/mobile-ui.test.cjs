@@ -334,7 +334,14 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // Where the phone reaches the Chat's computer: none unless a test says so, so localhost links stay as written.
       if (base === "reachable-host" && !(id in modules)) return { ReachableHostContext: "ReachableHostContext" };
       if (base === "chat-link-context" && !(id in modules))
-        return { ChatLinkContext: "ChatLinkContext", ChatLinkProvider: "ChatLinkProvider", ChatFilesContext: "ChatFilesContext" };
+        return {
+          ChatLinkContext: "ChatLinkContext",
+          ChatLinkActionsContext: "ChatLinkActionsContext",
+          ChatLinkProvider: "ChatLinkProvider",
+          ChatFilesContext: "ChatFilesContext",
+          chatLinks: load("reply-links.ts", { "@milagre/shared/chats": require("../packages/shared/src/chats.mjs") }, "", cache).chatLinks,
+        };
+      if (base === "link-sheet" && !(id in modules)) return { showWebLinkSheet() {}, showFileLinkSheet() {} };
       if (base === "browser-link" && !(id in modules)) return load("browser-link.ts", modules, "", cache);
       if (base === "routes-native") return { useReachableHost: () => null, ...modules[id] };
       if (id === "@milagre/shared/loopback-url" && !(id in modules)) return require(id);
@@ -518,7 +525,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "side-panels" && !(id in modules)) return { useChatPanelTabs: () => null };
       // The Artifact's page menu and its Share entries load with the sheet's own fakes; the pages each Chat last viewed
       // (artifact-pages.ts) and a link's status copy (page-share-status.ts) are pure, one copy for every sheet.
-      if (["artifact-page-menu", "use-share-available"].includes(base) && !(id in modules))
+      if (["artifact-page-menu", "use-share-available", "design-share-actions"].includes(base) && !(id in modules))
         return load(base === "artifact-page-menu" ? `${base}.tsx` : `${base}.ts`, modules, "", cache);
       if (["artifact-pages", "page-share-status"].includes(base) && !(id in modules)) return require(`../apps/mobile/src/${base}.ts`);
       // The Project library's reads and Add to Project library load with the sheet's own fakes; the iPad tab picks its sheet
@@ -651,7 +658,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // The local-model speed line under the composer renders nothing without a Pi turn.
       if (base === "pi-stats" && !(id in modules)) return { PiStats: () => null };
       if (base === "orchestrator-answer-line" && !(id in modules)) return { OrchestratorAnswerLine: () => null };
-      if (base === "orchestrator-mention-row" && !(id in modules)) return { OrchestratorMentionRow: () => null };
+      if (base === "milagre-mention-rows" && !(id in modules)) return { MilagreMentionRows: () => null };
       if (base === "use-orchestrator" && !(id in modules)) return { useTaskEffort: () => null };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
@@ -2466,6 +2473,7 @@ function markdownHost({
   basePath,
   reachable = null,
   openChatLink,
+  linkActions,
   reactCompiler = false,
   copy = async () => {},
   haptic = () => {},
@@ -2481,13 +2489,16 @@ function markdownHost({
         ? reachable
         : context === "ChatLinkContext"
           ? openChatLink
-          : context === "ChatFilesContext"
-            ? { current: steps }
-            : undefined,
+          : context === "ChatLinkActionsContext"
+            ? linkActions
+            : context === "ChatFilesContext"
+              ? { current: steps }
+              : undefined,
   };
   const viewer = require("../apps/mobile/src/viewer-store.ts");
   const routes = [],
-    links = [];
+    links = [],
+    sheets = [];
   const { Markdown } = load(
     "markdown.tsx",
     {
@@ -2526,6 +2537,10 @@ function markdownHost({
       "./markdown-image": require("../apps/mobile/src/markdown-image.ts"),
       "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
       "./ui": { PageScroll: "PageScroll", colors: {}, styles: { muted: {}, code: {} } },
+      "./link-sheet": {
+        showWebLinkSheet: (sheet) => sheets.push({ kind: "web", ...sheet }),
+        showFileLinkSheet: (sheet) => sheets.push({ kind: "file", ...sheet }),
+      },
     },
     "",
     new Map(),
@@ -2548,6 +2563,7 @@ function markdownHost({
     },
     routes,
     links,
+    sheets,
     viewer,
     unmount: () => react.unmount(),
   };
@@ -2786,6 +2802,46 @@ test("mobile reply links honor the Chat destination and retain an external fallb
     await find(screen.render("https://github.com/other/project/pull/12", streaming), (node) => node.props?.accessibilityRole === "link").props.onPress();
     assert.deepEqual(screen.links, ["https://github.com/other/project/pull/12"]);
   }
+});
+
+test("a long press or the VoiceOver action on a reply link opens its own sheet; other text keeps the message's", () => {
+  const actions = () => ({ review: null, panel: null });
+  const screen = markdownHost({ basePath: "/repo", linkActions: actions });
+  const tree = screen.render("See [the PR](https://github.com/o/r/pull/7), [the helper](src/a.ts#L3) and plain words.");
+  const [web, file] = findAll(tree, (node) => node.props?.accessibilityRole === "link");
+  web.props.onLongPress();
+  assert.deepEqual(screen.sheets.at(-1), {
+    kind: "web",
+    text: "the PR",
+    url: "https://github.com/o/r/pull/7",
+    written: "https://github.com/o/r/pull/7",
+    actions,
+  });
+  file.props.onAccessibilityAction({ nativeEvent: { actionName: "linkOptions" } });
+  assert.deepEqual(screen.sheets.at(-1), { kind: "file", text: "the helper", path: "/repo/src/a.ts" });
+  assert.equal(JSON.stringify(web.props.accessibilityActions), JSON.stringify([{ name: "linkOptions", label: "Link options" }]));
+  assert.equal(
+    findAll(tree, (node) => node.type === "Text" && node.props?.onLongPress).length,
+    2,
+    "Only links take the long press; the rest of the message keeps the Message sheet",
+  );
+});
+
+test("a Chat's reply links name Code review only for its own PRs, and the Browser panel only when it is on", () => {
+  const { chatLinks } = load("reply-links.ts", { "@milagre/shared/chats": require("../packages/shared/src/chats.mjs") });
+  const opened = [];
+  const prs = [{ url: "https://github.com/o/r/pull/7", number: 7 }];
+  const withPanel = chatLinks(prs, (pr) => (opened.push(["pr", pr.number]), true), { on: true, open: (url) => (opened.push(["panel", url]), true) });
+  const known = withPanel.actions("https://github.com/o/r/pull/7/files");
+  assert.ok(known.review && known.panel);
+  known.review();
+  assert.deepEqual(opened, [["pr", 7]]);
+  assert.equal(withPanel.actions("https://example.com").review, null);
+  assert.equal(withPanel.open("https://example.com"), true);
+  assert.deepEqual(opened.at(-1), ["panel", "https://example.com"]);
+  const noPanel = chatLinks(prs, () => false, { on: false, open: () => true });
+  assert.equal(noPanel.actions("https://example.com").panel, null);
+  assert.equal(noPanel.open("https://github.com/o/r/pull/7"), false, "A PR that can't open falls back to the system");
 });
 
 test("mobile reply links preserve localhost for the internal Browser instead of rewriting it to the phone's LAN route", async () => {
@@ -4479,10 +4535,10 @@ test("a Link Chat's PRs are its Projects' branch PRs, each opened in its own Wor
     const title = chatScreen(tree).props.options.headerTitle();
     find(title, (node) => node.type === "HeaderPullRequestChip").props.onPress();
     assert.equal(JSON.stringify(globalThis.openedPullRequests), JSON.stringify([{ worktreeId: "42", number: "12", chat: key, cwd: "/wt/web" }]));
-    const links = find(tree, (node) => node.type === "ChatLinkProvider").props;
-    assert.equal(links.openLink("https://github.com/o/api/pull/12/files#diff-123"), true);
+    const links = find(tree, (node) => node.type === "ChatLinkProvider").props.links;
+    assert.equal(links.open("https://github.com/o/api/pull/12/files#diff-123"), true);
     assert.equal(JSON.stringify(globalThis.openedPullRequests.at(-1)), JSON.stringify({ worktreeId: "42", number: "12", chat: key, cwd: "/wt/api" }));
-    assert.equal(links.openLink("https://github.com/o/unrelated/pull/12"), true);
+    assert.equal(links.open("https://github.com/o/unrelated/pull/12"), true);
     assert.equal(chat.router.pushed.at(-1).pathname, "/browser-sheet");
     assert.equal(chat.router.pushed.at(-1).params.url, "https://github.com/o/unrelated/pull/12");
     assert.equal(globalThis.openedPullRequests.length, 2);
@@ -21292,7 +21348,7 @@ test("Chat web links use the iPad panel or phone sheet, and respect this device'
     const tabs = [];
     chat.panels.openInPanel = docked ? (tab) => tabs.push(tab) : null;
     chat.params.id = "2";
-    const link = () => find(chat.render(), (node) => node.type === "ChatLinkProvider").props.openLink;
+    const link = () => find(chat.render(), (node) => node.type === "ChatLinkProvider").props.links.open;
     try {
       assert.equal(link()("http://localhost:5173"), true);
       if (docked) {
@@ -24077,4 +24133,47 @@ test("the phone's Designs page opens on the design system and switches to the li
   segmented.props.onChange("chats");
   tree = h.render();
   assert.equal(find(tree, (node) => node.type === "DesignChatsSection").props.path, "/p");
+});
+
+test("a launch without a path, as in Expo Go, opens on Computers rather than the first route group", () => {
+  const appDir = path.join(__dirname, "../apps/mobile/src/app");
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(entry.name)) files.push(`./${path.relative(appDir, full).split(path.sep).join("/")}`);
+    }
+  };
+  walk(appDir);
+  const stub = new Proxy(function () {}, { get: (_, key) => (key === "__esModule" ? false : stub), apply: () => stub, construct: () => stub });
+  const layoutSource = fs.readFileSync(path.join(appDir, "_layout.tsx"), "utf8");
+  const layout = {};
+  vm.runInNewContext(ts.transpileModule(layoutSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText, {
+    exports: layout,
+    require: () => stub,
+  });
+  const context = (key) => (key === "./_layout.tsx" ? { default: () => null, unstable_settings: layout.unstable_settings } : { default: () => null });
+  context.keys = () => files;
+  context.resolve = (key) => key;
+  const router = (name) => require(require.resolve(`expo-router/build/${name}`, { paths: [path.join(__dirname, "../apps/mobile")] }));
+  const root = router("getRoutesCore").getRoutes(context, { platform: "ios", skipGenerated: true, importMode: "sync", getSystemRoute: () => null });
+  const anchor = router("layoutAnchor").getLayoutAnchor(root);
+  const seeded = anchor ?? [...root.children].sort(router("sortRoutes").sortRoutesWithInitial(anchor))[0].route;
+  assert.ok(
+    root.children.some((child) => child.route === "(pr)"),
+    "a route group sorts before index, so the root needs its own anchor",
+  );
+  assert.equal(seeded, "index");
+});
+
+test("the app icon picker hides instead of crashing where the native module is missing, as in Expo Go", () => {
+  const { AppIconSection } = load("app-icon-section.tsx", {
+    react: { useState: (value) => [typeof value === "function" ? value() : value, () => {}] },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Alert: { alert() {} }, Image: "Image", Platform: { OS: "ios" }, Pressable: "Pressable", Text: "Text", View: "View" },
+    "expo-modules-core": { requireOptionalNativeModule: () => null },
+    "./settings-find": { Findable: "Findable" },
+  });
+  assert.equal(AppIconSection(), null);
 });

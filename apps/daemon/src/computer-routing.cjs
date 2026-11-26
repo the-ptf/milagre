@@ -4,6 +4,7 @@ const LOCAL_ONLY = Object.freeze([
   "project:open",
   "project:choose-folder",
   "project:reveal",
+  "file:reveal",
   "project:set-hidden",
   "skills:open",
   "skills:reveal",

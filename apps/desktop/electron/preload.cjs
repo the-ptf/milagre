@@ -27,6 +27,7 @@ const LOCAL_ONLY = new Set([
   "project:open",
   "project:choose-folder",
   "project:reveal",
+  "file:reveal",
   "project:set-hidden",
   "skills:open",
   "skills:reveal",
@@ -228,6 +229,17 @@ function connectorsBridge(invoke, listen) {
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "revealInFolder" | "revealFile">}
+ */
+function revealBridges(invoke) {
+  return {
+    revealInFolder: (folder) => invoke("project:reveal", folder),
+    revealFile: (root, file) => invoke("file:reveal", { root, path: file }),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "listLinearIssues" | "readWorktreeLinearIssues" | "listGithubIssues">}
  */
 function issueBridges(invoke) {
@@ -406,7 +418,7 @@ function makeBridge(invoke, listen, send) {
     readPullRequestSnapshot: (projectPath) => invoke("pull-requests:snapshot", projectPath),
     listOpenPullRequests: (projectPath) => invoke("pull-requests:open", projectPath),
     onPullRequestsChanged: (callback) => listen("pull-requests:changed", callback),
-    revealInFolder: (folder) => invoke("project:reveal", folder),
+    ...revealBridges(invoke),
     copyImage: (file) => invoke("image:copy", file),
     saveImage: (file, name) => invoke("image:save", file, name),
     showImageMenu: (file, name) => invoke("image:menu", file, name),

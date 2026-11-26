@@ -108,7 +108,7 @@ import { useWorktreeLinearIssues } from "./components/useWorktreeLinearIssues";
 import { restoredDraft } from "@milagre/shared/linear";
 import { issueSendFields, issueStartContext, issueStartMessage, issueWorktreeFields, type PickedIssue } from "@milagre/shared/issue-start";
 import { chatPullRequests, ownBranchPullRequest, pullRequestRefsCache } from "./lib/chat-pull-requests";
-import { associatedPullRequest } from "@milagre/shared/chats";
+import { chatPullRequestLink } from "./components/markdown/LinkMenu";
 import { usePastedImages } from "./components/usePastedImages";
 import { DotBackground } from "./components/DotBackground";
 import { AppSplash } from "./components/StartupSplash";
@@ -2701,13 +2701,11 @@ function App() {
                         suggestion={selectedSession?.provider === "claude" ? selectedSession.suggestion?.text : undefined}
                         ports={project && selectedSession ? agentPorts[chatKey(project.path, selectedSession.id)] : undefined}
                         agentChatId={project && selectedSession ? chatKey(project.path, selectedSession.id) : undefined}
-                        onOpenPullRequestLink={(url) => {
-                          const pr = associatedPullRequest(url, selectedPullRequests);
-                          if (!pr || !prChatKey) return false;
+                        pullRequestLink={chatPullRequestLink(selectedPullRequests, (pr) => {
+                          if (!prChatKey) return;
                           setPrPick({ chat: prChatKey, number: pr.number });
                           changes.showPullRequest();
-                          return true;
-                        }}
+                        })}
                         onOpenDiff={(path) => {
                           if (!changes.open) changes.toggle();
                           changes.openFile(path);

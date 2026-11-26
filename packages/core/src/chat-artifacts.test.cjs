@@ -785,7 +785,16 @@ test("workspace snapshots hold every design and the page; a design snapshot hold
   assert.equal(workspace.page.title, "Explainer");
   const one = await api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "design", designId: "live" });
   assert.deepEqual(one, { schemaVersion: 1, title: "Live", designs: [{ title: "Live", interactive: { html: "<p>Live</p>", width: 390, height: 844 } }] });
+  const picked = await api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "selection", designIds: ["live", "home"] });
+  assert.deepEqual([picked.kind, picked.title, picked.page, ...picked.designs.map((design) => design.title)], ["selection", "Work", undefined, "Live", "Home"]);
   await api.deleteDesign({ chatId: CHAT, id: "live" });
+  const left = await api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "selection", designIds: ["live", "home"] });
+  assert.deepEqual(
+    left.designs.map((design) => design.title),
+    ["Home"],
+    "a deleted design drops out of the selection",
+  );
+  await assert.rejects(api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "selection", designIds: ["live"] }), { code: "DESIGN_DELETED" });
   await assert.rejects(api.pageSnapshot({ chatId: CHAT, title: "Work", kind: "design", designId: "live" }), {
     code: "DESIGN_DELETED",
     message: "This design was deleted.",

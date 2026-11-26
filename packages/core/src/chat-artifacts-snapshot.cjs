@@ -2,7 +2,7 @@ const { artifactDocument, hasDiagrams } = require("@milagre/shared/artifact-docu
 const { diagramScript } = require("@milagre/shared/diagram-script");
 
 const MAX_HTML = 1_000_000;
-const KINDS = new Set(["workspace", "design", "designs", "artifacts"]);
+const KINDS = new Set(["workspace", "design", "selection", "designs", "artifacts"]);
 function sharedHtml(html) {
   if (!hasDiagrams(html)) return html;
   const page = artifactDocument(html, { page: true, diagrams: diagramScript() });
@@ -32,10 +32,11 @@ const pagePart = (current) => ({
 
 /**
  * What a published page holds, read through the Chat's store: `workspace` is every design and the HTML page, `design`
- * one design named by `designId` and published as a one-design page, `designs` every design, `artifacts` the page.
+ * one design named by `designId` and published as a one-design page, `selection` the designs named by `designIds` in
+ * that order (deleted ones drop out), `designs` every design, `artifacts` the page.
  */
-async function pageSnapshot({ kind = "designs", title, designId }, { designs, page, readDesign }) {
-  if (!KINDS.has(kind)) throw Error("Choose the workspace, one design or the page to share.");
+async function pageSnapshot({ kind = "designs", title, designId, designIds }, { designs, page, readDesign }) {
+  if (!KINDS.has(kind)) throw Error("Choose the workspace, one design, a selection of designs or the page to share.");
   if (kind === "artifacts") {
     const current = await page();
     if (!current) throw Error("This Chat has no artifact page to share.");
@@ -46,6 +47,14 @@ async function pageSnapshot({ kind = "designs", title, designId }, { designs, pa
     if (!entries.length) throw Object.assign(Error("This design was deleted."), { code: "DESIGN_DELETED" });
     const design = await readDesign(entries[0]);
     return { schemaVersion: 1, title: design.title, designs: [design] };
+  }
+  if (kind === "selection") {
+    const byId = new Map((await designs()).map((entry) => [entry.id, entry]));
+    const chosen = (designIds ?? []).flatMap((id) => (byId.has(id) ? [byId.get(id)] : []));
+    if (!chosen.length) throw Object.assign(Error("The selected designs were deleted."), { code: "DESIGN_DELETED" });
+    const read = [];
+    for (const entry of chosen) read.push(await readDesign(entry));
+    return { schemaVersion: 1, kind, title, designs: read };
   }
   const read = [];
   for (const entry of entries) read.push(await readDesign(entry));

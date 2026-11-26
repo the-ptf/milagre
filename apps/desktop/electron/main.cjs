@@ -21,7 +21,7 @@ const {
   session: electronSession,
 } = require("electron");
 const path = require("node:path");
-const { readFileSync } = require("node:fs");
+const { existsSync, readFileSync } = require("node:fs");
 const decideSimpleIntro = require("./intro-motion.cjs").createIntroMotionDecision({ app, platform: process.platform });
 
 let openedProjectsBefore;
@@ -43,13 +43,14 @@ const { loadLoginEnvironment } = require("@milagre/core/agents/environment");
 const { detectEditors, openInEditor, requireWorktreeRoot } = require("@milagre/core/editors");
 const { copyImage, saveImage } = require("./generated-images.cjs");
 const { createDictation } = require("./dictation.cjs");
-const { revealFolder } = require("./reveal.cjs");
+const { handleReveal } = require("./reveal.cjs");
 const { applyWindowBackground, OPAQUE_BACKGROUND } = require("./window-background.cjs");
 const { guardNavigation } = require("./links.cjs");
 const { forwardAppShortcuts, setForwardedRules } = require("./app-shortcuts.cjs");
 const { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests, hardenBrowserSession } = require("./browser-guests.cjs");
 const { clearSignIns, computerPartition, createRemoteBrowserSessions, removeChatPartitions } = require("./browser-remote-sessions.cjs");
 const { createBrowserPanelPages } = require("./browser-panel-pages.cjs");
+const { createPasskeys, passkeysSupported } = require("./passkeys.cjs");
 const { routeBrowserPanelClose } = require("./browser-panel-close.cjs");
 const { windowChrome } = require("./window-chrome.cjs");
 const { AttentionNotifier } = require("./notifications.cjs");
@@ -72,6 +73,26 @@ protocol.registerSchemesAsPrivileged([
   { scheme: "milagre-artifact", privileges: { standard: true, secure: true, stream: true } },
   { scheme: "milagre-media", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
+/** Turns on passkeys for the Browser panel's own session; returns how to harden a remote Chat's session. */
+function startPasskeys() {
+  const passkeys = createPasskeys({
+    app,
+    dialog,
+    supported: passkeysSupported({ platform: process.platform, resourcesPath: process.resourcesPath, exists: existsSync }),
+    windowForFrame: (frame) => {
+      const page = frame && electron.webContents.fromFrame(frame);
+      const owner = page?.hostWebContents ?? page;
+      return (owner && BrowserWindow.fromWebContents(owner)) || BrowserWindow.getFocusedWindow();
+    },
+  });
+  passkeys.configure();
+  passkeys.attach(electronSession.fromPartition(BROWSER_PARTITION));
+  /** @param {Electron.Session} session */
+  return (session) => {
+    hardenBrowserSession(session);
+    passkeys.attach(session);
+  };
+}
 async function startDesktop() {
   const hostOptions = {
     dataDir: app.getPath("userData"),
@@ -294,7 +315,7 @@ async function startDesktop() {
       if (!runtime) throw new Error("Milagre's host isn't connected yet.");
       return (await runtime.invoke("computers:browser-proxy", [computerId]))?.port;
     },
-    harden: hardenBrowserSession,
+    harden: startPasskeys(),
   });
   ipcMain.handle("browser-panel:remote-partition", (_event, chatKey) => remoteBrowserSessions.prepare(chatKey));
   ipcMain.handle("browser-panel:clear-sign-ins", async (_event, computerId) => {
@@ -317,14 +338,7 @@ async function startDesktop() {
     inputIdleSeconds: () => powerMonitor.getSystemIdleTime(),
   });
 
-  ipcMain.handle("project:reveal", (_event, folder) =>
-    revealFolder(folder, {
-      checkRoot: async (root) => {
-        await checkEditorRoot(root);
-      },
-      open: (target) => shell.openPath(target),
-    }),
-  );
+  handleReveal(ipcMain, { shell, checkRoot: async (root) => void (await checkEditorRoot(root)) });
 
   const copyImageFile = (file) =>
     copyImage(file, {

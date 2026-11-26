@@ -1147,6 +1147,7 @@ export interface WorktreeRequest {
   baseBranch?: string;
   /** A configured Project base wins over a remembered or fallback client selection. */
   useProjectBase?: boolean;
+  /** Names the branch and folder only. The new Chat starts empty: send its first message with `chat send`. */
   prompt: string;
   issueKey?: string;
   /** The Linear workspace the issue was picked from. */

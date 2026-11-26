@@ -141,3 +141,29 @@ test("Milagre's bundled skills are readable without a card, never editable", asy
   assert.equal(access.answer({ kind: "edit", files: [file] }, "ask"), null);
   assert.equal(access.answer({ kind: "read", files: [file, path.join(root, "secret.txt")] }, "ask"), null);
 });
+test("Claude in Auto runs Worktree commands without a card and asks for risky ones with the reason", async (t) => {
+  const { WorkspaceAccess } = require("./permissions.cjs");
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-roots-")));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const cards = [];
+  const access = new WorkspaceAccess({ cwd: root });
+  const session = new ClaudeSession({ cwd: root, access, emit: (event) => event.type === "permission-request" && cards.push(event), command: "/claude" });
+  t.after(() => session.close());
+  session.turnActive = true;
+  const bash = (command) => session.askPermission("Bash", { command }, { toolUseID: command });
+  session.permissions.setMode("auto");
+  assert.deepEqual(await bash("gh issue view 933 --comments"), { behavior: "allow", updatedInput: { command: "gh issue view 933 --comments" } });
+  assert.equal((await bash("npm test && git log --oneline -5")).behavior, "allow");
+  assert.equal(cards.length, 0);
+  void bash("gh pr merge 12 --squash");
+  void bash("rm -rf /tmp/elsewhere");
+  assert.equal(cards.length, 2);
+  assert.deepEqual(
+    cards.map((card) => card.reason),
+    ["Writes to GitHub.", "Deletes files outside the worktree."],
+  );
+  session.permissions.setMode("ask");
+  void bash("git status");
+  assert.equal(cards.length, 3);
+  session.permissions.cancelAll();
+});

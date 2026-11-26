@@ -1,5 +1,6 @@
 import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { DESIGN_MODE_LABELS, type DesignMode } from "@milagre/shared/design-modes";
+import { libraryEditLabel, type Artifact } from "@milagre/shared/artifact";
 import { Icon } from "../primitives/Icon";
 
 /** The chips beside a canvas design's title: interactive, color mode, version and chosen. */
@@ -59,4 +60,14 @@ export function DesignFrameChips({
       )}
     </>
   );
+}
+
+/** Who saved a Project library design's shown version, beside its version on the Design library page. */
+export function LibraryEditNote({ artifact, version, chatId }: { artifact: Artifact | null; version: number; chatId: string | null | undefined }) {
+  const label = libraryEditLabel(artifact, version, chatId);
+  return label ? (
+    <span className="ml-2" data-slot="artifact-library-edit">
+      {label}
+    </span>
+  ) : null;
 }

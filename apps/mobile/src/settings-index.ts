@@ -117,6 +117,13 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   },
   {
     page: "appearance",
+    title: "Background dots",
+    group: "Background",
+    description: "The dot grid behind the Chat.",
+    keywords: "grid pattern plain",
+  },
+  {
+    page: "appearance",
     title: "Custom theme",
     group: "Custom theme",
     description: "Build a theme from a few colors.",

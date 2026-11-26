@@ -341,8 +341,14 @@ test("every platform builds the planned commit, and the release tag exists only 
 });
 
 test("reusable workflows take their secrets by name, never inherited", () => {
-  assert.deepEqual(buildWorkflow.on.workflow_call.secrets, Object.fromEntries(credentials.map((name) => [name, { required: true }])));
-  assert.deepEqual(publishWorkflow.jobs.macos.secrets, Object.fromEntries(credentials.map((name) => [name, `\${{ secrets.${name} }}`])));
+  assert.deepEqual(buildWorkflow.on.workflow_call.secrets, {
+    ...Object.fromEntries(credentials.map((name) => [name, { required: true }])),
+    MAC_PROVISIONING_PROFILE: { required: false },
+  });
+  assert.deepEqual(
+    publishWorkflow.jobs.macos.secrets,
+    Object.fromEntries([...credentials, "MAC_PROVISIONING_PROFILE"].map((name) => [name, `\${{ secrets.${name} }}`])),
+  );
   const deploySecrets = Object.keys(deployWorkflow.on.workflow_call.secrets);
   assert.deepEqual(publishWorkflow.jobs["deploy-linux-repository"].secrets, Object.fromEntries(deploySecrets.map((name) => [name, `\${{ secrets.${name} }}`])));
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, "../.github/workflows/publish.yml"), "utf8"), /secrets: inherit/);

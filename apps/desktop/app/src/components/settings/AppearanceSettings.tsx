@@ -360,6 +360,9 @@ export function AppearanceSettings() {
           <Row label="Film grain" description="A faint grain over the window and the side panels.">
             <SettingCheckbox label="Film grain" checked={appearance.grain !== "off"} onChange={(on) => change("ui", { grain: on ? "on" : "off" })} />
           </Row>
+          <Row label="Background dots" description="The dot grid behind the window.">
+            <SettingCheckbox label="Background dots" checked={appearance.dots !== "off"} onChange={(on) => change("ui", { dots: on ? "on" : "off" })} />
+          </Row>
         </Group>
         <Group title="Diffs">
           <Row label="Diff colors" description="Additions and deletions, including change counts." preview={preview.row("diff")}>

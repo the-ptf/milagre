@@ -5,11 +5,14 @@ const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
-import React, { useState } from "react";
+import React, { Activity, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { WorkspaceTabStrip } from "/src/components/agents/WorkspaceTabStrip";
+import { useDesignsStage } from "/src/components/agents/designs-stage";
 import { openBrowserTab } from "/src/lib/browser-panel";
+import { updateSettings } from "/src/lib/settings";
 import { useStage } from "/src/lib/workspace-stage";
+import { tabSet } from "/src/lib/workspace-tabs-store";
 import "/src/styles.css";
 window.milagre = {};
 const session = (id, worktree_id, extra = {}) => ({ id, worktree_id, title: "Chat " + id, provider: "claude", ...extra });
@@ -19,8 +22,23 @@ function StageProbe() {
   const stage = useStage();
   return <output data-stage={stage ? stage.tab.kind + ":" + stage.chatKey : ""} />;
 }
+updateSettings({ workspaceTabs: true });
+window.activeTab = () => tabSet("/p#wt:1").active;
+window.designsCommits = 0;
+function DesignsProbe({ opened }) {
+  useDesignsStage("/p#3", opened, () => {});
+  useEffect(() => {
+    window.designsCommits += 1;
+  });
+  return null;
+}
 window.newChats = 0;
 function Harness() {
+  const [designs, setDesigns] = useState(null);
+  const [designsShown, setDesignsShown] = useState(true);
+  window.openDesigns = () => setDesigns((current) => ({ page: "canvas", focus: { nonce: (current?.focus.nonce ?? 0) + 1 } }));
+  window.closeDesigns = () => setDesigns(null);
+  window.showDesignsChat = setDesignsShown;
   const [active, setActive] = useState(3);
   const [sessions, setSessions] = useState({ 1: session(1, 1), 2: session(2, 1, { parent: 1 }), 3: session(3, 1), 4: session(4, 2) });
   window.show = setActive;
@@ -42,6 +60,9 @@ function Harness() {
         onNewChat={() => { window.newChats += 1; setActive(null); }}
       />
       <StageProbe />
+      <Activity mode={designsShown ? "visible" : "hidden"}>
+        <DesignsProbe opened={designs} />
+      </Activity>
     </main>
   );
 }
@@ -107,6 +128,31 @@ async function browserChecks() {
       [],
       "every strip button sits in a no-drag area, so a mouse press reaches it instead of dragging the window",
     );
+    await evaluate(
+      `(() => {
+        const tab = document.querySelector('[data-workspace-tab="chat:3"]');
+        const box = tab.getBoundingClientRect();
+        tab.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: box.left + 8, clientY: box.top + box.height / 2 }));
+      })()`,
+    );
+    await waitFor(`document.querySelector("[data-menu-row]")`);
+    assert.equal(
+      await evaluate(`(() => {
+        let menu = document.querySelector("[data-menu-row]");
+        while (menu && getComputedStyle(menu).position !== "fixed") menu = menu.parentElement;
+        const box = menu.getBoundingClientRect();
+        return menu.contains(document.elementFromPoint(box.left + 12, box.top + 6));
+      })()`),
+      true,
+      "a tab's menu paints over the tab strip where they overlap",
+    );
+    assert.deepEqual(
+      await evaluate(`[...document.querySelectorAll("[data-menu-row]")].filter((row) => !row.querySelector("svg")).map((row) => row.textContent)`),
+      [],
+      "every row of a tab's menu has an icon, so the labels line up",
+    );
+    await evaluate(`document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))`);
+    await waitFor(`!document.querySelector("[data-menu-row]")`);
     await evaluate(`window.show(1)`);
     await expectTabs(["chat:3", "chat:1*"], "opening another Chat of the Worktree adds its tab at the end");
     await evaluate(`window.show(2)`);
@@ -152,6 +198,28 @@ async function browserChecks() {
     await expectTabs(["chat:3*"], "closing the tab in front brings its neighbour forward");
     assert.equal(await evaluate(`window.opened.at(-1)`), 3);
 
+    await evaluate(`window.openDesigns()`);
+    await expectTabs(["chat:3", "designs:3:canvas*"], "opening a Chat's designs brings their tab forward");
+    await pointer('[data-workspace-tab="chat:3"]', "pointerdown");
+    await pointer("window", "pointerup", 0);
+    await expectTabs(["chat:3*", "designs:3:canvas"], "the Chat's tab comes back in front");
+    await evaluate(`window.showDesignsChat(false)`);
+    const commits = await evaluate(`window.designsCommits`);
+    await evaluate(`window.showDesignsChat(true)`);
+    await waitFor(`window.designsCommits > ${commits}`);
+    assert.equal(await evaluate(`window.activeTab()`), "chat:3", "a Chat shown again keeps the tab the user left in front, not its designs");
+    await evaluate(`window.closeDesigns()`);
+    await evaluate(
+      `document.querySelector('[data-workspace-tab="designs:3:canvas"] button[aria-label^="Close"]').dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }))`,
+    );
+    await expectTabs(["chat:3*"], "closing the designs tab leaves the Chat");
+    await evaluate(`window.openDesigns()`);
+    await expectTabs(["chat:3", "designs:3:canvas*"], "opening the designs again brings their tab back");
+    await evaluate(
+      `document.querySelector('[data-workspace-tab="designs:3:canvas"] button[aria-label^="Close"]').dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }))`,
+    );
+    await expectTabs(["chat:3*"], "and closing it again leaves the Chat");
+
     await evaluate(`window.openPage(3, "https://example.com/agent", true)`);
     await waitFor(`[...document.querySelectorAll("[data-workspace-tab]")].some((tab) => tab.dataset.workspaceTab.startsWith("browser:3:"))`);
     const agentTab = await evaluate(`document.querySelector('[data-workspace-tab^="browser:3:"]').dataset.workspaceTab`);
@@ -179,7 +247,7 @@ async function browserChecks() {
     await screenshot("draft");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Chat and Subchat tabs open, switch by click and digit, reorder by drag, close by middle click, ask before the main Chat, drop archived Chats and show a New Chat draft, keep every button clear of the window drag area; Browser pages become tabs, unread when the agent opened them, and stage the page in front",
+      "PASS: Chat and Subchat tabs open, switch by click and digit, reorder by drag, close by middle click, ask before the main Chat, drop archived Chats and show a New Chat draft, keep every button clear of the window drag area, give every tab menu row an icon and paint it over the strip; Browser pages become tabs, unread when the agent opened them, and stage the page in front; a Chat shown again keeps its tab in front instead of its designs",
     );
     app.exit(0);
   } catch (error) {

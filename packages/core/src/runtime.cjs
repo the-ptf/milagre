@@ -86,6 +86,7 @@ async function registeredWorktrees(project) {
   return (project.git !== false && (await mainCheckoutWorktrees(project.path))) || activeWorktrees(project.path);
 }
 
+const { isBackgroundSlowMethod } = require("./slow-methods.cjs");
 function createRuntime(options) {
   const { dataDir, version, cwd = process.cwd(), emit = () => {}, isFocused = () => false } = options;
   let { lazyMessages } = options;
@@ -95,6 +96,7 @@ function createRuntime(options) {
   const projectOwners = new Map();
   const repositoryOwners = new Map();
   const active = new Set();
+  const slowActive = new Set();
   const starting = new Set();
   const background = new Set();
   const needsUserAt = new Map();
@@ -110,9 +112,9 @@ function createRuntime(options) {
   function track(work, set = active) {
     return hold(Promise.resolve().then(work), set);
   }
-  function accept(work) {
+  function accept(work, set = active) {
     if (closing) return Promise.reject(new Error("Milagre runtime is closing"));
-    return track(work);
+    return track(work, set);
   }
   async function ownProject(projectPath) {
     if (typeof projectPath !== "string" || !path.isAbsolute(projectPath)) throw new Error("An absolute Project path is required");
@@ -1600,7 +1602,7 @@ function createRuntime(options) {
   shutdown.close(() => advisorServices.close());
   shutdown.close(() => toolServices.close());
   shutdown.close(() => integrations.dispose());
-  shutdown.close(() => Promise.allSettled(active));
+  shutdown.close(() => Promise.allSettled([...active, ...slowActive]));
   shutdown.close(() => attachmentTransfers.close());
   shutdown.close(() => {
     accounts.close();
@@ -1642,9 +1644,7 @@ function createRuntime(options) {
     methods: commands.methods(),
     commandDefinitions: commands.list,
     invoke(method, args = [], context = null) {
-      return accept(() => {
-        return commands.invoke(method, args, context);
-      });
+      return accept(() => commands.invoke(method, args, context), isBackgroundSlowMethod(method) ? slowActive : active);
     },
     disconnect: (clientId) =>
       Promise.all([simulators.disconnect(clientId), browsers.disconnect(clientId), panelForwarders.close(clientId)]).then(() => undefined),
