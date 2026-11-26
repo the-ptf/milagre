@@ -14,8 +14,8 @@ export function DesignsShortcut({ projectKey, name }: { projectKey: string; name
   useEffect(() => {
     let live = true;
     bridgeForKey(projectKey)
-      .artifacts.designSystem({ ...designScope(projectKey), board: false })
-      .then((view) => live && setSystem(Boolean(view.kit)))
+      .artifacts.designSystem(designScope(projectKey))
+      .then((view) => live && setSystem(view.state === "ready"))
       .catch(() => live && setSystem(false));
     return () => {
       live = false;

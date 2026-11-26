@@ -27,16 +27,19 @@ export function DesignSystemPanel({ projectKey, now }: { projectKey: string; now
   return (
     <div data-slot="design-system" className="relative flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
-        {value.frozen && <FrozenBanner projectKey={projectKey} />}
-        {value.kit ? <Board view={value} /> : !value.frozen && <NoDesignSystem />}
+        {value.state === "frozen" && <FrozenBanner projectKey={projectKey} />}
+        {value.state === "ready" && <Board view={value} />}
+        {value.state === "none" && <NoDesignSystem />}
       </div>
-      {value.kit && <Decisions view={value} now={now} />}
+      {value.state === "ready" && <Decisions view={value} now={now} />}
     </div>
   );
 }
 
-function Board({ view }: { view: DesignSystemView }) {
-  const source = useMemo(() => (view.svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(view.svg)}` : ""), [view.svg]);
+type Ready = Extract<DesignSystemView, { state: "ready" }>;
+
+function Board({ view }: { view: Ready }) {
+  const source = useMemo(() => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(view.svg)}`, [view.svg]);
   return (
     <ScrollArea className="min-h-0 flex-1" aria-label="Design system board">
       <div className="p-6">
@@ -50,7 +53,7 @@ function Board({ view }: { view: DesignSystemView }) {
           src={source}
           width={view.width}
           height={view.height}
-          alt={`${view.kit?.title} design system, version ${view.kit?.version}`}
+          alt={`${view.kit.title} design system, version ${view.kit.version}`}
           className="max-w-full rounded-card bg-paper shadow-raised"
         />
       </div>
@@ -58,7 +61,7 @@ function Board({ view }: { view: DesignSystemView }) {
   );
 }
 
-function Decisions({ view, now }: { view: DesignSystemView; now: number }) {
+function Decisions({ view, now }: { view: Ready; now: number }) {
   return (
     <aside data-slot="design-decisions" aria-label={DESIGNS_COPY.decisions} className="flex w-72 shrink-0 flex-col border-l border-line">
       <SectionLabel as="h2" className="flex h-10 items-center px-4">

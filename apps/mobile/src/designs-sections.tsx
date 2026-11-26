@@ -58,7 +58,7 @@ export function DesignSystemSection({
   const { value, error } = useDesignsRead<DesignSystemView>(source, path, "system", reads);
   if (!value && error) return <EmptyState title={DESIGNS_COPY.failed} action={{ title: "Try again", onPress: onRetry }} />;
   if (!value) return null;
-  if (value.frozen)
+  if (value.state === "frozen")
     return (
       <View accessibilityRole="alert" style={{ padding: space.lg, borderRadius: radius.card, borderCurve: "continuous", backgroundColor: colors.orangeTint }}>
         <Text style={[styles.text, { fontWeight: "600" }]}>{DESIGNS_COPY.frozenTitle}</Text>
@@ -68,20 +68,20 @@ export function DesignSystemSection({
         </Text>
       </View>
     );
-  if (!value.kit || !value.svg)
+  if (value.state === "none")
     return (
       <EmptyState icon={PaintBoardIcon} title={DESIGNS_COPY.noSystemTitle}>
         {DESIGNS_COPY.noSystemBody}
       </EmptyState>
     );
-  const shown = Math.min(width - space.lg * 2, value.width ?? 720);
+  const shown = Math.min(width - space.lg * 2, value.width);
   return (
     <View style={{ gap: space.lg }}>
       <View
         accessibilityLabel={`${value.kit.title} design system, version ${value.kit.version}`}
         style={{ borderRadius: radius.card, borderCurve: "continuous", overflow: "hidden", backgroundColor: colors.paper }}
       >
-        <SvgXml xml={value.svg} width={shown} height={(shown * (value.height ?? 1)) / (value.width ?? 1)} />
+        <SvgXml xml={value.svg} width={shown} height={(shown * value.height) / value.width} />
       </View>
       <Group title={DESIGNS_COPY.decisions} inset="full">
         {value.history.map((entry) => (

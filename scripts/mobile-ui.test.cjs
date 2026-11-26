@@ -6168,6 +6168,7 @@ test("a sidebar Link is deleted after confirming its Chat count, and the open on
       ["new", false],
       ["copy", false],
       ["edit", false],
+      ["design-library", false],
       ["delete", true],
     ]),
   );
@@ -23674,7 +23675,7 @@ test("Open Design library in the phone's Artifact menu opens the Project's whole
   assert.deepEqual(globalThis.openedDesignLibrary, ["mac", "/work/habits", "habits"]);
 });
 
-function libraryScreenHost(client, pushes, { wide = false, params = {} } = {}) {
+function libraryScreenHost(client, pushes, { wide = false, params = {}, section = "library" } = {}) {
   const react = hookHost({ effects: true });
   const screen = load("design-library-page.tsx", {
     react,
@@ -23700,6 +23701,7 @@ function libraryScreenHost(client, pushes, { wide = false, params = {} } = {}) {
     "./icons": { Icon: "Icon" },
     "./theme": { useTheme: () => ({ colors: { canvas: "#eee" } }) },
     "./confirm-store": { confirm: async () => true },
+    "./designs-sections": { DesignSystemSection: "DesignSystemSection", DesignChatsSection: "DesignChatsSection" },
     "./ui": {
       CircleButton: "CircleButton",
       SheetHeader: "SheetHeader",
@@ -23708,14 +23710,24 @@ function libraryScreenHost(client, pushes, { wide = false, params = {} } = {}) {
       Group: "Group",
       PageScroll: "PageScroll",
       PullDown: "PullDown",
+      Segmented: "Segmented",
       useStyles: () => ({ caption: {}, text: {} }),
     },
   });
   const props = { hostId: "mac", path: "/p", name: "Habits", ...params };
+  let opened = section === "system";
   const render = () => {
     react.begin();
-    const tree = screen.DesignLibraryScreen(props);
+    let tree = screen.DesignLibraryScreen(props);
     react.flush();
+    // The page opens on the design system; these tests read the Library section, as the user picks it.
+    if (!opened) {
+      opened = true;
+      find(tree, (node) => node.type === "Segmented").props.onChange(section);
+      react.begin();
+      tree = screen.DesignLibraryScreen(props);
+      react.flush();
+    }
     return tree;
   };
   return { render, cleanup: () => react.cleanup() };
@@ -24042,4 +24054,27 @@ test("the phone mic menu replays at the selection and saves the user's last edit
     ["dictation:corrections", ["/Project"]],
     ["dictation:correct", ["/Project", "insert dictation", "insertDictation"]],
   ]);
+});
+
+test("the phone's Designs page opens on the design system and switches to the library and the Chats", async (t) => {
+  const client = { url: "mac", call: async (method) => (method === "design-library:list" ? projectLibrary() : {}) };
+  const h = libraryScreenHost(client, [], { section: "system" });
+  t.after(() => h.cleanup());
+  h.render();
+  await settle();
+  let tree = h.render();
+  const segmented = find(tree, (node) => node.type === "Segmented");
+  same(
+    segmented.props.options.map((option) => option.title),
+    ["Design system", "Library", "Chats"],
+  );
+  assert.equal(segmented.props.value, "system");
+  assert.ok(find(tree, (node) => node.type === "DesignSystemSection"));
+  assert.equal(
+    find(tree, (node) => node.type === "Group" && node.props.title === "Pages"),
+    undefined,
+  );
+  segmented.props.onChange("chats");
+  tree = h.render();
+  assert.equal(find(tree, (node) => node.type === "DesignChatsSection").props.path, "/p");
 });

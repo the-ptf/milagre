@@ -138,7 +138,7 @@ export interface ArtifactApi {
   /** Every Chat of the Project (a Named Link's own Chats for a Link) that has designs, archived ones last. */
   libraryChats(request: DesignScope): Promise<DesignLibraryChat[]>;
   /** The design system the Project's screens follow, drawn as one board, and its decision log, newest first. */
-  designSystem(request: DesignScope & { board?: boolean }): Promise<DesignSystemView>;
+  designSystem(request: DesignScope): Promise<DesignSystemView>;
   /** Copies one of the Chat's designs, or its HTML page (one `tab`), onto the library page named `page`; a new name makes it. */
   addToLibrary(request: { chatId: string; designId: string; page: string; tab?: string }): Promise<DesignLibraryEntry>;
   /** Renames a library design (a new version), moves it to the page named `page` (a new name makes it), or both. */
@@ -152,19 +152,22 @@ export interface ArtifactApi {
 export type DesignLibraryChat = { chatId: string; title: string; archived: boolean; designs: ArtifactSummary[] };
 export type DesignDecision = { version: number; title: string; savedAt?: number; decision?: { summary: string; reason?: string } };
 /**
- * A Project's design system for its Designs page. No `kit` when none exists yet; `frozen` when its Named Link's chosen
- * Project left the Link; `owner` is the member Project's path when the scope is a Named Link.
+ * A Project's design system for its Designs page: none yet, frozen (its Named Link's chosen Project left the Link), or
+ * ready with its board as SVG (drawn with the platform's own fonts) and its decision log, newest first. `owner` is the
+ * member Project's path when the scope is a Named Link.
  */
-export type DesignSystemView = {
-  kit: { id: string; version: number; title: string } | null;
-  history: DesignDecision[];
-  /** The board as SVG, drawn with the platform's own fonts. */
-  svg?: string;
-  width?: number;
-  height?: number;
-  owner?: string;
-  frozen?: boolean;
-};
+export type DesignSystemView =
+  | { state: "none"; owner?: string }
+  | { state: "frozen" }
+  | {
+      state: "ready";
+      kit: { id: string; version: number; title: string };
+      history: DesignDecision[];
+      svg: string;
+      width: number;
+      height: number;
+      owner?: string;
+    };
 
 /** Whose designs: a Chat's, or, for Project library designs, the Project's own by its path. */
 export type DesignScope = { chatId: string } | { projectPath: string };

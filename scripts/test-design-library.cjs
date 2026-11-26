@@ -88,6 +88,7 @@ window.milagre = {
     designSystem: async (request) => {
       window.calls.push(["design-system", request]);
       return {
+        state: "ready",
         kit: { id: "project", version: 3, title: "Habits" },
         history: [
           { version: 3, title: "Habits", savedAt: Date.now() - 2 * 3600000 - 600000, decision: { summary: "Cards use a 20 px radius", reason: "Softer cards everywhere" } },
@@ -342,6 +343,12 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[data-slot=library-page-row][data-page=all] button")');
     await click("[data-slot=library-page-row][data-page=all] button");
     await waitFor(`${frames}?.length === 1`);
+
+    // A library page whose id is a section's name still opens as a library page.
+    await evaluate(`window.pages.chats = "Chats"; window.designs = window.designs.map((d) => ({ ...d, page: "chats" })); window.changed();`);
+    await waitFor(`!!${page}.querySelector("[data-slot=library-page-row][data-page=chats] button")`);
+    await click("[data-slot=library-page-row][data-page=chats] button");
+    await waitFor(`${frames}?.length === 1 && !${page}.querySelector("[data-slot=design-chats]")`);
 
     // With nothing left the page says how designs get here.
     await evaluate("window.designs = []; window.changed();");

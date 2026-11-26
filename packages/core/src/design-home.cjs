@@ -15,16 +15,15 @@ function createDesignHome({ scope, kitScope, kits, designs, scopeStates }) {
       try {
         project = await kitScope.project(key);
       } catch (error) {
-        if (error.code === "DESIGN_KIT_FROZEN") return { frozen: true, kit: null, history: [] };
+        if (error.code === "DESIGN_KIT_FROZEN") return { state: "frozen" };
         throw error;
       }
       const [kit, history] = await Promise.all([kits.readProject({ project }), kits.history({ project })]);
       const owner = project === key ? undefined : project;
-      if (!kit) return { kit: null, history: [], ...(owner ? { owner } : {}) };
-      if (request.board === false)
-        return { kit: { id: kit.id, version: kit.version, title: kit.title }, history: history.toReversed(), ...(owner ? { owner } : {}) };
+      if (!kit) return { state: "none", ...(owner ? { owner } : {}) };
       const board = design().validateDesignDocument(design().designSystemBoard(kit, { subtitle: `Version ${kit.version}` }));
       return {
+        state: "ready",
         kit: { id: kit.id, version: kit.version, title: kit.title },
         history: history.toReversed(),
         svg: design().designSvg(board, { embedFonts: false }),

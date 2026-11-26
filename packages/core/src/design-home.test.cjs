@@ -39,12 +39,13 @@ const screen = { schemaVersion: 1, width: 390, height: 844, nodes: [{ id: "box",
 
 test("the Designs page reads the Project's design system as one board with its decisions, newest first", async (t) => {
   const { kits, home } = await fixture(t);
-  assert.deepEqual(await home.system({ projectPath: "/repos/shop" }), { kit: null, history: [] });
+  assert.deepEqual(await home.system({ projectPath: "/repos/shop" }), { state: "none" });
   await kits.save({ chatId: "/repos/shop#1", expectedVersion: 0, kit });
   await kits.recordDecision({ chatId: "/repos/shop#1", version: 1, decision: { summary: "Start" } });
   await kits.save({ chatId: "/repos/shop#1", expectedVersion: 1, kit: { ...kit, radii: { card: 20 } } });
   await kits.recordDecision({ chatId: "/repos/shop#1", version: 2, decision: { summary: "Softer cards", reason: "Asked by the user" } });
   const view = await home.system({ projectPath: "/repos/shop" });
+  assert.equal(view.state, "ready");
   assert.deepEqual(view.kit, { id: "project", version: 2, title: "Shop" });
   assert.deepEqual(
     view.history.map((entry) => entry.decision.summary),
@@ -56,7 +57,7 @@ test("the Designs page reads the Project's design system as one board with its d
 
 test("a frozen Named Link's Designs page says so instead of failing", async (t) => {
   const { home } = await fixture(t, { frozen: true });
-  assert.deepEqual(await home.system({ projectPath: "/repos/shop" }), { frozen: true, kit: null, history: [] });
+  assert.deepEqual(await home.system({ projectPath: "/repos/shop" }), { state: "frozen" });
 });
 
 test("the Designs page lists every Chat with designs, archived ones last", async (t) => {
