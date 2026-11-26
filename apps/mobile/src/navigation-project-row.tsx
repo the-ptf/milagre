@@ -136,7 +136,7 @@ export function NavigationProjectRow({ item, view, copy }: RowProps<"project">) 
           systemImage: "doc.on.doc",
         },
         ...(linked && item.hostId === currentHostId ? [{ id: "edit", title: "Edit Link", systemImage: "pencil" }] : []),
-        ...(!linked ? [{ id: "design-library", title: "Design library", systemImage: "books.vertical" }] : []),
+        { id: "design-library", title: "Designs", systemImage: "books.vertical" },
       ],
     },
     ...(linked && item.hostId === currentHostId ? [{ items: [{ id: "delete", title: "Delete Link", systemImage: "trash", destructive: true }] }] : []),

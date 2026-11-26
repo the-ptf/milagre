@@ -96,6 +96,8 @@ const PATHS = Object.freeze({
   "artifact:add-comments": ([value]) => [chatProject(value?.chatId)],
   "artifact:comments": ([value]) => [chatProject(value?.chatId)],
   "design-library:list": ([value]) => [designProject(value)],
+  "design-library:chats": ([value]) => [designProject(value)],
+  "design-system:read": ([value]) => [designProject(value)],
   "design-library:add": denied,
   "design-library:update": denied,
   "design-library:rename-page": denied,

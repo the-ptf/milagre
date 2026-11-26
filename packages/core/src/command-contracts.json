@@ -752,6 +752,42 @@
         }
       ]
     },
+    "design-library:chats": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/T56"
+              },
+              {
+                "$ref": "#/$defs/T57"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "design-system:read": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/T56"
+              },
+              {
+                "$ref": "#/$defs/T57"
+              }
+            ]
+          }
+        }
+      ]
+    },
     "design-library:add": {
       "parameters": [
         {

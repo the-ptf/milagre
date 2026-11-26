@@ -308,9 +308,9 @@ async function browserChecks() {
       `(() => { const r = ${row(8)}.querySelector("[data-row]").getBoundingClientRect(); ${row(8)}.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: r.left + 20, clientY: r.top + 10 })); })()`,
     );
     await waitFor(`!!document.querySelector("[data-chat-menu]")`);
-    // With no Project headings in One list, a row's menu is the way to its Project's Design library.
+    // With no Project headings in One list, a row's menu is the way to its Project's Designs page.
     await evaluate(`window.addEventListener("milagre:design-library", (event) => (window.libraryOpened = event.detail), { once: true })`);
-    await evaluate(`[...document.querySelectorAll("[data-chat-menu] button")].find((button) => button.textContent === "Design library").click()`);
+    await evaluate(`[...document.querySelectorAll("[data-chat-menu] button")].find((button) => button.textContent === "Designs").click()`);
     await waitFor(`window.libraryOpened?.projectKey === "/work/shop" && window.libraryOpened.name === "shop" && !document.querySelector("[data-chat-menu]")`);
     await evaluate(
       `${row(8)}.querySelector("[data-row]").focus(); ${row(8)}.querySelector("[data-row]").dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true }))`,
@@ -351,7 +351,7 @@ async function browserChecks() {
 
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: the One list sidebar shows pinned Chats under Pinned and every other Chat in one latest-first list of inbox rows (Project icon, title with time, spinner or unread dot, Project leading the second line, no branch or ⋯ button, menu on right-click and Shift-F10, opening the Chat's Project Design library), and Settings › General switches to Project groups and back",
+      "PASS: the One list sidebar shows pinned Chats under Pinned and every other Chat in one latest-first list of inbox rows (Project icon, title with time, spinner or unread dot, Project leading the second line, no branch or ⋯ button, menu on right-click and Shift-F10, opening the Chat's Project Designs page), and Settings › General switches to Project groups and back",
     );
     app.exit(0);
   } catch (error) {

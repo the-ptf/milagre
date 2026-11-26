@@ -122,6 +122,7 @@ export const designDocumentInputSchema: z.ZodType<unknown>;
 export const designOperationInputSchema: z.ZodType<unknown>;
 export function validateDesignDocument(value: unknown): DesignDocument;
 export function validateDesignConsistency(document: DesignDocument): DesignDocument;
+export function designSystemBoards(kit: DesignKit, options?: { title?: string; subtitle?: string }): DesignDocument[];
 export function rebaseDesignOnKit(document: DesignDocument, kit: DesignKit): { document: DesignDocument; local: string[] };
 export function applyDesignOperations(document: DesignDocument, operations: DesignOperation[], intent?: DesignEditIntent): DesignDocument;
 export function designLayout(document: DesignDocument, textLayout?: typeof designTextLayout): Map<string, DesignBounds>;

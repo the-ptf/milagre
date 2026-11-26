@@ -166,6 +166,8 @@ const METHODS = new Set([
   "artifact:add-comments",
   "artifact:comments",
   "design-library:list",
+  "design-library:chats",
+  "design-system:read",
   "design-library:add",
   "design-library:update",
   "design-library:rename-page",

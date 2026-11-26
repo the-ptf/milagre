@@ -17,3 +17,33 @@ export function onDesignLibraryOpen(listener: (target: DesignLibraryTarget) => v
   window.addEventListener(OPEN, opened);
   return () => window.removeEventListener(OPEN, opened);
 }
+
+const REQUEST = "milagre:designs-request";
+type DesignsRequest = { chatId: string } | { linkId: string };
+
+/** The Designs page asks the window to open a Chat, or a Named Link's settings. */
+export function requestFromDesigns(request: DesignsRequest) {
+  window.dispatchEvent(new CustomEvent<DesignsRequest>(REQUEST, { detail: request }));
+}
+
+/** Opens Chats asked for by the system (`native`) or by the Designs page, and Link settings asked for by the page. */
+export function onOpenRequests(
+  native: (listener: (chatId: string) => void) => () => void,
+  openChat: (chatId: string) => void,
+  editLink: (linkId: string) => void,
+) {
+  const requested = (event: Event) => {
+    const detail = (event as CustomEvent<DesignsRequest>).detail;
+    if ("chatId" in detail) openChat(detail.chatId);
+    else editLink(detail.linkId);
+  };
+  const stop = native(openChat);
+  window.addEventListener(REQUEST, requested);
+  return () => {
+    stop();
+    window.removeEventListener(REQUEST, requested);
+  };
+}
+
+/** A Project or Link key's folder name, for a title. */
+export const designProjectName = nameOf;

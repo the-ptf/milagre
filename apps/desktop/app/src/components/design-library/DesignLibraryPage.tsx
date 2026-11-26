@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LibraryIcon, MoreHorizontalIcon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
-import { libraryCardLine, libraryRecent, libraryRecentLine, type DesignLibraryEntry, type DesignLibraryPage as LibraryPage } from "@milagre/shared/artifact";
+import {
+  DESIGNS_COPY,
+  libraryCardLine,
+  libraryRecent,
+  libraryRecentLine,
+  type DesignLibraryEntry,
+  type DesignLibraryPage as LibraryPage,
+} from "@milagre/shared/artifact";
 import type { DesignLibraryTarget } from "../../lib/design-library-page";
 import { IconButton } from "../primitives/Button";
 import { EmptyState } from "../primitives/EmptyState";
@@ -11,8 +18,11 @@ import { useControlsClearance } from "../../lib/window-chrome";
 import { libraryRefs, useDesignLibrary } from "../agents/design-library";
 import { LibraryActionDialog, type LibraryAction } from "./LibraryDialogs";
 import { LibraryBoard } from "./LibraryBoard";
+import { DesignSystemPanel } from "./DesignSystemPanel";
+import { DesignChatsPanel } from "./DesignChatsPanel";
 
 const ALL = "all";
+type Section = "system" | "library" | "chats";
 const RECENT = 6;
 
 function useNow() {
@@ -44,6 +54,7 @@ export function DesignLibraryPage({ target }: { target: DesignLibraryTarget }) {
   const { projectKey } = target;
   const library = useDesignLibrary(projectKey);
   const pages = useMemo(() => library?.pages ?? [], [library]);
+  const [section, setSection] = useState<Section>("system");
   const [tab, setTab] = useState(ALL);
   const [focus, setFocus] = useState<{ id: string | null; nonce: number }>({ id: null, nonce: 0 });
   const [action, setAction] = useState<LibraryAction | null>(null);
@@ -55,61 +66,70 @@ export function DesignLibraryPage({ target }: { target: DesignLibraryTarget }) {
   );
   const entries = useMemo(() => new Map(pages.flatMap((item) => item.designs.map((design) => [design.id, design] as const))), [pages]);
   const show = (next: string, id: string | null = null) => {
+    setSection("library");
     setTab(next);
     setFocus((current) => ({ id, nonce: current.nonce + 1 }));
   };
-  const empty = library && !pages.length;
   return (
-    <section data-slot="design-library-page" aria-label={`${target.name} · Design library`} className="relative flex min-h-0 flex-1 flex-col">
-      <TopBar title={`${target.name} · Design library`} />
+    <section data-slot="design-library-page" aria-label={`${target.name} · ${DESIGNS_COPY.title}`} className="relative flex min-h-0 flex-1 flex-col">
+      <TopBar title={`${target.name} · ${DESIGNS_COPY.title}`} />
       <div className="flex min-h-0 flex-1 pt-[var(--window-chrome-height)]">
-        {empty ? (
-          <EmptyState icon={LibraryIcon} title="No designs in this Project's library yet" size="page" data-slot="library-empty">
-            Add one from a design's ⋯ menu in a Chat's Artifact panel, choosing Add to Project library, or ask an agent to add it. Every Chat in this Project
-            can then open it.
-          </EmptyState>
-        ) : (
-          <>
-            <aside data-slot="library-rail" aria-label="Library pages and recent edits" className="relative flex w-60 shrink-0 flex-col">
-              <span
-                aria-hidden
-                data-slot="library-rail-edge"
-                className="pointer-events-none absolute inset-y-0 right-0 w-px bg-[linear-gradient(to_bottom,transparent,var(--color-line)_96px,var(--color-line)_calc(100%-96px),transparent)]"
+        <aside data-slot="library-rail" aria-label="Design system, library pages and Chats" className="relative flex w-60 shrink-0 flex-col">
+          <span
+            aria-hidden
+            data-slot="library-rail-edge"
+            className="pointer-events-none absolute inset-y-0 right-0 w-px bg-[linear-gradient(to_bottom,transparent,var(--color-line)_96px,var(--color-line)_calc(100%-96px),transparent)]"
+          />
+          <ScrollArea className="flex-1 pb-4">
+            <nav aria-label="Designs sections" className="mt-3">
+              <RailRow section="system" active={section === "system"} label={DESIGNS_COPY.designSystem} onClick={() => setSection("system")} />
+            </nav>
+            <nav aria-label="Library pages">
+              <RailHeading>Library</RailHeading>
+              <RailRow
+                active={section === "library" && !page}
+                label="All designs"
+                count={pages.reduce((sum, item) => sum + item.designs.length, 0)}
+                onClick={() => show(ALL)}
               />
-              <ScrollArea className="flex-1 pb-4">
-                <nav aria-label="Library pages">
-                  <RailHeading>Pages</RailHeading>
-                  <RailRow active={!page} label="All designs" count={pages.reduce((sum, item) => sum + item.designs.length, 0)} onClick={() => show(ALL)} />
-                  {pages.map((item) => (
-                    <RailRow
-                      key={item.id}
-                      page={item.id}
-                      active={page?.id === item.id}
-                      label={item.name}
-                      count={item.designs.length}
-                      onClick={() => show(item.id)}
-                      menu={<PageMenu page={item} onRename={() => setAction({ kind: "rename-page", page: item })} />}
-                    />
-                  ))}
-                </nav>
-                <RecentEdits
-                  library={library}
-                  now={now}
-                  onOpen={(design) => show(page && page.id !== design.page ? design.page : (page?.id ?? ALL), design.id)}
+              {pages.map((item) => (
+                <RailRow
+                  key={item.id}
+                  page={item.id}
+                  active={section === "library" && page?.id === item.id}
+                  label={item.name}
+                  count={item.designs.length}
+                  onClick={() => show(item.id)}
+                  menu={<PageMenu page={item} onRename={() => setAction({ kind: "rename-page", page: item })} />}
                 />
-              </ScrollArea>
-            </aside>
-            <LibraryBoard
-              key={page?.id ?? ALL}
-              projectKey={projectKey}
-              designs={designs}
-              focus={focus}
-              onEdit={(ref, kind) => {
-                const design = entries.get(ref.id);
-                if (design) setAction({ kind, design });
-              }}
-            />
-          </>
+              ))}
+            </nav>
+            <RecentEdits library={library} now={now} onOpen={(design) => show(page && page.id !== design.page ? design.page : (page?.id ?? ALL), design.id)} />
+            <nav aria-label="Chats">
+              <RailHeading>{DESIGNS_COPY.chats}</RailHeading>
+              <RailRow section="chats" active={section === "chats"} label="All Chats" onClick={() => setSection("chats")} />
+            </nav>
+          </ScrollArea>
+        </aside>
+        {section === "system" && <DesignSystemPanel projectKey={projectKey} now={now} />}
+        {section === "chats" && <DesignChatsPanel projectKey={projectKey} library={library} />}
+        {section === "library" && !pages.length && library && (
+          <EmptyState icon={LibraryIcon} title="No designs in this Project's library yet" size="page" data-slot="library-empty">
+            Add one from a design's ⋯ menu in a Chat's Artifact panel or from Chats here, or ask an agent to add it. Every Chat in this Project can then open
+            it.
+          </EmptyState>
+        )}
+        {section === "library" && pages.length > 0 && (
+          <LibraryBoard
+            key={page?.id ?? ALL}
+            projectKey={projectKey}
+            designs={designs}
+            focus={focus}
+            onEdit={(ref, kind) => {
+              const design = entries.get(ref.id);
+              if (design) setAction({ kind, design });
+            }}
+          />
         )}
       </div>
       {action && <LibraryActionDialog projectKey={projectKey} pages={pages} action={action} onClose={() => setAction(null)} />}
@@ -127,6 +147,7 @@ function RailHeading({ children }: { children: ReactNode }) {
 
 function RailRow({
   page,
+  section,
   active,
   label,
   count,
@@ -134,14 +155,19 @@ function RailRow({
   menu,
 }: {
   page?: string;
+  section?: string;
   active: boolean;
   label: string;
-  count: number;
+  count?: number;
   onClick: () => void;
   menu?: ReactNode;
 }) {
   return (
-    <div data-slot="library-page-row" data-page={page ?? ALL} className="group/row relative mx-2 flex items-center">
+    <div
+      data-slot={section ? "designs-section-row" : "library-page-row"}
+      data-page={section ?? page ?? ALL}
+      className="group/row relative mx-2 flex items-center"
+    >
       <button
         type="button"
         aria-current={active ? "page" : undefined}

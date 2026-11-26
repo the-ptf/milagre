@@ -156,6 +156,15 @@ function createDesignTools({ options, dataDir, emit, commands, existingChat, sco
   commands.handle("design-library:add", (_context, request) => designLibrary.add(request));
   commands.handle("design-library:update", (_context, request) => designLibrary.update(request));
   commands.handle("design-library:rename-page", (_context, request) => designLibrary.renamePage(request));
+  const home = require("../design-home.cjs").createDesignHome({
+    existingChat: existingChat("opening Designs"),
+    kitScope,
+    kits: designKits,
+    designs: artifacts,
+    scopeStates,
+  });
+  commands.handle("design-system:read", (_context, request) => home.system(request));
+  commands.handle("design-library:chats", (_context, request) => home.chats(request));
   let pageSharing;
   const designPageSharing = () =>
     (pageSharing ??= require("../design-page-sharing.cjs").createDesignPageSharing({

@@ -220,3 +220,74 @@ test("a kit component copy whose layers were reordered stays local", () => {
   );
   assert.deepEqual(rebaseDesignOnKit(validateDesignDocument({ ...document, kit: v1, nodes: card }), v2).local, []);
 });
+
+test("the design system board draws every token and component of a kit as one valid layer design", async () => {
+  const { designSystemBoards, designHtml } = await import("./design.mjs");
+  const full = {
+    ...kit,
+    version: 3,
+    colors: { ink: "#123456", accent: { light: "#16a34a", dark: "#3cbb72" }, paper: "#ffffff", line: "#e0e1e3", danger: "#c62935" },
+    textStyles: { title: { fontSize: 28, fontWeight: 700 }, body: { fontSize: 17, fontWeight: 500 } },
+    spacing: { sm: 8, md: 16 },
+    radii: { card: 12, pill: 999 },
+    components: {
+      button: [
+        { id: "button", type: "frame", component: true, width: 140, height: 44, fill: "$accent", bindings: { radius: "card" } },
+        { id: "label", parentId: "button", type: "text", x: 16, y: 10, width: 108, height: 24, text: "Place order", textStyle: "body", fill: "$paper" },
+      ],
+      chip: [{ id: "chip", type: "frame", component: true, width: 90, height: 28, fill: "$line", bindings: { radius: "pill" } }],
+    },
+  };
+  const boards = designSystemBoards(full, { subtitle: "Version 3 · 12 screens follow it" });
+  assert.equal(boards.length, 1);
+  const board = validateDesignDocument(boards[0]);
+  const ids = new Set(board.nodes.map((node) => node.id));
+  for (const id of [
+    "color-accent",
+    "color-danger",
+    "type-title-sample",
+    "spacing-md",
+    "radius-pill",
+    "component-button-button",
+    "component-button-label",
+    "component-chip-chip",
+  ])
+    assert.ok(ids.has(id), id);
+  assert.equal(board.nodes.find((node) => node.id === "component-button-label").parentId, "component-button-button");
+  assert.equal(board.nodes.find((node) => node.id === "type-title-sample").fontSize, 28);
+  assert.ok(board.height > 400);
+  assert.match(designHtml(board), /Place order/);
+  assert.equal(
+    validateDesignDocument(designSystemBoards({ ...kit, components: undefined })[0]).nodes.some((node) => node.id.startsWith("component-")),
+    false,
+  );
+});
+
+test("a design system too tall for one screen spreads over several boards, and its measures wrap inside the board", async () => {
+  const { designSystemBoards } = await import("./design.mjs");
+  const tall = (id) => [{ id, type: "frame", component: true, width: 300, height: 760, fill: "$ink" }];
+  const big = {
+    ...kit,
+    spacing: { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 },
+    radii: { none: 0, card: 12, sheet: 20, pill: 999 },
+    components: {
+      a: tall("a"),
+      b: tall("b"),
+      c: tall("c"),
+      d: tall("d"),
+      e: tall("e"),
+      giant: [{ id: "giant", type: "frame", component: true, width: 300, height: 4000, fill: "$ink" }],
+    },
+  };
+  const boards = designSystemBoards(big).map((board) => validateDesignDocument(board));
+  assert.ok(boards.length > 1);
+  for (const board of boards) assert.ok(board.height <= 3840 && board.width === 720);
+  const nodes = boards.flatMap((board) => board.nodes);
+  for (const node of nodes.filter((item) => /^(spacing|radius)-/.test(item.id))) assert.ok(node.x + node.width <= 720 - 32, node.id);
+  assert.ok(["a", "b", "c", "d", "e"].every((name) => nodes.some((node) => node.id === `component-${name}-${name}`)));
+  assert.equal(
+    nodes.some((node) => node.id === "component-giant-giant"),
+    false,
+  );
+  assert.match(nodes.find((node) => node.id === "components-caption-giant").text, /too tall to preview/);
+});

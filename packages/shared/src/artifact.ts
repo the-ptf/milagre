@@ -140,6 +140,10 @@ export interface ArtifactApi {
   comments(request: { chatId: string }): Promise<ArtifactComment[]>;
   /** The design library of the Chat's Project, or of the Project at `projectPath`: its pages and the latest version of each design on them. */
   library(request: DesignScope): Promise<DesignLibrary>;
+  /** Every Chat of the Project (a Named Link's own Chats for a Link) that has designs, archived ones last. */
+  libraryChats(request: DesignScope): Promise<DesignLibraryChat[]>;
+  /** The design system the Project's screens follow, drawn as one board, and its decision log, newest first. */
+  designSystem(request: DesignScope): Promise<DesignSystemView>;
   /** Copies one of the Chat's designs, or its HTML page (one `tab`), onto the library page named `page`; a new name makes it. */
   addToLibrary(request: { chatId: string; designId: string; page: string; tab?: string }): Promise<DesignLibraryEntry>;
   /** Renames a library design (a new version), moves it to the page named `page` (a new name makes it), or both. */
@@ -149,6 +153,25 @@ export interface ArtifactApi {
   /** The Project's library changed, or with `kit`, its design system, which every screen on it follows. */
   onLibraryChanged(callback: (payload: { projectPath: string; kit?: boolean }) => void): () => void;
 }
+
+export type DesignLibraryChat = { chatId: string; title: string; archived: boolean; designs: ArtifactSummary[] };
+export type DesignDecision = { version: number; title: string; savedAt?: number; decision?: { summary: string; reason?: string } };
+/**
+ * A Project's design system for its Designs page: none yet, frozen (its Named Link's chosen Project left the Link), or
+ * ready with its boards as SVG (drawn with the platform's own fonts) and its decision log, newest first. `owner` is the
+ * member Project's path when the scope is a Named Link.
+ */
+export type DesignSystemView =
+  | { state: "none"; owner?: string }
+  | { state: "frozen" }
+  | {
+      state: "ready";
+      kit: { id: string; version: number; title: string };
+      history: DesignDecision[];
+      /** The board, split into as many as the screen limit needs. */
+      boards: { svg: string; width: number; height: number }[];
+      owner?: string;
+    };
 
 /** Whose designs: a Chat's, or, for Project library designs, the Project's own by its path. */
 export type DesignScope = { chatId: string } | { projectPath: string };
@@ -163,7 +186,8 @@ export const libraryProject = (key: string) => (isChatKey(key) ? projectOfKey(ke
  * `chatId` when it was saved from the Design library page itself. */
 export type DesignLibraryEdit = { version: number; chatId?: string; chat?: string; agent?: string; at: number };
 /** A design in the Project library. `id` is `library:<id>`, its address for `get`, `delete` and the agents' design tools. */
-export type DesignLibraryEntry = ArtifactSummary & { page: string; edits: DesignLibraryEdit[] };
+/** `from` is the Chat design it was first added from, when it came from a Chat. */
+export type DesignLibraryEntry = ArtifactSummary & { page: string; edits: DesignLibraryEdit[]; from?: { chatId: string; id: string } };
 /** A named page of the library ("iPhone", "Kit"), the designs on it in the order they were added. */
 export type DesignLibraryPage = { id: string; name: string; designs: DesignLibraryEntry[] };
 export type DesignLibrary = { pages: DesignLibraryPage[] };
@@ -172,7 +196,7 @@ export type DesignLibrary = { pages: DesignLibraryPage[] };
 export function libraryEditLabel(design: Pick<ArtifactSummary, "edits"> | null | undefined, version?: number, chatId?: string | null): string {
   const edit = design?.edits?.findLast((item) => version === undefined || item.version === version);
   if (!edit) return "";
-  if (!edit.chatId) return "Edited in the Design library";
+  if (!edit.chatId) return "Edited in Designs";
   const where = chatId && edit.chatId === chatId ? "Edited here" : `Edited in ${edit.chat ?? "another Chat"}`;
   return [where, edit.agent].filter(Boolean).join(" · ");
 }
@@ -183,11 +207,11 @@ export function libraryCardLine(design: Pick<DesignLibraryEntry, "version" | "ed
   return [`v${design.version}`, libraryEditLabel(design, edit?.version), edit ? ago(edit.at, now) : ""].filter(Boolean).join(" · ");
 }
 
-/** A Recent edits row's caption on the Design library page: "Codex in Login flow · 2 h ago", "Design library · just now". */
+/** A Recent edits row's caption on the Design library page: "Codex in Login flow · 2 h ago", "Designs · just now". */
 export function libraryRecentLine(design: Pick<DesignLibraryEntry, "edits">, now: number): string {
   const edit = design.edits.at(-1);
   if (!edit) return "";
-  const who = !edit.chatId ? "Design library" : edit.agent && edit.chat ? `${edit.agent} in ${edit.chat}` : (edit.agent ?? edit.chat ?? "Another Chat");
+  const who = !edit.chatId ? "Designs" : edit.agent && edit.chat ? `${edit.agent} in ${edit.chat}` : (edit.agent ?? edit.chat ?? "Another Chat");
   return `${who} · ${ago(edit.at, now)}`;
 }
 
@@ -501,4 +525,51 @@ export function readPageMessage(data: unknown): ArtifactPageMessage | null {
     }
   }
   return null;
+}
+
+/** The Designs page's words, the same on desktop and phone. */
+export const DESIGNS_COPY = {
+  title: "Designs",
+  designSystem: "Design system",
+  chats: "Chats",
+  archived: "Archived",
+  decisions: "Decisions",
+  noSystemTitle: "No design system yet",
+  noSystemBody: "Ask an agent in a Chat to create one from this Project's code, its DESIGN.md or a design system you name. Every screen then follows it.",
+  failed: "Couldn't load the design system.",
+  frozenTitle: "This Link's screens are frozen.",
+  frozenBody: "Its design system Project left the Link.",
+  chooseProject: "Choose a Project",
+  frozenHint: "Choose another member in the Link's settings.",
+  noChatsTitle: "No designs in this Project's Chats yet",
+  noChatsBody: "Designs an agent draws in any Chat show here.",
+  noMatch: (query: string) => `No designs match "${query}"`,
+  addToLibrary: "Add to library",
+  inLibrary: (page: string) => `In ${page}`,
+  openChat: "Open Chat",
+} as const;
+
+/** A decision log row: what changed, or that nothing was recorded for that version. */
+export const designDecisionSummary = (entry: DesignDecision): string => entry.decision?.summary ?? "No decision recorded";
+
+/** A decision log row's caption: "v7 · 2 h ago". */
+export const designDecisionLine = (entry: DesignDecision, now: number): string =>
+  [`v${entry.version}`, entry.savedAt ? ago(entry.savedAt, now) : ""].filter(Boolean).join(" · ");
+
+/** Which library page each Chat design is already on, by `<chatId>\n<design id>`. */
+export function libraryPagesBySource(library: DesignLibrary | null | undefined): Map<string, string> {
+  const pages = new Map<string, string>();
+  for (const page of library?.pages ?? []) for (const design of page.designs) if (design.from) pages.set(`${design.from.chatId}\n${design.from.id}`, page.name);
+  return pages;
+}
+
+/** The Designs page's Chats narrowed to the designs whose title, or whose Chat's title, holds `query`. */
+export function filterDesignChats(chats: DesignLibraryChat[], query: string): DesignLibraryChat[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return chats;
+  return chats
+    .map((chat) =>
+      chat.title.toLowerCase().includes(needle) ? chat : { ...chat, designs: chat.designs.filter((design) => design.title.toLowerCase().includes(needle)) },
+    )
+    .filter((chat) => chat.designs.length);
 }

@@ -222,7 +222,7 @@ function chatEntries(
             disabled: !details.branch,
           },
           ...(actions.onDesignLibrary
-            ? [{ key: "design-library", label: "Design library", icon: LibraryIcon, onSelect: run(() => actions.onDesignLibrary?.()) }]
+            ? [{ key: "design-library", label: "Designs", icon: LibraryIcon, onSelect: run(() => actions.onDesignLibrary?.()) }]
             : []),
         ]),
     {

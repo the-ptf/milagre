@@ -87,9 +87,9 @@ function createDesignKits({ directory, projectForChat }) {
     adopt,
     read: ({ chatId, id = "project", version }) => serial(async () => readKit(await file(chatId, id), id, version)),
     readProject: ({ project, id = "project", version }) => serial(() => readKit(projectFile(project, id), id, version)),
-    history: ({ chatId, id = "project" }) =>
+    history: ({ chatId, project, id = "project" }) =>
       serial(async () => {
-        const target = await file(chatId, id);
+        const target = await file(chatId, id, project);
         const log = new Map((await versions(decisionsFile(target))).map((entry) => [entry.version, entry]));
         return (await versions(target)).map((kit) => {
           const { savedAt, decision } = log.get(kit.version) ?? {};

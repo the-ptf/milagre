@@ -735,7 +735,7 @@ async function browserChecks() {
     await screenshot("library-edited-elsewhere");
     // The Project library section ends with a way to the Project's whole Design library page.
     await evaluate('window.addEventListener("milagre:design-library", (event) => { window.openedLibrary = event.detail; }, { once: true }); true');
-    await chooseInMenu("Open Design library");
+    await chooseInMenu("Open Designs");
     await waitFor("!!window.openedLibrary");
     assert.equal(await evaluate("window.openedLibrary.projectKey"), "milagre-link:fixture");
     assert.equal(await evaluate(`${dock}.dataset.page`), "library:iphone", "the panel stays where it was");

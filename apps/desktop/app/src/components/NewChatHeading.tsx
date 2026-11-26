@@ -12,6 +12,7 @@ import { useComputers } from "../lib/computers";
 import { otherCopyKeys, pickedProjectKey, projectPickerRows, useNamedLinks, type ProjectGroup } from "../lib/project-copies";
 import { newChatLook } from "../lib/new-chat-look";
 import { useProjectImages } from "../lib/project-images";
+import { DesignsShortcut } from "./design-library/DesignsShortcut";
 
 export function NewChatHeading({
   projectKey,
@@ -108,6 +109,7 @@ export function NewChatHeading({
       ) : (
         <span className="flex h-8 max-w-[480px] items-center gap-1 rounded-control bg-field px-2">{place}</span>
       )}
+      {!chats && <DesignsShortcut projectKey={projectKey} name={name} />}
     </div>
   );
 }
