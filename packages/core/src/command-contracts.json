@@ -8310,6 +8310,9 @@
         },
         "hidden": {
           "enum": [false, true]
+        },
+        "designSystemProjectId": {
+          "type": "string"
         }
       },
       "required": ["name", "projectIds"],
@@ -8332,6 +8335,9 @@
         },
         "hidden": {
           "enum": [false, true]
+        },
+        "designSystemProjectId": {
+          "type": "string"
         }
       },
       "required": ["id", "name", "projectIds"],

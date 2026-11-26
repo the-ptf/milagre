@@ -7,13 +7,12 @@ async function repeatedComponents({ api, chatId, id, document }) {
   const own = localComponents(document);
   if (!own.length) return [];
   const others = (await api.list({ chatId, format: "design" }).catch(() => [])).filter((item) => item.id !== id && !item.interactive).slice(0, MAX_SCREENS);
+  const reads = await Promise.all(others.map((other) => api.get({ chatId, id: other.id, format: "design" }).catch(() => null)));
   const found = new Map();
-  for (const other of others) {
-    const read = await api.get({ chatId, id: other.id, format: "design" }).catch(() => null);
-    if (!read?.document) continue;
-    const keys = new Set(localComponents(read.document).map(componentKey));
+  others.forEach((other, index) => {
+    const keys = new Set(reads[index]?.document ? localComponents(reads[index].document).map(componentKey) : []);
     for (const node of own) if (keys.has(componentKey(node))) found.set(node.id, [...(found.get(node.id) ?? []), `"${other.title}"`]);
-  }
+  });
   return [...found].map(([component, screens]) => `"${component}" (also on ${screens.join(", ")})`);
 }
 

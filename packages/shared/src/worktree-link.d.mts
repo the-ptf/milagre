@@ -22,3 +22,8 @@ export function linkDeleteFailure(message: string, options?: { computer?: string
 export function isLinkGone(message: string): boolean;
 export function isDeletedLinkState(state: object | null | undefined): boolean;
 export function linkDeletedElsewhereText(name: string): string;
+export function linkDesignSystem(
+  link: { projectIds: string[]; designSystemProjectId?: string } | undefined,
+  selected: string[],
+  picked: string | undefined,
+): { designSystem: string; request: { designSystemProjectId?: string } };

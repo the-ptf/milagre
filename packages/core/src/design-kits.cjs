@@ -22,9 +22,9 @@ function createDesignKits({ directory, projectForChat }) {
   function projectFile(project, id) {
     if (typeof id !== "string" || !ID.test(id)) throw Error("Invalid design kit id.");
     if (typeof project !== "string" || !project) throw Error("This Chat has no design kit scope.");
-    return path.join(directory, createHash("sha256").update(project).digest("hex"), `${id}.json`);
+    return path.join(projectFolder(project), `${id}.json`);
   }
-  const file = async (chatId, id) => projectFile(await projectForChat(chatId), id);
+  const file = async (chatId, id, project) => projectFile(project ?? (await projectForChat(chatId)), id);
   const readKit = async (target, id, version) => {
     const all = await versions(target);
     const found = version === undefined ? all.at(-1) : all.find((kit) => kit.version === version);
@@ -52,7 +52,39 @@ function createDesignKits({ directory, projectForChat }) {
       throw error;
     }
   }
+  const projectFolder = (project) => path.join(directory, createHash("sha256").update(project).digest("hex"));
+  /** Copies the kits `from` holds and `to` lacks, with their decision logs; a kit `to` already has stays its own. */
+  async function adopt(from, to) {
+    const source = projectFolder(from);
+    const names = (await fs.readdir(source).catch(() => [])).filter((name) => name.endsWith(".json") && ID.test(name.slice(0, -5)));
+    for (const name of names) {
+      const target = path.join(projectFolder(to), name);
+      if (
+        await fs.stat(target).then(
+          () => true,
+          () => false,
+        )
+      )
+        continue;
+      await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+      await fs.copyFile(source + path.sep + name, target, fs.constants.COPYFILE_EXCL).catch((error) => {
+        if (error.code !== "EEXIST") throw error;
+      });
+      const log = decisionsFile(path.join(source, name));
+      const copied = decisionsFile(target);
+      if (
+        await fs.stat(log).then(
+          () => true,
+          () => false,
+        )
+      ) {
+        await fs.mkdir(path.dirname(copied), { recursive: true, mode: 0o700 });
+        await fs.copyFile(log, copied).catch(() => {});
+      }
+    }
+  }
   return {
+    adopt,
     read: ({ chatId, id = "project", version }) => serial(async () => readKit(await file(chatId, id), id, version)),
     readProject: ({ project, id = "project", version }) => serial(() => readKit(projectFile(project, id), id, version)),
     history: ({ chatId, id = "project" }) =>
@@ -64,18 +96,19 @@ function createDesignKits({ directory, projectForChat }) {
           return { version: kit.version, title: kit.title, ...(savedAt ? { savedAt } : {}), ...(decision ? { decision } : {}) };
         });
       }),
-    recordDecision: ({ chatId, id = "project", version, decision }) =>
+    owner: (chatId) => projectForChat(chatId),
+    recordDecision: ({ chatId, project, id = "project", version, decision }) =>
       serial(async () => {
-        const target = decisionsFile(await file(chatId, id));
+        const target = decisionsFile(await file(chatId, id, project));
         const record = { version, savedAt: Date.now(), ...(decision ? { decision: DECISION.parse(decision) } : {}) };
         const log = (await versions(target)).filter((entry) => entry.version !== version);
         await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
         await writeAtomic(target, JSON.stringify([...log, record]));
       }),
-    save: ({ chatId, id = "project", expectedVersion, kit }, { assertActive } = {}) =>
+    save: ({ chatId, project, id = "project", expectedVersion, kit }, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
-        const target = await file(chatId, id);
+        const target = await file(chatId, id, project);
         const all = await versions(target);
         const actual = all.at(-1)?.version ?? 0;
         if (!Number.isInteger(expectedVersion) || expectedVersion !== actual)
@@ -112,13 +145,14 @@ function designKitToolDefinitions(chatId, kits, { report, changed } = {}) {
       readOnly: false,
       run: async ({ decision, ...args }) => {
         const checked = decision === undefined ? undefined : DECISION.parse(decision);
-        const kit = await kits.save({ chatId, ...args });
+        const project = await kits.owner(chatId);
+        const kit = await kits.save({ chatId, project, ...args });
         const logged = await kits
-          .recordDecision({ chatId, id: kit.id, version: kit.version, decision: checked })
+          .recordDecision({ chatId, project, id: kit.id, version: kit.version, decision: checked })
           .then(() => null)
           .catch((error) => `Version ${kit.version} is saved, but its decision wasn't recorded: ${error.message}`);
-        await changed?.(chatId, kit);
-        const screens = report ? await report(chatId, kit) : undefined;
+        await changed?.(chatId, kit, project);
+        const screens = report ? await report(chatId, kit, project) : undefined;
         return JSON.stringify(screens || logged ? { kit, ...(screens ? { screens } : {}), ...(logged ? { decisionLog: logged } : {}) } : kit);
       },
     },

@@ -116,7 +116,10 @@ test("editing a named Link renames it and changes members, keeping an unavailabl
     /no longer exists/,
   );
   const renamed = await registry.updateProjectGroup({ id: group.id, name: "Food", projectIds: [projects[0].id, admin.id].toReversed().concat(projects[1].id) });
-  assert.deepEqual(await createProjectRegistry(file, { roots: [] }).listProjectGroups(), [{ ...group, name: "Food", projectIds: renamed.projectIds }, other]);
+  assert.deepEqual(await createProjectRegistry(file, { roots: [] }).listProjectGroups(), [
+    { ...group, name: "Food", projectIds: renamed.projectIds, designSystemProjectId: projects[0].id },
+    other,
+  ]);
 });
 
 test("deleting a named Link removes only that Link, for good, and leaves canvas edges alone", async (t) => {
@@ -139,4 +142,27 @@ test("deleting a named Link removes only that Link, for good, and leaves canvas 
   await assert.rejects(registry.deleteProjectGroup(group.id), /no longer exists/);
   // The same Projects can make a new Link once the old one is gone.
   assert.notEqual((await registry.createProjectGroup({ name: "RDFood", projectIds: group.projectIds })).id, group.id);
+});
+
+test("a Named Link follows its first member's design system until another is chosen, and freezes when the chosen one leaves", () => {
+  const { createProjectGroup, updateProjectGroup, designSystemMember } = require("./project-groups.cjs");
+  const projects = ["a", "b", "c"].map((id) => ({ id }));
+  const created = createProjectGroup([], projects, { name: "Shop", projectIds: ["a", "b"] });
+  assert.equal(created.designSystemProjectId, undefined);
+  assert.equal(designSystemMember(created), "a");
+  const chosen = updateProjectGroup([created], projects, { id: created.id, name: "Shop", projectIds: ["a", "b"], designSystemProjectId: "b" });
+  assert.equal(designSystemMember(chosen), "b");
+  const hidden = updateProjectGroup([chosen], projects, { id: created.id, name: "Shop", projectIds: ["a", "b"], hidden: true });
+  assert.equal(designSystemMember(hidden), "b");
+  assert.throws(
+    () => updateProjectGroup([chosen], projects, { id: created.id, name: "Shop", projectIds: ["a", "b"], designSystemProjectId: "c" }),
+    /member Project for the design system/,
+  );
+  const reordered = updateProjectGroup([created], projects, { id: created.id, name: "Shop", projectIds: ["b", "a"] });
+  assert.equal(designSystemMember(reordered), "a");
+  const left = updateProjectGroup([chosen], projects, { id: created.id, name: "Shop", projectIds: ["a", "c"] });
+  assert.equal(left.designSystemProjectId, "b");
+  assert.equal(designSystemMember(left), null);
+  const named = updateProjectGroup([left], projects, { id: created.id, name: "Shop", projectIds: ["a", "c"], designSystemProjectId: "c" });
+  assert.equal(designSystemMember(named), "c");
 });

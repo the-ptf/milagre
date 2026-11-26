@@ -439,7 +439,7 @@ test("editing a Link adds and removes member Projects for new Chats; existing Ch
   await settle(1);
   assert.ok(runtime.methods.includes("link:update"), "Link membership can be edited");
   const edited = await runtime.invoke("link:update", [{ id: link.id, name: " Food v2 ", projectIds: [projects[1].id, admin.id] }]);
-  assert.deepEqual(edited, { ...link, name: "Food v2", projectIds: [projects[1].id, admin.id] });
+  assert.deepEqual(edited, { ...link, name: "Food v2", projectIds: [projects[1].id, admin.id], designSystemProjectId: projects[0].id });
   assert.deepEqual(await runtime.invoke("link:list"), [edited]);
   await assert.rejects(runtime.invoke("link:update", [{ id: link.id, name: "Food", projectIds: [admin.id] }]), /two/);
   const second = await runtime.invoke("link:send", [{ ...request, operationId: randomUUID() }]);

@@ -22,6 +22,7 @@ A Named Link is an ordered set of two or more Projects. Its Chats have one trans
 - The Chat may edit all of its own Worktrees under its permission mode. Canvas-linked Worktrees outside its set keep the read-only and Delegation rules.
 - Renaming or changing members affects only Chats started afterwards; a Chat's own set never changes. An unavailable member can still be removed.
 - The daemon owns every member repository and records preparation before any Git change. Partial preparation never starts a provider. A missing member blocks new turns without deleting the transcript or shrinking membership.
+- A Named Link's Chats design with one member's design system, chosen in its settings (the first member by default); see [designs](designs.md).
 - Named Link metadata is stored apart from canvas edges, and neither creates the other. A shared Chat uses an explicit Link scope, never an arbitrary member as owner. Git operations always target an explicitly chosen member Worktree.
 - Project reconciliation must never create a second editable Chat in a shared Chat's Worktree.
 

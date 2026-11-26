@@ -266,11 +266,10 @@ export interface NamedProjectLink {
   hidden?: boolean;
   /** An existing canvas Link whose Worktrees were adopted, rather than created for this group. */
   canvasLinkId?: string;
+  /** The member whose design system the Link's Chats follow; the first member when absent. Not a member: its Chats' screens are frozen. */
+  designSystemProjectId?: string;
 }
-export interface NamedLinkDeleteCheck {
-  chats: number;
-  running: string[];
-}
+export type NamedLinkDeleteCheck = { chats: number; running: string[] };
 export interface NamedLinkDeleted {
   removed: string[];
   kept: string[];

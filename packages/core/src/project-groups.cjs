@@ -31,6 +31,10 @@ function membership(groups, projects, request, previous) {
   const hidden = typeof request?.hidden === "boolean" ? request.hidden : previous?.hidden;
   const result = { name, projectIds: [...ids], hidden: hidden === true };
   if (!result.hidden) delete result.hidden;
+  const chosen = request?.designSystemProjectId;
+  if (chosen !== undefined && (typeof chosen !== "string" || !ids.includes(chosen))) throw new Error("Choose a member Project for the design system.");
+  const designSystem = chosen ?? (previous ? (previous.designSystemProjectId ?? previous.projectIds[0]) : undefined);
+  if (designSystem && designSystem !== ids[0]) result.designSystemProjectId = designSystem;
   return result;
 }
 
@@ -45,7 +49,14 @@ function updateProjectGroup(groups, projects, request) {
   const member = membership(groups, projects, request, previous);
   const updated = { ...previous, ...member };
   if (!member.hidden) delete updated.hidden;
+  if (!member.designSystemProjectId) delete updated.designSystemProjectId;
   return updated;
+}
+
+/** The member whose design system the Link's Chats follow, or null while the one chosen has left the Link. */
+function designSystemMember(group) {
+  const id = group.designSystemProjectId ?? group.projectIds[0];
+  return group.projectIds.includes(id) ? id : null;
 }
 
 function deleteProjectGroup(groups, id) {
@@ -53,4 +64,4 @@ function deleteProjectGroup(groups, id) {
   return groups.filter((group) => group.id !== id);
 }
 
-module.exports = { validProjectGroup, createProjectGroup, updateProjectGroup, deleteProjectGroup };
+module.exports = { validProjectGroup, createProjectGroup, updateProjectGroup, deleteProjectGroup, designSystemMember };

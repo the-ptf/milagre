@@ -708,8 +708,8 @@ export type MilagreBridge = {
   ensureChatsHome: () => Promise<OpenProject & StateStamp & { kind: "chats" }>;
   /** Every opened Project, seeded once from existing coordination files. */
   listNamedLinks: () => Promise<NamedProjectLink[]>;
-  createNamedLink: (request: { name: string; projectIds: string[]; hidden?: boolean }) => Promise<NamedProjectLink>;
-  updateNamedLink: (request: { id: string; name: string; projectIds: string[]; hidden?: boolean }) => Promise<NamedProjectLink>;
+  createNamedLink: (request: { name: string; projectIds: string[]; hidden?: boolean; designSystemProjectId?: string }) => Promise<NamedProjectLink>;
+  updateNamedLink: (request: { id: string; name: string; projectIds: string[]; hidden?: boolean; designSystemProjectId?: string }) => Promise<NamedProjectLink>;
   /** What deleting a Link would close: its Chats not archived yet, and the titles of the running ones. */
   checkDeleteNamedLink: (id: string) => Promise<NamedLinkDeleteCheck>;
   /** Deletes a Link: refused while one of its Chats runs; archives its Chats and removes only its untouched Worktrees. */
