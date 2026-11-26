@@ -31,7 +31,7 @@ function createDesignKits({ directory, projectForChat }) {
     if (!found && version !== undefined) throw Error(`Kit "${id}" version ${version} does not exist in this Project.`);
     return found ? require("@milagre/shared/design").validateDesignKit(found) : null;
   };
-  const decisionsFile = (target) => target.replace(/\.json$/, ".decisions.json");
+  const decisionsFile = (target) => path.join(directory, "decisions", path.basename(path.dirname(target)), path.basename(target));
   async function writeAtomic(target, content, assertActive) {
     const temporary = `${target}.${randomUUID()}.tmp`;
     try {
@@ -64,7 +64,15 @@ function createDesignKits({ directory, projectForChat }) {
           return { version: kit.version, title: kit.title, ...(savedAt ? { savedAt } : {}), ...(decision ? { decision } : {}) };
         });
       }),
-    save: ({ chatId, id = "project", expectedVersion, kit, decision }, { assertActive } = {}) =>
+    recordDecision: ({ chatId, id = "project", version, decision }) =>
+      serial(async () => {
+        const target = decisionsFile(await file(chatId, id));
+        const record = { version, savedAt: Date.now(), ...(decision ? { decision: DECISION.parse(decision) } : {}) };
+        const log = (await versions(target)).filter((entry) => entry.version !== version);
+        await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+        await writeAtomic(target, JSON.stringify([...log, record]));
+      }),
+    save: ({ chatId, id = "project", expectedVersion, kit }, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
         const target = await file(chatId, id);
@@ -75,10 +83,7 @@ function createDesignKits({ directory, projectForChat }) {
         if (all.length >= 100) throw Error("This kit has 100 immutable versions. Create a new kit id.");
         const saved = require("@milagre/shared/design").validateDesignKit({ ...designKitDataSchema.parse(kit), id, version: actual + 1 });
         await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-        const record = { version: saved.version, savedAt: Date.now(), ...(decision ? { decision: DECISION.parse(decision) } : {}) };
         await writeAtomic(target, JSON.stringify([...all, saved]), assertActive);
-        const log = (await versions(decisionsFile(target))).filter((entry) => entry.version !== saved.version);
-        await writeAtomic(decisionsFile(target), JSON.stringify([...log, record]));
         return saved;
       }),
     close: () => queue,
@@ -105,10 +110,16 @@ function designKitToolDefinitions(chatId, kits, { report, changed } = {}) {
         decision: DECISION.describe("The decision this version records, shown in the design system's decision log."),
       },
       readOnly: false,
-      run: async (args) => {
+      run: async ({ decision, ...args }) => {
+        const checked = decision === undefined ? undefined : DECISION.parse(decision);
         const kit = await kits.save({ chatId, ...args });
+        const logged = await kits
+          .recordDecision({ chatId, id: kit.id, version: kit.version, decision: checked })
+          .then(() => null)
+          .catch((error) => `Version ${kit.version} is saved, but its decision wasn't recorded: ${error.message}`);
         await changed?.(chatId, kit);
-        return JSON.stringify(report ? { kit, screens: await report(chatId, kit) } : kit);
+        const screens = report ? await report(chatId, kit) : undefined;
+        return JSON.stringify(screens || logged ? { kit, ...(screens ? { screens } : {}), ...(logged ? { decisionLog: logged } : {}) } : kit);
       },
     },
     {

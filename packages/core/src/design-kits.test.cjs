@@ -288,7 +288,7 @@ test("each design system version records its decision for the log, outside the s
   assert.ok(log.every((entry) => Number.isFinite(entry.savedAt)));
   const latest = await kits.read({ chatId: "a#2" });
   assert.equal(latest.version, 2);
-  const [folder] = await fs.readdir(directory);
+  const folder = (await fs.readdir(directory)).find((name) => /^[0-9a-f]{64}$/.test(name));
   const stored = JSON.parse(await fs.readFile(path.join(directory, folder, "project.json"), "utf8"));
   const { designKitSchema } = require("@milagre/shared/design");
   for (const entry of stored) designKitSchema.parse(entry);
@@ -343,4 +343,28 @@ test("a strict screen the newer kit would put in drift stays on its saved versio
   assert.equal(read.kitBroken.version, 2);
   const edited = await designs.apply({ chatId: "a#1", id: "strict", expectedVersion: 1, operations: [{ op: "update", id: "card", patch: { width: 120 } }] });
   assert.equal(edited.version, 2);
+});
+
+test("decision logs never share a path with a kit, and a failed log still reports the committed version", async (t) => {
+  const { designKitToolDefinitions } = require("./design-kits.cjs");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "design-kit-log-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const kits = createDesignKits({ directory, projectForChat: async () => "a" });
+  const changes = [];
+  const tool = () =>
+    designKitToolDefinitions("a#1", kits, { changed: (_chat, saved) => changes.push(`${saved.id} v${saved.version}`) }).find(
+      (x) => x.name === "design_kit_save",
+    );
+  await tool().run({ id: "brand.decisions", expectedVersion: 0, kit, decision: { summary: "Second kit" } });
+  await tool().run({ id: "brand", expectedVersion: 0, kit, decision: { summary: "First kit" } });
+  assert.equal((await kits.read({ chatId: "a#1", id: "brand.decisions" })).version, 1);
+  assert.equal((await kits.read({ chatId: "a#1", id: "brand" })).version, 1);
+
+  await fs.rm(path.join(directory, "decisions"), { recursive: true, force: true });
+  await fs.writeFile(path.join(directory, "decisions"), "not a folder");
+  const result = JSON.parse(await tool().run({ id: "brand", expectedVersion: 1, kit: { ...kit, radii: { card: 4 } }, decision: { summary: "Sharper cards" } }));
+  assert.equal(result.kit.version, 2);
+  assert.match(result.decisionLog, /Version 2 is saved, but its decision wasn't recorded/);
+  assert.deepEqual(changes.at(-1), "brand v2");
+  assert.equal((await kits.read({ chatId: "a#1", id: "brand" })).version, 2);
 });
