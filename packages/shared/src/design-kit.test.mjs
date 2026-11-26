@@ -202,3 +202,21 @@ test("a kit component copy with a moved child stays local, and a template listin
   assert.deepEqual(kept.local, ["button"]);
   assert.equal(kept.document.nodes.find((n) => n.id === "button-label").x, 20);
 });
+
+test("a kit component copy whose layers were reordered stays local", () => {
+  const card = [
+    { id: "card", type: "frame", component: true, width: 200, height: 100, fill: "$ink" },
+    { id: "card-title", parentId: "card", type: "text", width: 180, height: 24, text: "Title", textStyle: "body" },
+    { id: "card-body", parentId: "card", type: "text", width: 180, height: 24, text: "Body", textStyle: "body" },
+  ];
+  const v1 = { ...kit, components: { card } };
+  const v2 = { ...v1, version: 2, components: { card: [{ ...card[0], height: 120 }, card[1], card[2]] } };
+  const screen = validateDesignDocument({ ...document, kit: v1, nodes: [card[0], card[2], card[1]] });
+  const kept = rebaseDesignOnKit(screen, v2);
+  assert.deepEqual(kept.local, ["card"]);
+  assert.deepEqual(
+    kept.document.nodes.map((n) => n.id),
+    ["card", "card-body", "card-title"],
+  );
+  assert.deepEqual(rebaseDesignOnKit(validateDesignDocument({ ...document, kit: v1, nodes: card }), v2).local, []);
+});
