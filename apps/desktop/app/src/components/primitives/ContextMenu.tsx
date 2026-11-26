@@ -5,7 +5,7 @@ import GlideMenu from "./GlideMenu";
 import { Icon } from "./Icon";
 import { useDismiss } from "../../lib/use-dismiss";
 
-export type ContextMenuRow = { key: string; label: string; hint?: string; icon?: IconSvgElement; onSelect: () => void };
+type ContextMenuRow = { key: string; label: string; hint?: string; icon?: IconSvgElement; onSelect: () => void };
 export type ContextMenuEntry = ContextMenuRow | "divider" | { heading: string };
 
 const WIDTH = 260;

@@ -1,6 +1,6 @@
 export type LinkMenuKey = "review" | "panel" | "browser" | "copy-link" | "copy-markdown" | "viewer" | "editor" | "reveal" | "copy-path" | "copy-relative-path";
 
-export type LinkMenuRow = { key: LinkMenuKey; label: string; hint?: string };
+type LinkMenuRow = { key: LinkMenuKey; label: string; hint?: string };
 export type LinkMenuEntry = LinkMenuRow | "divider";
 
 export type WebLinkMenu = {
@@ -27,7 +27,7 @@ function gestures({ mac }: Platform) {
  * Where a plain click and a ⌘-click (Ctrl-click off macOS) on a web link go, as Markdown's Link and the Chat's PR capture
  * decide. Without a Browser panel to take it, a link meant for the panel opens in the default browser.
  */
-export function webLinkHints(link: Omit<WebLinkMenu, "kind">, platform: Platform): Partial<Record<LinkMenuKey, string>> {
+function webLinkHints(link: Omit<WebLinkMenu, "kind">, platform: Platform): Partial<Record<LinkMenuKey, string>> {
   const { click, mod, shift } = gestures(platform);
   const panel = link.panel ? "panel" : "browser";
   const plain = link.pullRequest ? "review" : link.openLinksIn === "milagre" ? panel : "browser";
