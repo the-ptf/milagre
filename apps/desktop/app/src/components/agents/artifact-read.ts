@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createDesignFontReader, designScope, restoreDesignFonts, type Artifact } from "@milagre/shared/artifact";
+import { createDesignFontReader, designScope, libraryProject, restoreDesignFonts, type Artifact } from "@milagre/shared/artifact";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey, isRemoteKey, onComputerConnection } from "../../lib/computer-bridge";
 import { designPreviews } from "./design-preview-cache";
@@ -43,11 +43,38 @@ export function readArtifact(chatId: string, id: string, version: number | null)
   return read;
 }
 export const isVersionKept = (key: string) => versionsKept.has(key);
+
+/** The Project's design system changed: its screens' kept versions are drawn again from the host. */
+function forgetProjectDesigns(project: string) {
+  for (const key of new Set([...versionsRead.keys(), ...versionsKept.keys()])) {
+    if (libraryProject(key.slice(0, key.indexOf("\n"))) !== project) continue;
+    versionsRead.delete(key);
+    versionsKept.delete(key);
+    designPreviews.delete(key);
+  }
+}
+
+/** A count that moves each time the design system of the Project `chatId` belongs to changes. */
+export function useDesignKitRevision(chatId: string | null): number {
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const api = chatId && window.milagre ? bridgeForKey(chatId).artifacts : undefined;
+    if (!chatId || !api?.onLibraryChanged) return;
+    const project = libraryProject(chatId);
+    return api.onLibraryChanged((payload) => {
+      if (payload?.projectPath !== project || !payload.kit) return;
+      forgetProjectDesigns(project);
+      setRevision((count) => count + 1);
+    });
+  }, [chatId]);
+  return revision;
+}
 const keptArtifact = (chatId: string | null, id: string, version: number | null) =>
   (chatId && version !== null && versionsKept.get(`${chatId}\n${id}\n${version}`)) || null;
 
 export function useArtifact(chatId: string | null, id: string, version: number | null, revision?: number) {
   const { enabled } = useDesignsEnabled(chatId);
+  const kitRevision = useDesignKitRevision(chatId);
   const [state, setState] = useState<{
     artifact: Artifact | null;
     error: string | null;
@@ -68,6 +95,6 @@ export function useArtifact(chatId: string | null, id: string, version: number |
     return () => {
       live = false;
     };
-  }, [chatId, id, version, enabled, revision]);
+  }, [chatId, id, version, enabled, revision, kitRevision]);
   return chatId && (enabled || state.artifact?.format === "html") ? state : { artifact: null, error: null };
 }

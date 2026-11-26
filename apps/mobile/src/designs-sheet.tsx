@@ -125,6 +125,7 @@ export function DesignsSheet({
   }, [feature.enabled, close]);
 
   const revision = commentActivity(snapshot, chatId, "artifact");
+  const library = useDesignLibrary(source, chatId, reconnects);
   useVisibleRunChatKeys(client, chatId ? [chatId] : []);
   useEffect(() => {
     if (!source) return;
@@ -145,9 +146,8 @@ export function DesignsSheet({
     return () => {
       live = false;
     };
-  }, [source, chatId, revision, reconnects]);
+  }, [source, chatId, revision, reconnects, library]);
   const sharing = useShareAvailable(source, hostId, chatId);
-  const library = useDesignLibrary(source, chatId, reconnects);
   const pageTabs = usePageTabs(source, chatId, htmlPage);
 
   const rows = useMemo(() => designGroups(summaries ?? []), [summaries]);
@@ -168,14 +168,14 @@ export function DesignsSheet({
         const pinned = versions[design.id] ?? null;
         const have = loaded[design.id];
         const target = pinned ?? design.version;
-        return { design, target, stale: !have || have.version !== target };
+        return { design, target, stale: !have || have.version !== target || (pinned === null && have.kit?.version !== design.kit?.version) };
       })
       .filter((item) => item.stale)
       .sort((a, b) => Number(b.design.id === view.id) - Number(a.design.id === view.id));
     const load = async (queue: typeof wanted) => {
       for (const { design, target } of queue) {
         if (!live) return;
-        const key = JSON.stringify([chatId, design.id, target]);
+        const key = JSON.stringify([chatId, design.id, target, design.kit?.version]);
         let promise = inFlight.get(key);
         if (!promise) {
           promise = loadCanvasDesign(source, { chatId, id: design.id, version: target }, reconnects);

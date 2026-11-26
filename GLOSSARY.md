@@ -54,6 +54,19 @@ _Avoid_: session, thread (the providers' names for the agent process behind a **
 The designs a **Project** keeps past its **Chats**, on named pages (such as iPhone, Watch, Kit). A design or the HTML page is added from a **Chat**'s Artifact panel as a copy, and agents in any **Chat** of the **Project** revise it by its `library:<id>`; every save is a version recorded with its **Chat** ([designs](docs/designs.md)). The **Project**'s Design library page shows the whole library and renames, moves and deletes its designs without a **Chat**.
 _Avoid_: shared designs, global canvas
 
+**Design system**:
+A **Project**'s **Tokens** and **Components**, which every layer design of the **Project** follows live: a change reaches every screen that uses it, in every **Chat** and in the **Project library**, unless that screen was frozen at an earlier version on the user's request. Only agents change it, when the user asks; an agent that sees a request meant for every screen proposes it as a change to the **Design system** instead of one screen's fix. Interactive designs don't follow it.
+A **Named Link** has none of its own: its **Chats** follow the **Design system** of the one member **Project** it names, and a change asked from them changes that **Project**'s. When that **Project** leaves the **Named Link**, its **Chats** stay frozen at the last version until the user names another member. A **Project** never follows another through a canvas **Link**. For a **Project** with an app, its code and `DESIGN.md` are the origin: the **Design system** is imported from them, and a change made in Milagre reaches the code only when the user accepts the agent's offer to carry it there.
+_Avoid_: kit (the agent tools' name for it), style guide, primitives
+
+**Token**:
+One named value of a **Design system**: a color (with optional dark and contrast values), a text style, a spacing, a radius, a tracking or an opacity.
+_Avoid_: primitive, variable, style
+
+**Component**:
+A named, reusable piece of a **Design system** (a button, a card, a tab bar), drawn from **Tokens**. A screen places instances of it and may set only the properties it exposes (label, icon, visibility, fill, opacity).
+_Avoid_: symbol, primitive, template
+
 **Background task**:
 Work that outlives the **Chat**'s turn and reports back to it by itself: a background subagent, a command the agent ran in the background, an MCP task, or an advisor. A **Chat** whose turn ended while one still runs is "in the background", with how many still run, on every surface; a failed last turn shows as failed instead. Anything that would end the agent process (handing the **Chat** to another provider, Reload, a move to another folder) is refused until the background tasks running in that process finish. After a **Usage limit**, switching to another Account or provider stops the limited process's remaining tasks and continues the Chat from its saved progress.
 _Avoid_: job, child (Codex's term for a subagent)

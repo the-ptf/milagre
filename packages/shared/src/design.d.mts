@@ -15,6 +15,7 @@ export interface DesignDocument {
   height: number;
   background?: string;
   kit?: DesignKit;
+  kitFrozen?: boolean;
   consistency?: {
     mode: "advisory" | "strict";
     exceptions?: Array<{ nodeId: string; field: string; value: string | number | Record<string, string | number>; reason: string }>;
@@ -121,6 +122,7 @@ export const designDocumentInputSchema: z.ZodType<unknown>;
 export const designOperationInputSchema: z.ZodType<unknown>;
 export function validateDesignDocument(value: unknown): DesignDocument;
 export function validateDesignConsistency(document: DesignDocument): DesignDocument;
+export function rebaseDesignOnKit(document: DesignDocument, kit: DesignKit): { document: DesignDocument; local: string[] };
 export function applyDesignOperations(document: DesignDocument, operations: DesignOperation[], intent?: DesignEditIntent): DesignDocument;
 export function designLayout(document: DesignDocument, textLayout?: typeof designTextLayout): Map<string, DesignBounds>;
 export function designTextLayout(node: DesignNode, width?: number): { lines: string[]; width: number; height: number; lineHeight: number };
