@@ -1564,6 +1564,29 @@ test("flush ends a waiting Linear sign-in instead of waiting out its timeout", a
   await rejected;
 });
 
+test("flush skips waiting on slow background-safe commands while close still waits for them", async (t) => {
+  const { isBackgroundSlowMethod } = require("./slow-methods.cjs");
+  assert.equal(isBackgroundSlowMethod("link:delete"), true);
+  assert.equal(isBackgroundSlowMethod("linear:connect"), false);
+  const { project, make } = await fixture(t);
+  let releaseReady;
+  const environmentReady = new Promise((resolve) => (releaseReady = resolve));
+  const runtime = make({ environmentReady });
+  await runtime.openProject(project);
+  const pending = runtime.invoke("worktree:create", [{ projectPath: project, prompt: "slow" }]);
+  await runtime.flush();
+  let closed = false;
+  const closing = runtime.close().then(() => {
+    closed = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(closed, false, "close waits for an in-flight slow command");
+  releaseReady();
+  await Promise.allSettled([pending]);
+  await closing;
+  assert.equal(closed, true);
+});
+
 async function connectLinearFixture(dataDir, { scope, settings = {} } = {}) {
   // A signed-in Mac with the Experimental switch on, without running the OAuth flow. With no `scope` the sign-in
   // predates write access, so it can only read issues.

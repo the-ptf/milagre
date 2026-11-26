@@ -54,6 +54,37 @@ async function reserve({ getSettings, git, root }, prep, projects, index) {
     setupSource: resolved.source,
   };
 }
+
+function groupMembersByProject(members) {
+  const groups = new Map();
+  members.forEach((member, index) => {
+    const key = member.projectPath || "";
+    const list = groups.get(key);
+    if (list) list.push([index, member]);
+    else groups.set(key, [[index, member]]);
+  });
+  return [...groups.values()];
+}
+
+async function releaseMember(member, { isReady, root, removeWorktree, changedCopied }) {
+  if (member.adopted) return { kind: "kept", member };
+  const exists = await fs.lstat(member.worktreePath).then(
+    () => true,
+    () => false,
+  );
+  if (!exists) return null;
+  const checkedBase = member.base && member.base !== "HEAD" ? member.base : member.initialCommit;
+  try {
+    if ((!member.created && !isReady(member)) || (member.setupStarted && !member.setupDone)) throw new Error("Unverified Worktree");
+    if ((await changedCopied({ projectPath: member.projectPath, worktreePath: member.worktreePath, setting: member.copyPatterns })).length)
+      throw new Error("Copied files changed");
+    await removeWorktree({ path: member.worktreePath, root, projectPath: member.projectPath, base: checkedBase });
+    return { kind: "removed", member };
+  } catch {
+    return { kind: "kept", member: { ...member, checkedBase } };
+  }
+}
+
 function createLinkWorkspaces({
   store,
   registry,
@@ -273,29 +304,23 @@ function createLinkWorkspaces({
     const members = new Map();
     for (const prep of Object.values(state.preparations)) for (const member of prep.members) members.set(member.worktreePath, member);
     for (const session of Object.values(state.sessions)) for (const member of session.worktrees ?? []) members.set(member.worktreePath, member);
+    released.add(linkId);
+    const groups = groupMembersByProject([...members.values()]);
+    const outcomes = [];
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(4, groups.length) }, async () => {
+        while (next < groups.length) {
+          for (const [index, member] of groups[next++]) outcomes[index] = await releaseMember(member, { isReady, root, removeWorktree, changedCopied });
+        }
+      }),
+    );
     const removed = [],
       kept = [];
-    released.add(linkId);
-    for (const member of members.values()) {
-      if (member.adopted) {
-        kept.push(member);
-        continue;
-      }
-      const exists = await fs.lstat(member.worktreePath).then(
-        () => true,
-        () => false,
-      );
-      if (!exists) continue;
-      const checkedBase = member.base && member.base !== "HEAD" ? member.base : member.initialCommit;
-      try {
-        if ((!member.created && !isReady(member)) || (member.setupStarted && !member.setupDone)) throw new Error("Unverified Worktree");
-        if ((await changedCopied({ projectPath: member.projectPath, worktreePath: member.worktreePath, setting: member.copyPatterns })).length)
-          throw new Error("Copied files changed");
-        await removeWorktree({ path: member.worktreePath, root, projectPath: member.projectPath, base: checkedBase });
-        removed.push(member);
-      } catch {
-        kept.push({ ...member, checkedBase });
-      }
+    for (const outcome of outcomes) {
+      if (!outcome) continue;
+      if (outcome.kind === "removed") removed.push(outcome.member);
+      else kept.push(outcome.member);
     }
     return { removed, kept };
   }
