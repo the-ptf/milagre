@@ -13,9 +13,11 @@ export function DesignsShortcut({ projectKey, name }: { projectKey: string; name
   const [system, setSystem] = useState(false);
   useEffect(() => {
     let live = true;
-    bridgeForKey(projectKey)
-      .artifacts.designSystem(designScope(projectKey))
-      .then((view) => live && setSystem(view.state === "ready"))
+    const api = bridgeForKey(projectKey).artifacts;
+    if (!api?.designSystem) return;
+    api
+      .designSystem(designScope(projectKey))
+      .then((view) => live && setSystem(view?.state === "ready"))
       .catch(() => live && setSystem(false));
     return () => {
       live = false;
