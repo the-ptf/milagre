@@ -38,6 +38,10 @@ export function designKitLabel(design: Pick<ArtifactSummary, "kit" | "kitFrozen"
   return `${design.consistency?.mode === "strict" ? "Strict · " : ""}${design.kit.title} · kit v${design.kit.version}${state}`;
 }
 
+/** Whether a loaded screen already shows design system version `kitVersion`: drawn on it, or found unable to follow it. */
+export const designShowsKit = (design: Pick<ArtifactSummary, "kit" | "kitBroken">, kitVersion: number | undefined): boolean =>
+  design.kit?.version === kitVersion || design.kitBroken?.version === kitVersion;
+
 export type LayerDesignArtifact = ArtifactSummary & {
   format: "design";
   interactive?: false;

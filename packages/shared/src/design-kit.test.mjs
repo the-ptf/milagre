@@ -186,3 +186,19 @@ test("a screen follows a newer kit version unless frozen, keeping its own tokens
   assert.equal(kept.document.nodes.find((n) => n.id === "button").height, 44);
   assert.throws(() => rebaseDesignOnKit(screen, { ...v2, textStyles: {} }), /does not exist/);
 });
+
+test("a kit component copy with a moved child stays local, and a template listing a child first keeps the screen's placement on its root", () => {
+  const button = [
+    { id: "button-label", parentId: "button", type: "text", x: 8, y: 8, width: 100, height: 24, text: "Go", textStyle: "body" },
+    { id: "button", type: "frame", component: true, width: 120, height: 44, fill: "$ink" },
+  ];
+  const v1 = { ...kit, components: { button } };
+  const v2 = { ...v1, version: 2, components: { button: [button[0], { ...button[1], height: 52 }] } };
+  const screen = validateDesignDocument({ ...document, kit: v1, nodes: [{ ...button[1], x: 10, y: 300 }, button[0]] });
+  const followed = rebaseDesignOnKit(screen, v2).document.nodes.find((n) => n.id === "button");
+  assert.deepEqual([followed.x, followed.y, followed.height, followed.parentId], [10, 300, 52, undefined]);
+  const moved = applyDesignOperations(screen, [{ op: "update", id: "button-label", patch: { x: 20 } }]);
+  const kept = rebaseDesignOnKit(moved, v2);
+  assert.deepEqual(kept.local, ["button"]);
+  assert.equal(kept.document.nodes.find((n) => n.id === "button-label").x, 20);
+});
