@@ -6,6 +6,7 @@ const FROZEN =
 
 /** Whose design system a Chat's scope follows: a Project its own, a Named Link the member it names. */
 function createDesignKitScope({ projectRegistry, scopeStates, kits }) {
+  const adopted = new Map();
   const memberPath = (group, projects) => {
     const member = designSystemMember(group);
     return (member && projects.find((project) => project.id === member)?.path) || null;
@@ -17,7 +18,13 @@ function createDesignKitScope({ projectRegistry, scopeStates, kits }) {
       const group = projectGroups.find((item) => item.id === scopeFromKey(key).linkId);
       const project = group ? memberPath(group, projects) : null;
       if (!project) throw Object.assign(new Error(FROZEN), { code: "DESIGN_KIT_FROZEN" });
-      await kits.adopt(key, project);
+      const pair = `${key}\n${project}`;
+      if (!adopted.has(pair))
+        adopted.set(
+          pair,
+          kits.adopt(key, project).catch((error) => (adopted.delete(pair), Promise.reject(error))),
+        );
+      await adopted.get(pair);
       return project;
     },
     /** The Project and every Named Link following its design system. */

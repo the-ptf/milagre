@@ -19,15 +19,25 @@ async function writeAtomic(file, content) {
 }
 
 function createLiveDesigns({ readKit, implementation }) {
-  async function latestKit(chatId, id, cache) {
-    if (!cache.has(id))
+  const read = (chatId, id, version, cache = new Map()) => {
+    const key = `${id}@${version ?? "latest"}`;
+    if (!cache.has(key))
       cache.set(
-        id,
-        readKit({ chatId, id }).catch(() => null),
+        key,
+        readKit({ chatId, id, version }).catch(() => null),
       );
-    return cache.get(id);
+    return cache.get(key);
+  };
+  /**
+   * The newer kit version a screen pinned to `pin` follows, or null: frozen, already latest, or pinned to a kit that isn't
+   * in this scope's history (a Named Link that changed Projects). A `pin` saved before fingerprints counts as this scope's.
+   */
+  async function followable(chatId, pin, frozen, cache) {
+    if (!readKit || !pin || frozen) return null;
+    const [pinned, latest] = await Promise.all([pin.fingerprint && read(chatId, pin.id, pin.version, cache), read(chatId, pin.id, undefined, cache)]);
+    if (pin.fingerprint && (!pinned || fingerprint(pinned) !== pin.fingerprint)) return null;
+    return latest && latest.version > pin.version ? latest : null;
   }
-  const pinnedHere = (chatId, id, version) => readKit({ chatId, id, version }).catch(() => null);
   return {
     fingerprint,
     /** `from` is the version the document came from: the design it was copied from, else its own previous document. */
@@ -38,19 +48,14 @@ function createLiveDesigns({ readKit, implementation }) {
         throw Error("The pinned kit differs from this Project's saved version. Read it with design_kit_read and use that snapshot.");
     },
     async entry(chatId, entry, cache) {
-      if (!readKit || !entry?.kit || entry.kitFrozen) return entry;
-      const pinned = entry.kit.fingerprint && (await pinnedHere(chatId, entry.kit.id, entry.kit.version));
-      if (entry.kit.fingerprint && (!pinned || fingerprint(pinned) !== entry.kit.fingerprint)) return entry;
-      const kit = await latestKit(chatId, entry.kit.id, cache);
-      return kit && kit.version > entry.kit.version
-        ? { ...entry, kit: { ...entry.kit, version: kit.version }, kitFollowed: { from: entry.kit.version, to: kit.version } }
-        : entry;
+      const kit = await followable(chatId, entry?.kit, entry?.kitFrozen, cache);
+      return kit ? { ...entry, kit: { ...entry.kit, version: kit.version }, kitFollowed: { from: entry.kit.version, to: kit.version } } : entry;
     },
     async follow(chatId, folder, current) {
       const pinned = current.document?.kit;
-      if (!readKit || !pinned || current.document.kitFrozen || current.version !== current.latest) return current;
-      const kit = await latestKit(chatId, pinned.id, new Map());
-      if (!kit || kit.version <= pinned.version || !isDeepStrictEqual(await pinnedHere(chatId, pinned.id, pinned.version), pinned)) return current;
+      if (current.version !== current.latest) return current;
+      const kit = await followable(chatId, pinned && { ...pinned, fingerprint: fingerprint(pinned) }, current.document?.kitFrozen, new Map());
+      if (!kit) return current;
       const file = path.join(folder, `v${current.version}.kit.${pinned.id}.${kit.version}.${fingerprint(kit)}.json`);
       let live;
       try {

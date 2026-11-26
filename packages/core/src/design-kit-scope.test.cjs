@@ -115,3 +115,27 @@ test("a design system save resolves its Project once for the version, its decisi
   const web = createDesignKits({ directory, projectForChat: async () => "/repos/web" });
   assert.equal((await web.history({ chatId: "x#1" }))[0].decision.summary, "Start");
 });
+
+test("a Named Link adopts its old kits into a member once, not on every read", async () => {
+  const calls = [];
+  const registry = {
+    projects: [
+      { id: "web", path: "/repos/web" },
+      { id: "app", path: "/repos/app" },
+    ],
+    projectGroups: [{ id: LINK, name: "Shop", projectIds: ["web", "app"] }],
+  };
+  const scope = createDesignKitScope({
+    projectRegistry: () => ({ snapshot: async () => registry }),
+    scopeStates: () => new Map(),
+    kits: { adopt: async (from, to) => calls.push([from, to]) },
+  });
+  await Promise.all([scope.project(linkKey), scope.project(linkKey), scope.project(linkKey)]);
+  registry.projectGroups[0].designSystemProjectId = "app";
+  await scope.project(linkKey);
+  await scope.project(linkKey);
+  assert.deepEqual(calls, [
+    [linkKey, "/repos/web"],
+    [linkKey, "/repos/app"],
+  ]);
+});
