@@ -136,8 +136,13 @@ function installAppIcon({ app, ipcMain, nativeImage, windows, setDockIcon, publi
   return {
     store,
     show,
-    // macOS takes the notification icon from the bundle; an icon here would only add a thumbnail beside the text.
-    notificationOptions: () => (platform === "darwin" ? {} : { icon: nativeImage.createFromPath(appIconFile(publicDir, store.get())) }),
+    // Notification Center draws the app icon from the bundle's icon.icns and ignores the Finder icon set above, so on
+    // macOS the chosen icon rides along as the banner's attachment; the default one would only repeat the app icon.
+    notificationOptions() {
+      const icon = store.get();
+      if (platform === "darwin" && icon === "default") return {};
+      return { icon: nativeImage.createFromPath(appIconFile(publicDir, icon)) };
+    },
   };
 }
 
