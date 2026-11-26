@@ -754,6 +754,9 @@ html[data-grain] .chat-top-blur > :last-child {
 html[data-grain] .panel-grain {
   background-image: var(--grain-panel);
 }
+html[data-dots-off] .window-dots {
+  display: none;
+}
 
 .details-glass {
   background: color-mix(in oklab, var(--surface) 76%, transparent);

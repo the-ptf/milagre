@@ -138,6 +138,36 @@ test("discovery asks lsof only about browser processes it hasn't seen listening"
   assert.deepEqual(await ids(), [], "a different process under the same pid is looked up again");
 });
 
+test("discovery reads the owner token a browser's launcher inherited, once per browser process", async () => {
+  const token = "0123456789abcdef";
+  const asked = [];
+  const execFile = async (command, args) => {
+    if (command === "ps" && args[0] === "-E") {
+      asked.push(args.at(-1));
+      return {
+        stdout: ` 12 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=0\n 11 /usr/local/bin/agent-browser HOME=/Users/me MILAGRE_BROWSER_OWNER=${token}`,
+      };
+    }
+    return { stdout: command === "ps" ? PS : LSOF };
+  };
+  const { adapter: a } = adapter({ execFile, platform: "darwin" });
+  assert.equal((await a.discover()).browsers[0].ownerToken, token, "Chrome's own environment was cleared; its daemon's wasn't");
+  assert.equal((await a.discover()).browsers[0].ownerToken, token);
+  assert.deepEqual(asked, ["12,11"], "only browsers with an endpoint and their launchers, each process once");
+});
+
+test("on Linux the owner token comes from the process environ file", async () => {
+  const read = [];
+  const readFile = async (file) => {
+    read.push(file);
+    if (file === "/proc/12/environ") return "HOME=/home/me\0MILAGRE_BROWSER_OWNER=fedcba9876543210\0";
+    throw new Error("ENOENT");
+  };
+  const { adapter: a } = adapter({ platform: "linux", readFile });
+  assert.equal((await a.discover()).browsers[0].ownerToken, "fedcba9876543210");
+  assert.deepEqual(read.sort(), ["/proc/11/environ", "/proc/12/environ"]);
+});
+
 test("a browser that fails its probe is omitted rather than failing discovery", async () => {
   const { adapter: a } = adapter({
     fetch: async () => {

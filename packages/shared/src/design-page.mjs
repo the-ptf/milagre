@@ -16,10 +16,14 @@ const title = (value) => {
   return value.trim();
 };
 
+/** The page kinds this renderer validates, which the service lists at `/capabilities` so hosts publish only those. */
+export const DESIGN_PAGE_KINDS = Object.freeze(["designs", "workspace", "artifacts", "selection"]);
+
 /** Only design content crosses this boundary. Unknown envelope fields are never retained. */
 export function validateDesignPageSnapshot(value) {
   if (value?.kind === "artifacts") return validateArtifactPageSnapshot(value);
   if (value?.kind === "workspace") return validateWorkspaceSnapshot(value);
+  if (value?.kind === "selection") return validateSelectionSnapshot(value);
   if (!value || value.schemaVersion !== 1 || !Array.isArray(value.designs) || !value.designs.length)
     throw Error("A shared page must contain at least one design.");
   return seal({ schemaVersion: 1, title: title(value.title), designs: validateDesigns(value.designs) });
@@ -54,6 +58,12 @@ function validateWorkspaceSnapshot(value) {
     designs: validateDesigns(value.designs),
     ...(value.page ? { page: validatePage(value.page) } : {}),
   });
+}
+
+function validateSelectionSnapshot(value) {
+  if (value.schemaVersion !== 1 || !Array.isArray(value.designs) || !value.designs.length) throw Error("A shared selection must contain at least one design.");
+  if (value.designs.length > 100) throw Error("A shared selection holds at most 100 designs.");
+  return seal({ schemaVersion: 1, kind: "selection", title: title(value.title), designs: validateDesigns(value.designs) });
 }
 
 /** The files a published page names, which the host uploads before the snapshot and the service serves beside it. */
@@ -179,8 +189,9 @@ export function renderDesignPage(input, { files } = {}) {
     page: files ? { ...page.page, html: rewriteAssetUrls(page.page.html, page.page.assets, files) } : page.page,
   };
   const items = sheet ? [sheet, ...page.designs] : page.designs;
+  const presentation = page.kind === "selection";
   const groups = designRows(page.designs);
-  const grouped = groups.some((row) => row.group);
+  const grouped = !presentation && groups.some((row) => row.group);
   const rows = grouped ? [...(sheet ? [{ group: sheet.title, designs: [sheet] }] : []), ...groups] : [{ group: null, designs: items }];
   const pad = grouped ? GROUP_PADDING : 0;
   const screen = (item) => item.document ?? item.interactive ?? item.page;
@@ -206,7 +217,7 @@ export function renderDesignPage(input, { files } = {}) {
   const description = descriptionMeta(page.kind === "workspace" ? workspaceDescription(page) : designsDescription(page));
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>${escape(page.title)} | Milagre Designs</title>${description}<style>
 *{box-sizing:border-box}html,body{margin:0;font-family:system-ui,sans-serif;background:#111922;color:#e5edf3}#viewport{display:block;overflow:auto;padding:48px}#canvas{display:flex;${grouped ? "flex-direction:column;align-items:flex-start;" : ""}gap:${GAP}px;width:${width}px}${grouped ? GROUP_STYLE : ""}figure{margin:0;flex-shrink:0}figcaption{height:42px;padding:10px 0;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}img,iframe.live{display:block;border:0;box-shadow:0 4px 24px #0005;background:white}.sr{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-</style></head><body><h1 class="sr">${escape(page.title)}</h1><main id="viewport" aria-label="Designs canvas"><div id="canvas">${renderFrames()}</div></main></body></html>`;
+</style></head><body><h1 class="sr">${escape(page.title)}</h1><main id="viewport" aria-label="${presentation ? "Designs presentation" : "Designs canvas"}"><div id="canvas"${presentation ? " data-present" : ""}>${renderFrames()}</div></main></body></html>`;
 }
 
 function validateArtifactPageSnapshot(value) {

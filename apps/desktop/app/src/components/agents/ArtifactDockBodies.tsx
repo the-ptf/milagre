@@ -4,6 +4,7 @@ import type { HtmlArtifact } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import { InlineError } from "../primitives/InlineError";
 import { ZoomBar } from "../primitives/ZoomBar";
+import { CanvasSelectionContext, SelectionBar, useCanvasSelection } from "./canvas-selection";
 import { ArtifactCanvas, type CanvasHandle, type CanvasView } from "./ArtifactCanvas";
 import { ArtifactPage, type PageHandle } from "./ArtifactPage";
 import { CanvasToolButton, CanvasTools } from "./CanvasTools";
@@ -87,6 +88,7 @@ export function CanvasBody({
   feedback,
   canComment,
   onShare,
+  onShareSelection,
   onAddToLibrary,
 }: {
   chatId: string;
@@ -101,37 +103,43 @@ export function CanvasBody({
   feedback: DockFeedback;
   canComment: boolean;
   onShare?: (design: ArtifactRef) => void;
+  /** Shares the designs picked on the canvas as one presentation link; without it nothing can be picked. */
+  onShareSelection?: (designIds: string[]) => void;
   onAddToLibrary?: (design: ArtifactRef) => void;
 }) {
   const canvas = useRef<CanvasHandle>(null);
+  const selection = useCanvasSelection(designs);
   const [view, setView] = useState<CanvasView | null>(null);
   const { toggleComment, choice, setChoice } = feedback;
   const commenting = feedback.commenting && canComment;
   const label = commentLabel(feedback, "canvas");
   const [hand, setHand] = useState(false);
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col" data-slot="artifact-dock-canvas">
-      <ArtifactCanvas
-        ref={canvas}
-        allowLive={allowLive}
-        library={library}
-        chatId={chatId}
-        designs={designs}
-        versions={versions}
-        onVersion={onVersion}
-        focus={focus}
-        commenting={commenting}
-        comments={feedback.controls}
-        choice={{
-          sent: chosen,
-          pending: choice,
-          onChoose: canComment ? (design) => setChoice((current) => (current?.id === design.id && current.version === design.version ? null : design)) : null,
-        }}
-        onView={setView}
-        hand={hand && !commenting}
-        onShare={onShare}
-        onAddToLibrary={onAddToLibrary}
-      />
+    <div className="@container relative flex min-h-0 flex-1 flex-col" data-slot="artifact-dock-canvas">
+      <CanvasSelectionContext value={onShareSelection ? selection : null}>
+        <ArtifactCanvas
+          ref={canvas}
+          allowLive={allowLive}
+          library={library}
+          chatId={chatId}
+          designs={designs}
+          versions={versions}
+          onVersion={onVersion}
+          focus={focus}
+          commenting={commenting}
+          comments={feedback.controls}
+          choice={{
+            sent: chosen,
+            pending: choice,
+            onChoose: canComment ? (design) => setChoice((current) => (current?.id === design.id && current.version === design.version ? null : design)) : null,
+          }}
+          onView={setView}
+          hand={hand && !commenting}
+          onShare={onShare}
+          onAddToLibrary={onAddToLibrary}
+        />
+      </CanvasSelectionContext>
+      {onShareSelection && <SelectionBar selection={selection} onShare={onShareSelection} />}
       <ZoomBar
         data-slot="artifact-zoom-bar"
         className="absolute bottom-4 left-1/2 -translate-x-1/2"

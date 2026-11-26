@@ -13,6 +13,12 @@ test("provider icons default to original and retain a valid simplified choice", 
   assert.equal(parsePhoneThemeSettings(JSON.stringify({ providerIcons: "unknown" })).providerIcons, "original");
 });
 
+test("background dots show until turned off", () => {
+  assert.equal(parsePhoneThemeSettings(null).dots, "on");
+  assert.equal(parsePhoneThemeSettings(JSON.stringify({ dots: "off" })).dots, "off");
+  assert.equal(parsePhoneThemeSettings(JSON.stringify({ dots: "maybe" })).dots, "on");
+});
+
 test("nothing saved means Milagre Blue following the system", () => {
   assert.deepEqual(parsePhoneThemeSettings(null), DEFAULT_PHONE_THEME);
   assert.equal(DEFAULT_PHONE_THEME.colorTheme, "milagre-blue");

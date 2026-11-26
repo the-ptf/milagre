@@ -21,6 +21,9 @@ test("parseAppearance keeps good fields and defaults bad ones", () => {
   assert.equal(DEFAULT_APPEARANCE.grain, "on", "film grain is on until turned off");
   assert.equal(parseAppearance({ grain: "off" }).grain, "off");
   assert.equal(parseAppearance({ grain: "maybe" }).grain, "on");
+  assert.equal(DEFAULT_APPEARANCE.dots, "on", "background dots show until turned off");
+  assert.equal(parseAppearance({ dots: "off" }).dots, "off");
+  assert.equal(parseAppearance({ dots: "maybe" }).dots, "on");
   assert.deepEqual(parseAppearance(null), DEFAULT_APPEARANCE);
 });
 

@@ -426,6 +426,13 @@ test("every read carries the current viewer in its head, old snapshots included,
   assert.doesNotMatch(VIEWER_HEAD.slice(VIEWER_HEAD.indexOf("<script>") + 8, -"</script>".length), /<\/script/i, "the viewer can't close its own script");
 });
 
+test("capabilities list the page kinds this Worker renders, so hosts never publish a kind it would store as another", async () => {
+  const env = { PUBLIC_ORIGIN: "https://share.milagre.cloud", page: () => assert.fail("capabilities must not open a page") };
+  const reply = await routeRequest(new Request("https://share.milagre.cloud/capabilities"), env);
+  assert.equal(reply.status, 200);
+  assert.deepEqual((await reply.json()).kinds, ["designs", "workspace", "artifacts", "selection"]);
+});
+
 test("the public preview image supports GET and HEAD without accessing snapshot storage", async () => {
   const env = {
     PUBLIC_ORIGIN: "https://share.milagre.cloud",

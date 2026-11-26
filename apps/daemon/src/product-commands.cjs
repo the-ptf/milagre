@@ -97,7 +97,7 @@ async function runProductCommand(client, positionals, values) {
       if (action === "run" && result.isError) throw Object.assign(new Error(result.text), { code: "COMMAND_FAILED" });
       return result;
     }
-    if (action === "run") throw new Error("Scoped commands require --chat CHAT. Owner operations use milagre <family> <action> --input JSON.");
+    if (action === "run") return runOwnerCommand(client, name.split(":"), values);
     if (flags.length) throw new Error(`Unknown flag: --${flags[0][0]}`);
     const commands = await catalogue(client);
     if (action === "list") return commands;

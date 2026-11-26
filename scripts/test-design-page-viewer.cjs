@@ -428,6 +428,52 @@ async function checkLiveAndLegacy({ window, evaluate, ready, screenshot, send, u
   await screenshot("viewer-legacy-page");
 }
 
+async function checkPresentation({ window, evaluate, ready, send, url }) {
+  await window.loadURL(url + "/present#screen=2");
+  await ready();
+  const state = () =>
+    evaluate(
+      "[document.getElementById('mvp-count').textContent, document.querySelector('.mvp-slide:not([hidden])').getAttribute('aria-label'), location.hash, !!document.getElementById('mv-port')]",
+    );
+  assert.deepEqual(await state(), ["2 of 3", "Counter", "#screen=2", false], "a link to a screen opens on it, with no canvas");
+  const key = async (code) => {
+    await send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: code, code, windowsVirtualKeyCode: code === "ArrowLeft" ? 37 : 39 });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key: code, code, windowsVirtualKeyCode: code === "ArrowLeft" ? 37 : 39 });
+  };
+  let frame;
+  for (let tries = 0; tries < 100 && !frame; tries++) {
+    const found = window.webContents.mainFrame.frames.find((child) => child.url === "about:srcdoc");
+    if (found && (await found.executeJavaScript("!!document.getElementById('count')").catch(() => false))) frame = found;
+    else await delay(20);
+  }
+  assert.ok(frame, "the interactive screen loads");
+  const button = await frame.executeJavaScript("(r => [r.x + r.width / 2, r.y + r.height / 2])(document.getElementById('count').getBoundingClientRect())");
+  const screen = await evaluate("(r => ({x:r.x,width:r.width,y:r.y}))(document.querySelector('.mvp-slide:not([hidden]) .mvp-screen').getBoundingClientRect())");
+  const ratio = screen.width / 390;
+  const mouse = (type, x, y) => send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
+  await mouse("mouseMoved", screen.x + button[0] * ratio, screen.y + button[1] * ratio);
+  await mouse("mousePressed", screen.x + button[0] * ratio, screen.y + button[1] * ratio);
+  await mouse("mouseReleased", screen.x + button[0] * ratio, screen.y + button[1] * ratio);
+  const counted = () => frame.executeJavaScript("document.getElementById('count').textContent");
+  for (let tries = 0; tries < 100 && (await counted()) !== "1"; tries++) await delay(10);
+  assert.equal(await counted(), "1", "an interactive screen takes clicks directly");
+  await evaluate("document.activeElement?.blur(); document.body.focus()");
+  await key("ArrowRight");
+  assert.deepEqual((await state()).slice(0, 3), ["3 of 3", "Last", "#screen=3"]);
+  assert.equal(await evaluate("document.getElementById('mvp-next').disabled"), true, "the last screen can't go further");
+  await key("ArrowLeft");
+  await key("ArrowLeft");
+  assert.deepEqual((await state()).slice(0, 2), ["1 of 3", "First"]);
+  await evaluate("document.getElementById('mvp-next').click()");
+  assert.equal((await state())[0], "2 of 3");
+  assert.equal(await counted(), "1", "moving between screens keeps an interactive screen's state");
+  await evaluate("document.getElementById('mvp-prev').focus()");
+  await send("Input.dispatchKeyEvent", { type: "keyDown", key: " ", code: "Space", text: " ", windowsVirtualKeyCode: 32 });
+  await send("Input.dispatchKeyEvent", { type: "keyUp", key: " ", code: "Space", windowsVirtualKeyCode: 32 });
+  for (let tries = 0; tries < 100 && (await state())[0] !== "1 of 3"; tries++) await delay(10);
+  assert.equal((await state())[0], "1 of 3", "Space on a focused Previous button presses it");
+}
+
 async function checkTouch({ window, evaluate, ready, screenshot, send, url }) {
   await window.loadURL(url + "/page");
   await ready();
@@ -601,10 +647,11 @@ async function check() {
     await checkCanvas(context);
     await checkMenu(context);
     await checkLiveAndLegacy(context);
+    await checkPresentation(context);
     await checkTouch(context);
     await checkArtifact(context);
     console.log(
-      "PASS: public pages render under Worker CSP with the read-time viewer; panning never selects, frame menus download and link, live designs take the pointer on click, old pages upgrade, opaque Artifacts stay isolated",
+      "PASS: public pages render under Worker CSP with the read-time viewer; panning never selects, frame menus download and link, live designs take the pointer on click, presentations step through their screens, old pages upgrade, opaque Artifacts stay isolated",
     );
   } finally {
     window.destroy();
@@ -649,6 +696,15 @@ async function run() {
     ["/large", renderDesignPage(large)],
     ["/escaped", renderDesignPage(escaped)],
     ["/live", renderDesignPage(live)],
+    [
+      "/present",
+      renderDesignPage({
+        schemaVersion: 1,
+        kind: "selection",
+        title: "Flow",
+        designs: [{ ...sample.designs[1], title: "First" }, live.designs[1], { ...sample.designs[1], title: "Last" }],
+      }),
+    ],
     ["/legacy", LEGACY_PAGE],
   ]);
   const blockedRequests = [];

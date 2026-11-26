@@ -1,4 +1,5 @@
 const { createHash, randomBytes } = require("node:crypto");
+const { browserOwnerToken } = require("./browser-owner.cjs");
 
 const TARGET = /^([A-Za-z0-9-]{8,64}):([A-Fa-f0-9]{32})$/;
 const BROWSER = /^[A-Za-z0-9-]{8,64}$/;
@@ -98,6 +99,13 @@ function requireChat(request) {
   return chatId;
 }
 
+/** The Chat whose agent process the browser descends from. */
+function ownerOf(browser, parents, agents) {
+  let pid = parents.get(browser.pid);
+  for (let depth = 0; pid && pid > 1 && depth < 64; depth++, pid = parents.get(pid)) if (agents.has(pid)) return agents.get(pid);
+  return null;
+}
+
 function createBrowsers(options = {}) {
   const supported = options.supported ?? (process.platform === "darwin" || process.platform === "linux");
   const adapter = options.adapter ?? require("./browsers-cdp.cjs").createBrowserAdapter(options);
@@ -112,6 +120,7 @@ function createBrowsers(options = {}) {
     captures = new Map(),
     devtoolsSessions = new Map();
   const lineage = new Map();
+  const ownerTokens = new Map();
   const attachments = new Map();
   const panels = new Map();
   let closed = false,
@@ -176,14 +185,12 @@ function createBrowsers(options = {}) {
           for (const id of set) if (!present.has(id)) set.delete(id);
           if (!set.size) attachments.delete(chatId);
         }
+        for (const chatId of new Set(agents.values())) ownerTokens.set(browserOwnerToken(chatId), chatId);
         for (const browser of world.browsers) {
-          let pid = parents.get(browser.pid);
-          for (let depth = 0; pid && pid > 1 && depth < 64; depth++, pid = parents.get(pid)) {
-            if (!agents.has(pid)) continue;
-            lineage.set(browser.id, { chatId: agents.get(pid), pid: browser.pid });
-            for (const [chatId, set] of attachments) if (chatId !== agents.get(pid) && set.delete(browser.id) && !set.size) attachments.delete(chatId);
-            break;
-          }
+          const owner = ownerOf(browser, parents, agents) ?? (!lineage.has(browser.id) && ownerTokens.get(browser.ownerToken));
+          if (!owner) continue;
+          lineage.set(browser.id, { chatId: owner, pid: browser.pid });
+          for (const [chatId, set] of attachments) if (chatId !== owner && set.delete(browser.id) && !set.size) attachments.delete(chatId);
         }
         cache = { at: now(), world };
         return world;

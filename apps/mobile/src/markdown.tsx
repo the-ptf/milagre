@@ -24,7 +24,8 @@ import { fileLinkTarget, localFileLink, touchedFileMatches } from "@milagre/shar
 import { reachableUrl } from "@milagre/shared/loopback-url";
 import { splitStreamingBlocks } from "@milagre/shared/streaming-blocks";
 import { ReachableHostContext, type ReachableHost } from "./reachable-host";
-import { ChatFilesContext, ChatLinkContext } from "./chat-link-context";
+import { ChatFilesContext, ChatLinkActionsContext, ChatLinkContext, type ChatLinkActions } from "./chat-link-context";
+import { showFileLinkSheet, showWebLinkSheet } from "./link-sheet";
 import { cachedMarkdownTokens, markdownChunks, markdownTokens, safeLink } from "./chat-presentation";
 import { radius, space } from "./design-tokens";
 import { PageScroll, pressStyle, useStyles, type Styles } from "./ui";
@@ -47,6 +48,7 @@ type MarkdownTheme = {
   codeSize: number;
   reachable?: ReachableHost | null;
   openChatLink?: ((url: string) => boolean) | null;
+  linkActions?: ChatLinkActions | null;
   steps?: { readonly current: readonly { file?: string; files?: readonly string[] }[] };
   /** False where a long press switches the message to an inline selection view (chat replies on iOS). */
   selectable: boolean;
@@ -213,6 +215,8 @@ function inlineContent(tokens: Token[], t: MarkdownTheme, style: TextStyle = bod
   flush();
   return <View style={{ gap: 8 }}>{parts}</View>;
 }
+const LINK_OPTIONS = [{ name: "linkOptions", label: "Link options" }];
+
 function inlineNodes(nodes: Node[], t: MarkdownTheme, inLink = false): React.ReactNode {
   return nodes.map(({ token, children }, i) => {
     if (token.type === "softbreak" || token.type === "hardbreak") return "\n";
@@ -250,12 +254,21 @@ function inlineNodes(nodes: Node[], t: MarkdownTheme, inLink = false): React.Rea
               });
             }
           : undefined;
+    const label = children.map((child) => child.token.content).join("") || href;
+    const onLongPress = url
+      ? () => showWebLinkSheet({ text: label, url, written: safeLink(written) ?? url, actions: t.linkActions })
+      : file
+        ? () => showFileLinkSheet({ text: label, path: file.path })
+        : undefined;
     return (
       <Text
         key={i}
         style={[style, onPress ? { color: t.colors.accentInk, textDecorationLine: "underline" } : {}]}
         accessibilityRole={onPress ? "link" : undefined}
         onPress={onPress}
+        onLongPress={onLongPress}
+        accessibilityActions={onLongPress ? LINK_OPTIONS : undefined}
+        onAccessibilityAction={onLongPress ? (event) => event.nativeEvent.actionName === "linkOptions" && onLongPress() : undefined}
       >
         {text}
       </Text>
@@ -459,12 +472,13 @@ const Chunk = memo(function Chunk({ text, streaming, media, basePath, remote, se
   const styles = useStyles();
   const reachable = useContext(ReachableHostContext);
   const openChatLink = useContext(ChatLinkContext);
+  const linkActions = useContext(ChatLinkActionsContext);
   const steps = useContext(ChatFilesContext);
   const nodes = useMemo(() => tree(streaming ? markdownTokens(text, true) : cachedMarkdownTokens(text)), [text, streaming]);
   const images = useMemo(() => ({ media, basePath, remote }), [media, basePath, remote]);
   const theme = useMemo(
-    () => ({ colors, styles, basePath, textPx, codeSize, reachable, openChatLink, steps, selectable, onMessageAction, tone }),
-    [colors, styles, basePath, textPx, codeSize, reachable, openChatLink, steps, selectable, onMessageAction, tone],
+    () => ({ colors, styles, basePath, textPx, codeSize, reachable, openChatLink, linkActions, steps, selectable, onMessageAction, tone }),
+    [colors, styles, basePath, textPx, codeSize, reachable, openChatLink, linkActions, steps, selectable, onMessageAction, tone],
   );
   return <MarkdownStreamingContext value={streaming}>{blocks(nodes, images, theme)}</MarkdownStreamingContext>;
 });

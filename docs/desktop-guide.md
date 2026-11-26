@@ -46,7 +46,7 @@ These rules apply to ordinary Chats, issue-started Chats, Named Link members, De
 
 ## Workspace tabs
 
-Settings › Experimental › Workspace tabs puts the open Chat's Worktree in a strip of tabs where the Chat's title sits in the top bar (`ChatTopBar` picks the strip, `ChatIdentity` or `SubchatBookmark`). The model is shared with the phone in `@milagre/shared/workspace-tabs`: one tab set per Worktree, keyed by `workspaceKey`, kept per device (desktop `milagre.workspaceTabs` in preference storage, phone a JSON file in the app's documents). The strip opens a tab for whatever Chat the window shows, puts a Subchat right after its parent's family, and drops tabs of Chats that are archived or moved. Drafting a New Chat shows a New Chat tab until it is sent. ⌘1 to ⌘8 pick a tab and ⌘9 the last; ⌘W is left to the window. Browser pages, designs, Terminals, the diff and the PR become tabs in later steps; until then the + menu opens their panels.
+Settings › Church › Workspace tabs puts the open Chat's Worktree in a strip of tabs across the top bar, from the Chat column's left edge to the panel buttons (`ChatTopBar` picks the strip, `ChatIdentity` or `SubchatBookmark`; a Link view mounts `LinkTabStrip`). The strip renders through a portal fixed to the window's title row, so every button in it must sit in a `no-drag` area or a real mouse press drags the window. The model is shared with the phone in `@milagre/shared/workspace-tabs`: one tab set per Worktree, or per Link for Link Chats, keyed by `workspaceKey` and kept per device (desktop `milagre.workspaceTabs` in preference storage, phone a JSON file in the app's documents). The phone's snapshots give each Link Chat a Worktree of its own, so the phone keys a Link's tabs by the Link instead (`tabScope`). The strip opens a tab for whatever Chat the window shows, puts a Subchat right after its parent's family, and drops tabs of Chats that are archived or moved. Browser pages, Terminals, designs, the diff and the PR open as tabs that fill the workspace or show beside the Chat; the panels follow the tab in front through `workspace-stage`. Drafting a New Chat shows a New Chat tab until it is sent. ⌘1 to ⌘8 pick a tab and ⌘9 the last; ⌘W is left to the window.
 
 ## Notifications
 
@@ -75,7 +75,7 @@ The menu refreshes when reopened and when switching worktrees. Skill names and d
 ## Permission modes
 
 - **Ask approval**: the agent stops before a file edit or command it isn't already allowed to run, and shows the exact command or change. Claude asks before edits and before commands outside its allow rules; Codex asks before any command it doesn't already trust.
-- **Auto**: file edits inside the workspace go ahead. Claude still asks before commands outside its allow rules; Codex works inside its workspace sandbox and asks only to go beyond it.
+- **Auto**: file edits inside the workspace go ahead. Claude, Kiro and Pi run commands that stay inside the Worktree and ask only for risky ones (writing to GitHub, reaching outside the Worktree, hard to undo), saying why on the card; Codex works inside its workspace sandbox and asks only to go beyond it.
 - **Full**: no agent tool approvals, and Codex runs without its sandbox. Use only when you trust the prompt and the workspace.
 
 Escape denies an open approval card and dismisses an open question card. "Always allow in this chat" lasts while the chat's agent stays open, which ends after 10 idle minutes or when Milagre quits, and never changes your Claude or Codex settings files.

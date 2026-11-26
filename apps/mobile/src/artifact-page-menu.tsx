@@ -123,8 +123,13 @@ export function artifactPageMenu({
   return { sections, choose };
 }
 
-export function openArtifactShare(hostId: string | undefined, chatId: string | undefined, kind: ArtifactPageKind, designId?: string) {
-  if (hostId && chatId) router.push({ pathname: "/design-share-sheet", params: { hostId, chatId, kind, ...(designId ? { designId } : {}) } });
+/** Opens the Share sheet for a scope: `designId` names one design, `designIds` the designs of a presentation in order. */
+export function openArtifactShare(hostId: string | undefined, chatId: string | undefined, kind: ArtifactPageKind, designId?: string, designIds?: string[]) {
+  if (hostId && chatId)
+    router.push({
+      pathname: "/design-share-sheet",
+      params: { hostId, chatId, kind, ...(designId ? { designId } : {}), ...(designIds?.length ? { designIds: designIds.join(",") } : {}) },
+    });
 }
 
 /** The Chat's designs in the canvas's order, for the Artifact page's menu to offer Canvas; none while `enabled` is off. */

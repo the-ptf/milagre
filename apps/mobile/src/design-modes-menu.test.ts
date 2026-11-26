@@ -74,3 +74,18 @@ test("a page's Appearance offers every mode its designs define and sets each des
   );
   assert.equal(pageModeChoices([home], "mode:dark"), null);
 });
+
+test("a design's menu adds it to the presentation or takes it out, and offers to share the presentation once it has screens", () => {
+  const home = design({ ink: "#111" });
+  const ids = (presentation: string[]) =>
+    designActionsMenu({ shown: home, latest: 2, showResolved: false, chosen: false, sent: false, sharing: true, presentation, mode: undefined, extra: [] })
+      .flatMap((section) => section.items)
+      .filter((item) => item.id.startsWith("present") || item.id === "share-presentation")
+      .map((item) => `${item.id}:${item.title}`);
+  assert.deepEqual(ids([]), ["present-toggle:Add to presentation"]);
+  assert.deepEqual(ids(["other", "home"]), [
+    "present-toggle:Remove from presentation (screen 2)",
+    "share-presentation:Share presentation (2 screens)",
+    "present-clear:Clear presentation",
+  ]);
+});

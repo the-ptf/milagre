@@ -583,6 +583,7 @@ export type MilagreBridge = {
   onPullRequestsChanged: (callback: (change: { projectPath: string }) => void) => () => void;
   /** Opens a project or worktree folder in the file manager; rejects for any other folder. */
   revealInFolder: (folder: string) => Promise<void>;
+  revealFile: (root: string, file: string) => Promise<void>;
   /** Puts a chat image on the clipboard; `file` is its absolute path, or a pasted image's data URL. */
   copyImage: (file: string) => Promise<void>;
   /** Saves a copy of a chat image where the user picks, named after `name` when it is a data URL; the saved path, or null when cancelled. */

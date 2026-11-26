@@ -1,14 +1,24 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDown01Icon, BubbleChatIcon, Cancel01Icon, CornerDownRightIcon, LayoutTwoColumnIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
+import {
+  ArrowDown01Icon,
+  BubbleChatIcon,
+  Cancel01Icon,
+  CornerDownRightIcon,
+  Layers01Icon,
+  LayoutTwoColumnIcon,
+  PlusSignIcon,
+} from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
-import type { AgentSession } from "../../model";
 import {
   chatOf,
   closeOtherTabs,
   closeTab,
   MAIN_CHAT_CLOSE_TITLE,
   mainChatCloseMessage,
+  newChatTabLabel,
+  type TabPlace,
   mainChatId,
   moveTab,
   openTab,
@@ -20,7 +30,7 @@ import {
   type WorkspaceTab,
 } from "@milagre/shared/workspace-tabs";
 import { closeBrowserTab } from "../../lib/browser-panel";
-import { pageIcon, pageLabel, useWorkspaceTabSources, type TabPanels } from "./use-workspace-tab-sources";
+import { pageIcon, pageLabel, useWorkspaceTabSources, type TabPanels, type TabSession } from "./use-workspace-tab-sources";
 import { setBookmarkReserve } from "../../lib/bookmark-reserve";
 import { useWindowChrome } from "../../lib/window-chrome";
 import { tabSet, updateTabSet, useTabSet } from "../../lib/workspace-tabs-store";
@@ -44,8 +54,8 @@ type Props = {
   workspace: string;
   projectPath: string;
   panels: TabPanels;
-  sessions: Record<string, AgentSession> | undefined;
-  belongs: (session: AgentSession) => boolean;
+  sessions: Record<string, TabSession> | undefined;
+  belongs: (session: TabSession) => boolean;
   rows: readonly SidebarRecent[];
   activeChatId: number | null;
   corner: number;
@@ -74,6 +84,7 @@ export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, be
   const [confirming, setConfirming] = useState<string | null>(null);
   const hover = useHoverCard();
   const drafting = activeChatId === null;
+  const place: TabPlace = isLinkScopeKey(projectPath) ? "link" : "worktree";
   const rowOf = (chatId: number) => rows.find((row) => row.id === String(chatId));
   const parentOf = (chatId: number) => sessions?.[chatId]?.parent;
 
@@ -155,7 +166,7 @@ export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, be
         <div
           data-workspace-tabs
           style={{ left: Math.max(chrome.controlsEnd, columnLeft), right: chrome.rightInset + 12 + (corner ? corner + 20 : 0) }}
-          className="pointer-events-none fixed top-[var(--window-chrome-top)] z-[55] flex h-8 select-none items-center"
+          className="pointer-events-none fixed top-[var(--window-chrome-top)] z-50 flex h-8 select-none items-center"
         >
           <div ref={group} className="no-drag pointer-events-auto flex min-w-0 max-w-full items-center gap-0.5">
             <div
@@ -240,7 +251,7 @@ export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, be
             <AddTabMenu
               anchor={addButton}
               menu={menu.map(({ tab, ...entry }) => (tab ? { ...entry, onSelect: () => updateTabSet(workspace, (current) => openTab(current, tab)) } : entry))}
-              onNewChat={onNewChat}
+              newChat={{ label: newChatTabLabel(place), onSelect: onNewChat }}
               onClose={() => setPopover(null)}
             />
           )}
@@ -276,6 +287,7 @@ export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, be
           {confirming && (
             <CloseMainChatDialog
               title={main === undefined ? "Chat" : (rowOf(main)?.label ?? "Chat")}
+              place={place}
               onCancel={() => setConfirming(null)}
               onConfirm={() => {
                 setConfirming(null);
@@ -305,12 +317,12 @@ export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, be
 function AddTabMenu({
   anchor,
   menu,
-  onNewChat,
+  newChat,
   onClose,
 }: {
   anchor: React.RefObject<HTMLButtonElement | null>;
   menu: readonly TabMenuEntry[];
-  onNewChat: () => void;
+  newChat: { label: string; onSelect: () => void };
   onClose: () => void;
 }) {
   const pick = (action: () => void) => () => {
@@ -319,7 +331,7 @@ function AddTabMenu({
   };
   return (
     <Popover anchor={anchor} align="start" width={260} label="New tab" onClose={onClose} data-workspace-tab-menu>
-      <MenuRow icon={BubbleChatIcon} title="New Chat in this Worktree" onClick={pick(onNewChat)} />
+      <MenuRow icon={BubbleChatIcon} title={newChat.label} onClick={pick(newChat.onSelect)} />
       {menu.map((entry) => (
         <MenuRow
           key={entry.key}
@@ -368,12 +380,12 @@ function AllTabsMenu({
   );
 }
 
-function CloseMainChatDialog({ title, onCancel, onConfirm }: { title: string; onCancel: () => void; onConfirm: () => void }) {
+function CloseMainChatDialog({ title, place, onCancel, onConfirm }: { title: string; place: TabPlace; onCancel: () => void; onConfirm: () => void }) {
   return (
     <Dialog
       role="alertdialog"
       title={MAIN_CHAT_CLOSE_TITLE}
-      description={mainChatCloseMessage(title)}
+      description={mainChatCloseMessage(title, place)}
       onClose={onCancel}
       data-main-chat-close
       actions={
@@ -418,7 +430,7 @@ function TabMenu({
       {parent !== undefined && <MenuRow icon={CornerDownRightIcon} title="Go to parent Chat" onClick={pick(() => onParent(parent))} />}
       {beside !== undefined && <MenuRow icon={LayoutTwoColumnIcon} title={beside ? "Show on its own" : "Show beside the Chat"} onClick={pick(onBeside)} />}
       <MenuRow icon={Cancel01Icon} title="Close tab" onClick={pick(onCloseTab)} />
-      <MenuRow title="Close other tabs" onClick={pick(onCloseOthers)} />
+      <MenuRow icon={Layers01Icon} title="Close other tabs" onClick={pick(onCloseOthers)} />
     </Popover>
   );
 }

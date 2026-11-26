@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
 const { parseLsof } = require("./agents/ports.cjs");
+const { ownerTokenIn } = require("./browser-owner.cjs");
 
 // capture. Only Chromium browser processes started with --remote-debugging-port qualify; a browser
 const PORT_ARG = /(?:^|\s)--remote-debugging-port=(\d{1,5})(?=\s|$)/;
@@ -100,6 +101,61 @@ function createListeners() {
     }
     known = next;
     return found;
+  };
+}
+
+async function readOwnerTokens(pids, { platform, readFile, execFile }) {
+  const tokens = new Map();
+  if (platform === "linux") {
+    await Promise.all(
+      pids.map(async (pid) => {
+        try {
+          tokens.set(pid, ownerTokenIn(await readFile(`/proc/${pid}/environ`, "utf8")));
+        } catch {}
+      }),
+    );
+    return tokens;
+  }
+  let output = "";
+  try {
+    output = (await execFile("ps", ["-E", "-ww", "-o", "pid=,args=", "-p", pids.join(",")], { timeout: 5000, maxBuffer: 8 * 1024 * 1024, encoding: "utf8" }))
+      .stdout;
+  } catch (error) {
+    output = error?.stdout ?? "";
+  }
+  for (const line of output.split(/\r?\n/)) {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (match) tokens.set(Number(match[1]), ownerTokenIn(match[2]));
+  }
+  return tokens;
+}
+
+/**
+ * Discovery plus each browser's owner token (see browser-owner.cjs), read once per browser process from the browser or
+ * its nearest ancestors: agent-browser's daemon keeps the agent's environment but starts Chrome with a cleared one.
+ */
+function withOwnerTokens(discover, options) {
+  let known = new Map();
+  const keyOf = (browser) => `${browser.pid} ${browser.id}`;
+  return async () => {
+    const world = await discover();
+    const parents = new Map(world.processes.map((row) => [row.pid, row.ppid]));
+    const chains = new Map();
+    for (const browser of world.browsers.filter((item) => !known.has(keyOf(item)))) {
+      const chain = [];
+      for (let pid = browser.pid; pid > 1 && chain.length < 4; pid = parents.get(pid) ?? 0) chain.push(pid);
+      chains.set(browser, chain);
+    }
+    const pids = [...new Set([...chains.values()].flat())];
+    const fresh = pids.length ? await readOwnerTokens(pids, options) : new Map();
+    const next = new Map();
+    for (const browser of world.browsers) {
+      const token = known.has(keyOf(browser)) ? known.get(keyOf(browser)) : ((chains.get(browser) ?? []).map((pid) => fresh.get(pid)).find(Boolean) ?? null);
+      next.set(keyOf(browser), token);
+      if (token) browser.ownerToken = token;
+    }
+    known = next;
+    return world;
   };
 }
 
@@ -492,7 +548,7 @@ function createBrowserAdapter(options = {}) {
   }
 
   return {
-    discover,
+    discover: withOwnerTokens(discover, { platform: options.platform ?? process.platform, readFile: options.readFile ?? fs.promises.readFile, execFile }),
     connect,
     session,
     upload,

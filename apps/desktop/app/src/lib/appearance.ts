@@ -95,5 +95,7 @@ export function applyAppearance(a: Appearance) {
   // Film grain (styles.css's .window-grain and .panel-grain) shows while <html> carries data-grain.
   if (a.grain === "off") root.removeAttribute("data-grain");
   else root.setAttribute("data-grain", "");
+  if (a.dots === "off") root.setAttribute("data-dots-off", "");
+  else root.removeAttribute("data-dots-off");
   window.dispatchEvent(new Event(APPEARANCE_EVENT));
 }

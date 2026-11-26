@@ -1,10 +1,12 @@
 import {
   DIFF_COLOR_IDS,
+  DOT_IDS,
   MOTION_IDS,
   PHONE_CODE_SIZES,
   PHONE_TEXT_SIZES,
   PROVIDER_ICON_IDS,
   type DiffColors,
+  type DotsMode,
   type MotionSpeed,
   type ProviderIconStyle,
 } from "@milagre/shared/appearance";
@@ -21,6 +23,7 @@ export type PhoneThemeSettings = {
   diffColors: DiffColors;
   motion: MotionSpeed;
   providerIcons: ProviderIconStyle;
+  dots: DotsMode;
 };
 
 type PhoneTextSize = "small" | "default" | "large" | "larger";
@@ -38,6 +41,7 @@ export const DEFAULT_PHONE_THEME: PhoneThemeSettings = {
   diffColors: "red-green",
   motion: "normal",
   providerIcons: "original",
+  dots: "on",
 };
 
 function oneOf<T extends string>(list: readonly T[], value: unknown, fallback: T): T {
@@ -68,6 +72,7 @@ export function parsePhoneThemeSettings(raw: string | null): PhoneThemeSettings 
     diffColors: oneOf(DIFF_COLOR_IDS, saved.diffColors, "red-green"),
     motion: oneOf(MOTION_IDS, saved.motion, "normal"),
     providerIcons: oneOf(PROVIDER_ICON_IDS, saved.providerIcons, "original"),
+    dots: oneOf(DOT_IDS, saved.dots, "on"),
   };
 }
 

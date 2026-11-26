@@ -10,6 +10,8 @@ import {
   keepListedChats,
   MAIN_CHAT_CLOSE_TITLE,
   mainChatCloseMessage,
+  newChatTabLabel,
+  type TabPlace,
   mainChatId,
   moveTab,
   openTab,
@@ -27,9 +29,12 @@ import { useSession } from "./session";
 import { ChatMarkIcon } from "./status-indicators";
 import { useTheme } from "./theme";
 import { IconButton, PullDown, tap, type MenuSection } from "./ui";
+import { inScope, LINK_TABS, type TabScope } from "./workspace-tabs-kinds";
 import { tabSet, updateTabSet, useTabSet } from "./workspace-tabs-store";
 
-type Where = { hostId: string; projectPath: string; worktreeId: number };
+type Where = { hostId: string; projectPath: string; worktreeId: TabScope };
+
+const placeOf = (where: Where): TabPlace => (where.worktreeId === LINK_TABS ? "link" : "worktree");
 
 function phoneWorkspace(where: Where, chatId: number) {
   return `${where.hostId}|${workspaceKey(where.projectPath, where.worktreeId, chatId)}`;
@@ -46,10 +51,10 @@ export function useWorkspaceTabSync(enabled: boolean, where: Where | null, sessi
     updateTabSet(phoneWorkspace({ hostId, projectPath, worktreeId }, chatId ?? -1), (current) => {
       let next = keepListedChats(current, (id) => {
         const session = sessions[id];
-        return Boolean(session && !session.archived && session.worktree_id === worktreeId);
+        return Boolean(session && !session.archived && inScope(session, worktreeId));
       });
       const session = chatId === undefined ? undefined : sessions[chatId];
-      if (chatId !== undefined && session && !session.archived && session.worktree_id === worktreeId) {
+      if (chatId !== undefined && session && !session.archived && inScope(session, worktreeId)) {
         const after = session.parent === undefined ? undefined : subchatAnchor(next, session.parent, parentOf);
         next = openTab(next, { kind: "chat", chatId }, { after });
       }
@@ -65,7 +70,7 @@ function useTabs(where: Where, activeChatId: number | undefined, onDone?: () => 
   const sessions = session.snapshot?.project.path === where.projectPath ? session.snapshot.project.state.sessions : undefined;
   const runs = session.snapshot?.runs.runs;
   const chatOf = (tab: OpenTab) => (tab.kind === "chat" ? sessions?.[tab.chatId] : undefined);
-  const main = mainChatId(Object.values(sessions ?? {}).filter((chat) => chat.worktree_id === where.worktreeId));
+  const main = mainChatId(Object.values(sessions ?? {}).filter((chat) => inScope(chat, where.worktreeId)));
   const open = (tab: OpenTab) => {
     onDone?.();
     const chatKey = "chatId" in tab ? `${where.projectPath}#${tab.chatId}` : "";
@@ -76,12 +81,13 @@ function useTabs(where: Where, activeChatId: number | undefined, onDone?: () => 
   };
   const newChat = () => {
     onDone?.();
-    router.replace({ pathname: "/chat", params: { hostId: where.hostId, projectPath: where.projectPath, worktreeId: String(where.worktreeId) } });
+    const worktree = where.worktreeId === LINK_TABS ? {} : { worktreeId: String(where.worktreeId) };
+    router.replace({ pathname: "/chat", params: { hostId: where.hostId, projectPath: where.projectPath, ...worktree } });
   };
   const close = async (id: string) => {
     if (main !== undefined && id === `chat:${main}`) {
       const title = sessions?.[main] ? chatTitle(sessions[main]) : "Chat";
-      if (!(await confirm(MAIN_CHAT_CLOSE_TITLE, mainChatCloseMessage(title), "Close tab"))) return;
+      if (!(await confirm(MAIN_CHAT_CLOSE_TITLE, mainChatCloseMessage(title, placeOf(where)), "Close tab"))) return;
     }
     const before = tabSet(workspace);
     const after = closeTab(before, id);
@@ -134,9 +140,9 @@ function useTabs(where: Where, activeChatId: number | undefined, onDone?: () => 
   return { set, open, newChat, close, choose, menu, describe };
 }
 
-const NEW_TAB: MenuSection[] = [{ items: [{ id: "chat", title: "New Chat in this Worktree", systemImage: "square.and.pencil" }] }];
-const NEW_PANEL_TAB: MenuSection[] = [
-  ...NEW_TAB,
+const newTab = (place: TabPlace): MenuSection[] => [{ items: [{ id: "chat", title: newChatTabLabel(place), systemImage: "square.and.pencil" }] }];
+const newPanelTab = (place: TabPlace): MenuSection[] => [
+  ...newTab(place),
   {
     items: [
       { id: "changes", title: "Diff", systemImage: "plus.forwardslash.minus" },
@@ -157,10 +163,11 @@ export function WorkspaceTabsView({
   onPanel: (tab: "changes" | "pr") => void;
 }) {
   const session = useSession();
-  if (worktreeId === undefined || !session.client || !session.snapshot) return null;
+  const scope = session.snapshot?.project.link ? LINK_TABS : worktreeId;
+  if (scope === undefined || !session.client || !session.snapshot) return null;
   return (
     <WorkspaceTabsList
-      where={{ hostId: session.client.url, projectPath: session.snapshot.project.path, worktreeId }}
+      where={{ hostId: session.client.url, projectPath: session.snapshot.project.path, worktreeId: scope }}
       activeChatId={activeChatId}
       onDone={onDone}
       onPanel={onPanel}
@@ -186,7 +193,7 @@ function WorkspaceTabsList({
     <ScrollView contentContainerStyle={{ padding: space.gutter, gap: space.md }}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingLeft: space.xs }}>
         <Text style={{ flex: 1, color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{`${tabs.set.tabs.length} open`}</Text>
-        <PullDown label="New tab" sections={NEW_PANEL_TAB} onSelect={(id) => (id === "chat" ? tabs.newChat() : onPanel(id as "changes" | "pr"))}>
+        <PullDown label="New tab" sections={newPanelTab(placeOf(where))} onSelect={(id) => (id === "chat" ? tabs.newChat() : onPanel(id as "changes" | "pr"))}>
           <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
             <Icon icon={PlusSignIcon} tone="ink" size={20} />
           </View>
@@ -345,7 +352,7 @@ export function WorkspaceTabStrip({ where, activeChatId, actionCount }: { where:
           );
         })}
       </ScrollView>
-      <PullDown label="New tab" sections={NEW_TAB} onSelect={tabs.newChat}>
+      <PullDown label="New tab" sections={newTab(placeOf(where))} onSelect={tabs.newChat}>
         <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
           <Icon icon={PlusSignIcon} tone="ink" size={20} />
         </View>

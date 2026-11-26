@@ -218,6 +218,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "A faint grain over the window and the side panels.",
     keywords: "noise texture background",
   },
+  {
+    page: "appearance",
+    title: "Background dots",
+    group: "Layout",
+    description: "The dot grid behind the window.",
+    keywords: "grid pattern background plain",
+  },
 
   { page: "appearance", title: "Diffs" },
   {
