@@ -11,6 +11,7 @@ import { Cancel01Icon, CommentAdd01Icon, DashboardSquare01Icon, MoreHorizontalIc
 import {
   designGroups,
   designKitLabel,
+  designShowsKit,
   designsCanvasShell,
   isInteractiveDesign,
   newCommentId,
@@ -59,6 +60,24 @@ const refOf = (design: Artifact): ArtifactRef => ({ id: design.id, version: desi
  * `onClose` is set where the canvas is a tab of the right panel docked beside its Chat (an iPad), and closes the tab;
  * `onPage` shows another page of the Artifact in that tab.
  */
+/** The screens whose drawn copy is missing or out of date, the one in view first. */
+function designsToLoad(
+  ordered: ArtifactSummary[],
+  versions: Record<string, number | null>,
+  loaded: Record<string, Artifact>,
+  viewId: string | null | undefined,
+) {
+  return ordered
+    .map((design) => {
+      const pinned = versions[design.id] ?? null;
+      const have = loaded[design.id];
+      const target = pinned ?? design.version;
+      return { design, target, stale: !have || have.version !== target || (pinned === null && !designShowsKit(have, design.kit?.version)) };
+    })
+    .filter((item) => item.stale)
+    .sort((a, b) => Number(b.design.id === viewId) - Number(a.design.id === viewId));
+}
+
 export function DesignsSheet({
   hostId,
   chatId,
@@ -126,6 +145,7 @@ export function DesignsSheet({
   }, [feature.enabled, close]);
 
   const revision = commentActivity(snapshot, chatId, "artifact");
+  const library = useDesignLibrary(source, chatId, reconnects);
   useVisibleRunChatKeys(client, chatId ? [chatId] : []);
   useEffect(() => {
     if (!source) return;
@@ -146,9 +166,8 @@ export function DesignsSheet({
     return () => {
       live = false;
     };
-  }, [source, chatId, revision, reconnects]);
+  }, [source, chatId, revision, reconnects, library]);
   const sharing = useShareAvailable(source, hostId, chatId);
-  const library = useDesignLibrary(source, chatId, reconnects);
   const pageTabs = usePageTabs(source, chatId, htmlPage);
 
   const rows = useMemo(() => designGroups(summaries ?? []), [summaries]);
@@ -165,19 +184,11 @@ export function DesignsSheet({
       pendingLoads.current.set(source, pending);
     }
     const inFlight = pending;
-    const wanted = ordered
-      .map((design) => {
-        const pinned = versions[design.id] ?? null;
-        const have = loaded[design.id];
-        const target = pinned ?? design.version;
-        return { design, target, stale: !have || have.version !== target };
-      })
-      .filter((item) => item.stale)
-      .sort((a, b) => Number(b.design.id === view.id) - Number(a.design.id === view.id));
+    const wanted = designsToLoad(ordered, versions, loaded, view.id);
     const load = async (queue: typeof wanted) => {
       for (const { design, target } of queue) {
         if (!live) return;
-        const key = JSON.stringify([chatId, design.id, target]);
+        const key = JSON.stringify([chatId, design.id, target, design.kit?.version]);
         let promise = inFlight.get(key);
         if (!promise) {
           promise = loadCanvasDesign(source, { chatId, id: design.id, version: target }, reconnects);

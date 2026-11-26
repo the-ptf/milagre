@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ArtifactRef } from "../../model";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { DESIGN_DELETED, type DesignDeleted } from "./design-events";
+import { useDesignKitRevision } from "./artifact-read";
 
 const KEPT_CHATS = 64;
 export function remember<T>(kept: Map<string, T>, key: string, value: T, limit = KEPT_CHATS) {
@@ -31,6 +32,7 @@ const htmlAliasOf = new Map<string, boolean>();
  */
 export function useSavedDesigns(chatId: string | null, fromSteps: Map<string, ArtifactRef>, revisionKey: string, enabled: boolean): SavedDesigns {
   const [savedDesigns, setSavedDesigns] = useState<SavedDesigns>(() => (chatId ? lastSavedDesigns.get(chatId) : undefined) ?? NO_SAVED_DESIGNS);
+  const kitRevision = useDesignKitRevision(chatId);
   useEffect(() => {
     if (savedDesigns.chatId) remember(lastSavedDesigns, savedDesigns.chatId, savedDesigns);
   }, [savedDesigns]);
@@ -70,7 +72,7 @@ export function useSavedDesigns(chatId: string | null, fromSteps: Map<string, Ar
     return () => {
       live = false;
     };
-  }, [chatId, revisionKey, enabled]);
+  }, [chatId, revisionKey, enabled, kitRevision]);
   useEffect(() => {
     const deleted = (event: Event) => {
       const detail = (event as CustomEvent<DesignDeleted>).detail;

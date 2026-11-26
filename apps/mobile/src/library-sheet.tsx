@@ -8,6 +8,7 @@ import {
   artifactDocument,
   designGroups,
   designScope,
+  designShowsKit,
   isInteractiveDesign,
   libraryEditLabel,
   type Artifact,
@@ -319,9 +320,11 @@ function useLoadedDesigns(
   useEffect(() => {
     if (!source || !scopeKey) return;
     for (const design of ordered) {
-      const target = versions[design.id] ?? design.version;
-      const key = `${design.id}@${target}`;
-      if (loaded[design.id]?.version === target || inFlight.current.has(key)) continue;
+      const pinned = versions[design.id] ?? null;
+      const target = pinned ?? design.version;
+      const key = `${design.id}@${target}@${design.kit?.version ?? ""}`;
+      const have = loaded[design.id];
+      if ((have?.version === target && (pinned !== null || designShowsKit(have, design.kit?.version))) || inFlight.current.has(key)) continue;
       inFlight.current.add(key);
       loadCanvasDesign(source, { ...designScope(scopeKey), id: design.id, version: target }, reconnects)
         .then((artifact) => setLoaded((current) => ({ ...current, [design.id]: artifact })))

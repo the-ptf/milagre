@@ -128,6 +128,7 @@ export const designDocumentSchema = z
     height: screen,
     background: color.optional(),
     kit: designKitSchema.optional(),
+    kitFrozen: z.boolean().optional(),
     consistency: designConsistencySchema.optional(),
     tokens: z
       .record(id, designColorTokenSchema)
@@ -151,6 +152,10 @@ export const designDocumentInputSchema = z
         "Strict mode blocks saves with kit drift. Exceptions require nodeId, field, exact diagnostic actual value and a reason. Never disable strict mode or add exceptions unless the user intends that change.",
       ),
     kit: designKitSchema.optional().describe("Pinned project kit snapshot returned by design_kit_read. Read the project kit before creating screens."),
+    kitFrozen: z
+      .boolean()
+      .optional()
+      .describe("Keep this screen on its pinned kit version instead of following the Project's latest. Only when the user asks to freeze it."),
     tokens: z
       .record(z.string(), z.union([z.string(), z.object({ light: z.string(), dark: z.string().optional(), contrast: z.string().optional() })]))
       .optional()
