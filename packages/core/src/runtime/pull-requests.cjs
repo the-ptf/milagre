@@ -11,7 +11,7 @@ async function pullRequestProjects(commands) {
 
 const chatTitleOf = (session) => session.title || session.generatedTitle || session.summary?.titleLine || "Chat";
 
-function registerPullRequests({ commands, options, states, emit, environmentReady, routines = () => null }) {
+function registerPullRequests({ commands, options, states, emit, environmentReady }, services) {
   const injectedPullRequests = Boolean(options.readPullRequest || options.readPullRequests);
   const readPullRequest = options.readPullRequest ?? createPullRequestReader();
   const pullRequestWatch = injectedPullRequests
@@ -110,7 +110,38 @@ function registerPullRequests({ commands, options, states, emit, environmentRead
     commands,
     dataDir: options.dataDir,
     emit,
-    babysit: () => async (url, findings) => Boolean(routines()?.reviewFindings?.(url, findings)),
+    sendFix: async (review, body, clientMessageId) => {
+      const { projectOfKey, sessionIdFromKey, lastUserModel } = require("@milagre/shared/agent-runs");
+      const author = chatsByUrl()
+        .get(review.url)
+        ?.find((chat) => `${chat.projectPath}#${chat.chatId}` !== review.chatId);
+      const projectPath = author?.projectPath ?? (review.chatId && projectOfKey(review.chatId));
+      const sessionId = author?.chatId ?? (review.chatId && sessionIdFromKey(review.chatId));
+      if (!projectPath || !sessionId) throw new Error("No Chat is available for this pull request.");
+      const state = await states.load(projectPath, [sessionId]);
+      const session = state.sessions[sessionId];
+      if (!session || session.archived || session.formerWorktree || session.readOnlyReason) throw new Error("This Chat is unavailable.");
+      const saved = services().chats.turnSettings(`${projectPath}#${sessionId}`) ?? {};
+      await commands.get("chat:send")(
+        {},
+        {
+          projectPath,
+          sessionId,
+          worktreeId: session.worktree_id,
+          provider: session.provider ?? saved.provider,
+          model: lastUserModel(state, sessionId) || saved.model,
+          permissionMode: session.permissionMode ?? saved.permissionMode ?? "ask",
+          effort: saved.effort,
+          delivery: "queue",
+          body,
+          prompt: body,
+          files: [],
+          images: [],
+          clientMessageId,
+        },
+      );
+    },
+    babysit: () => async (url, findings) => Boolean(services().routines?.reviewFindings?.(url, findings)),
   });
   commands.handle("pr-reviews:report", (_event, report, chatId) => reviews.report(report, typeof chatId === "string" ? chatId : null));
   return {

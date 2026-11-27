@@ -252,6 +252,7 @@ const METHODS = new Set([
   "pull-requests:open",
   "pull-requests:list",
   "pull-requests:checks",
+  "pr-reviews:fix",
   "pr-reviews:read",
   "pr-reviews:counts",
   "pr-reviews:set-status",

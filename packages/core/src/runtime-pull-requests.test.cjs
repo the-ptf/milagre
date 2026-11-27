@@ -109,7 +109,6 @@ test("pull-requests:list reads every recent Project's repository with its origin
   const project = path.join(dir, "project");
   await fs.mkdir(project);
   execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });
-  execFileSync("git", ["-C", project, "remote", "add", "origin", "git@github.com:Acme/Web.git"], { stdio: "ignore" });
   const calls = [];
   const runtime = createRuntime({
     dataDir: path.join(dir, "data"),
@@ -131,6 +130,8 @@ test("pull-requests:list reads every recent Project's repository with its origin
     await fs.rm(dir, { recursive: true, force: true });
   });
   await runtime.openProject(project);
+  assert.equal((await runtime.invoke("project:recent"))[0].origin, undefined);
+  execFileSync("git", ["-C", project, "remote", "add", "origin", "git@github.com:Acme/Web.git"], { stdio: "ignore" });
   const answer = await runtime.invoke("pull-requests:list", [{ state: "merged", force: true }]);
   assert.deepEqual(answer.chats, []);
   assert.equal(calls.length, 1);

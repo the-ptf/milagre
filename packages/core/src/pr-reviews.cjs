@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
-const { REVIEW_FINDING_STATUSES, parseReviewReport, reviewCounts } = require("@milagre/shared/pr-review");
+const { REVIEW_FINDING_STATUSES, parseReviewReport, reviewCounts, reviewFixMessage } = require("@milagre/shared/pr-review");
 
 const MAX_REVIEWS = 300;
 const object = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
@@ -24,7 +24,7 @@ function readFile(file) {
  * The review agent's reports, one per PR, in `<dataDir>/pr-reviews.json`, and its Experimental switch. `babysit(url,
  * findings)` hands open high-severity findings to the PR's Babysit Heartbeat and resolves whether one took them.
  */
-function createPrReviews({ file, emit = () => {}, now = Date.now, babysit = async () => false }) {
+function createPrReviews({ file, emit = () => {}, now = Date.now, sendFix, babysit = async () => false }) {
   let data = readFile(file);
   function write() {
     const entries = Object.entries(data.reviews).toSorted(([, a], [, b]) => b.reviewedAt - a.reviewedAt);
@@ -44,7 +44,7 @@ function createPrReviews({ file, emit = () => {}, now = Date.now, babysit = asyn
   }
 
   async function report(input, chatId = null) {
-    if (!data.settings.enabled) throw new Error("The review agent is off. Turn it on in Settings › Experimental › Review agent.");
+    if (!data.settings.enabled) throw new Error("The review agent is off. Turn it on in Settings › Church › Review agent.");
     const parsed = parseReviewReport(input);
     if (parsed instanceof Error) throw parsed;
     const before = new Map((data.reviews[parsed.url]?.findings ?? []).map((finding) => [finding.id, finding.status]));
@@ -59,7 +59,7 @@ function createPrReviews({ file, emit = () => {}, now = Date.now, babysit = asyn
     const urgent = findings.filter((finding) => finding.severity === "high" && finding.status === "open");
     if (urgent.length && (await babysit(parsed.url, urgent).catch(() => false))) {
       review.babysat = true;
-      for (const finding of urgent) finding.status = "sent";
+      for (const finding of urgent) if (finding.status === "open") finding.status = "sent";
       write();
       emit("pr-reviews:changed", { url: parsed.url });
     }
@@ -83,19 +83,30 @@ function createPrReviews({ file, emit = () => {}, now = Date.now, babysit = asyn
     saveSettings,
     read: (url) => data.reviews[url] ?? null,
     counts: () => Object.fromEntries(Object.values(data.reviews).map((review) => [review.url, { ...reviewCounts(review), reviewedAt: review.reviewedAt }])),
+    async fix({ url, id }) {
+      const review = data.reviews[url];
+      const finding = review?.findings.find((item) => item.id === id);
+      if (!data.settings.enabled || !finding || finding.status !== "open") throw new Error("This finding is no longer open for fixes.");
+      const messageId = `pr-review:${review.reviewedAt}:${finding.id}`;
+      await sendFix(review, reviewFixMessage(url, [finding]), messageId);
+      const current = data.reviews[url]?.findings.find((item) => item.id === id);
+      if (current?.status === "open") setStatus({ url, ids: [id], status: "sent" });
+      return data.reviews[url];
+    },
     report,
     setStatus,
   };
 }
 
 /** Registers the commands. `babysit` comes from the Routines runtime once it exists. */
-function registerPrReviews({ commands, dataDir, emit, babysit }) {
-  const reviews = createPrReviews({ file: path.join(dataDir, "pr-reviews.json"), emit, babysit: (...args) => babysit()(...args) });
+function registerPrReviews({ commands, dataDir, emit, babysit, sendFix }) {
+  const reviews = createPrReviews({ file: path.join(dataDir, "pr-reviews.json"), emit, sendFix, babysit: (...args) => babysit()(...args) });
   commands.handle("pr-reviews:settings:read", () => reviews.settings());
   commands.handle("pr-reviews:settings:save", (_event, patch) => reviews.saveSettings(patch));
   commands.handle("pr-reviews:read", (_event, url) => reviews.read(url));
   commands.handle("pr-reviews:counts", () => reviews.counts());
   commands.handle("pr-reviews:set-status", (_event, request) => reviews.setStatus(request));
+  commands.handle("pr-reviews:fix", (_event, request) => reviews.fix(request));
   return reviews;
 }
 

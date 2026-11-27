@@ -1,3 +1,5 @@
+import { allComputers } from "../../all-computers";
+import { useSession } from "../../session";
 import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
@@ -10,7 +12,8 @@ import { useStyles } from "../../ui";
 
 export default function PullRequestSheet() {
   const styles = useStyles();
-  const { route, cwd, number, client, valid, waiting } = usePrRoute();
+  const session = useSession();
+  const { params, route, cwd, number, client, valid, waiting } = usePrRoute();
   const close = useCloseSheet();
   // Android: the sheet reaches under the status bar (fullStackSheet in app/_layout.tsx), and this page has no native header to clear it.
   const insets = useSafeAreaInsets();
@@ -33,6 +36,13 @@ export default function PullRequestSheet() {
     <View collapsable={false} style={[styles.screen, { paddingTop: top + space.xxl }]}>
       <PrOverview
         key={`${cwd}#${number}`}
+        reviewClient={
+          params.reviewHost && params.reviewHost !== client.url
+            ? session.client?.url === params.reviewHost
+              ? session.client
+              : allComputers.clientFor(params.reviewHost)
+            : client
+        }
         client={client}
         cwd={cwd}
         number={number}

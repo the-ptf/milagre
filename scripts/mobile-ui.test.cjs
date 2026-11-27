@@ -576,6 +576,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "persona-avatar" && !(id in modules)) return { PersonaAvatar: "PersonaAvatar" };
       // Church's New Chat stats switch: the shared label and hint, and off unless a test sets it.
       if (id === "@milagre/shared/new-chat-glance" && !(id in modules)) return require("../packages/shared/src/new-chat-glance.ts");
+      if (id === "@milagre/shared/pr-review" && !(id in modules)) return require("../packages/shared/src/pr-review.mjs");
+      if (base === "review-agent" && !(id in modules)) return { useReviewAgent: () => ({ enabled: null }) };
       if (file === "experimental-section.tsx" && base === "chat-display-setting" && !(id in modules)) return { useNewChatStats: () => [false, () => {}] };
       // The Chat reads its open PR's detail for the Review pill; a test stubs the store with no threads unless it sets one.
       if (base === "pr-store" && !(id in modules)) return { usePrDetail: () => ({ pr: globalThis.prDetail ?? null, error: "", loading: false, refresh() {} }) };

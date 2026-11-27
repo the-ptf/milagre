@@ -35,3 +35,10 @@ export function parseReviewReport(input: unknown): ReviewReport | Error;
 export function reviewCounts(review: Pick<PrReview, "findings"> | null | undefined): ReviewCounts;
 export function reviewFixMessage(url: string, findings: readonly Pick<ReviewFinding, "path" | "line" | "severity" | "title" | "body" | "suggestion">[]): string;
 export function reviewBabysitChanges(findings: readonly ReviewFinding[]): { id: string; text: string }[];
+
+export const REVIEW_AGENT_DESCRIPTION: string;
+export function findingsLabel(count: number): string;
+export type ReviewCountMap = Record<string, ReviewCounts & { reviewedAt: number }>;
+export function latestReviewSources<T>(
+  entries: readonly (readonly [T, ReviewCountMap | null])[],
+): Map<string, ReviewCounts & { reviewedAt: number; source: T }>;

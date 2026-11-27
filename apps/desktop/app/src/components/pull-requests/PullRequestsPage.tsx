@@ -20,6 +20,7 @@ import {
   usePullRequests,
   type PullRequestPrefs,
 } from "../../lib/pull-requests";
+import { useReviewAgent, usePrReviewCounts } from "../../lib/review-agent";
 import { reviewPrompt, reviewingUrls } from "../../lib/review-for-me";
 import { undoHistory } from "../../lib/undo-history";
 import { useOrchestratorBoard } from "../../lib/use-orchestrator-board";
@@ -52,7 +53,7 @@ function noteFrom(from: HTMLElement): DOMRect {
   return new DOMRect(box.left, box.top + (box.height - NOTE_HEIGHT) / 2, Math.min(320, box.width), NOTE_HEIGHT);
 }
 
-function useReviewForMe(urls: readonly string[]) {
+function useReviewForMe(urls: readonly string[], report: boolean) {
   const { orchestrator, cards } = useOrchestratorBoard();
   const [sending, setSending] = useState<ReadonlySet<string>>(new Set());
   const running = useMemo(() => reviewingUrls(cards, urls), [cards, urls]);
@@ -64,7 +65,7 @@ function useReviewForMe(urls: readonly string[]) {
     onReview: (from) => {
       const note = noteFrom(from);
       setSending((current) => new Set(current).add(row.url));
-      sendOrchestratorTask(reviewPrompt(row))
+      sendOrchestratorTask(reviewPrompt(row, { report }))
         .then(
           (task) => flyToOrchestrator({ id: task.id, text: `#${row.number} ${row.title}`, from: note }),
           (failure: unknown) => undoHistory.notify(`Couldn't send the review to ${name}: ${ipcErrorMessage(failure)}`),
@@ -107,7 +108,12 @@ export function PullRequestsPage({ onOpenChat }: { onOpenChat: OpenPullRequestCh
   const [now, setNow] = useState(() => Date.now());
   const spin = useRefreshSpin(() => refreshPullRequests({ force: true }), data.reading);
   const urls = useMemo(() => data.rows.map((row) => row.url), [data.rows]);
-  const orchestrator = useReviewForMe(urls);
+  const { enabled } = useReviewAgent();
+  const counts = usePrReviewCounts(
+    computers.filter((c) => !isDimmed(c)).map((c) => c.id),
+    enabled,
+  );
+  const orchestrator = useReviewForMe(urls, enabled);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -238,6 +244,7 @@ export function PullRequestsPage({ onOpenChat }: { onOpenChat: OpenPullRequestCh
                   <PullRequestItem
                     key={row.url}
                     row={row}
+                    findings={row.state === "OPEN" ? counts?.get(row.url) : undefined}
                     selected={row.url === selected}
                     narrow={Boolean(open)}
                     computer={picked === "all" ? rowComputer(row) : null}
@@ -254,7 +261,13 @@ export function PullRequestsPage({ onOpenChat }: { onOpenChat: OpenPullRequestCh
       </ScrollArea>
       {open && (
         <div className="flex min-h-0 shrink-0 pt-[var(--window-chrome-height)]">
-          <PullRequestPane key={open.url} row={open} review={orchestrator.enabled ? orchestrator.review(open) : null} onClose={() => setSelected(null)} />
+          <PullRequestPane
+            key={open.url}
+            row={open}
+            sourceComputer={open.state === "OPEN" ? counts?.get(open.url)?.source : undefined}
+            review={orchestrator.enabled ? orchestrator.review(open) : null}
+            onClose={() => setSelected(null)}
+          />
         </div>
       )}
     </div>

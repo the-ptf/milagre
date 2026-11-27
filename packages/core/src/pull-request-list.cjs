@@ -231,7 +231,7 @@ function pullRequestTools({ read, act, host, scope, inProjectScope, caller }) {
     ),
     act(
       "pr_review_report",
-      "Hand a finished pull request review to Milagre: the PR's URL, a short summary and every finding (path, line, severity high/medium/low, title, body, suggestion). Milagre shows them on the PR and can send them to the Chat that fixes it. Works while the review agent is on in Settings › Experimental.",
+      "Hand a finished pull request review to Milagre: the PR's URL, a short summary and every finding (path, line, severity high/medium/low, title, body, suggestion). Milagre shows them on the PR and can send them to the Chat that fixes it. Works while the review agent is on in Settings › Church.",
       "create",
       {
         url: z.string().min(1).max(300),
@@ -249,7 +249,15 @@ function pullRequestTools({ read, act, host, scope, inProjectScope, caller }) {
           )
           .max(50),
       },
-      (args) => host.reviewReport(args, caller ?? null),
+      async (args) => {
+        const active = scope();
+        if (active.projectPaths !== "*") {
+          const list = await host.pullRequests({ state: "open" });
+          const pr = list.items.find((item) => item.url === args.url);
+          if (!pr?.projects.some((project) => inProjectScope(active, project.path))) throw new Error("This PR is outside the connection's Projects.");
+        }
+        return host.reviewReport(args, caller ?? null);
+      },
     ),
   ];
 }

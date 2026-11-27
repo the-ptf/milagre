@@ -412,7 +412,7 @@ function createRuntime(options) {
     pruneLinks: (...args) => pruneLinks(...args),
   });
   const readPullRequestStateOf = options.readPullRequestState ?? readPullRequestState;
-  const pullRequests = registerPullRequests({ commands, options, states, emit, environmentReady, routines: () => routines });
+  const pullRequests = registerPullRequests({ commands, options, states, emit, environmentReady }, () => ({ routines, chats }));
   const keepAwake = options.keepAwake ?? new KeepAwake({ powerSaveBlocker: { start: () => 0, isStarted: () => true, stop() {} }, enabled: false });
   commands.handle("app:set-keep-awake", (_event, enabled) => keepAwake.setEnabled(enabled === true));
 

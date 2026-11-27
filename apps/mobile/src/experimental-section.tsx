@@ -1,3 +1,5 @@
+import { REVIEW_AGENT_DESCRIPTION } from "@milagre/shared/pr-review";
+import { useReviewAgent } from "./review-agent";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { space } from "./design-tokens";
@@ -24,6 +26,7 @@ export function ExperimentalSection() {
   const [newChatStats, setNewChatStats] = useNewChatStats();
   const [workspaceTabs, setWorkspaceTabs] = useWorkspaceTabs();
   const session = useSession();
+  const reviewAgent = useReviewAgent(session.client);
   const [deviceNotes, setDeviceNotes] = useState<boolean | null>(null);
   const [deviceNotesError, setDeviceNotesError] = useState("");
   const [deviceNotesSaving, setDeviceNotesSaving] = useState(false);
@@ -90,6 +93,18 @@ export function ExperimentalSection() {
         <Toggle title={WORKSPACE_TABS_LABEL} selected={workspaceTabs} onPress={() => setWorkspaceTabs(!workspaceTabs)} />
         <Text style={styles.caption}>{WORKSPACE_TABS_DESCRIPTION}</Text>
       </View>
+      {reviewAgent.enabled !== null && (
+        <View style={[styles.card, { gap: space.xs }]}>
+          <Toggle
+            title="Review agent"
+            selected={reviewAgent.enabled}
+            disabled={reviewAgent.saving}
+            onPress={() => void reviewAgent.save(!reviewAgent.enabled)}
+          />
+          <Text style={styles.caption}>{REVIEW_AGENT_DESCRIPTION}</Text>
+          {!!reviewAgent.error && <Text style={[styles.caption, { color: colors.redInk }]}>{reviewAgent.error}</Text>}
+        </View>
+      )}
       {session.client && deviceNotesClient === session.client && deviceNotes !== null && (
         <View style={[styles.card, { gap: 4 }]}>
           <Toggle

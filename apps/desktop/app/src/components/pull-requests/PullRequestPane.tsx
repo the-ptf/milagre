@@ -1,3 +1,5 @@
+import { ReviewFindings } from "./ReviewFindings";
+import { usePrReview } from "../../lib/review-agent";
 import { useEffect, useMemo } from "react";
 import { Cancel01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
 import type { PullRequestRow } from "@milagre/shared/pull-request-list";
@@ -14,7 +16,7 @@ import { SpinnerRing } from "../primitives/SpinnerRing";
 import { Mascot } from "../orchestrator/Mascot";
 import { stateGlyph, type ReviewForMe } from "./PullRequestItem";
 
-function ReviewAgent({ review }: { review: ReviewForMe }) {
+function ReviewAgent({ review, reviewed }: { review: ReviewForMe; reviewed: boolean }) {
   return (
     <Property
       data-pr-review-agent={review.reviewing ? "reviewing" : "idle"}
@@ -34,14 +36,25 @@ function ReviewAgent({ review }: { review: ReviewForMe }) {
           Reviewing
         </span>
       ) : (
-        <span className="text-12 whitespace-nowrap text-ink-3">Not reviewed</span>
+        <span className="text-12 whitespace-nowrap text-ink-3">{reviewed ? "Reviewed" : "Not reviewed"}</span>
       )}
     </Property>
   );
 }
 
 /** The PR beside the list, in the PR panel's card: the same body as a Chat's PR tab, read through the Project's folder. */
-export function PullRequestPane({ row, review, onClose }: { row: PullRequestRow; review: ReviewForMe | null; onClose: () => void }) {
+export function PullRequestPane({
+  row,
+  review,
+  sourceComputer,
+  onClose,
+}: {
+  sourceComputer?: string;
+  row: PullRequestRow;
+  review: ReviewForMe | null;
+  onClose: () => void;
+}) {
+  const report = usePrReview(row.url, sourceComputer);
   const project = row.projects[0];
   const bridge = bridgeFor(project?.computerId ?? row.computerId);
   const detail = usePullRequest({ cwd: project?.cwd, number: row.number, active: true, bridge });
@@ -90,7 +103,14 @@ export function PullRequestPane({ row, review, onClose }: { row: PullRequestRow;
           source={source}
           project={{ name: project.name, path: project.path }}
           actions={{ openFile: () => window.open(`${row.url}/files`, "_blank", "noopener,noreferrer") }}
-          properties={review && row.state === "OPEN" ? <ReviewAgent review={review} /> : undefined}
+          properties={
+            row.state === "OPEN" && (
+              <>
+                {review && <ReviewAgent review={review} reviewed={!!report} />}
+                {sourceComputer && report && <ReviewFindings review={report} bridge={bridgeFor(sourceComputer)} />}
+              </>
+            )
+          }
         />
       ) : (
         <p className="px-4 py-3 text-12 text-ink-3">None of your Projects is in {row.repo}.</p>

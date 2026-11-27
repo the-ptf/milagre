@@ -103,3 +103,24 @@ test("findings reach only a live Babysit Heartbeat on that PR, on its branch", (
   });
   assert.equal(babysitReviewFindings({ store: { list: () => [] }, scheduler, now: () => 7 }, url, findings), false);
 });
+
+test("Fix in Chat records a handoff only once the message is accepted", async (t) => {
+  const deliveries = [];
+  const reviews = setup(t, {
+    sendFix: async (review, body, id) => {
+      deliveries.push({ chat: review.chatId, body, id });
+      if (deliveries.length === 1) throw new Error("Chat offline");
+    },
+  }).make();
+  reviews.saveSettings({ enabled: true });
+  await reviews.report(report([low]), "/p#7");
+  const { id } = reviews.read(url).findings[0];
+  await assert.rejects(reviews.fix({ url, id }), /Chat offline/);
+  assert.equal(reviews.read(url).findings[0].status, "open");
+  assert.equal((await reviews.fix({ url, id })).findings[0].status, "sent");
+  assert.deepEqual(deliveries[0], deliveries[1]);
+  assert.equal(deliveries[0].chat, "/p#7");
+  assert.match(deliveries[0].body, /src\/b.ts: Nit/);
+  await assert.rejects(reviews.fix({ url, id }), /no longer open/);
+  assert.equal(deliveries.length, 2);
+});

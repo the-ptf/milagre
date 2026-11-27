@@ -590,8 +590,9 @@ export type MilagreBridge = {
   /** Open findings per reviewed PR URL, for the list's badges. */
   readPrReviewCounts: () => Promise<Record<string, ReviewCounts & { reviewedAt: number }>>;
   /** Marks findings sent (to a Chat), dismissed or open again. */
+  fixPrReviewFinding: (request: { url: string; id: string }) => Promise<PrReview>;
   setPrReviewStatus: (request: { url: string; ids: string[]; status: ReviewFindingStatus }) => Promise<PrReview>;
-  /** Settings › Experimental › Review agent. */
+  /** Settings › Church › Review agent. */
   readPrReviewSettings: () => Promise<{ enabled: boolean }>;
   savePrReviewSettings: (patch: { enabled: boolean }) => Promise<{ enabled: boolean }>;
   onPrReviewsChanged: (callback: (change: { url: string }) => void) => () => void;

@@ -75,3 +75,17 @@ export function reviewBabysitChanges(findings) {
     text: `Review finding (${finding.severity}) at ${where(finding)}: ${finding.title}${finding.suggestion ? `. Suggested fix: ${finding.suggestion}` : ""}`,
   }));
 }
+
+export const REVIEW_AGENT_DESCRIPTION = "Review for me saves findings on this computer. High-severity findings go to an active Babysit Heartbeat for the PR.";
+
+export function findingsLabel(count) {
+  return count ? `${count} finding${count === 1 ? "" : "s"}` : "No findings";
+}
+
+export function latestReviewSources(entries) {
+  const result = new Map();
+  for (const [source, counts] of entries)
+    for (const [url, count] of Object.entries(counts ?? {}))
+      if (!result.has(url) || count.reviewedAt > result.get(url).reviewedAt) result.set(url, { ...count, source });
+  return result;
+}

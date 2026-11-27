@@ -1,3 +1,5 @@
+import { REVIEW_AGENT_DESCRIPTION } from "@milagre/shared/pr-review";
+import { useReviewAgent } from "../../lib/review-agent";
 import { useState } from "react";
 import type { ModelOption } from "../../model";
 import { OrchestratorRow, OrchestratorSettingsPage } from "./OrchestratorSettings";
@@ -60,6 +62,7 @@ function DeviceNotesSettings() {
 
 export function ExperimentalSettings({ title, models, onOpenKeybindings }: { title?: string; models: ModelOption[]; onOpenKeybindings?: () => void }) {
   const settings = useSettings();
+  const reviewAgent = useReviewAgent();
   const [page, setPage] = useState<"church" | "orchestrator">("church");
   if (page === "orchestrator") return <OrchestratorSettingsPage models={models} onBack={() => setPage("church")} onOpenKeybindings={onOpenKeybindings} />;
   return (
@@ -104,6 +107,14 @@ export function ExperimentalSettings({ title, models, onOpenKeybindings }: { tit
         <Row label={WORKSPACE_TABS_LABEL} description={WORKSPACE_TABS_DESCRIPTION}>
           <SettingCheckbox label={WORKSPACE_TABS_LABEL} checked={settings.workspaceTabs} onChange={(workspaceTabs) => updateSettings({ workspaceTabs })} />
         </Row>
+        <Row label="Review agent" description={REVIEW_AGENT_DESCRIPTION}>
+          <SettingCheckbox label="Review agent" checked={reviewAgent.enabled} disabled={!reviewAgent.ready || reviewAgent.saving} onChange={reviewAgent.save} />
+        </Row>
+        {reviewAgent.error && (
+          <p role="alert" className="px-4 text-12 text-red-ink">
+            {reviewAgent.error}
+          </p>
+        )}
         <RemoteDelegationSettings />
         <DeviceNotesSettings />
       </Group>
