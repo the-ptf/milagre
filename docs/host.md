@@ -53,6 +53,15 @@ Rejected: running the shell in the Electron main process (dies on quit, unreacha
 - Every registry write checks that each registered Project still has the Git identity it was saved with. A confirmed identity is kept until the folder's real path changes, the folder or its `.git` directory is replaced, or the repository's `config` or `config.worktree` changes, so a host with many Projects doesn't run three Git calls per Project on each write. Only a confirmed answer is kept, never a failure or a mismatch, and nothing is kept where the answer depends on more than those files: plain folders (a folder above can become a repository), a `.git` that isn't a directory in the folder, a config with `[include]`, and a folder or `.git` owned by another user (Git's `safe.directory`).
 - Project images ask GitHub once per endpoint at a time: Projects opening together share an owner's lookup and the signed-in user's lookup in flight. Nothing is kept once it is answered, so the next window asks again.
 
+## Pull requests
+
+The Pull requests page (desktop and phone) lists PRs in the GitHub repositories of every recent Project, on every computer. Each computer answers `pull-requests:list` with its own `gh` account; clients merge the answers by PR URL (`mergePullRequestLists`), and the filters, search and grouping run client-side from `@milagre/shared/pull-request-list`.
+
+- **Resolve, then search.** GitHub search rejects a query over 256 characters, and fails the whole query when one `repo:` in it is unknown or was renamed (a Project's `origin` can still name the old repository; `gh pr list` follows the rename, search doesn't). So `pull-request-list.cjs` first resolves every origin with one aliased `repository(owner,name)` query, which follows renames and returns null for what the account can't see, then searches the canonical names in chunks that fit. Each chunk follows GitHub’s page cursors. Above the 1,000-result search limit it pages each repository directly. A failed chunk becomes an entry in `errors`; the other chunks still answer.
+- **Cost.** A list is cached a minute per state, resolved names an hour, a PR's checks (the hover card, `pull-requests:checks`) 30 seconds. Reads run in the background `gh` lane. Additions and deletions make a cold 100-PR read take several seconds; the page shows the last answer meanwhile.
+- **Review requested** means the signed-in user is named in the PR's review requests. A request to a team the user is in doesn't count.
+- **Opening a PR without a Chat.** `pr:*` commands accept a recent Project's own folder as well as Worktree folders, so the panel and the phone sheet open any listed PR.
+
 ## Browser pages
 
 A Browser page belongs to a Chat on evidence, never on a name, title or URL.

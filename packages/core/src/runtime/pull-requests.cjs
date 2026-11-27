@@ -1,5 +1,14 @@
 const { createPullRequestReader, listOpenPullRequests, readPullRequests } = require("../pull-request.cjs");
 const { createPullRequestWatch } = require("../pull-request-watch.cjs");
+const { createPullRequestList } = require("../pull-request-list.cjs");
+
+/** The recent Projects the sidebar shows, with their `origin` remotes: the repositories the Pull requests page lists. */
+async function pullRequestProjects(commands) {
+  const recent = await commands.get("project:recent")({});
+  return recent.filter((entry) => !entry.hidden).map((entry) => ({ path: entry.path, name: entry.name, origin: entry.origin ?? null }));
+}
+
+const chatTitleOf = (session) => session.title || session.generatedTitle || session.summary?.titleLine || "Chat";
 
 function registerPullRequests({ commands, options, states, emit, environmentReady }) {
   const injectedPullRequests = Boolean(options.readPullRequest || options.readPullRequests);
@@ -64,6 +73,37 @@ function registerPullRequests({ commands, options, states, emit, environmentRead
     });
     openPullRequests.set(projectPath, { at: Date.now(), read });
     return read;
+  });
+  const pullRequestList = options.pullRequestList ?? createPullRequestList({ exec: options.pullRequestListExec });
+  function chatsByUrl() {
+    const byUrl = new Map();
+    for (const projectPath of states.projects()) {
+      const state = states.loaded(projectPath);
+      for (const session of Object.values(state?.sessions ?? {})) {
+        if (session.archived) continue;
+        for (const ref of session.summary?.pullRequests ?? []) {
+          if (typeof ref !== "string" || !ref.includes("/pull/")) continue;
+          const chats = byUrl.get(ref) ?? [];
+          chats.push({ projectPath, chatId: session.id, title: chatTitleOf(session) });
+          byUrl.set(ref, chats);
+        }
+      }
+    }
+    return byUrl;
+  }
+  commands.handle("pull-requests:list", async (_event, request = {}) => {
+    await environmentReady;
+    const byUrl = chatsByUrl();
+    return pullRequestList.list({
+      projects: await pullRequestProjects(commands),
+      state: typeof request?.state === "string" ? request.state : "open",
+      force: request?.force === true,
+      chatsFor: (url) => byUrl.get(url) ?? [],
+    });
+  });
+  commands.handle("pull-requests:checks", async (_event, request = {}) => {
+    await environmentReady;
+    return pullRequestList.checksOf({ repo: request?.repo, number: request?.number });
   });
   return {
     watching: Boolean(pullRequestWatch),

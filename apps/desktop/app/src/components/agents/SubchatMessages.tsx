@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CornerDownRightIcon } from "@hugeicons/core-free-icons";
 import {
@@ -22,11 +22,28 @@ export interface SubchatActions {
 
 let actions: SubchatActions | null = null;
 
-export function provideSubchatActions(next: SubchatActions) {
+function provideSubchatActions(next: SubchatActions) {
   actions = next;
   return () => {
     if (actions === next) actions = null;
   };
+}
+
+type AgentRunAnswers = {
+  answerQuestion: (chatId: string, requestId: string, answers: QuestionAnswers, images: undefined, suggestionId: string) => Promise<boolean>;
+  dismissSuggestion: SubchatActions["dismissSuggestion"];
+};
+
+/** Hands the window's agent runs to every Subchat note, so a suggestion's Send and Dismiss answer through them. */
+export function useProvideSubchatActions({ answerQuestion, dismissSuggestion }: AgentRunAnswers) {
+  const next = useMemo<SubchatActions>(
+    () => ({
+      sendSuggestion: (subchat, requestId, answers, suggestionId) => answerQuestion(subchat, requestId, answers, undefined, suggestionId),
+      dismissSuggestion,
+    }),
+    [answerQuestion, dismissSuggestion],
+  );
+  useEffect(() => provideSubchatActions(next), [next]);
 }
 
 function NoteLine({

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { needsYouLine } from "@milagre/shared/orchestrator";
 import { shortcutCommand, useShortcutLabel } from "../../lib/keybindings";
 import { isModalOpen } from "../../lib/modal";
-import { focusOrchestratorBox, requestTaskOpen, saveOrchestratorSettings } from "../../lib/orchestrator-store";
+import { focusOrchestratorBox, onOrchestratorFlight, requestTaskOpen, saveOrchestratorSettings } from "../../lib/orchestrator-store";
 import { useDismiss } from "../../lib/use-dismiss";
 import { cardsIn } from "../../lib/orchestrator-board";
 import { useOrchestratorBoard } from "../../lib/use-orchestrator-board";
@@ -83,6 +83,14 @@ export function OrchestratorSidebarRow({ active, onShow }: { active: boolean; on
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [settings.enabled, active]);
+  useEffect(
+    () =>
+      onOrchestratorFlight((request) => {
+        const home = rowMascot.current?.getBoundingClientRect();
+        if (home) setFlight({ ...request, bot: home, rest: home });
+      }),
+    [],
+  );
   if (!settings.enabled) return null;
   const openTask = (key: string) => {
     onShow();

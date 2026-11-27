@@ -10,6 +10,7 @@ export type KeybindingCommandId =
   | "canvas.open"
   | "usage.open"
   | "orchestrator.open"
+  | "pull-requests.open"
   | "grid.toggle"
   | "grid.focusPrevious"
   | "grid.focusNext"

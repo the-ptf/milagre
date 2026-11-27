@@ -1,6 +1,7 @@
 const { z } = require("zod");
 const { importTools } = require("./local-mcp-import.cjs");
 const { orchestratorTools } = require("./orchestrator/mcp.cjs");
+const { pullRequestTools } = require("./pull-request-list.cjs");
 const projectInput = { projectPath: z.string().min(1).max(8192) };
 const searchInput = {
   ...projectInput,
@@ -114,6 +115,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
           ),
           ...dictationTools(read, act, host),
           ...orchestratorTools({ read, act, host, assertActive }),
+          ...pullRequestTools({ read, host, scope: currentScope, inProjectScope }),
           read(
             "project_list",
             "List Projects in Milagre (with inScope for this Chat, or only the Projects granted to an outside connection).",

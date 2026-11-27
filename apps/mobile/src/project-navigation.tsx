@@ -8,7 +8,7 @@ import { type SnoozeMark } from "./snooze-actions";
 import { useSnoozeMinutes } from "./snooze-setting";
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { FlatList, Platform, RefreshControl, StyleSheet, Text, View, type TextInputInstance } from "react-native";
-import { ArrowLeft01Icon, Cancel01Icon, MoreHorizontalIcon, RepeatIcon, Settings01Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, Cancel01Icon, GitPullRequestIcon, MoreHorizontalIcon, RepeatIcon, Settings01Icon } from "@hugeicons/core-free-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { chatMarkTone, chatPullRequests } from "@milagre/shared/chats";
 import { unreadRunRoutines } from "@milagre/shared/routines";
@@ -122,6 +122,32 @@ export function ProjectNavigation(props: NavigationProps) {
 }
 
 type BodyProps = NavigationProps & Watched & { readComposer: () => ReturnType<typeof useComposer> };
+function PageButtons({
+  routines,
+  unreadRuns,
+  pullRequests,
+  onNavigate,
+}: {
+  routines: boolean;
+  unreadRuns: boolean;
+  pullRequests: boolean;
+  onNavigate: BodyProps["onNavigate"];
+}) {
+  const s = useS();
+  const { colors } = useTheme();
+  return (
+    <>
+      {routines && (
+        <View>
+          <HeaderButton label={unreadRuns ? "Routines, unread Runs" : "Routines"} icon={RepeatIcon} onPress={() => onNavigate("/routines", true)} />
+          {unreadRuns && <View pointerEvents="none" style={[s.headerDot, { backgroundColor: colors[chatMarkTone("unread")] }]} />}
+        </View>
+      )}
+      {pullRequests && <HeaderButton label="Pull requests" icon={GitPullRequestIcon} onPress={() => onNavigate("/pull-requests", true)} />}
+    </>
+  );
+}
+
 const NavigationBody = memo(function NavigationBody({
   onNavigate,
   onClose,
@@ -565,12 +591,7 @@ const NavigationBody = memo(function NavigationBody({
               <HeaderButton label="Settings" icon={Settings01Icon} onPress={() => onNavigate("/settings", "sheet")} />
               <UpdateSettingsBadge />
             </View>
-            {routinesAvailable && (
-              <View>
-                <HeaderButton label={unreadRuns ? "Routines, unread Runs" : "Routines"} icon={RepeatIcon} onPress={() => onNavigate("/routines", true)} />
-                {unreadRuns && <View pointerEvents="none" style={[s.headerDot, { backgroundColor: colors[chatMarkTone("unread")] }]} />}
-              </View>
-            )}
+            <PageButtons routines={routinesAvailable} unreadRuns={unreadRuns} pullRequests={views.length > 0} onNavigate={onNavigate} />
             <PullDown
               label="More"
               sections={[

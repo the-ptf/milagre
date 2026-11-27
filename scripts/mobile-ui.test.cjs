@@ -3808,6 +3808,13 @@ function find(node, predicate) {
     if (found) return found;
   }
 }
+// The header's page buttons (PageButtons in project-navigation.tsx) drawn in place, as React would.
+function drawPageButtons(node) {
+  if (Array.isArray(node)) return node.map(drawPageButtons);
+  if (!node || typeof node !== "object" || !node.props) return node;
+  if (typeof node.type === "function" && node.type.name === "PageButtons") return drawPageButtons(node.type(node.props));
+  return "children" in node.props ? { ...node, props: { ...node.props, children: drawPageButtons(node.props.children) } } : node;
+}
 // A reply's activity rows (ReplyActivity in chat-reply.tsx) drawn in place, as React would.
 function drawReplyActivity(node) {
   if (Array.isArray(node)) return node.map(drawReplyActivity);
@@ -5049,7 +5056,7 @@ function navigationHost(
         secondaryRoutes.push(secondary);
       },
     });
-    return typeof tree.type === "function" ? tree.type(tree.props) : tree;
+    return drawPageButtons(typeof tree.type === "function" ? tree.type(tree.props) : tree);
   };
   const rows = () => find(render(), (node) => node.type === "FlatList");
   const row = (kind, index = 0) => {

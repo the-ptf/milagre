@@ -65,7 +65,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
   const [notice, setNotice] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [tab, setTab] = useState<"summary" | "files">("summary");
-  const [open, setOpen] = useState({ description: false, checks: false, comments: true });
+  const [open, setOpen] = useState({ description: true, checks: false, comments: true });
   const [newestFirst, setNewestFirst] = useState(true);
   const [method, setMethod] = useState<MergeMethod>("squash");
   const [busy, setBusy] = useState(false);

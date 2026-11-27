@@ -116,7 +116,7 @@ import { AppSplash } from "./components/StartupSplash";
 import { settleSplash, useSplash } from "./lib/startup-splash";
 import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, cachedScopeState, rememberProjectCopy, rowTabSet, runKeys, seedScopeState, useScopeStates } from "./lib/sidebar-scopes";
-import { type AppView, chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore, type RunPaneReturn, runPaneState } from "./lib/run-pane";
+import { type AppView, chatOnScreen, chatPanelsHidden, keepsRoutinesView, readsOnPick, runPaneRestore, type RunPaneReturn, runPaneState } from "./lib/run-pane";
 import { ChatGrid, GridDropOverlay } from "./components/ChatGrid";
 import { createPendingChat, pendingChatSessionId, withPreview } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
@@ -149,9 +149,11 @@ import { CommandPalette, DiffView, GitActionsDialog, QuestionCard } from "./comp
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
 import { ChatTopBar } from "./components/agents/ChatTopBar";
 import { DesignLibraryView } from "./components/design-library/DesignLibraryView";
+import { PullRequestsView } from "./components/pull-requests/PullRequestsView";
+import { useFooterButtons } from "./components/sidebar/PullRequestsButton";
 import { DetailsPanelHost } from "./components/agents/DetailsPanel";
 import { useChatTerminals } from "./lib/terminal-store";
-import { provideSubchatActions, type SubchatActions } from "./components/agents/SubchatMessages";
+import { useProvideSubchatActions } from "./components/agents/SubchatMessages";
 import { useStepApprovalScope } from "./components/agents/step-approval";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
 import { canOpenRunChat, chatBranchLabel, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
@@ -206,8 +208,6 @@ function prefetchLeanChat(scope: string, sessionId: number, state: CoordinatorSt
 }
 const NO_REFS: string[] = [];
 const NO_ROUTINES = new Set<string>();
-
-const chatPanelsHidden = (view: string, taskOpen: boolean) => view === "orchestrator" && !taskOpen;
 
 function App() {
   const [project, setProject] = useState<OpenProject | null>(null);
@@ -2021,6 +2021,7 @@ function App() {
     showView("routines");
   });
   const openOrchestrator = useEvent(() => showView("orchestrator"));
+  const openPullRequests = useEvent(() => showView("pull-requests"));
   const openUsage = useEvent(() => {
     changes.closeDiff();
     setSettingsSection("usage");
@@ -2042,15 +2043,7 @@ function App() {
   });
   const openLinkedChat = useEvent((key: string) => void openCanvasChat(projectOfKey(key), sessionIdFromKey(key)));
   const openAlone = useEvent((key: string) => openLinkedChat(key));
-  const { answerQuestion: answerSubchatQuestion, dismissSuggestion } = agentRuns;
-  const subchatActions = useMemo<SubchatActions>(
-    () => ({
-      sendSuggestion: (subchat, requestId, answers, suggestionId) => answerSubchatQuestion(subchat, requestId, answers, undefined, suggestionId),
-      dismissSuggestion,
-    }),
-    [answerSubchatQuestion, dismissSuggestion],
-  );
-  useEffect(() => provideSubchatActions(subchatActions), [subchatActions]);
+  useProvideSubchatActions(agentRuns);
   const openRunChat = useEvent((key: string) => {
     runPaneReturn.current ??= project
       ? { projectPath: project.path, linkId: selectedLink?.link.id ?? null, sessionId: selectedSessionId, worktreeId: selectedWorktreeId }
@@ -2085,6 +2078,7 @@ function App() {
     closeRunPane();
   }, [routineId, view]);
   const { sidebarUsage, sidebarUsageButton } = useSidebarUsage(usageInSidebar, usage, accountScope, accountScopeIsHome);
+  const footerButtons = useFooterButtons(sidebarUsageButton, view === "pull-requests", openPullRequests);
   const mentionKey = JSON.stringify(state && !isLinkScopeKey(project?.path ?? "") ? chatMentionChoices(state) : []);
   const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
   const mentionContext = useMemo(
@@ -2387,6 +2381,7 @@ function App() {
         openProject: () => openProject(),
         openCanvas,
         openRoutines,
+        openPullRequests,
         openOrchestrator,
         openUsage,
         openStorage: () => openStorage(null),
@@ -2501,7 +2496,7 @@ function App() {
                   onOpenProjectSettings={surfaces.settings ? openProjectSettings : undefined}
                   onNewChatInScope={newChatInScope}
                   usage={sidebarUsage}
-                  usageButton={sidebarUsageButton}
+                  usageButton={footerButtons}
                   runningKeys={sidebarRunKeys.running}
                   waitingKeys={sidebarRunKeys.waiting}
                   askingKeys={sidebarRunKeys.asking}
@@ -2547,6 +2542,7 @@ function App() {
                 tabs={{ state, worktree: selectedWorktree?.id, rows: chats, panels: panelButtons, onOpen: openChat, onStart: newChatInWorktree }}
               />
               <DesignLibraryView view={view} onShow={showView} />
+              <PullRequestsView view={view} onOpenChat={openUsageChat} />
               {view === "canvas" && (
                 <CanvasView
                   states={states}

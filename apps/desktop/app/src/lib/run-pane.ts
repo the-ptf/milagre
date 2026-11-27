@@ -1,9 +1,13 @@
 import { chatKey } from "@milagre/shared/agent-runs";
 
-export type AppView = "chat" | "canvas" | "routines" | "orchestrator" | "design-library";
+export type AppView = "chat" | "canvas" | "routines" | "orchestrator" | "design-library" | "pull-requests";
 
-/** Escape leaves this view for the Chat; on the Design library page a dialog or menu open over it takes Escape first. */
-export const leavesOnEscape = (view: AppView, overlay: boolean) => view === "canvas" || view === "routines" || (view === "design-library" && !overlay);
+/** Escape leaves this view for the Chat; on the Design library and Pull requests pages a dialog or menu open over it takes Escape first. */
+export const leavesOnEscape = (view: AppView, overlay: boolean) =>
+  view === "canvas" || view === "routines" || ((view === "design-library" || view === "pull-requests") && !overlay);
+
+/** Views where the window corner's Chat panel buttons stay hidden: the Orchestrator's board without a task open, and Pull requests. */
+export const chatPanelsHidden = (view: AppView, taskOpen: boolean) => (view === "orchestrator" && !taskOpen) || view === "pull-requests";
 
 export type RunPaneReturn = { projectPath: string; linkId: string | null; sessionId: number | null; worktreeId: number | null };
 

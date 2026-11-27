@@ -533,4 +533,4 @@ function createPullRequestReview({
   };
 }
 
-module.exports = { createPullRequestReview, ghMessage, ghOptions, defaultExec, GH_LOGIN, GH_MISSING };
+module.exports = { createPullRequestReview, ghMessage, ghOptions, defaultExec, toCheck, CHECK_ORDER, GH_LOGIN, GH_MISSING };

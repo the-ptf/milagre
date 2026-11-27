@@ -92,6 +92,7 @@ export function PullRequestPanelBody({
   activePath,
   local,
   project,
+  properties,
 }: {
   review: PullRequestReview;
   source?: PrSource;
@@ -99,6 +100,8 @@ export function PullRequestPanelBody({
   activePath?: string;
   local?: { count: number; onOpen: () => void };
   project?: { name: string; path: string };
+  /** More rows for the Summary's properties, after Labels. */
+  properties?: ReactNode;
 }) {
   const [tab, setTab] = useState<"summary" | "files">("summary");
   const { state, pr } = review;
@@ -115,7 +118,7 @@ export function PullRequestPanelBody({
       <div className="h-px bg-line" />
       <Tabs pr={pr} tab={tab} onTab={setTab} />
       {tab === "summary" ? (
-        <Summary key={`${pr.url}\0${source?.cwd ?? ""}`} pr={pr} review={review} source={source} onOpenFile={actions.openFile} />
+        <Summary key={`${pr.url}\0${source?.cwd ?? ""}`} pr={pr} review={review} source={source} onOpenFile={actions.openFile} properties={properties} />
       ) : (
         <Files pr={pr} activePath={activePath} onOpenFile={actions.openFile} />
       )}
@@ -410,11 +413,13 @@ function Summary({
   review,
   source,
   onOpenFile,
+  properties,
 }: {
   pr: PullRequestDetail;
   review: PullRequestReview;
   source?: PrSource;
   onOpenFile: (path: string) => void;
+  properties?: ReactNode;
 }) {
   const [newest, setNewest] = useState(true);
   const comments = useMemo(() => {
@@ -432,10 +437,11 @@ function Summary({
       <div className="flex flex-col px-3 py-2">
         <ReviewersRow pr={pr} review={review} source={source} />
         <LabelsRow pr={pr} review={review} source={source} />
+        {properties}
       </div>
       <div className="h-px bg-line" />
       <div className="flex flex-col px-2 pt-1.5">
-        <Section data-pr-description="" label="Description">
+        <Section data-pr-description="" label="Description" defaultOpen>
           <div className="text-12 text-ink-2">
             {pr.body.trim() ? <Markdown text={pr.body} html loadImage={loadImage} /> : <p className="text-ink-3">No description.</p>}
           </div>
