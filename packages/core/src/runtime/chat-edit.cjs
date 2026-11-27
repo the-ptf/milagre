@@ -127,12 +127,14 @@ function registerChatEdit({ commands, chats, agents, checkpoints, stopChat, send
       const restored = await states.update(
         projectPath,
         (latest) => {
-          const kept = latest.messages.filter((message) => message.id !== note.id);
+          const index = latest.messages.findIndex((message) => message.id === note.id && message.session_id === sessionId);
+          if (index < 0 || !latest.sessions[sessionId]) return latest;
+          const messages = [...latest.messages.slice(0, index), ...dropped, ...latest.messages.slice(index + 1)];
           const restoredSession = { ...latest.sessions[sessionId] };
           for (const key of ["native_sessions", "native_session_id", "suggestion", "suggestionTurnId"]) {
             if (!(key in restoredSession) && key in before) restoredSession[key] = before[key];
           }
-          return { ...latest, sessions: { ...latest.sessions, [sessionId]: restoredSession }, messages: [...kept, ...dropped].sort((a, b) => a.id - b.id) };
+          return { ...latest, sessions: { ...latest.sessions, [sessionId]: restoredSession }, messages };
         },
         { chats: [sessionId] },
       );

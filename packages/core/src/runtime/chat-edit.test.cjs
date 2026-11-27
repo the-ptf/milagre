@@ -232,3 +232,33 @@ test("retry rechecks the failed turn inside the transcript update", async (t) =>
   );
   assert.equal(f.calls.sent.length, 1);
 });
+
+test("rollback keeps transcript positions across Chats and preserves activity added during the edit", async () => {
+  const sending = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  const f = fixture({
+    beforeSend: () => {
+      sending.resolve();
+      return finish.promise;
+    },
+  });
+  const [a, b, c, d, e] = f.state.messages;
+  const other = (id) => ({ id, session_id: 5, role: "assistant", body: "other Chat" });
+  f.state.messages = [a, other(24), d, c, other(20), b, e];
+  f.state.sessions[5] = { id: 5, title: "other Chat" };
+  const edit = f.edits.editAsUser(f.request({ messageId: c.id }));
+  await sending.promise;
+  f.state.messages.push(other(34), { ...d, id: 33, body: "new activity" }, other(31));
+  const rejected = assert.rejects(edit, /send failed/);
+  finish.reject(new Error("send failed"));
+  await rejected;
+  assert.deepEqual(
+    f.state.messages.filter((m) => m.session_id === 4).map((m) => m.id),
+    [10, 13, 12, 11, 14, 33],
+  );
+  assert.deepEqual(
+    f.state.messages.filter((m) => m.session_id === 5).map((m) => m.id),
+    [24, 20, 34, 31],
+  );
+  assert.deepEqual(f.state.sessions[5], { id: 5, title: "other Chat" });
+});
