@@ -7,6 +7,7 @@ import { Button } from "../primitives/Button";
 import { Checkbox } from "../primitives/Checkbox";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
+import { ScrollArea } from "../primitives/ScrollArea";
 import { ShortcutKeys } from "../primitives/ShortcutKeys";
 
 const fileCount = (count: number) => `${count} ${count === 1 ? "file" : "files"}`;
@@ -79,7 +80,7 @@ export function MessageEditCard({
         </p>
       )}
       {reviewing && files.length > 0 && (
-        <ul data-message-edit-files className="-mx-3 mt-1 max-h-48 overflow-y-auto border-t border-line">
+        <ScrollArea as="ul" aria-label="Files" data-message-edit-files className="-mx-3 mt-1 max-h-48 border-t border-line">
           {files.map((file) => (
             <FileRow
               key={file.key}
@@ -91,7 +92,7 @@ export function MessageEditCard({
               onOpen={onOpenFile ? () => onOpenFile(file.path, file.worktree) : undefined}
             />
           ))}
-        </ul>
+        </ScrollArea>
       )}
       <InlineError size={12}>{error}</InlineError>
     </div>
