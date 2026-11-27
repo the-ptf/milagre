@@ -25,6 +25,9 @@ function registerProjectLists({ options, commands, withoutHomes, knownFolder, op
         () => null,
       );
       origins.set(projectPath, origin);
+      void origin.then((value) => {
+        if (!value && origins.get(projectPath) === origin) origins.delete(projectPath);
+      });
     }
     return origin;
   }

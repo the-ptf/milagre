@@ -200,3 +200,22 @@ test("an empty checks answer is not kept: a new head commit gets its checks on t
   await list.checksOf({ repo: "acme/web", number: 7 });
   assert.equal(calls.length, 2);
 });
+
+test("all open PRs are read across cursors and above GitHub's search result limit", async () => {
+  for (const count of [101, 1001]) {
+    const { exec, calls } = fakeGh((query, q, args) => {
+      if (query.startsWith("query{")) return { data: { r0: { nameWithOwner: "acme/web" } } };
+      const last = args.includes("after=next");
+      const page = { nodes: [node(last ? 2 : 1)], pageInfo: { hasNextPage: !last, endCursor: last ? null : "next" } };
+      if (q) return { data: { viewer: { login: "dana" }, search: { issueCount: count, ...page } } };
+      assert.ok(args.includes("states[]=OPEN"));
+      return { data: { repository: { pullRequests: page } } };
+    });
+    const result = await createPullRequestList({ exec }).list({ projects: [projects[0]] });
+    assert.deepEqual(
+      result.items.map((item) => item.number),
+      [1, 2],
+    );
+    assert.equal(calls.length, count > 1000 ? 4 : 3);
+  }
+});
