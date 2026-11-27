@@ -221,8 +221,16 @@ async function browserChecks() {
     assert.equal(await evaluate('document.activeElement.getAttribute("role")'), "combobox");
     await search("missing-command-xyz");
     assert.deepEqual(
-      await evaluate('[...document.querySelectorAll("dialog [role=option]")].map((option) => option.textContent.trim())'),
-      ["Start a new Chat with your search", `Search messages for “missing-command-xyz”${mac ? "K" : "Ctrl+Shift+K"}`],
+      await evaluate(`[...document.querySelectorAll("dialog [role=option]")].map((option) => {
+        const row = option.cloneNode(true);
+        const shortcut = row.querySelector("kbd");
+        shortcut?.remove();
+        return [row.textContent.trim(), shortcut?.getAttribute("aria-label") ?? null];
+      })`),
+      [
+        ["Start a new Chat with your search", null],
+        ["Search messages for “missing-command-xyz”", mac ? "Shift + Command + K" : "Control + Shift + K"],
+      ],
       "An unmatched search offers a new Chat with it, or a message search",
     );
     await screenshot("palette-start-chat-dark.png");
