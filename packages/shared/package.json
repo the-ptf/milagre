@@ -465,6 +465,7 @@
     },
     "./agent-activity": "./src/agent-activity.ts",
     "./qa-personas": "./src/qa-personas.ts",
+    "./subagent-tree": "./src/subagent-tree.ts",
     "./advisor-result": "./src/advisor-result.ts",
     "./use-task-output": "./src/use-task-output.ts",
     "./themes": "./src/themes/index.ts",

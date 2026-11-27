@@ -5,6 +5,7 @@ import { Archive02Icon, ArrowLeft01Icon, Cancel01Icon, RefreshIcon, SquareIcon, 
 import { advisorAction, subagentActivityLabel } from "@milagre/shared/agent-activity";
 import { subagentFinished } from "@milagre/shared/project-edits";
 import type { Subagent } from "@milagre/shared/model";
+import { subagentCounts, subagentTree, type SubagentTreeRow } from "@milagre/shared/subagent-tree";
 import { useSession } from "../session";
 import { qaFleetFirst, qaPersona } from "@milagre/shared/qa-personas";
 import { WholeSubagentDetail, SubagentRow, elapsed, subagentRunning, useClock } from "../subagent-glance";
@@ -14,6 +15,33 @@ import { CircleButton, EmptyState, ErrorNotice, IconButton, ListRow, PageScroll,
 import { useTheme } from "../theme";
 import { lineHeight, type } from "../design-tokens";
 
+const INDENT = 28;
+const ICON_CENTER_X = 9;
+const ICON_CENTER_Y = 23;
+const TEXT_X = 30;
+const guideX = (level: number) => ICON_CENTER_X + level * INDENT;
+
+function BranchLines({ row }: { row: SubagentTreeRow }) {
+  const { colors } = useTheme();
+  const line = { position: "absolute", width: 1, backgroundColor: colors.lineStrong } as const;
+  return (
+    <>
+      {row.rails
+        .flatMap((on, level) => (on ? [guideX(level)] : []))
+        .map((left) => (
+          <View key={left} pointerEvents="none" style={[line, { left, top: 0, bottom: 0 }]} />
+        ))}
+      {row.depth > 0 && (
+        <>
+          <View pointerEvents="none" style={[line, { left: guideX(row.depth - 1), top: 0, ...(row.last ? { height: ICON_CENTER_Y + 1 } : { bottom: 0 }) }]} />
+          <View pointerEvents="none" style={[line, { left: guideX(row.depth - 1), top: ICON_CENTER_Y, width: 14, height: 1 }]} />
+        </>
+      )}
+      {row.children > 0 && !row.folded && <View pointerEvents="none" style={[line, { left: guideX(row.depth), top: ICON_CENTER_Y + 12, bottom: 0 }]} />}
+    </>
+  );
+}
+
 export default function AgentsSheet() {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -22,6 +50,7 @@ export default function AgentsSheet() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   const pending = useRef(false);
   const project = session.snapshot?.project;
   const chat = project?.state.sessions[Number(id)];
@@ -30,10 +59,20 @@ export default function AgentsSheet() {
   const child = visible.find((agent) => agent.id === selected);
   const disabled = busy || !session.client || !chat;
   const provider = chat?.provider ?? "claude";
-  const running = visible.filter(subagentRunning).length;
-  const done = visible.filter(subagentFinished).length;
+  const { running, failed, done } = subagentCounts(visible);
   const now = useClock(visible.some(subagentRunning));
   const { fleet, others } = qaFleetFirst(visible);
+  const tree = subagentTree(others, folded);
+  const rows: { agent: Subagent; item?: SubagentTreeRow }[] = [
+    ...fleet.map((agent) => ({ agent })),
+    ...(tree.nested ? tree.rows.map((item) => ({ agent: item.agent, item })) : others.map((agent) => ({ agent }))),
+  ];
+  const toggle = (agentId: string) =>
+    setFolded((current) => {
+      const next = new Set(current);
+      if (!next.delete(agentId)) next.add(agentId);
+      return next;
+    });
 
   async function control(action: "stop" | "retry", agentId: string) {
     if (pending.current || !session.client || !project || !chat) return;
@@ -77,7 +116,7 @@ export default function AgentsSheet() {
         subtitle={
           (child
             ? [subagentActivityLabel(child), elapsed(child, now), child.model].filter(Boolean).join(" · ")
-            : [running && `${running} running`, done && `${done} done`].filter(Boolean).join(" · ")) || undefined
+            : [running && `${running} running`, failed && `${failed} failed`, done && `${done} done`].filter(Boolean).join(" · ")) || undefined
         }
         leading={
           child ? (
@@ -134,18 +173,39 @@ export default function AgentsSheet() {
               </Text>
             </View>
           )}
-          {[...fleet, ...others].map((agent, index) => (
+          {rows.map(({ agent, item }, index) => (
             <View
               key={agent.id}
               style={{
                 flexDirection: "row",
                 alignItems: "flex-start",
                 gap: 4,
-                borderTopWidth: index ? StyleSheet.hairlineWidth : 0,
+                paddingLeft: item ? item.depth * INDENT : 0,
+                borderTopWidth: index && !item ? StyleSheet.hairlineWidth : 0,
                 borderTopColor: colors.line,
               }}
             >
-              <SubagentRow agent={agent} provider={provider} now={now} onPress={() => setSelected(agent.id)} />
+              {item && index > 0 && (
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    right: 0,
+                    left: item.depth * INDENT + TEXT_X,
+                    height: StyleSheet.hairlineWidth,
+                    backgroundColor: colors.line,
+                  }}
+                />
+              )}
+              {item && <BranchLines row={item} />}
+              <SubagentRow
+                agent={agent}
+                provider={provider}
+                now={now}
+                onPress={() => setSelected(agent.id)}
+                branch={item?.children ? { count: item.children, folded: item.folded, hidden: item.hidden, onToggle: () => toggle(agent.id) } : undefined}
+              />
               {advisorAction(agent) && (
                 <IconButton
                   label={`${advisorAction(agent) === "stop" ? "Stop" : "Retry"} ${agent.title}`}

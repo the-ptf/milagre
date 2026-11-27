@@ -4238,17 +4238,13 @@ function chatHost({
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-function subagentsHost({ call = async () => {} } = {}) {
+function subagentsHost({
+  call = async () => {},
+  agents = ["running", "completed", "failed", "cancelled", "unknown"].map((status) => ({ id: status, title: status, status, transcript: [] })),
+} = {}) {
   const react = hookHost();
   const calls = [];
-  const state = {
-    sessions: {
-      7: {
-        id: 7,
-        subagents: ["running", "completed", "failed", "cancelled", "unknown"].map((status) => ({ id: status, title: status, status, transcript: [] })),
-      },
-    },
-  };
+  const state = { sessions: { 7: { id: 7, subagents: agents } } };
   const session = {
     snapshot: { project: { path: "/project", state } },
     client: {
@@ -4274,6 +4270,7 @@ function subagentsHost({ call = async () => {} } = {}) {
     "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
     "@milagre/shared/project-edits": require("@milagre/shared/project-edits"),
     "@milagre/shared/agent-activity": require("@milagre/shared/agent-activity"),
+    "@milagre/shared/subagent-tree": require("@milagre/shared/subagent-tree"),
     "../session": { useSession: () => session },
     "../subagent-glance": {
       SubagentRow: "SubagentRow",
@@ -4329,6 +4326,45 @@ test("mobile archives finished subagents without offering archived browsing", as
     find(host.render(), (node) => node.type === "SubagentRow" && node.props.agent.id === "running"),
     undefined,
   );
+});
+
+test("mobile lays nested subagents out under the one that started them, and a folded branch stays folded through updates", () => {
+  const agent = (id, parentId, status = "completed") => ({ id, title: id, status, transcript: [], ...(parentId ? { parentId } : {}) });
+  const host = subagentsHost({
+    agents: [agent("map"), agent("build", undefined, "running"), agent("tests", "build", "failed"), agent("fix", "build", "running"), agent("find", "map")],
+  });
+  const rows = () =>
+    findAll(host.render(), (node) => node.type === "SubagentRow").map((node) => [
+      node.props.agent.id,
+      node.props.branch ? `${node.props.branch.count}${node.props.branch.folded ? ` folded, ${node.props.branch.hidden}` : ""}` : null,
+    ]);
+  assert.deepEqual(rows(), [
+    ["map", "1"],
+    ["find", null],
+    ["build", "2"],
+    ["tests", null],
+    ["fix", null],
+  ]);
+  assert.equal(findAll(host.render(), (node) => node.type === "View" && node.props.style?.paddingLeft === 28).length, 3, "children sit one indent in");
+  assert.ok(find(host.render(), (node) => node.props?.subtitle === "2 running · 1 failed · 2 done"));
+  find(host.render(), (node) => node.type === "SubagentRow" && node.props.agent.id === "build").props.branch.onToggle();
+  assert.deepEqual(rows(), [
+    ["map", "1"],
+    ["find", null],
+    ["build", "2 folded, failed"],
+  ]);
+  host.state.sessions[7].subagents = [...host.state.sessions[7].subagents, agent("lint", "build", "running")];
+  assert.deepEqual(rows(), [
+    ["map", "1"],
+    ["find", null],
+    ["build", "3 folded, failed"],
+  ]);
+});
+
+test("a flat mobile subagent list draws no tree", () => {
+  const host = subagentsHost();
+  assert.equal(findAll(host.render(), (node) => node.type === "SubagentRow" && node.props.branch).length, 0);
+  assert.equal(findAll(host.render(), (node) => node.type === "View" && node.props.style?.paddingLeft > 0).length, 0);
 });
 
 test("mobile blocks duplicate archive taps and reports a failed request without hiding entries", async () => {
@@ -14314,6 +14350,31 @@ const glanceAgent = {
     { id: "t2", kind: "tool", tool: "shell", text: "Ran `npm test -- auth`" },
   ],
 };
+
+test("a mobile subagent row that started others folds them from its chip or a VoiceOver action", () => {
+  const { SubagentRow, render } = subagentGlance();
+  const toggles = [];
+  const branch = { count: 2, folded: true, hidden: "failed", onToggle: () => toggles.push("toggle") };
+  const row = render(SubagentRow, { agent: glanceAgent, provider: "claude", now: 66000, onPress() {}, branch });
+  const chip = find(row, (node) => node.props?.accessibilityLabel === "Show the 2 subagents Review authentication started");
+  assert.ok(chip, "the chip names what it shows");
+  assert.equal(chip.props.accessibilityState.expanded, false);
+  assert.ok(
+    find(chip, (node) => node.type === "Icon" && node.props.icon === "AlertCircleIcon" && node.props.tone === "red"),
+    "a folded failure shows on the chip",
+  );
+  chip.props.onPress();
+  const pressable = find(row, (node) => node.props?.accessibilityHint === "Opens what this subagent is doing");
+  assert.equal(JSON.stringify(pressable.props.accessibilityActions), JSON.stringify([{ name: "toggle", label: "Show the subagents it started" }]));
+  pressable.props.onAccessibilityAction({ nativeEvent: { actionName: "toggle" } });
+  assert.deepEqual(toggles, ["toggle", "toggle"]);
+  const leaf = render(SubagentRow, { agent: glanceAgent, provider: "claude", now: 66000, onPress() {} });
+  assert.equal(
+    find(leaf, (node) => node.props?.accessibilityActions),
+    undefined,
+    "a row that started nothing has no fold action",
+  );
+});
 
 test("mobile subagent rows say what it does now and how far it got, and a finished one its outcome", () => {
   const { SubagentRow, render } = subagentGlance();
