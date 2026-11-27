@@ -10,6 +10,7 @@ import {
   isMilagreWorktree,
   undoDelete,
   worktreeShared,
+  type ArchiveDeps,
   type ArchivePlan,
   type WorktreeStatus,
 } from "@milagre/shared/archive";
@@ -20,11 +21,18 @@ export type ArchiveClient = {
 };
 const HIDE_ONLY: ArchivePlan = { milagreOwned: false, shared: false, status: null };
 const OLD_DAEMON = /not available from mobile/i;
+const TAB_KEPT = "another Chat in it could not be deleted";
 const fromOldDaemon = (error: unknown) => OLD_DAEMON.test((error as Error)?.message ?? "");
 
-export async function checkArchive(client: ArchiveClient, state: CoordinatorState, sessionId: number, chatId?: string): Promise<ArchivePlan | null> {
+export async function checkArchive(
+  client: ArchiveClient,
+  state: CoordinatorState,
+  sessionId: number,
+  chatId?: string,
+  together: readonly number[] = [],
+): Promise<ArchivePlan | null> {
   return readWithTimeout(async () => {
-    const plan = await worktreePlan(client, state, sessionId);
+    const plan = await worktreePlan(client, state, sessionId, together);
     if (!plan || !chatId) return plan;
     const terminals = await busyTerminals(client, chatId);
     return terminals.length ? { ...plan, terminals } : plan;
@@ -40,7 +48,7 @@ async function busyTerminals(client: ArchiveClient, chatId: string): Promise<str
   }
 }
 
-async function worktreePlan(client: ArchiveClient, state: CoordinatorState, sessionId: number): Promise<ArchivePlan | null> {
+async function worktreePlan(client: ArchiveClient, state: CoordinatorState, sessionId: number, together: readonly number[]): Promise<ArchivePlan | null> {
   const worktree = state.worktrees[state.sessions[sessionId]?.worktree_id ?? -1];
   let roots: unknown;
   try {
@@ -49,7 +57,7 @@ async function worktreePlan(client: ArchiveClient, state: CoordinatorState, sess
     return fromOldDaemon(error) ? null : HIDE_ONLY;
   }
   if (!isMilagreWorktree(worktree, Array.isArray(roots) ? roots : [])) return HIDE_ONLY;
-  if (worktreeShared(state, sessionId)) return { milagreOwned: true, shared: true, status: null };
+  if (worktreeShared(state, sessionId, together)) return { milagreOwned: true, shared: true, status: null };
   try {
     return { milagreOwned: true, shared: false, status: await client.call<WorktreeStatus>("worktree:status", [worktree.path, worktree.base]) };
   } catch (error) {
@@ -69,6 +77,8 @@ export type ArchiveRequest = {
   refresh: () => Promise<unknown>;
   undoMs?: number;
   hostId?: string;
+  /** The Chats deleted with this one (a Worktree row's tab Chats): each is only hidden, and none keeps the Worktree. */
+  together?: AgentSession[];
 };
 
 export const deletionKey = (hostId: string | undefined, chatId: string) => (hostId ? `${hostId}|${chatId}` : chatId);
@@ -105,79 +115,98 @@ export function showArchiveNotice(notice: string) {
 export function clearArchiveNotice() {
   if (activity.notice) setActivity({ notice: "" });
 }
-function openUndo(owner: string, ms?: number) {
-  setActivity({ hidden: new Set(activity.hidden).add(owner), deleted: owner });
+function openUndo(owners: string[], ms?: number) {
+  const owner = owners[0]!;
+  const many = owners.length > 1;
+  setActivity({ hidden: new Set([...activity.hidden, ...owners]), deleted: owner });
   const step: UndoAction = {
-    text: "Chat deleted",
+    text: many ? "Chats deleted" : "Chat deleted",
     kind: "deleted",
-    undoneText: "Chat restored",
+    undoneText: many ? "Chats restored" : "Chat restored",
     place: "list",
-    undo: () => undoDelete(owner),
+    undo: () => owners.map((each) => undoDelete(each)).some(Boolean),
     undoWindowMs: ms ?? DELETE_UNDO_MS,
   };
   undoHistory.record(step);
-  const window = deleteUndoWindow(owner, ms);
-  void window.then((undone) => undone || undoHistory.drop(step));
-  void window.finally(() => {
+  const windows = owners.map((each) => deleteUndoWindow(each, ms));
+  void windows[0]!.then((undone) => undone || undoHistory.drop(step));
+  void windows[0]!.finally(() => {
     if (activity.deleted === owner) setActivity({ deleted: "" });
   });
   const show = () => {
     undoHistory.drop(step);
-    undoDelete(owner);
     const hidden = new Set(activity.hidden);
-    hidden.delete(owner);
+    for (const each of owners) {
+      undoDelete(each);
+      hidden.delete(each);
+    }
     setActivity({ hidden, deleted: activity.deleted === owner ? "" : activity.deleted });
   };
-  return { window, show };
+  return { windows, show };
 }
 
+/**
+ * Deletes a Chat from the phone, with an Undo. A Worktree row's tab Chats (`together`) go with it under the same Undo:
+ * each is hidden, and the Worktree is removed only after all of them are gone.
+ */
 export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" | "hidden" | "removed" | "kept" | "undone"> {
   const { client, projectPath, chat } = request;
-  const chatId = `${projectPath}#${chat.id}`;
-  const owner = deletionKey(request.hostId, chatId);
-  if (archiving.has(owner)) return "busy";
-  archiving.add(owner);
-  const { window, show } = openUndo(owner, request.undoMs);
+  const tabs = request.together ?? [];
+  const keyOf = (id: number) => `${projectPath}#${id}`;
+  const chatId = keyOf(chat.id);
+  const owners = [chat, ...tabs].map((each) => deletionKey(request.hostId, keyOf(each.id)));
+  if (owners.some((owner) => archiving.has(owner))) return "busy";
+  for (const owner of owners) archiving.add(owner);
+  const { windows, show } = openUndo(owners, request.undoMs);
   let undone = false;
-  const undo = window.then((value) => (undone = value));
-  let done = () => {};
+  const undo = windows[0]!.then((value) => (undone = value));
+  const done = [chat, ...tabs].map((each) => startArchiving(keyOf(each.id)));
   try {
-    done = startArchiving(chatId);
     request.onConfirm?.();
-    const plan = await checkArchive(client, request.state, chat.id, chatId);
+    const together = tabs.map((tab) => tab.id);
+    const plan = await checkArchive(client, request.state, chat.id, chatId, together);
     const mode = archiveChoices({ plan: plan ?? HIDE_ONLY, running: request.running, chatsHome: request.chatsHome }).choices[0]!.mode;
     const now = await client.snapshot(projectPath).catch(() => null);
     const latest = now?.project.state ?? request.state;
-    const running = now ? Boolean(now.runs.runs[chatId]) : request.running;
+    const running = (id: number) => (now ? Boolean(now.runs.runs[keyOf(id)]) : id !== chat.id || request.running);
     if (undone) return "undone";
+    const deps = (each: AgentSession, window: Promise<boolean>): ArchiveDeps => ({
+      projectPath,
+      chatId: keyOf(each.id),
+      getState: () => latest,
+      currentProjectPath: () => projectPath,
+      undoWindow: () => window,
+      stop: () => (running(each.id) ? client.call("agent:interrupt", [keyOf(each.id)]).catch(() => {}) : undefined),
+      hide: () => client.call("chat:patch", [projectPath, each.id, { archived: true, unread: false }]),
+      destroy: () => client.call("chat:delete", [projectPath, each.id]),
+      restore: () => client.call("chat:patch", [projectPath, each.id, { archived: false }]),
+      remove: (worktree, options) => removeOrFindGone(client, projectPath, worktree.path, options),
+      applyRemoval: () => {},
+      refreshBranches: () => {},
+      notify: request.notify,
+    });
+    const gone = Promise.allSettled(tabs.map((tab, index) => archiveChat(deps(tab, windows[index + 1]!), tab.id, "hide", HIDE_ONLY)));
     try {
-      const outcome = await archiveChat(
+      return await archiveChat(
         {
-          projectPath,
-          chatId,
-          getState: () => latest,
-          currentProjectPath: () => projectPath,
-          undoWindow: () => undo,
-          stop: () => (running ? client.call("agent:interrupt", [chatId]).catch(() => {}) : undefined),
-          hide: () => client.call("chat:patch", [projectPath, chat.id, { archived: true, unread: false }]),
-          destroy: () => client.call("chat:delete", [projectPath, chat.id]),
-          restore: () => client.call("chat:patch", [projectPath, chat.id, { archived: false }]),
-          remove: (worktree, options) => removeOrFindGone(client, projectPath, worktree.path, options),
-          applyRemoval: () => {},
-          refreshBranches: () => {},
-          notify: request.notify,
+          ...deps(chat, undo),
+          together,
+          remove: async (worktree, options) => {
+            if ((await gone).some((tab) => tab.status === "rejected" || tab.value !== "hidden")) throw new Error(TAB_KEPT);
+            return removeOrFindGone(client, projectPath, worktree.path, options);
+          },
         },
         chat.id,
         mode,
         plan,
       );
-      return outcome;
     } finally {
+      await gone;
       await request.refresh().catch(() => {});
     }
   } finally {
-    archiving.delete(owner);
-    done();
+    for (const owner of owners) archiving.delete(owner);
+    for (const finish of done) finish();
     show();
   }
 }
