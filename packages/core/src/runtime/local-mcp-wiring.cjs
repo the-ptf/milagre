@@ -83,6 +83,7 @@ function createLocalMcpWiring({
       await existingChat("connecting Designs")(chatId);
     },
   });
+  localMcpHost.pullRequests = (request) => handlers.get("pull-requests:list")(null, request);
   Object.assign(
     localMcpHost,
     require("../orchestrator/mcp.cjs").orchestratorMcpMethods({

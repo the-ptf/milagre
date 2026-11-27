@@ -1,3 +1,4 @@
+import type { PullRequestList, PullRequestListCheck, PullRequestListState } from "@milagre/shared/pull-request-list";
 import type { BranchPolicy, BranchPolicySettings } from "@milagre/shared/branch-policy";
 import type { IdleWorktrees, RemoveWorktree } from "@milagre/shared/storage";
 import type { ImportRequest, ImportResult, ImportScan } from "@milagre/shared/ade-import";
@@ -579,6 +580,10 @@ export type MilagreBridge = {
   readPullRequestSnapshot: (projectPath: string) => Promise<PullRequestSnapshot>;
   /** The repository's open PRs, newest first, read at most once a minute; [] when gh can't answer. */
   listOpenPullRequests: (projectPath: string) => Promise<Array<PullRequest & { updatedAt?: string }>>;
+  /** Every PR in the repositories of this computer's Projects, from one batched GitHub search; cached a minute unless `force`. */
+  listPullRequests: (request?: { state?: PullRequestListState; force?: boolean }) => Promise<PullRequestList>;
+  /** Every check on a PR's head commit, failures first; cached 30 s. */
+  readPullRequestChecks: (request: { repo: string; number: number }) => Promise<PullRequestListCheck[]>;
   /** A Project's PRs changed on the host's poll; read the snapshot again. */
   onPullRequestsChanged: (callback: (change: { projectPath: string }) => void) => () => void;
   /** Opens a project or worktree folder in the file manager; rejects for any other folder. */

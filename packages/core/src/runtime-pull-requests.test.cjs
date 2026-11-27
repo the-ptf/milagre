@@ -103,3 +103,39 @@ test("pull-requests:open lists the repository's open PRs, once a minute at most"
   assert.deepEqual(await runtime.invoke("pull-requests:open", [path.join(dir, "elsewhere")]), []);
   assert.deepEqual(lists, [project]);
 });
+
+test("pull-requests:list reads every recent Project's repository with its origin", async (t) => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-pr-list-")));
+  const project = path.join(dir, "project");
+  await fs.mkdir(project);
+  execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });
+  execFileSync("git", ["-C", project, "remote", "add", "origin", "git@github.com:Acme/Web.git"], { stdio: "ignore" });
+  const calls = [];
+  const runtime = createRuntime({
+    dataDir: path.join(dir, "data"),
+    chatsHome: path.join(dir, "chats"),
+    cwd: project,
+    environmentReady: Promise.resolve(),
+    titleModels: {},
+    agentCli: async () => ({ command: "fixture" }),
+    pullRequestList: {
+      list: async (request) => {
+        calls.push(request);
+        return { viewer: "dana", fetchedAt: 1, repos: [], items: [], errors: [], chats: request.chatsFor("https://github.com/acme/web/pull/1") };
+      },
+      checksOf: async (request) => [request],
+    },
+  });
+  t.after(async () => {
+    await runtime.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+  await runtime.openProject(project);
+  const answer = await runtime.invoke("pull-requests:list", [{ state: "merged", force: true }]);
+  assert.deepEqual(answer.chats, []);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].state, "merged");
+  assert.equal(calls[0].force, true);
+  assert.deepEqual(calls[0].projects, [{ path: project, name: "project", origin: "github.com/acme/web" }]);
+  assert.deepEqual(await runtime.invoke("pull-requests:checks", [{ repo: "acme/web", number: 3 }]), [{ repo: "acme/web", number: 3 }]);
+});
