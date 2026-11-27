@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMessageEdit } from "@milagre/shared/use-message-edit";
 import { effortFor } from "@milagre/shared/model-options";
 import { ipcErrorMessage } from "@milagre/shared/result";
@@ -118,12 +118,14 @@ export function useComposerEdit(options: Options) {
     if (editingId !== null && !messages.some((message) => message.id === editingId)) cancel();
   }, [editingId, messages, cancel]);
 
+  const onEdit = runtimeChat && !blocked ? start : undefined;
+  const transcript = useMemo(() => ({ onEdit, editingId }), [onEdit, editingId]);
   return {
     editing: editingId !== null,
     composer: (blocked: boolean) =>
       editingId === null ? { running, sendBlocked: blocked } : { running: false, sendBlocked: Boolean(blocked || sending || flow.unresolved) },
     send,
-    transcript: { onEdit: runtimeChat && !blocked ? start : undefined, editingId },
+    transcript,
     card: editingId !== null && (
       <MessageEditCard flow={flow} running={running} sending={sending} error={error} onCancel={cancel} onOpenFile={options.onOpenFile} />
     ),

@@ -115,14 +115,16 @@ async function browserChecks() {
     await evaluate(`window.rowSweeps = ${motion}.filter(a => a.effect.target.closest('[data-slot=activity-body]'))`);
     assert.equal(await evaluate("window.rowSweeps.length"), 2, "band and counter in the mounted body");
     await evaluate("document.querySelector('[data-slot=activity] > button').click()");
-    await waitFor("window.rowSweeps.every(a => a.playState === 'paused')");
+    await waitFor("window.rowSweeps.every(a => a.playState === 'paused' && !a.pending)");
     assert.equal(
       await evaluate(`${motion}.filter(a => !a.effect.target.closest('[data-slot=activity-body]')).every(a => a.playState === 'running')`),
       true,
       "collapsed summary keeps sweeping",
     );
     const parked = await evaluate("window.rowSweeps.map(a => a.currentTime)");
-    await delay(350);
+    const summarySweep = `${motion}.find(a => !a.effect.target.closest('[data-slot=activity-body]'))`;
+    const summaryTime = await evaluate(`${summarySweep}.currentTime`);
+    await waitFor(`${summarySweep}.currentTime > ${summaryTime}`);
     assert.deepEqual(await evaluate("window.rowSweeps.map(a => a.currentTime)"), parked, "hidden sweeps do not advance");
     await evaluate("document.querySelector('[data-slot=activity] > button').click()");
     await waitFor("window.rowSweeps.every(a => a.playState === 'running')");
@@ -154,9 +156,10 @@ async function browserChecks() {
     console.log(
       "PASS step sweeps: one transform-only band per title, whole-call loop, no restart on render, approval pause, old hosts, parked rows pause and resume, reduced motion and finish",
     );
-  } finally {
-    window.destroy();
-    app.quit();
+    app.exit(0);
+  } catch (error) {
+    console.error(error);
+    app.exit(1);
   }
 }
 
