@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
-import type { ChatMessage, WorktreeBinding } from "@milagre/shared/model";
+import type { ChatMessage, PullRequest, WorktreeBinding } from "@milagre/shared/model";
 import { chatPullRequests, ownsWorktree, pullRequestRefs, withPreview, worktreeFree } from "@milagre/shared/chats";
 import type { Client } from "./client";
-import { pullRequestPresentation, rowPullRequests } from "@milagre/shared/pr-blockers";
+import { pullRequestAction, pullRequestPresentation, rowPullRequests } from "@milagre/shared/pr-blockers";
+import { pullRequestActionContext } from "@milagre/shared/pr-action";
 import { usePrDetail } from "./pr-store";
 import { openThreads } from "@milagre/shared/pull-request-review";
 import { type PrChoice } from "./pr-chat";
@@ -103,6 +104,7 @@ export function useChatPrs({
             cwd: member.worktreePath,
             project: linkView?.projects.find((entry) => entry.id === member.projectId)?.name,
             projectPath: member.projectPath,
+            projectId: member.projectId,
           },
         ]
       : [];
@@ -110,6 +112,7 @@ export function useChatPrs({
   const rowPrs = rowPullRequests(prPath ? chatPrs : linkPrs.map((entry) => entry.pr));
   const pr = rowPrs[0] ?? null;
   const placeOf = (entry: (typeof rowPrs)[number]) => linkPrs.find((place) => place.pr === entry);
+  const prAction = actionFor(rowPrs, (entry) => placeOf(entry)?.projectId);
   const prCwd = pr ? (prPath ?? placeOf(pr)?.cwd) : undefined;
   const prChoicesJson = JSON.stringify(
     rowPrs.map((entry) => {
@@ -128,5 +131,12 @@ export function useChatPrs({
   const prChoices = useMemo(() => JSON.parse(prChoicesJson) as PrChoice[], [prChoicesJson]);
   const prDetail = usePrDetail(session.client, prCwd, pr?.number ?? Number.NaN, pr?.state === "OPEN");
   const prOpenThreads = pr && prDetail.pr?.state === "OPEN" && prDetail.pr.number === pr.number ? openThreads(prDetail.pr).length : 0;
-  return { prPath, chatPrs, rowPrs, pr, placeOf, prCwd, prChoices, prOpenThreads };
+  return { prPath, prAction, rowPrs, pr, placeOf, prCwd, prChoices, prOpenThreads };
+}
+
+function actionFor(prs: PullRequest[], projectOf: (pr: PullRequest) => string | undefined) {
+  const action = pullRequestAction(prs);
+  if (!action) return null;
+  const context = pullRequestActionContext({ action: action.blocker, pr: action.pr.number, url: action.pr.url });
+  return context ? { ...action, request: { ...context, projectId: projectOf(action.pr) } } : null;
 }

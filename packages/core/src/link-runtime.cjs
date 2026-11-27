@@ -2,7 +2,24 @@ const { scopeKey, validLinkId } = require("@milagre/shared/chat-scopes");
 const { chatKey } = require("@milagre/shared/agent-runs");
 const { chatTitle } = require("@milagre/shared/chats");
 const { linkRunningText } = require("@milagre/shared/worktree-link");
+const { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } = require("@milagre/shared/pr-action");
 const { createSentFromNotes } = require("./sent-from.cjs");
+
+function linkPullRequestMessage(request, action, session) {
+  const context = pullRequestActionContext(action);
+  if (!context) throw new Error("That pull request action isn't valid.");
+  const member = session?.worktrees.find((entry) => entry.projectId === action.projectId);
+  if (!member) throw new Error("Choose the pull request's member Worktree.");
+  return {
+    ...request,
+    body: pullRequestActionBody(context),
+    prompt: `Run Git and GitHub commands in the member Worktree ${JSON.stringify(member.alias ?? member.worktreePath)}. ${pullRequestActionPrompt(context)}`,
+    images: [],
+    files: [],
+    context,
+  };
+}
+
 function registerLinkRuntime({
   commands,
   registry,
@@ -172,9 +189,13 @@ function registerLinkRuntime({
           : state.messages.find((message) => message.operationId === operationId);
         if (earlier) return { sessionId: earlier.session_id };
         await workspaces.membersAvailable(link);
-        const { linearIssue, ...rest } = request;
+        const { linearIssue, prAction, ...rest } = request;
         const started =
-          linearIssue !== undefined && issues ? await issues.message(rest, linearIssue) : { message: { ...rest, context: undefined }, issue: null };
+          prAction !== undefined
+            ? { message: linkPullRequestMessage(rest, prAction, state.sessions[request.sessionId ?? (link.canvasLinkId ? 1 : 0)]), issue: null }
+            : linearIssue !== undefined && issues
+              ? await issues.message(rest, linearIssue)
+              : { message: { ...rest, context: undefined }, issue: null };
         let sessionId = request.sessionId;
         if (link.canvasLinkId) {
           if (state.releasedAt) throw new Error("This shared Chat is read-only. Continue in a new Chat in either Worktree.");
