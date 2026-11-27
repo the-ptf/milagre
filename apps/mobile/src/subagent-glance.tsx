@@ -5,6 +5,7 @@ import { Pressable, Text, View } from "react-native";
 import { withAlpha } from "@milagre/shared/themes";
 import {
   AlertCircleIcon,
+  ArrowDown01Icon,
   ArrowRight01Icon,
   CommandLineIcon,
   File01Icon,
@@ -21,7 +22,7 @@ import { qaPersona, qaPersonaMood, type QaPersona } from "@milagre/shared/qa-per
 import { PersonaAvatar } from "./persona-avatar";
 import { lastSaid, planCounts, plainTitle, subagentOutcome, subagentSteps, toolChips, toolSummary, type SubagentStep } from "@milagre/shared/subagent-glance";
 import { Icon, ProviderLogo, SpinnerRing, type IconData } from "./icons";
-import { lineHeight, radius, type } from "./design-tokens";
+import { hitSlopFor, lineHeight, radius, type } from "./design-tokens";
 import { fonts, useTheme } from "./theme";
 import { pressStyle, SectionLabel, useStyles } from "./ui";
 
@@ -127,11 +128,54 @@ function PersonaCard({ persona }: { persona: QaPersona }) {
 
 function StatusIcon({ agent, provider }: { agent: Subagent; provider: ModelProvider }) {
   if (subagentRunning(agent)) return <SpinnerRing size={16} />;
-  if (agent.status === "failed") return <Icon icon={AlertCircleIcon} tone="ink3" size={16} />;
+  if (agent.status === "failed") return <Icon icon={AlertCircleIcon} tone="red" size={16} />;
   return <ProviderLogo provider={agent.provider ?? provider} size={16} />;
 }
 
-export function SubagentRow({ agent, provider, now, onPress }: { agent: Subagent; provider: ModelProvider; now: number; onPress: () => void }) {
+/** The subagents a row's agent started: how many, whether they're folded away and what's going on inside. */
+export type SubagentBranch = { count: number; folded: boolean; hidden?: "running" | "failed"; onToggle: () => void };
+
+function BranchChip({ branch, title }: { branch: SubagentBranch; title: string }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${branch.folded ? "Show" : "Hide"} the ${branch.count} ${branch.count === 1 ? "subagent" : "subagents"} ${title} started`}
+      accessibilityState={{ expanded: !branch.folded }}
+      hitSlop={hitSlopFor(24)}
+      onPress={branch.onToggle}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        minHeight: 24,
+        paddingHorizontal: 6,
+        borderRadius: radius.chip,
+        borderCurve: "continuous",
+        backgroundColor: pressed ? colors.hover2 : colors.hover,
+      })}
+    >
+      {branch.folded && branch.hidden === "running" && <SpinnerRing size={12} />}
+      {branch.folded && branch.hidden === "failed" && <Icon icon={AlertCircleIcon} tone="red" size={12} />}
+      <Text style={{ color: colors.ink2, ...FOOTNOTE, fontWeight: "500", fontVariant: ["tabular-nums"] }}>{branch.count}</Text>
+      <Icon icon={branch.folded ? ArrowRight01Icon : ArrowDown01Icon} tone="ink2" size={16} />
+    </Pressable>
+  );
+}
+
+export function SubagentRow({
+  agent,
+  provider,
+  now,
+  onPress,
+  branch,
+}: {
+  agent: Subagent;
+  provider: ModelProvider;
+  now: number;
+  onPress: () => void;
+  branch?: SubagentBranch;
+}) {
   const { colors } = useTheme();
   const running = subagentRunning(agent);
   const counts = planCounts(agent.tasks);
@@ -150,6 +194,9 @@ export function SubagentRow({ agent, provider, now, onPress }: { agent: Subagent
       accessibilityRole="button"
       accessibilityLabel={`${persona ? `${persona.name} QA persona, ${agent.title}` : agent.title}. ${subagentActivityLabel(agent)}. ${line}`}
       accessibilityHint="Opens what this subagent is doing"
+      accessibilityState={branch ? { expanded: !branch.folded } : undefined}
+      accessibilityActions={branch ? [{ name: "toggle", label: branch.folded ? "Show the subagents it started" : "Hide the subagents it started" }] : undefined}
+      onAccessibilityAction={branch ? (event) => event.nativeEvent.actionName === "toggle" && branch.onToggle() : undefined}
       onPress={onPress}
       style={({ pressed }) => [{ flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 12 }, pressStyle({ pressed, kind: "row" })]}
     >
@@ -179,7 +226,7 @@ export function SubagentRow({ agent, provider, now, onPress }: { agent: Subagent
             <>
               <QaTag persona={persona} />
               <View style={{ flex: 1 }} />
-              {running ? <SpinnerRing size={16} /> : agent.status === "failed" && <Icon icon={AlertCircleIcon} tone="ink3" size={16} />}
+              {running ? <SpinnerRing size={16} /> : agent.status === "failed" && <Icon icon={AlertCircleIcon} tone="red" size={16} />}
             </>
           )}
           <Text style={{ color: colors.ink3, ...FOOTNOTE, fontVariant: ["tabular-nums"] }}>{elapsed(agent, now)}</Text>
@@ -189,10 +236,13 @@ export function SubagentRow({ agent, provider, now, onPress }: { agent: Subagent
             {line}
           </Text>
         )}
-        {!!meta && (
-          <Text numberOfLines={1} style={{ color: colors.ink3, ...FOOTNOTE }}>
-            {meta}
-          </Text>
+        {(!!meta || branch) && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text numberOfLines={1} style={{ flex: 1, color: colors.ink3, ...FOOTNOTE }}>
+              {meta}
+            </Text>
+            {branch && <BranchChip branch={branch} title={agent.title} />}
+          </View>
         )}
       </View>
       <View style={{ height: 22, justifyContent: "center" }}>

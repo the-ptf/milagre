@@ -588,6 +588,15 @@ The owner's decisions. Don't re-propose a rejected option; changing any of these
   tasks and Links. Rows are 32 high, inset 8 from the card's edges so the `hover` fill is a rounded block; Lineage,
   Background tasks and Links fold. Artifact, Browser and Simulator keep their shortcuts.
 
+### Subagent tree (2026-11-27)
+
+- Nested subagents sit under the one that started them inside the Subagents list (desktop panel, phone sheet): one
+  indent per level (20 desktop, 28 phone), a `line-strong` guide with an elbow to each child, and a count chip with a
+  chevron on the parent that folds its branch. A folded chip shows a spinner or the red alert for what it hides.
+- No List / Tree toggle, no root card for the Chat's own agent and no branch chart (Alt B, rejected). A list with no
+  nesting draws as before.
+- The header counts failed apart from done, the number in `red-ink`; a failed row's alert mark is `red`.
+
 ### Routines page (2026-11-10)
 
 - The header is the title and New Routine only, on both platforms; the lid note shows in the empty state.
