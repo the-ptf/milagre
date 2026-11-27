@@ -19,6 +19,13 @@ import {
   tabId,
   tabShortcutDigit,
   workspaceKey,
+  chatCloseAction,
+  foldTabbedChats,
+  newTab,
+  replaceTab,
+  withLoneChatTabs,
+  strongestMark,
+  tabWorktree,
   type TabSet,
 } from "./workspace-tabs.ts";
 
@@ -119,11 +126,6 @@ test("stored tab sets survive damage and keep the most recent", () => {
   assert.deepEqual(Object.keys(pruned), ["recent"]);
 });
 
-test("the main Chat is the Worktree's oldest Chat that is no one's Subchat", () => {
-  assert.equal(mainChatId([{ id: 7 }, { id: 3, parent: 1 }, { id: 5 }, { id: 2, archived: true }]), 5);
-  assert.equal(mainChatId([]), undefined);
-});
-
 test("a page tab can sit beside its Chat and go back on its own", () => {
   const page = { kind: "browser" as const, chatId: 1, pageId: "a" };
   const set = openTab(three, page);
@@ -139,4 +141,95 @@ test("a Link's tabs say Link, not Worktree, in the + menu and the main-Chat warn
   assert.equal(newChatTabLabel("link"), "New Chat in this Link");
   assert.match(mainChatCloseMessage("Plan"), /“Plan” started this Worktree\./);
   assert.match(mainChatCloseMessage("Plan", "link"), /“Plan” is this Link's first Chat\./);
+});
+
+test("a Chat in the Project folder keeps a tab set of its own; a Worktree's Chats share one", () => {
+  assert.equal(tabWorktree("/p", { id: 1, path: "/p" }), null);
+  assert.equal(tabWorktree("mac-2|/p", { id: 1, path: "/p" }), null);
+  assert.equal(tabWorktree("/p", { id: 4, path: "/w/chat-ab" }), 4);
+  assert.equal(tabWorktree("/p", undefined), null);
+});
+
+test("the main Chat is the oldest live one that is not a Subchat of another in the set", () => {
+  assert.equal(mainChatId([{ id: 5 }, { id: 3, parent: 5 }, { id: 7 }]), 5);
+  assert.equal(mainChatId([{ id: 3, parent: 1 }, { id: 9 }]), 3);
+  assert.equal(mainChatId([{ id: 2, done_at: 1 }, { id: 4 }]), 4);
+  assert.equal(mainChatId([{ id: 2, archived: true }]), undefined);
+  assert.equal(mainChatId([]), undefined);
+});
+
+test("closing a Chat tab asks for the main Chat, only closes a Subchat's, and moves any other to Done", () => {
+  const sessions = [{ id: 1 }, { id: 2, parent: 1 }, { id: 3 }];
+  assert.equal(chatCloseAction(1, sessions, false), "confirm-main");
+  assert.equal(chatCloseAction(2, sessions, true), "close");
+  assert.equal(chatCloseAction(3, sessions, false), "done");
+  assert.equal(chatCloseAction(3, sessions, true), "confirm-done");
+});
+
+test("a Worktree folds into its main Chat's row, which takes the most pressing mark", () => {
+  type Row = { id: number; parent?: number; group?: string; mark: string; tabs?: number[] };
+  const rows: Row[] = [
+    { id: 9, group: "wt:2", mark: "question" },
+    { id: 8, mark: "idle" },
+    { id: 4, group: "wt:2", mark: "idle" },
+    { id: 6, parent: 4, group: "wt:2", mark: "running" },
+    { id: 5, group: "wt:3", mark: "idle" },
+  ];
+  const folded = foldTabbedChats(
+    rows,
+    (row) => ({ id: row.id, parent: row.parent, group: row.group }),
+    (main, tabs) => ({ ...main, mark: strongestMark([main.mark, ...tabs.map((tab) => tab.mark)])!, tabs: tabs.map((tab) => tab.id) }),
+  );
+  assert.deepEqual(folded, [
+    { id: 8, mark: "idle" },
+    { id: 4, group: "wt:2", mark: "question", tabs: [9, 6] },
+    { id: 5, group: "wt:3", mark: "idle" },
+  ]);
+  assert.equal(
+    foldTabbedChats(
+      rows,
+      () => null,
+      (main) => main,
+    ),
+    rows,
+  );
+});
+
+test("strongestMark ranks a waiting question above running and running above unread", () => {
+  assert.equal(strongestMark(["unread", "running", undefined]), "running");
+  assert.equal(strongestMark(["idle", "waiting", "question"]), "question");
+  assert.equal(strongestMark([]), undefined);
+});
+
+test("each New tab is a tab of its own that survives a reload", () => {
+  const set = openTab(openTab(three, newTab()), newTab());
+  assert.equal(set.tabs.filter((tab) => tab.kind === "new").length, 2);
+  assert.deepEqual(parseTabSets(JSON.stringify({ w: { ...set, at: 1 } })).w?.tabs.map(tabId), ids(set));
+});
+
+test("a New tab turns into what was picked on it, in its place", () => {
+  const blank = newTab();
+  const set = openTab(selectTab(three, "chat:1"), blank, { after: "chat:1" });
+  const diff = replaceTab(set, tabId(blank), { kind: "diff" });
+  assert.deepEqual(ids(diff), ["chat:1", "diff", "chat:2", "chat:3"]);
+  assert.equal(diff.active, "diff");
+  const again = replaceTab(openTab(diff, blank), tabId(blank), { kind: "diff" });
+  assert.deepEqual(ids(again), ids(diff));
+});
+
+test("closing other tabs keeps the Chats that live only as tabs", () => {
+  const closed = closeOtherTabs(openTab(three, { kind: "diff" }), "chat:1", (tab) => tab.kind === "chat" && tab.chatId === 3);
+  assert.deepEqual(ids(closed), ["chat:1", "chat:3"]);
+  assert.equal(closed.active, "chat:1");
+});
+
+test("a Chat that lives only as a tab always has one; the main Chat, Subchats here, Done and hidden Chats don't get one", () => {
+  const members = [{ id: 1 }, { id: 2, parent: 1 }, { id: 3 }, { id: 4, parent: 9 }, { id: 5, done_at: 1 }, { id: 6 }];
+  const set = withLoneChatTabs(openTab(EMPTY_TABS, chat(1)), members, (id) => id !== 6);
+  assert.deepEqual(ids(set), ["chat:1", "chat:3", "chat:4"]);
+  assert.equal(set.active, "chat:1");
+  assert.equal(
+    withLoneChatTabs(set, members, (id) => id !== 6),
+    set,
+  );
 });

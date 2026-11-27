@@ -12,10 +12,12 @@ export function isMilagreWorktree(worktree, roots) {
   return Boolean(worktree?.base) && isInsideRoots(worktree.path, roots);
 }
 
-export function worktreeShared(state, sessionId) {
+export function worktreeShared(state, sessionId, together = []) {
   const worktreeId = state.sessions[sessionId]?.worktree_id;
   if (worktreeId === undefined) return false;
-  return Object.values(state.sessions).some((session) => session.id !== sessionId && session.worktree_id === worktreeId && !session.archived);
+  return Object.values(state.sessions).some(
+    (session) => session.id !== sessionId && !together.includes(session.id) && session.worktree_id === worktreeId && !session.archived,
+  );
 }
 
 function plural(count, noun) {
@@ -113,7 +115,7 @@ export async function archiveChat(deps, sessionId, mode, plan) {
   const latest = deps.getState();
   const worktree = latest ? latest.worktrees[latest.sessions[sessionId]?.worktree_id ?? -1] : undefined;
   const wantsRemoval = mode === "remove" || mode === "delete";
-  const removing = wantsRemoval && latest && worktree?.base && plan?.status && !worktreeShared(latest, sessionId) ? worktree : null;
+  const removing = wantsRemoval && latest && worktree?.base && plan?.status && !worktreeShared(latest, sessionId, deps.together) ? worktree : null;
   const undone = deps.undoWindow?.();
   const stopped = deps.stop();
   await deps.hide();
