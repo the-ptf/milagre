@@ -106,18 +106,21 @@ function createRoutineTools({
   keepChat = async () => {},
   now = Date.now,
 }) {
-  function definitions(chatId) {
+  function definitions(chatId, { babysitOnly = false } = {}) {
     const project = projectOfKey(chatId);
     const inProject = (routine) =>
-      routine.target?.kind === "chat"
-        ? projectOfKey(routine.target.chatId) === project
-        : routine.target?.kind === "new-chat" && routine.target.projectPath === project;
+      babysitOnly
+        ? routine.trigger.kind === "pull-request" && routine.target?.chatId === chatId
+        : routine.target?.kind === "chat"
+          ? projectOfKey(routine.target.chatId) === project
+          : routine.target?.kind === "new-chat" && routine.target.projectPath === project;
+    if (babysitOnly && !store.list().some((routine) => !routine.completedAt && inProject(routine))) return [];
     const own = (id) => {
       const routine = store.get(id);
       if (!routine || !inProject(routine)) throw new Error(`Routine not found: ${id}`);
       return routine;
     };
-    return [
+    const tools = [
       {
         name: ROUTINE_LIST,
         description: "List the Routines (Heartbeats and triggers) in this Chat's Project: id, name, trigger, next run and whether it is enabled.",
@@ -295,6 +298,7 @@ function createRoutineTools({
         },
       },
     ];
+    return babysitOnly ? tools.filter((tool) => tool.name === ROUTINE_DELETE) : tools;
   }
   return { definitions };
 }

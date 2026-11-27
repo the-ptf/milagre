@@ -1117,7 +1117,7 @@ export interface ChatSendRequest {
   /** Apply bundled TLDR writing rules to both providers. Defaults to true. */
   tldrEnabled?: boolean;
   /** A PR-blocker pill's action. Milagre checks it and writes the body, prompt and context itself, ignoring the ones sent. */
-  prAction?: { action: PullRequestBlocker; pr: number; url: string };
+  prAction?: { action: PullRequestBlocker; pr: number; url: string; projectId?: string };
   /** The first message of a Chat started from an issue. Milagre reads the issue and writes the body, prompt and context itself. */
   linearIssue?: { key: string; workspace?: string; note?: string };
   /** The first message of a Chat started from a GitHub issue. The host reads it with its own `gh` and writes the body, prompt and context itself. */

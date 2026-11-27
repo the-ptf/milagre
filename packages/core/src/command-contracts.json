@@ -8597,6 +8597,9 @@
         },
         "url": {
           "type": "string"
+        },
+        "projectId": {
+          "type": "string"
         }
       },
       "required": ["action", "pr", "url"],
