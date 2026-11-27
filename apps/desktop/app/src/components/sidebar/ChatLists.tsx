@@ -101,6 +101,18 @@ export const NO_BADGE: ScopeBadge = { projectImage: null, projectInitial: "" };
 
 export const CHATS_BADGE: ScopeBadge = { projectImage: null, projectInitial: "", projectChats: true };
 
+/** Where each scope's pinned rows portal to. Project groups name it Pinned; the one list leads with them unlabelled, each row showing its pin. */
+export function PinnedArea({ anyPinned, label, children }: { anyPinned: boolean; label: boolean; children: ReactNode }) {
+  return (
+    <div data-all-pinned={anyPinned || undefined} className={anyPinned ? (label ? "mb-2" : "mb-px") : ""}>
+      {anyPinned && label && (
+        <p className="sidebar-copy mx-2 mb-1 flex h-8 items-center pl-2 text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">Pinned</p>
+      )}
+      {children}
+    </div>
+  );
+}
+
 export function FlatChatList({
   chats,
   scopes,
