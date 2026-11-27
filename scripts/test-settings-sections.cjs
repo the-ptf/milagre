@@ -46,6 +46,9 @@ window.milagre = {
     return (window.deviceNotes = { enabled });
   },
   onDeviceNotesEnabledChanged: (listener) => { window.deviceNotesListener = listener; return () => { window.deviceNotesListener = null; }; },
+  readPrReviewSettings: async () => ({ enabled: false }),
+  savePrReviewSettings: async ({ enabled }) => ({ enabled }),
+  onPrReviewSettings: () => () => {},
   readBabysitSettings: async () => window.babysit,
   saveBabysitSettings: async (patch) => {
     // The test sets failBabysitSave to make the next save fail, as when the daemon is down.
@@ -268,7 +271,7 @@ async function browserChecks() {
     await delay(300);
     assert.deepEqual(
       [...(await switches())].sort(),
-      ["Delegate to other computers", "Device notes", "Floating inbox", "New Chat stats", "Ultracode Fatality", "Workspace tabs"],
+      ["Delegate to other computers", "Device notes", "Floating inbox", "New Chat stats", "Review agent", "Ultracode Fatality", "Workspace tabs"],
       "Church keeps Device notes alongside the other betas",
     );
     const deviceNotes = `document.querySelector('main [role="checkbox"][aria-label="Device notes"]')`;
