@@ -1,4 +1,3 @@
-// Settings sections in Electron, inside the Settings modal: Church lists only Floating inbox, Ultracode Fatality, Delegate
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -20,6 +19,7 @@ window.played = [];
 HTMLMediaElement.prototype.play = function () { window.played.push(this.src.split('/').pop().split('?')[0]); return Promise.resolve(); };
 window.savedShare = { id: "orphan", url: "https://share.milagre.cloud/s/orphan", title: "Deleted Chat page", createdAt: 1780000000000, designCount: 2 };
 window.shareCalls = [];
+window.reviewSettings = { enabled: false };
 window.deviceNotes = { enabled: false };
 window.deviceNotesSaves = [];
 // Babysit PRs as the host keeps it: saves merge shallowly, like babysit-settings.cjs.
@@ -38,6 +38,9 @@ window.milagre = {
     window.cleanupCalls.push(request.path);
     await new Promise(resolve => { window.finishCleanupRemoval = resolve; });
   },
+  readPrReviewSettings: async () => window.reviewSettings,
+  savePrReviewSettings: async (settings) => (window.reviewSettings = settings),
+  onPrReviewSettings: () => () => {},
   readDeviceNotesEnabled: async () => window.deviceNotes,
   saveDeviceNotesEnabled: async (enabled) => {
     window.deviceNotesSaves.push(enabled);
@@ -268,9 +271,13 @@ async function browserChecks() {
     await delay(300);
     assert.deepEqual(
       [...(await switches())].sort(),
-      ["Delegate to other computers", "Device notes", "Floating inbox", "New Chat stats", "Ultracode Fatality", "Workspace tabs"],
+      ["Delegate to other computers", "Device notes", "Floating inbox", "New Chat stats", "Review agent", "Ultracode Fatality", "Workspace tabs"],
       "Church keeps Device notes alongside the other betas",
     );
+    const reviewAgent = `document.querySelector('main [role="checkbox"][aria-label="Review agent"]')`;
+    await waitFor(`${reviewAgent}?.getAttribute("aria-checked") === "false" && !${reviewAgent}.disabled`);
+    await evaluate(`${reviewAgent}.click()`);
+    await waitFor(`window.reviewSettings.enabled && ${reviewAgent}.getAttribute("aria-checked") === "true"`);
     const deviceNotes = `document.querySelector('main [role="checkbox"][aria-label="Device notes"]')`;
     assert.equal(await evaluate(`${deviceNotes}.getAttribute("aria-checked")`), "false", "device notes default off");
     assert.ok(
