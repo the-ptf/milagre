@@ -4,13 +4,13 @@ import type { ChatSearchMatch, Client } from "./client";
 import type { HostBuild, SearchScope } from "./navigation-build";
 
 /** What one computer answered: its matches, "too old for chats:search" (the phone asks per Project instead), or why it failed. */
-export type HostSearch = { result: ChatSearchResult } | { legacy: true } | { error: string };
+type HostSearch = { result: ChatSearchResult } | { legacy: true } | { error: string };
 export type HostHits = { query: string; archived: boolean; byHost: Record<string, HostSearch> };
 
-export const NO_HOST_HITS: HostHits = { query: "", archived: false, byHost: {} };
+const NO_HOST_HITS: HostHits = { query: "", archived: false, byHost: {} };
 
 /** One request per computer for every Project on it, so a phone with many Projects stays under the host's request cap. */
-export function useHostSearch({
+function useHostSearch({
   needle,
   archived,
   hostIds,

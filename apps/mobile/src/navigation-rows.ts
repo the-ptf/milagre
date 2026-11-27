@@ -454,6 +454,13 @@ function hostRows({ hostHits, hosts = [], needle, archived = false, manyHosts, n
   return answered;
 }
 
+/** Include archived shows while a computer may honour it: hidden once every computer answered as too old for it. */
+function archivedFilterShown({ hostHits, hosts = [], needle }: SearchInput) {
+  if (!hostHits || !hosts.length) return false;
+  if (hostHits.query !== needle) return true;
+  return hosts.some((host) => !("legacy" in (hostHits.byHost[host.hostId] ?? { legacy: true })));
+}
+
 export function searchRows(input: SearchInput): Row[] {
   const { rows, needle, query, searchable, hostMatches, projectHits, manyHosts, connected, ipad, archived = false } = input;
   if (!needle) return rows;
@@ -487,7 +494,7 @@ export function searchRows(input: SearchInput): Row[] {
     }
   }
   const next = [...rows];
-  if (input.hostHits) next.push({ key: "search-filters", path: "", kind: "searchFilters", archived });
+  if (archivedFilterShown(input)) next.push({ key: "search-filters", path: "", kind: "searchFilters", archived });
   if (found.length || notices.length)
     next.push(
       {

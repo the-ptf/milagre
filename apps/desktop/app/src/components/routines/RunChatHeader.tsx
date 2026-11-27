@@ -6,8 +6,6 @@ import { taskForChat } from "../../lib/orchestrator-board";
 import { useOrchestrator } from "../../lib/orchestrator-store";
 import { OrchestratorTaskHeader } from "../orchestrator/OrchestratorTaskHeader";
 
-export { RUN_CHAT_REPLY_NOTE } from "../../lib/composer-block";
-
 export function RunChatHeader({
   chatKey,
   title,

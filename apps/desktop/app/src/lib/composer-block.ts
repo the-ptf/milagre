@@ -2,7 +2,7 @@ import type { AgentSession } from "@milagre/shared/model";
 import { RUN_WORKTREE_REMOVED_NOTE } from "@milagre/shared/routines";
 import { ARCHIVED_CHAT_NOTE } from "@milagre/shared/message-search-view";
 
-export const RUN_CHAT_REPLY_NOTE = "Replying keeps this Chat: it joins your sidebar and stays in this Routine's Runs.";
+const RUN_CHAT_REPLY_NOTE = "Replying keeps this Chat: it joins your sidebar and stays in this Routine's Runs.";
 
 type Block = { note?: string; blocked: boolean; restore?: () => void };
 
