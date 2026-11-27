@@ -83,7 +83,7 @@ export function remapImageMentions(prompt, indices) {
   );
 }
 
-export function editImageMentions(previous, next, images, selection) {
+function changedRange(previous, next, selection) {
   let start = 0;
   while (start < previous.length && start < next.length && previous[start] === next[start]) start++;
   let end = previous.length;
@@ -112,7 +112,11 @@ export function editImageMentions(previous, next, images, selection) {
       nextEnd = next.length - (previous.length - end);
     }
   }
-  const inserted = next.slice(start, nextEnd);
+  return { start, end, inserted: next.slice(start, nextEnd) };
+}
+
+export function editImageMentions(previous, next, images, selection) {
+  const { start, end, inserted } = changedRange(previous, next, selection);
   let from = start;
   let to = end;
   let offset = 0;
@@ -173,4 +177,91 @@ export function matchingMentionComputers(computers, query) {
       .sort((a, b) => Number(Boolean(b.self)) - Number(Boolean(a.self)) || Number(b.online) - Number(a.online) || a.name.localeCompare(b.name))
       .slice(0, 5)
   );
+}
+
+/**
+ * What a plain text field shows for a draft: a chat mention reads `@<title>` in place of `@chat:<id>`. `spans` pair
+ * each mention's place in the draft with its place in the shown text.
+ */
+export function shownPrompt(parts, title) {
+  let text = "";
+  let offset = 0;
+  const spans = [];
+  for (const part of parts) {
+    if (part.kind === "chat") {
+      const label = `@${
+        String(title(part.id) ?? "")
+          .replace(/\s+/g, " ")
+          .trim() || "Chat"
+      }`;
+      spans.push({ start: offset, end: offset + part.text.length, shownStart: text.length, shownEnd: text.length + label.length });
+      text += label;
+    } else text += part.text;
+    offset += part.text.length;
+  }
+  return { text, spans };
+}
+
+/** A draft offset in shown text; inside a chat mention it lands after it. */
+export function shownOffset(spans, offset) {
+  let delta = 0;
+  for (const span of spans) {
+    if (offset <= span.start) break;
+    if (offset < span.end) return span.shownEnd;
+    delta = span.shownEnd - span.end;
+  }
+  return offset + delta;
+}
+
+/** A shown offset in the draft; inside a chat mention it lands on the `edge` of it. */
+export function draftOffset(spans, offset, edge = "end") {
+  let delta = 0;
+  for (const span of spans) {
+    if (offset <= span.shownStart) break;
+    if (offset < span.shownEnd) return edge === "start" ? span.start : span.end;
+    delta = span.end - span.shownEnd;
+  }
+  return offset + delta;
+}
+
+export function shownSelection(spans, selection) {
+  return { start: shownOffset(spans, selection.start), end: shownOffset(spans, selection.end) };
+}
+
+export function draftSelection(spans, selection) {
+  if (selection.start === selection.end) {
+    const caret = draftOffset(spans, selection.start);
+    return { start: caret, end: caret };
+  }
+  return { start: draftOffset(spans, selection.start, "start"), end: draftOffset(spans, selection.end) };
+}
+
+const MENTION_AFTER = /^[\s.,!?;:)\]}]/;
+
+/**
+ * Apply an edit made to the shown text to the draft. A chat mention stays whole: an edit that touches it removes all
+ * of it, typing inside it lands after it, and text typed against either side of it gets a space so it stays a
+ * mention. `caret` is null when the field's own caret is already right.
+ */
+export function editShownPrompt(draft, shown, next, selection) {
+  if (!shown.spans.length) return { value: next, caret: null };
+  const range = changedRange(shown.text, next, selection);
+  let { start, end, inserted } = range;
+  for (const span of shown.spans) {
+    if (start === end) {
+      if (start > span.shownStart && start < span.shownEnd) start = end = span.shownEnd;
+    } else if (start < span.shownEnd && end > span.shownStart) {
+      start = Math.min(start, span.shownStart);
+      end = Math.max(end, span.shownEnd);
+    }
+  }
+  const from = draftOffset(shown.spans, start, "start");
+  const to = draftOffset(shown.spans, end);
+  if (inserted) {
+    if (shown.spans.some((span) => span.shownEnd === start) && !MENTION_AFTER.test(inserted)) inserted = ` ${inserted}`;
+    if (shown.spans.some((span) => span.shownStart === end) && !/\s$/.test(inserted)) inserted = `${inserted} `;
+  }
+  const value = draft.slice(0, from) + inserted + draft.slice(to);
+  const moved = start !== range.start || end !== range.end || inserted !== range.inserted;
+  return { value, caret: moved ? from + inserted.length : null };
 }

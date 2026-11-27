@@ -30,11 +30,14 @@ export type ArchiveDeps = {
   applyRemoval: (removed: { worktreeId: number; sessionIds: number[] }) => void;
   refreshBranches: () => void;
   notify: (message: string) => void;
+  /** The Chats deleted with this one (a Worktree row's tabs): they don't keep its Worktree. */
+  together?: number[];
 };
 
 export function isInsideRoots(path: string, roots: string[]): boolean;
 export function isMilagreWorktree(worktree: Worktree | undefined, roots: string[]): worktree is Worktree;
-export function worktreeShared(state: CoordinatorState, sessionId: number): boolean;
+/** Whether another live Chat besides `together` (the Chats going with it) works in this Chat's Worktree. */
+export function worktreeShared(state: CoordinatorState, sessionId: number, together?: readonly number[]): boolean;
 export function lossReason(status: WorktreeStatus): string;
 export function deleteNote(status: WorktreeStatus): string;
 export function homeLossReason(status: WorktreeStatus): string;

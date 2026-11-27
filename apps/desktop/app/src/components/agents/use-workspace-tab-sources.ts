@@ -1,8 +1,20 @@
 import { PARADISE_NAME } from "@milagre/shared/prompt-parts";
 import { useEffect, useRef } from "react";
-import { ComputerTerminal01Icon, FileDiffIcon, Globe02Icon, GitPullRequestIcon, PaintBoardIcon } from "@hugeicons/core-free-icons";
+import { ComputerTerminal01Icon, FileDiffIcon, Globe02Icon, GitPullRequestIcon, PaintBoardIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
-import { chatOf, closeTab, keepListedChats, openTab, subchatAnchor, tabForDigit, tabId, type OpenTab, type TabSet } from "@milagre/shared/workspace-tabs";
+import {
+  chatOf,
+  closeTab,
+  keepListedChats,
+  NEW_TAB_LABEL,
+  openTab,
+  subchatAnchor,
+  tabForDigit,
+  tabId,
+  type OpenTab,
+  withLoneChatTabs,
+  type TabSet,
+} from "@milagre/shared/workspace-tabs";
 import type { AgentSession } from "../../model";
 import { sessionIdFromKey } from "../../lib/agent-runs";
 import { addressText, chatBrowser, openedByAgent, useAllChatBrowsers } from "../../lib/browser-panel";
@@ -15,13 +27,14 @@ import type { SidePanel } from "./PanelToggles";
 export type TabPanels = { changes?: SidePanel; pullRequest?: SidePanel & { number: number } };
 
 /** What the tabs read of a Chat: a local Chat or a Link Chat. */
-export type TabSession = Pick<AgentSession, "id" | "parent" | "archived"> & { worktree_id?: AgentSession["worktree_id"] };
+export type TabSession = Pick<AgentSession, "id" | "parent" | "archived" | "done_at"> & { worktree_id?: AgentSession["worktree_id"] };
 
 type Sources = {
   workspace: string;
   projectPath: string;
   sessions: Record<string, TabSession> | undefined;
   belongs: (session: TabSession) => boolean;
+  listed: (chatId: number) => boolean;
   set: TabSet;
   activeChatId: number | null;
   panels: TabPanels;
@@ -30,6 +43,7 @@ type Sources = {
 };
 
 const KIND_ICON: Record<Exclude<OpenTab["kind"], "chat">, IconSvgElement> = {
+  new: PlusSignIcon,
   browser: Globe02Icon,
   designs: PaintBoardIcon,
   terminal: ComputerTerminal01Icon,
@@ -55,6 +69,8 @@ export function pageLabel(projectPath: string, tab: OpenTab): string {
       return "Changes";
     case "pr":
       return `Pull request #${tab.number}`;
+    case "new":
+      return NEW_TAB_LABEL;
     default:
       return "Chat";
   }
@@ -65,9 +81,11 @@ export function pageLabel(projectPath: string, tab: OpenTab): string {
  * their source, so a page the agent opens lands as an unread tab), what the panels ask for, the stage the panels follow,
  * and the Changes or PR panel while its tab is in front.
  */
-export function useWorkspaceTabSources({ workspace, projectPath, sessions, belongs, set, activeChatId, panels, onOpenChat, onFocus }: Sources) {
+export function useWorkspaceTabSources({ workspace, projectPath, sessions, belongs, listed, set, activeChatId, panels, onOpenChat, onFocus }: Sources) {
   const latest = useRef({ sessions, belongs, activeChatId, onOpenChat, onFocus });
   latest.current = { sessions, belongs, activeChatId, onOpenChat, onFocus };
+  const shownChat = useRef<{ workspace: string; chatId: number | null } | null>(null);
+  const pinnedFront = useRef<string | null>(null);
   const ownChat = (chatKey: string) => {
     if (!chatKey.startsWith(`${projectPath}#`)) return undefined;
     const chatId = sessionIdFromKey(chatKey);
@@ -80,20 +98,23 @@ export function useWorkspaceTabSources({ workspace, projectPath, sessions, belon
   useEffect(() => {
     if (!sessions) return;
     const parentOf = (chatId: number) => sessions[chatId]?.parent;
+    const switched = shownChat.current?.workspace !== workspace || shownChat.current.chatId !== activeChatId;
+    shownChat.current = { workspace, chatId: activeChatId };
     updateTabSet(workspace, (current) => {
-      let next = keepListedChats(current, (chatId) => {
-        const session = sessions[chatId];
-        return Boolean(session && !session.archived && belongs(session));
-      });
+      const live = (session: TabSession | undefined): session is TabSession => Boolean(session && !session.archived && belongs(session));
+      let next = keepListedChats(current, (chatId) => live(sessions[chatId]) && (!sessions[chatId]!.done_at || chatId === activeChatId));
+      next = withLoneChatTabs(next, Object.values(sessions).filter(live), listed);
       const session = activeChatId === null ? undefined : sessions[activeChatId];
-      if (activeChatId === null || !session || session.archived || !belongs(session)) return next;
+      if (activeChatId === null || !live(session)) return next;
       const shown = next.tabs.find((tab) => tabId(tab) === next.active);
-      const page = shown && shown.kind !== "chat" && chatOf(shown) === activeChatId;
+      const owner = shown ? chatOf(shown) : undefined;
+      const page = shown && shown.kind !== "chat" && (owner === activeChatId || (owner === undefined && (!switched || pinnedFront.current === tabId(shown))));
       const after = session.parent === undefined ? undefined : subchatAnchor(next, session.parent, parentOf);
       next = openTab(next, { kind: "chat", chatId: activeChatId }, page ? { focus: false, unread: false, after } : { after });
       return next;
     });
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- belongs reads the same sessions
+    if (switched) pinnedFront.current = null;
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- belongs and listed read the same sessions
   }, [workspace, activeChatId, sessions]);
 
   useEffect(() => {
@@ -169,6 +190,9 @@ export function useWorkspaceTabSources({ workspace, projectPath, sessions, belon
   useEffect(() => () => setStage(null), []);
 
   const showing = active?.kind === "diff" ? "changes" : active?.kind === "pr" ? "pullRequest" : null;
+  const keepInFront = (id: string) => {
+    pinnedFront.current = id;
+  };
   const shown = useRef<typeof showing>(null);
   useEffect(() => {
     const before = shown.current;
@@ -177,4 +201,5 @@ export function useWorkspaceTabSources({ workspace, projectPath, sessions, belon
     if (showing && !panels[showing]?.open) panels[showing]?.toggle();
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- follows the tab in front; the panels' toggles change every render
   }, [showing]);
+  return { keepInFront };
 }

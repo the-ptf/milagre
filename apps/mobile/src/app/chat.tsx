@@ -1753,7 +1753,7 @@ function ChatPane({
   const paneMenu = chatPaneMenu({ chatsHomeOpen, diff, chat, run, ownRoutine, ownHeartbeat, linearIssue, linkHint, agents, busy, canLink, storedIssue });
   const headerActions = (
     <HeaderActionGroup>
-      {tabsWhere && !tabsInHeader && <TabCountAction where={tabsWhere} activeChatId={chat?.id} onPress={panels.showTabs} />}
+      {tabsWhere && !tabsInHeader && <TabCountAction where={tabsWhere} onPress={panels.showTabs} />}
       {browserShortcut && (
         <HeaderAction
           label={browserShortcut.accessibilityLabel}

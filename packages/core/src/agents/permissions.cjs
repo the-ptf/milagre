@@ -336,19 +336,20 @@ class PendingPermissions {
     this.answers = new Map();
   }
 
-  add(request, answer, { inWorkspace = false } = {}) {
+  add(request, answer, { inWorkspace = false, safeCommand = false } = {}) {
     if (this.mode === "full") {
       answer("allow");
       return;
     }
-    this.answers.set(request.requestId, { answer, allowForChat: Boolean(request.allowForChat), inWorkspace: request.kind === "edit" && inWorkspace });
+    const autoAllows = (request.kind === "edit" && inWorkspace) || (request.kind === "command" && safeCommand);
+    this.answers.set(request.requestId, { answer, allowForChat: Boolean(request.allowForChat), autoAllows });
     this.emit({ type: "permission-request", ...request });
   }
 
   setMode(mode) {
     this.mode = mode;
     for (const [requestId, pending] of Array.from(this.answers)) {
-      if (mode === "full" || (mode === "auto" && pending.inWorkspace)) this.resolve(requestId, "allow");
+      if (mode === "full" || (mode === "auto" && pending.autoAllows)) this.resolve(requestId, "allow");
     }
   }
 

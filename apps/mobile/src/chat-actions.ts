@@ -90,9 +90,12 @@ export async function runChatAction({
   expectActivity,
   notify,
   onConfirm,
+  together = [],
 }: {
   action: string;
   chat: AgentSession;
+  /** The Chats a Worktree's row stands for besides `chat`: Delete takes them along. */
+  together?: AgentSession[];
   running: boolean;
   client: Client;
   projectPath: string;
@@ -113,18 +116,23 @@ export async function runChatAction({
   }
   if (action === "archive" && !chat.archived) {
     if (link) {
-      const done = startArchiving(`${projectPath}#${chat.id}`);
+      const chats = [chat, ...together];
+      const done = chats.map((each) => startArchiving(`${projectPath}#${each.id}`));
       try {
         onConfirm?.();
         expectActivity();
-        await archiveLinkChat({
-          running,
-          stop: () => client.call("agent:interrupt", [`${projectPath}#${chat.id}`]),
-          hide: () => client.call("chat:delete", [projectPath, chat.id]),
-        });
+        await Promise.all(
+          chats.map((each) =>
+            archiveLinkChat({
+              running: each === chat ? running : true,
+              stop: () => client.call("agent:interrupt", [`${projectPath}#${each.id}`]),
+              hide: () => client.call("chat:delete", [projectPath, each.id]),
+            }),
+          ),
+        );
         await refresh();
       } finally {
-        done();
+        for (const finish of done) finish();
       }
       return "hidden";
     }
@@ -136,6 +144,7 @@ export async function runChatAction({
       running,
       chatsHome,
       hostId,
+      together,
       onConfirm: () => {
         onConfirm?.();
         expectActivity();

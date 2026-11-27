@@ -1,5 +1,7 @@
 import { lineHeight, type } from "./design-tokens";
 import { useDoneMarks } from "./settled-marks";
+import { tabSet, useWorkspaceTabs } from "./workspace-tabs-store";
+import { rowChat } from "./workspace-tabs-kinds";
 import { hideRevealed } from "./chat-swipe-row";
 import { useDoneRetention } from "./done-retention";
 import { type SnoozeMark } from "./snooze-actions";
@@ -63,6 +65,18 @@ const FIELD_SYMBOLS: Record<string, string> = {
   diff: "plusminus",
   lastActivity: "clock",
 };
+
+/** The list's Filters menu: which Projects, which Chats, and what their rows show. */
+function filterMenu(show: Show, rowShow: ReturnType<typeof useChatRowShow>) {
+  return [
+    { items: [{ id: "choose-projects", title: "Choose projects…", systemImage: "checklist" }] },
+    { title: "Show", items: SHOW.map(([id, title, systemImage]) => ({ id, title, systemImage, checked: show === id })) },
+    {
+      title: "On Chats",
+      items: ROW_FIELDS.map((field) => ({ id: `field:${field.id}`, title: field.label, systemImage: FIELD_SYMBOLS[field.id], checked: rowShow[field.id] })),
+    },
+  ];
+}
 
 const LIST_KEYBOARD = { keyboardShouldPersistTaps: "handled", keyboardDismissMode: "on-drag" } as const;
 
@@ -160,6 +174,7 @@ const NavigationBody = memo(function NavigationBody({
     setSubchatOpen((open) => (open.has(key) ? open : new Set(open).add(key)));
   }, [openRoot, currentHostId, activeChatId]);
   const [doneMarks, setDoneMarks] = useDoneMarks();
+  const [tabsOn] = useWorkspaceTabs();
   const [snoozeMarks, setSnoozeMarks] = useState<ReadonlyMap<string, SnoozeMark>>(() => new Map());
   const [page, setPage] = useState<"add" | null>(null);
   const [addHostId, setAddHostId] = useState<string | undefined>();
@@ -224,6 +239,7 @@ const NavigationBody = memo(function NavigationBody({
         current ? snapshot : null,
         current ? cachedProject : null,
         current,
+        tabsOn,
       ];
       const held = cache.get(view.hostId);
       if (held && sameDeps(held.deps, deps)) return held.build;
@@ -239,6 +255,7 @@ const NavigationBody = memo(function NavigationBody({
         fallback: cachedProject,
         show,
         pins: savedChatPins.pins(view.hostId),
+        tabs: tabsOn,
       });
       cache.set(view.hostId, { deps, build });
       return build;
@@ -261,6 +278,7 @@ const NavigationBody = memo(function NavigationBody({
     cache,
     archiveRequests,
     pinsVersion,
+    tabsOn,
   ]);
 
   const manyHosts = builds.length > 1;
@@ -417,35 +435,7 @@ const NavigationBody = memo(function NavigationBody({
     rowShow,
     setShow,
   });
-  const filterSections = [
-    {
-      items: [
-        {
-          id: "choose-projects",
-          title: "Choose projects…",
-          systemImage: "checklist",
-        },
-      ],
-    },
-    {
-      title: "Show",
-      items: SHOW.map(([id, title, systemImage]) => ({
-        id,
-        title,
-        systemImage,
-        checked: show === id,
-      })),
-    },
-    {
-      title: "On Chats",
-      items: ROW_FIELDS.map((field) => ({
-        id: `field:${field.id}`,
-        title: field.label,
-        systemImage: FIELD_SYMBOLS[field.id],
-        checked: rowShow[field.id],
-      })),
-    },
-  ];
+  const filterSections = filterMenu(show, rowShow);
   const doneHours = useDoneRetention(
     views.map((view) => view.hostId),
     clientOf,
@@ -518,7 +508,7 @@ const NavigationBody = memo(function NavigationBody({
         searchInput.current?.focus();
       } else {
         const row = displayedRows.filter((item) => item.kind === "chat")[command.index];
-        if (row?.kind === "chat") void enter(row.hostId, row.path, row.chat.id, row.pending);
+        if (row?.kind === "chat") void enter(row.hostId, row.path, rowChat(tabSet, row.hostId, row.path, row.chat.id, row.folded), row.pending);
       }
     };
   });

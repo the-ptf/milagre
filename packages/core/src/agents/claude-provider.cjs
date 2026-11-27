@@ -476,8 +476,11 @@ class ClaudeSession {
       const added = decided.learn.length ? { updatedPermissions: [{ type: "addDirectories", directories: decided.learn, destination: "session" }] } : {};
       return Promise.resolve({ behavior: "allow", updatedInput: input, ...added });
     }
-    if (this.permissions.mode === "auto" && request.kind === "command" && !options.blockedPath) {
-      const risk = commandRisk(request.command, { cwd: this.access.cwd, roots: [this.access.cwd, ...(this.access.roots ?? [])] });
+    const risk =
+      request.kind === "command" && !options.blockedPath
+        ? commandRisk(request.command, { cwd: this.access.cwd, roots: [this.access.cwd, ...(this.access.roots ?? [])] })
+        : undefined;
+    if (this.permissions.mode === "auto" && risk !== undefined) {
       if (!risk) return Promise.resolve({ behavior: "allow", updatedInput: input });
       request.reason = `${risk[0].toUpperCase()}${risk.slice(1)}.`;
     }
@@ -490,7 +493,7 @@ class ClaudeSession {
           options.signal?.removeEventListener("abort", abort);
           resolve(claudeResult(decision, input, options.suggestions));
         },
-        { inWorkspace },
+        { inWorkspace, safeCommand: risk === null },
       );
       if (options.signal?.aborted) abort();
       else options.signal?.addEventListener("abort", abort, { once: true });

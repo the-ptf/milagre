@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentSession, ChatMessage } from "@milagre/shared/model";
 import { undoHistory } from "@milagre/shared/undo-history";
-import { doneReplyId, settleActions } from "./chat-done.ts";
+import { closeTabIntoDone, doneReplyId, settleActions } from "./chat-done.ts";
 
 const chat = (patch: Partial<AgentSession> = {}) => ({ id: 1, ...patch }) as AgentSession;
 const message = (id: number, role: ChatMessage["role"]) => ({ id, session_id: 1, role, body: "", context: null }) as ChatMessage;
@@ -41,4 +41,26 @@ test("settling snoozes or marks Done, leaves the Chat, and Undo reverses it", as
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(calls.at(-1), ["chat:patch", "/p", 1, { done: true, unread: false }]);
   assert.equal(left, 2);
+});
+
+test("closing a tab Chat stops its turn and moves it to Done, and Undo brings it back with its tab", async () => {
+  const calls: unknown[][] = [];
+  const tabs: boolean[] = [];
+  const client = { url: "host", call: async <T>(method: string, args?: unknown[]) => (calls.push([method, ...(args ?? [])]), undefined as T) };
+  assert.equal(await closeTabIntoDone({ client, projectPath: "/p", chatId: 3, running: true, tab: (open) => tabs.push(open) }), true);
+  assert.deepEqual(calls, [
+    ["agent:interrupt", "/p#3"],
+    ["chat:patch", "/p", 3, { done: true, unread: false }],
+  ]);
+  undoHistory.undo();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls.at(-1), ["chat:patch", "/p", 3, { done: false }]);
+  assert.deepEqual(tabs, [false, true]);
+});
+
+test("a tab Chat the computer won't move to Done gets its tab back", async () => {
+  const tabs: boolean[] = [];
+  const client = { call: async () => Promise.reject(new Error("offline")) };
+  assert.equal(await closeTabIntoDone({ client, projectPath: "/p", chatId: 3, running: false, tab: (open) => tabs.push(open) }), false);
+  assert.deepEqual(tabs, [false, true]);
 });
