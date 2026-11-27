@@ -514,15 +514,15 @@ class AcpSession {
       return;
     }
     // Auto's risk filter (Kiro): a command that stays inside the worktree runs; a risky one gets a card that says why.
-    if (this.config.riskFilter && this.permissions.mode === "auto" && request.kind === "command") {
-      const risk = commandRisk(request.command, { cwd: request.cwd ?? this.cwd, roots });
+    const risk = this.config.riskFilter && request.kind === "command" ? commandRisk(request.command, { cwd: request.cwd ?? this.cwd, roots }) : undefined;
+    if (this.permissions.mode === "auto" && risk !== undefined) {
       if (!risk) {
         this.reply(id, outcome(pickOption(options, "allow", once)));
         return;
       }
       request.reason = `${risk[0].toUpperCase()}${risk.slice(1)}.`;
     }
-    this.permissions.add(request, (decision) => this.reply(id, outcome(pickOption(options, decision, once))), { inWorkspace });
+    this.permissions.add(request, (decision) => this.reply(id, outcome(pickOption(options, decision, once))), { inWorkspace, safeCommand: risk === null });
   }
 
   // Antigravity asks the user to choose through a permission request whose tool call id starts with

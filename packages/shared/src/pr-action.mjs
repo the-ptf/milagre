@@ -23,6 +23,12 @@ export function pullRequestActionBody(context) {
   return `${PR_ACTIONS[context.action].sentence} #${context.pr}`;
 }
 
+export function pullRequestActionRequest(context) {
+  if (!context) return undefined;
+  const { action, pr, url, projectId } = context;
+  return { action, pr, url, ...(projectId ? { projectId } : {}) };
+}
+
 export function pullRequestActionPrompt(context) {
   return `${pullRequestActionBody(context)} (${context.url}). /${PR_ACTIONS[context.action].skill}`;
 }

@@ -153,3 +153,24 @@ test("a failed plain retry and an old generation's fallback cannot disable negot
   await pending(request);
   assert.equal(fallbacks, 2, "a late fallback cannot mark the new connection unsupported");
 });
+
+test("a canvas opening many designs at once gets each font once and at most four reads run together", async () => {
+  let running = 0;
+  let most = 0;
+  let carried = 0;
+  const read = createDesignFontReader(async (req) => {
+    most = Math.max(most, ++running);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    running--;
+    const fontKey = req.id.startsWith("b") ? "b" : "a";
+    const fontCss = req.fonts.have.includes(fontKey) ? undefined : `css-${fontKey}`;
+    if (fontCss) carried++;
+    return artifact({ id: req.id, fontKey, ...(fontCss ? { fontCss } : {}) });
+  });
+  const designs = Array.from({ length: 30 }, (_, index) => `${index % 6 ? "a" : "b"}-${index}`);
+  const read30 = await Promise.all(designs.map((id) => read({ ...request, id })));
+  assert.equal(most, 4);
+  assert.ok(carried <= 5, `${carried} replies carried font CSS`);
+  assert.deepEqual(new Set(read30.map((design) => design.fontCss)), new Set(["css-a", "css-b"]));
+  assert.ok(read30.every((design) => restoreDesignFonts(design).html === `<head><style>css-${design.fontKey}</style></head>`));
+});

@@ -7353,6 +7353,54 @@ test("the PR pill sends a PR action whose preview is already a card", async () =
   }
 });
 
+test("the PR pill on a Link sends the blocked PR's member Project", async () => {
+  const id = "40996067-6cc2-4427-bc1e-9007c5f51875";
+  const url = "https://github.com/o/web/pull/77";
+  const screen = chatHost({ call: async () => ({ sessionId: 42 }) });
+  screen.session.snapshot = require("../apps/mobile/src/chat-scope.ts").phoneSnapshot({
+    link: {
+      link: { id, name: "Food", projectIds: ["api", "web"] },
+      projects: [
+        { id: "api", path: "/api", name: "API" },
+        { id: "web", path: "/web", name: "Web" },
+      ],
+      state: {
+        next_id: 43,
+        sessions: {
+          42: {
+            id: 42,
+            provider: "codex",
+            workspacePath: "/link-workspace",
+            worktrees: [
+              { projectId: "api", projectPath: "/api", worktreePath: "/api-worktree" },
+              { projectId: "web", projectPath: "/web", worktreePath: "/web-worktree" },
+            ],
+          },
+        },
+        messages: [],
+        preparations: {},
+      },
+    },
+    runs: { runs: {} },
+  });
+  screen.params.id = "42";
+  screen.params.worktreeId = "42";
+  globalThis.branchPullRequests = {
+    "/api-worktree": { number: 77, url: "https://github.com/o/api/pull/77", state: "OPEN" },
+    "/web-worktree": { number: 77, url, state: "OPEN", changesRequested: true },
+  };
+  try {
+    find(screen.render(), (node) => node.type === "PullRequestAction").props.onRun();
+    await settle();
+    const sent = screen.calls.find((call) => call.method === "link:send").args[0];
+    assert.equal(sent.sessionId, 42);
+    assert.equal(JSON.stringify(sent.prAction), JSON.stringify({ action: "changes-requested", pr: 77, url, projectId: "web" }));
+    assert.equal(sent.prompt, `Address the review on pull request #77 (${url}). /milagre-address-review`);
+  } finally {
+    delete globalThis.branchPullRequests;
+  }
+});
+
 test("a PR ready to merge shows Merge #n, which opens the PR sheet, and the sheet's Fix in Chat sends in this Chat", async () => {
   const url = "https://github.com/o/r/pull/90";
   globalThis.chatPullRequest = { number: 90, title: "Fix it", url, state: "OPEN", readyToMerge: true };
@@ -20714,14 +20762,26 @@ test("phone Chat mentions work without a Worktree and never search or attach fil
     let field = find(render(), (node) => node.type === "Field");
     field.props.onFocus();
     field.props.onSelectionChange({ nativeEvent: { selection: { start: draft.length, end: draft.length } } });
-    const row = find(render(), (node) => node.type === "ListRow" && node.props.title === "Plan review");
+    const menu = () => {
+      const rows = find(render(), (node) => node.type?.name === "MentionRows");
+      return rows.type(rows.props);
+    };
+    const row = find(menu(), (node) => node.type === "ListRow" && node.props.title === "Plan review");
     assert.ok(row);
+    assert.equal(row.props.leading.props.kind, "chat", "a Chat row carries the Chat icon instead of a Chats heading");
     assert.equal(
-      find(render(), (node) => node.type === "ListRow" && node.props.title === "Plan self"),
+      find(menu(), (node) => node.type === "ListRow" && node.props.title === "Plan self"),
       undefined,
     );
     row.props.onPress();
     assert.equal(draft, "@chat:12 ");
+    field = find(render(), (node) => node.type === "Field");
+    assert.equal(textOf(field), "@Plan review ", "the field shows the Chat's title, not its id");
+    field.props.onChangeText("@Plan review now");
+    assert.equal(draft, "@chat:12 now");
+    field = find(render(), (node) => node.type === "Field");
+    field.props.onChangeText("@Plan revie now");
+    assert.equal(draft, " now", "Backspace into the title removes the whole mention");
     render();
     await new Promise((resolve) => setTimeout(resolve, 170));
     assert.deepEqual(calls, [], "no file callback means no file RPC, even with a Chat menu");

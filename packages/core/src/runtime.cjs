@@ -1361,15 +1361,13 @@ function createRuntime(options) {
     store: linkStore,
     workspaces: linkWorkspaces,
     chats,
+    readPullRequestState: (cwd) => environmentReady.then(() => readPullRequestStateOf(cwd)),
     sentFromNotes,
     rememberTurnDefaults: (request) => turnDefaults.remember(request),
     broadcast: broadcastProjectState,
     titles: chatTitles,
     issues: { message: linearIssueMessage, started: markIssueStarted },
-    retire: async (scope, sessionId) => {
-      const { stopped } = await archiveChat(scope, sessionId);
-      await stopped;
-    },
+    retire: (scope, sessionId) => archiveChat(scope, sessionId).then(({ stopped }) => stopped),
     released: async ({ removed, kept }) => {
       for (const member of removed) await worktreeSetups.forget(member.worktreePath);
       for (const projectPath of new Set([...removed, ...kept].map((member) => member.projectPath))) {
