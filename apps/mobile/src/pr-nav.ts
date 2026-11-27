@@ -5,7 +5,16 @@ import { allComputers } from "./all-computers";
 import { useSession } from "./session";
 
 /** A PR in the current Project's Worktree (`worktreeId`), or on any computer (`host` and a folder there, `cwd`). */
-export type PrRoute = { worktreeId?: string; number: string; chat?: string; cwd?: string; host?: string; projectName?: string; projectPath?: string };
+export type PrRoute = {
+  reviewHost?: string;
+  worktreeId?: string;
+  number: string;
+  chat?: string;
+  cwd?: string;
+  host?: string;
+  projectName?: string;
+  projectPath?: string;
+};
 
 export type PrPage = "threads" | "review" | "diff" | "labels" | "reviewers";
 

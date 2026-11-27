@@ -109,7 +109,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
           ),
           ...dictationTools(read, act, host),
           ...orchestratorTools({ read, act, host, assertActive }),
-          ...pullRequestTools({ read, host, scope: currentScope, inProjectScope }),
+          ...pullRequestTools({ read, act, host, scope: currentScope, inProjectScope, caller }),
           read(
             "project_list",
             "List Projects in Milagre (with inScope for this Chat, or only the Projects granted to an outside connection).",

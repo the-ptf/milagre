@@ -95,9 +95,7 @@ export function applyFilterChoice(settings: PullRequestsSettings, id: string): P
 /** The count the Filters button shows: filters away from their defaults, State left out. */
 export const activeFilterCount = (settings: PullRequestsSettings) => activePullRequestFilters(settings.filters);
 
-export function reviewPrompt(row: Pick<PullRequestRow, "url" | "repo" | "number" | "title">) {
-  return `Review pull request ${row.url} (${row.repo}#${row.number}: ${row.title}). Check out its head in a fresh Worktree, read the diff in context, and report findings with file, line, severity (high/medium/low) and a suggested fix. Don't push, comment on GitHub, approve or merge.`;
-}
+export { reviewForMePrompt as reviewPrompt } from "@milagre/shared/pr-review";
 
 /** Whether `prompt` names `url` itself, not a longer URL it begins (`…/pull/12` in `…/pull/123`). */
 export function mentionsUrl(prompt: string, url: string) {

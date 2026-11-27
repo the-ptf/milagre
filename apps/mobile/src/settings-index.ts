@@ -240,6 +240,7 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     group: "This iPhone",
     keywords: "device phone name",
   },
+  { page: "experimental", title: "Review agent", keywords: "pull requests findings babysit review for me" },
   {
     page: "experimental",
     title: "Floating inbox",
