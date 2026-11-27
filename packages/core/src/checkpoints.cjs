@@ -73,6 +73,38 @@ function fileOperation(request) {
 async function namesFor(root) {
   return (await git.text(root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])).split("\0").filter(Boolean);
 }
+async function readManifests(directory, chatId) {
+  const names = await fs.readdir(directory).catch((error) => {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  });
+  const items = [];
+  for (const id of names.filter((name) => /^[0-9a-f-]{36}$/.test(name))) {
+    const item = JSON.parse(await fs.readFile(path.join(directory, id, "manifest.json"), "utf8"));
+    if (item.chatId === chatId) items.push(item);
+  }
+  return items.toSorted((a, b) => b.createdAt - a.createdAt);
+}
+// Which of the tasks changed each file in one of their Worktrees.
+function changersOf(items, index, names) {
+  const changers = new Map();
+  for (const name of names) {
+    const touched = items.filter((item) => {
+      const start = item.before[index],
+        end = item.after?.[index];
+      return !start.blocked.includes(name) && !end?.blocked.includes(name) && (!end || !same(entryAt(start.files, name), entryAt(end.files, name)));
+    });
+    if (touched.length) changers.set(name, touched);
+  }
+  return changers;
+}
+function rememberPreview(previews, chatId, ids, digest) {
+  for (const [token, p] of previews) if (Date.now() - p.at > 10 * 60 * 1000 || p.chatId === chatId) previews.delete(token);
+  if (previews.size >= 100) previews.delete(previews.keys().next().value);
+  const token = randomUUID();
+  previews.set(token, { ids, chatId, digest, at: Date.now() });
+  return token;
+}
 function createCheckpoints({
   directory,
   budget = 100 * 1024 * 1024,
@@ -154,15 +186,7 @@ function createCheckpoints({
           ...(open ? await namesFor(root) : []),
         ]),
       ].toSorted();
-      const changers = new Map();
-      for (const name of names) {
-        const touched = items.filter((item) => {
-          const start = item.before[index],
-            end = item.after?.[index];
-          return !start.blocked.includes(name) && !end?.blocked.includes(name) && (!end || !same(entryAt(start.files, name), entryAt(end.files, name)));
-        });
-        if (touched.length) changers.set(name, touched);
-      }
+      const changers = changersOf(items, index, names);
       const candidates = [...changers.keys()];
       const current = await fileOperation({ op: "inspect", root, identity: before.identity, names: candidates, budget });
       states.push({ identity: before.identity, patterns: current.patterns });
@@ -191,25 +215,8 @@ function createCheckpoints({
     }
     return { files, excluded, targets, digest: hash(JSON.stringify(states)) };
   }
-  async function listItems(chatId) {
-    const names = await fs.readdir(directory).catch((error) => {
-      if (error.code === "ENOENT") return [];
-      throw error;
-    });
-    const items = [];
-    for (const id of names.filter((name) => /^[0-9a-f-]{36}$/.test(name))) {
-      const item = JSON.parse(await fs.readFile(manifestPath(id), "utf8"));
-      if (item.chatId === chatId) items.push(item);
-    }
-    return items.toSorted((a, b) => b.createdAt - a.createdAt);
-  }
-  function remember(chatId, ids, digest) {
-    for (const [token, p] of previews) if (Date.now() - p.at > 10 * 60 * 1000 || p.chatId === chatId) previews.delete(token);
-    if (previews.size >= 100) previews.delete(previews.keys().next().value);
-    const token = randomUUID();
-    previews.set(token, { ids, chatId, digest, at: Date.now() });
-    return token;
-  }
+  const listItems = (chatId) => readManifests(directory, chatId);
+  const remember = (chatId, ids, digest) => rememberPreview(previews, chatId, ids, digest);
   return {
     begin: (request) =>
       serial(async () => {
@@ -234,18 +241,11 @@ function createCheckpoints({
       }),
     discard: (chatId, messageId) =>
       serial(async () => {
-        const names = await fs.readdir(directory).catch((error) => {
-          if (error.code === "ENOENT") return [];
-          throw error;
-        });
-        for (const id of names.filter((name) => /^[0-9a-f-]{36}$/.test(name))) {
-          const item = JSON.parse(await fs.readFile(manifestPath(id), "utf8"));
-          if (item.chatId !== chatId || item.messageId !== messageId) continue;
-          await fs.rm(path.dirname(manifestPath(id)), { recursive: true, force: true });
-          if (running.get(chatId)?.id === id) running.delete(chatId);
-          return true;
-        }
-        return false;
+        const item = (await listItems(chatId)).find((candidate) => candidate.messageId === messageId);
+        if (!item) return false;
+        await fs.rm(path.dirname(manifestPath(item.id)), { recursive: true, force: true });
+        if (running.get(chatId)?.id === item.id) running.delete(chatId);
+        return true;
       }),
     finish: (chatId) =>
       serial(async () => {
@@ -273,22 +273,11 @@ function createCheckpoints({
     // Every task started at or after a message, undone together: what editing that message would also undo.
     rewind: (chatId, messageId, roots) =>
       serial(async () => {
-        const items = (await listItems(chatId))
-          .filter((item) => item.kind === "task" && item.messageId >= messageId && sameRoots(item, roots))
-          .toSorted((a, b) => a.createdAt - b.createdAt);
+        const items = (await listItems(chatId)).filter((item) => item.kind === "task" && item.messageId >= messageId && sameRoots(item, roots)).toReversed();
         if (!items.length) return null;
-        const result = await impact(items);
-        return {
-          ...summary(items[0]),
-          tasks: items.length,
-          token: remember(
-            chatId,
-            items.map((item) => item.id),
-            result.digest,
-          ),
-          files: result.files,
-          excluded: result.excluded,
-        };
+        const ids = items.map((item) => item.id),
+          result = await impact(items);
+        return { ...summary(items[0]), tasks: items.length, token: remember(chatId, ids, result.digest), files: result.files, excluded: result.excluded };
       }),
     running: (chatId) => running.has(chatId),
     restore: (chatId, request = {}) =>

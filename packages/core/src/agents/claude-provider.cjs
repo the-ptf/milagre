@@ -335,9 +335,8 @@ class ClaudeSession {
   }
 
   async start(model, mode, effort, ultracode = false, fastMode = false, rewind = null) {
+    const at = await this.rewindPoint(rewind);
     const sdk = await this.loadSdk();
-    if (this.closed) return;
-    const at = rewind && this.resumeId ? await this.rewindPoint(rewind) : null;
     if (this.closed) return;
     this.stderr = "";
     this.child = null;
@@ -408,16 +407,7 @@ class ClaudeSession {
         ...(this.ephemeral ? { persistSession: false } : {}),
         ...(this.analysisOnly ? advisorPolicy("claude", this.linked?.tools ?? []) : {}),
         ...(this.executionAdvisor ? { disallowedTools: ["AskUserQuestion", "Agent", "Task"] } : {}),
-        ...(this.resumeId
-          ? {
-              resume: this.resumeId,
-              ...(at
-                ? { resumeSessionAt: at, forkSession: true, ...(rewind.dropsTurn ? { resumeDropsTurn: rewind.prompt } : {}) }
-                : this.forkSession
-                  ? { forkSession: true }
-                  : {}),
-            }
-          : {}),
+        ...this.resumeOptions(at, rewind),
         // Own the process so close() can stop Claude Code and everything it started.
         spawnClaudeCodeProcess: ({ command, args, cwd, env, signal }) => {
           const child = spawnCommand(command, args, { cwd, env, signal, stdio: ["pipe", "pipe", "pipe"], detached: true, windowsHide: true }, this.spawnImpl);
@@ -435,8 +425,15 @@ class ClaudeSession {
     await this.query.setMaxThinkingTokens?.(null, "summarized").catch(() => {});
   }
 
+  resumeOptions(at, rewind) {
+    if (!this.resumeId) return {};
+    if (at) return { resume: this.resumeId, resumeSessionAt: at, forkSession: true, ...(rewind.dropsTurn ? { resumeDropsTurn: rewind.prompt } : {}) };
+    return { resume: this.resumeId, ...(this.forkSession ? { forkSession: true } : {}) };
+  }
+
   // Editing an earlier message resumes a fork of the session that ends just before that message's prompt.
   async rewindPoint(rewind) {
+    if (!rewind || !this.resumeId) return null;
     const at = await claudeRewindPoint({
       sessionId: this.resumeId,
       prompt: rewind.prompt,
@@ -573,12 +570,7 @@ class ClaudeSession {
           if (event.type === "session-started") this.announcedId = true;
           if (!isTerminal(event)) this.emit(event);
           else if (this.cancelRequested) this.finishTurn({ type: "turn-cancelled" });
-          else if (event.type === "turn-failed" && this.resumeGone(`${event.message}\n${message.errors ?? ""}\n${message.result ?? ""}`)) this.resumeFailed();
-          else if (event.type === "turn-failed" && `${event.message}\n${message.errors ?? ""}\n${message.result ?? ""}`.includes(REWIND_REJECTED)) {
-            this.finishTurn({ ...event, rewindFailed: true });
-            void this.close();
-          }
-          else {
+          else if (!this.endsResume(event, message)) {
             // A logged-out Claude Code keeps answering "not logged in" until it is restarted, so the session
             const ended = event.login && !(await this.loggedOut(this.command, this.env ?? process.env)) ? { ...event, message: AUTH_RETRY_MESSAGE } : event;
             if (ended.login && this.announcedId) this.emit({ type: "session-reset" });
@@ -592,6 +584,18 @@ class ClaudeSession {
     } catch (error) {
       this.handleEnd(query, error);
     }
+  }
+
+  // A resume Claude Code couldn't do: a session it no longer has, or a rewind it refused (never retried).
+  endsResume(event, message) {
+    if (event.type !== "turn-failed") return false;
+    const text = `${event.message}\n${message.errors ?? ""}\n${message.result ?? ""}`;
+    if (this.resumeGone(text)) this.resumeFailed();
+    else if (text.includes(REWIND_REJECTED)) {
+      this.finishTurn({ ...event, rewindFailed: true });
+      void this.close();
+    } else return false;
+    return true;
   }
 
   // crashes and bad paths must keep it.

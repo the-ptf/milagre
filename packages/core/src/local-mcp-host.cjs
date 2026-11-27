@@ -4,7 +4,6 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { projectOfKey, sessionIdFromKey, lastUserModel } = require("@milagre/shared/agent-runs");
 const { IMAGE_TYPES } = require("@milagre/shared/limits");
-const { canEditMessage, messagesAfter } = require("@milagre/shared/message-edit");
 const { chatActivity } = require("@milagre/shared/chat-activity");
 const { queue } = require("./chat-branch-tools.cjs");
 const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
@@ -57,9 +56,9 @@ function attachmentPrompt(body, files) {
   return files.length ? `${body}\n\nAttached files:\n${files.join("\n")}` : body;
 }
 
-function chatTools(chat, invoke) {
+function chatTools(chat, invoke, steering) {
   return {
-    ...require("./chat-branch-tools.cjs").createChatBranchHost({ chat, invoke }),
+    ...require("./chat-branch-tools.cjs").createChatBranchHost({ chat, invoke, ...steering }),
     dictationCorrections: ({ projectPath }) => invoke("dictation:corrections", [projectPath]),
     setDictationCorrection: async ({ projectPath, heard, spelling }) => {
       await invoke("dictation:correct", [projectPath, heard, spelling]);
@@ -346,7 +345,7 @@ function createLocalMcpHost({
       const result = await createWorktree({ localMcp: { operationId, assertActive } }, args);
       return { projectPath: args.projectPath, worktreeId: result.worktreeId, ...(result.setupNote ? { setupNote: result.setupNote } : {}) };
     },
-    ...chatTools(chat, invoke),
+    ...chatTools(chat, invoke, { assertNotWaiting, callerMode, confirm, chats, scopeStates }),
     async createChat({ projectPath, worktreeId }, operationId, assertActive) {
       await project(projectPath);
       assertActive();
@@ -426,44 +425,6 @@ function createLocalMcpHost({
       const running = Boolean(runOf(chatId));
       await stopChat(chatId);
       return { chatId, stopped: running };
-    },
-    async editMessage({ projectPath, chatId, messageId, prompt, undoFiles = true }, caller) {
-      const { state, session } = await chat(projectPath, chatId);
-      if (caller === chatId) throw Error("A Chat can't edit its own messages.");
-      assertNotWaiting(state, caller, chatId, "edit");
-      const messages = (await scopeStates.chatMessages(projectPath, [session.id])).filter((message) => message.session_id === session.id);
-      const message = messages.find((item) => item.id === messageId);
-      if (!canEditMessage(message)) throw Error("Only the user's own typed messages can be edited. chat_read lists their ids.");
-      const removed = messagesAfter(messages, messageId);
-      if (caller && (await callerMode(caller)) !== "full")
-        await confirm(caller, {
-          title: `Edit a message in "${session.title || session.generatedTitle || "Chat"}"?`,
-          description: `${removed ? `The ${removed} ${removed === 1 ? "message" : "messages"} after it are removed${undoFiles ? " and the files they changed go back" : ""}, then` : "Then"} the Chat runs again from the edited message.`,
-          detail: prompt,
-        });
-      const latest = chats.turnSettings(chatId) ?? {};
-      const provider = session.provider ?? latest.provider ?? "claude";
-      const model = latest.model || message.model || lastUserModel({ ...state, messages }, session.id);
-      if (!model) throw Error("Choose a model for this Chat before editing it");
-      const result = await invoke("chat:edit", [
-        {
-          ...latest,
-          projectPath,
-          sessionId: session.id,
-          worktreeId: session.worktree_id,
-          messageId,
-          body: prompt,
-          prompt,
-          images: [],
-          files: [],
-          keepAttachments: true,
-          provider,
-          model,
-          permissionMode: latest.permissionMode ?? session.permissionMode ?? "ask",
-          undoFiles: undoFiles ? {} : null,
-        },
-      ]);
-      return { chatId: `${projectPath}#${result.sessionId}`, removed };
     },
     async setMode({ projectPath, chatId, permissionMode: mode }, caller) {
       const { state, session } = await chat(projectPath, chatId);

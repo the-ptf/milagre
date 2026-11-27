@@ -67,4 +67,17 @@ function branchPolicyNote(projectPath, policy) {
   ].join("\n");
 }
 
-module.exports = { resolveBranchPolicy, availablePolicyBranch, branchPolicyNote };
+// The branch rules of every Project a turn reaches, as notes for the agent; a Project whose rules can't be read says so.
+function branchPolicyNotes(projectPaths, readProjectGit) {
+  return Promise.all(
+    projectPaths.map(async (projectPath) => {
+      try {
+        return branchPolicyNote(projectPath, (await readProjectGit(projectPath)).effective);
+      } catch (error) {
+        return `Project Git rules for ${projectPath} could not be read: ${error.message}. Fix the configuration before creating or renaming a branch.`;
+      }
+    }),
+  );
+}
+
+module.exports = { resolveBranchPolicy, availablePolicyBranch, branchPolicyNote, branchPolicyNotes };

@@ -189,7 +189,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
         ];
       const chatInput = { ...projectInput, chatId: z.string().min(1).max(8192) };
       return [
-        ...require("./chat-branch-tools.cjs").createChatBranchTools({ host, chatInput, read, act, mutate }),
+        ...require("./chat-branch-tools.cjs").createChatBranchTools({ host, chatInput, read, act, mutate, caller }),
         read(
           "chat_list",
           "List Chats and current progress in an allowed Project.",
@@ -232,13 +232,6 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
           (args, operationId, assertActive) => host.startChat(args, operationId, assertActive, callerOf(connectionId), connectionLabel),
         ),
         act("chat_stop", "Stop a Chat's running turn, as its Stop button does.", "start", chatInput, (args) => host.stopChat(args, callerOf(connectionId))),
-        act(
-          "chat_edit",
-          "Edit one of the user's own typed messages in another Chat (messageId from chat_read) and run that Chat again from it, as Edit message does: a running turn stops, every message after it is removed, the agent's session rewinds to just before it, and undoFiles (default true) puts back the files the removed turns changed, keeping ones edited since. Its images and files stay. Unless this Chat runs in Full permission, the user approves first: wait for the result, don't end the turn or move on.",
-          "start",
-          { ...chatInput, messageId: z.number().int().positive(), prompt: z.string().trim().min(1).max(100000), undoFiles: z.boolean().default(true) },
-          (args) => host.editMessage(args, callerOf(connectionId)),
-        ),
         act(
           "chat_set_mode",
           "Switch a running Chat's permission mode. More than the caller's own needs the user's approval. The call can wait minutes for the user's answer on that card: wait for its result, don't end the turn or move on.",

@@ -2998,13 +2998,27 @@ test("a `gh pr merge` of the checked-out branch keeps the branch its folder had 
 });
 
 test("editing an earlier message removes it and everything after, marks the edit and rewinds the provider's session", async (t) => {
-  const { rewindPlan } = require("./message-edit.cjs");
+  const { registerChatEdit } = require("../runtime/chat-edit.cjs");
   t.mock.method(FakeSession.prototype, "startTurn", async function (turn) {
     this.turns.push(turn);
     return { turnId: `t${this.turns.length}`, promptId: `p${this.turns.length}` };
   });
-  const h = harness();
+  let edits;
+  const h = harness({
+    hooks: { startTurn: (request) => h.manager.startTurn({ ...request, command: "/bin/agent" }).then((result) => edits.started(request, result)) },
+  });
   t.after(() => h.manager.closeAll());
+  const handlers = {};
+  edits = registerChatEdit({
+    commands: { handle: (name, handler) => (handlers[name] = handler) },
+    chats: h.host,
+    agents: { isTurnActive: () => false, backgroundWork: () => 0 },
+    checkpoints: { capturing: () => false, rewind: async () => null },
+    stopChat: async () => {},
+    sendAsUser: (request) => h.host.send(request),
+    agentNotes: new Map(),
+  });
+  h.states.has = () => true;
   const first = await h.host.send(message(ALPHA, "add a Retry button"));
   await first.started;
   const chatId = `${ALPHA}#${first.sessionId}`;
@@ -3019,11 +3033,9 @@ test("editing an earlier message removes it and everything after, marks the edit
   let state = await h.states.get(ALPHA);
   const edited = state.messages.find((item) => item.body === "add a Retry button");
   assert.deepEqual(edited.native, { provider: "claude", prompt: "p1" });
-  const plan = rewindPlan(state.sessions[first.sessionId], state.messages, edited.id);
-  assert.deepEqual(plan, { claude: { prompt: "p1" } });
-  const context = { kind: "message-edit", edited: edited.id, removed: 3 };
-  const sent = await h.host.send(
-    message(ALPHA, "add a Retry button to the sheet and the chip", { sessionId: first.sessionId, edit: { messageId: edited.id, rewind: plan, context } }),
+  const sent = await handlers["chat:edit"](
+    {},
+    { ...message(ALPHA, "add a Retry button to the sheet and the chip", { sessionId: first.sessionId }), messageId: edited.id },
   );
   await sent.started;
 
@@ -3040,11 +3052,7 @@ test("editing an earlier message removes it and everything after, marks the edit
   assert.equal(h.created[0].closed, true);
   assert.equal(h.created[1].options.resumeId, "native-1");
   assert.deepEqual(h.created[1].turns[0].rewind, { prompt: "p1" });
-
-  await assert.rejects(
-    h.host.send(message(ALPHA, "again", { sessionId: first.sessionId, edit: { messageId: edited.id, rewind: plan, context } })),
-    /no longer in the chat|can't be edited|busy/,
-  );
+  await assert.rejects(handlers["chat:edit"]({}, { ...message(ALPHA, "again", { sessionId: first.sessionId }), messageId: edited.id }), /can't be edited/);
 });
 
 test("a rewind plan falls back to a new session when the provider can't rewind to the message", () => {

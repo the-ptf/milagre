@@ -15,13 +15,22 @@ function fixture({ running = false, files = [], native = { provider: "claude", p
     { id: 13, session_id: 4, role: "assistant", body: "Shown.", context: null },
     { id: 14, session_id: 4, role: "user", body: "Answered", context: null, answered: [{ header: "Color", question: "Which?", answers: ["Red"] }] },
   ];
-  const state = { sessions: { 4: { id: 4, provider: "claude", native_session_id: "native-1" } }, messages };
+  const state = { next_id: 30, sessions: { 4: { id: 4, provider: "claude", native_session_id: "native-1" } }, messages };
   const handlers = {};
+  const states = {
+    has: () => true,
+    get: async () => state,
+    chatMessages: async () => state.messages,
+    update: async (_path, change) => {
+      Object.assign(state, change(state));
+      return { state };
+    },
+  };
+  const agentNotes = new Map();
   const edits = registerChatEdit({
     commands: { handle: (name, handler) => (handlers[name] = handler) },
-    chats: { isBusy: () => busy },
+    chats: { isBusy: () => busy, states, runs: {}, preparing: new Map(), startingTurns: new Map(), broadcast: () => {} },
     agents: { isTurnActive: () => false, backgroundWork: () => 0 },
-    scopeStates: { has: () => true, get: async () => state, chatMessages: async () => state.messages },
     checkpoints: {
       capturing: () => false,
       rewind: async () => (files.length ? { token: "tok", files } : null),
@@ -36,11 +45,17 @@ function fixture({ running = false, files = [], native = { provider: "claude", p
       setTimeout(() => (busy = false), 5);
     },
     sendAsUser: async (request) => {
+      if (calls.fail) throw calls.fail;
       calls.sent.push(request);
       return { sessionId: 4 };
     },
-    tell: (_chatId, text) => calls.notes.push(text),
+    agentNotes,
   });
+  calls.notes = {
+    get length() {
+      return agentNotes.get(CHAT)?.length ?? 0;
+    },
+  };
   const request = (extra = {}) => ({
     projectPath: PROJECT,
     sessionId: 4,
@@ -58,6 +73,8 @@ function fixture({ running = false, files = [], native = { provider: "claude", p
   return { calls, edits, handlers, state, request };
 }
 
+const divider = (state) => state.messages.find((message) => message.context?.kind === "message-edit");
+
 test("an edit stops the running turn, undoes the removed turns' files except later edits, then sends with the rewind", async () => {
   const files = [
     { key: "0:a.ts", path: "a.ts", conflict: false },
@@ -70,46 +87,58 @@ test("an edit stops the running turn, undoes the removed turns' files except lat
   assert.equal(f.calls.notes.length, 1);
   const [sent] = f.calls.sent;
   assert.equal(sent.messageId, undefined);
-  assert.deepEqual(sent.edit, {
-    messageId: 10,
-    rewind: { claude: { prompt: "p10", dropsTurn: true } },
-    fresh: false,
-    context: { kind: "message-edit", edited: 10, removed: 4, restored: 1, kept: 1, recoveryId: "rec-1" },
-  });
+  assert.deepEqual(sent.rewind, { claude: { prompt: "p10", dropsTurn: true } });
+  assert.deepEqual(
+    f.state.messages.map((message) => message.id),
+    [30],
+  );
+  assert.deepEqual(divider(f.state).context, { kind: "message-edit", edited: 10, removed: 4, restored: 1, kept: 1, recoveryId: "rec-1" });
+  assert.equal(divider(f.state).body, "Edited · removed 4 messages · undid 1 file");
+  assert.equal(f.state.sessions[4].native_session_id, "native-1");
 });
 
-test("an edit leaves files alone when asked, tells the agent, and refuses messages the user didn't type", async () => {
+test("an edit leaves files alone when asked, tells the agent, puts the messages back if the send fails, and refuses messages the user didn't type", async () => {
   const f = fixture({ files: [{ key: "0:a.ts", path: "a.ts", conflict: false }] });
   await f.handlers["chat:edit"]({}, f.request({ undoFiles: null }));
   assert.deepEqual(f.calls.restored, []);
   assert.equal(f.calls.notes.length, 1);
-  assert.deepEqual(f.calls.sent[0].edit.context, { kind: "message-edit", edited: 10, removed: 4 });
-  await assert.rejects(f.handlers["chat:edit"]({}, f.request({ messageId: 14 })), /can't be edited/);
-  await assert.rejects(f.handlers["chat:edit"]({}, f.request({ messageId: 11 })), /can't be edited/);
+  assert.deepEqual(divider(f.state).context, { kind: "message-edit", edited: 10, removed: 4 });
+
+  const g = fixture();
+  g.calls.fail = new Error("disk full");
+  await assert.rejects(g.handlers["chat:edit"]({}, g.request()), /disk full/);
+  assert.deepEqual(
+    g.state.messages.map((message) => message.id),
+    [10, 11, 12, 13, 14],
+  );
+  await assert.rejects(g.handlers["chat:edit"]({}, g.request({ messageId: 14 })), /can't be edited/);
+  await assert.rejects(g.handlers["chat:edit"]({}, g.request({ messageId: 11 })), /can't be edited/);
 });
 
 test("a provider that can't rewind continues in a new session, replacing the edit's divider and failed reply", async () => {
   const f = fixture({ native: null });
   await f.handlers["chat:edit"]({}, f.request());
-  assert.deepEqual(f.calls.sent[0].edit.rewind, { fresh: true });
-  assert.equal(f.calls.sent[0].edit.context.newSession, undefined);
+  assert.deepEqual(f.calls.sent[0].rewind, { fresh: true });
+  assert.equal(divider(f.state).context.newSession, undefined);
+  assert.equal(f.state.sessions[4].native_session_id, undefined);
 
   const g = fixture();
   await g.handlers["chat:edit"]({}, g.request());
-  g.state.messages = [
-    { id: 20, session_id: 4, role: "assistant", body: "Edited · removed 4 messages", context: g.calls.sent[0].edit.context },
-    { id: 21, session_id: 4, role: "user", body: "add Retry to the sheet and the chip", context: null, images: [], files: [] },
-    { id: 22, session_id: 4, role: "assistant", body: "", context: null },
-  ];
+  g.state.messages.push(
+    { id: 31, session_id: 4, role: "user", body: "add Retry to the sheet and the chip", context: null, images: [], files: [] },
+    { id: 32, session_id: 4, role: "assistant", body: "", context: null },
+  );
+  g.state.next_id = 33;
   g.edits.observe(CHAT, { type: "turn-failed", message: "Resume rejected by --resume-drops-turn: x", rewindFailed: true });
   await new Promise((resolve) => setTimeout(resolve, 50));
   const retry = g.calls.sent[1];
-  assert.equal(retry.edit.messageId, 21);
-  assert.equal(retry.edit.replaces, 20);
-  assert.deepEqual(retry.edit.rewind, { fresh: true });
-  assert.equal(retry.edit.context.newSession, true);
-  assert.equal(retry.edit.context.removed, 4);
+  assert.deepEqual(retry.rewind, { fresh: true });
   assert.equal(retry.clientMessageId, undefined);
+  assert.deepEqual(
+    g.state.messages.map((message) => message.id),
+    [33],
+  );
+  assert.deepEqual(divider(g.state).context, { kind: "message-edit", edited: 10, removed: 4, newSession: true });
 
   g.edits.observe(CHAT, { type: "turn-failed", message: "again", rewindFailed: true });
   await new Promise((resolve) => setTimeout(resolve, 20));

@@ -1,7 +1,5 @@
 const { withoutDraft, sentMessage } = require("./chat-session-state.cjs");
 const { forkChat, freshChatBrief } = require("./chat-fork.cjs");
-const { rewindChat, nativeTurn } = require("./message-edit.cjs");
-const { messageEditText } = require("@milagre/shared/message-edit");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -93,6 +91,15 @@ function failHandoff(latest, divider, sessionId, from, to) {
     messages: latest.messages.map((item) => (item === divider ? { ...item, context: { ...item.context, status: "failed" } } : item)),
   };
 }
+
+const turnOptions = ({ permissionMode, effort, ultracode, fastMode, replies, tldrEnabled }) => ({
+  permissionMode,
+  effort,
+  ultracode,
+  fastMode,
+  replies,
+  tldrEnabled,
+});
 
 function withoutQueued(session, id) {
   const { queued = [], queueHeld: _held, ...rest } = session;
@@ -888,9 +895,6 @@ class ChatHost {
     let queuedEntry = null;
     let duplicate = null;
     let recoveryToken;
-    let editNoteId = null;
-    let editDropped = [];
-    let editOriginal;
     const saving = this.states.update(
       projectPath,
       (latest) => {
@@ -910,13 +914,6 @@ class ChatHost {
         }
         let session = request.sessionId == null ? undefined : latest.sessions[request.sessionId];
         if (request.sessionId != null && !session) throw new Error("That chat is no longer in the project.");
-        if (request.edit) {
-          const editing = chatKey(projectPath, session.id);
-          if (this.runs[editing] || this.preparing.has(editing) || this.startingTurns.has(editing))
-            throw Object.assign(new Error("The chat is busy."), { chatBusy: true });
-          editOriginal = session;
-          ({ state: latest, session, dropped: editDropped } = rewindChat(latest, session, request.edit));
-        }
         if (request.limitResumeId) {
           const pending = session?.limitResume;
           if (
@@ -1010,14 +1007,7 @@ class ChatHost {
             ...(typeof request.clientMessageId === "string" ? { clientMessageId: request.clientMessageId } : {}),
             ...(request.operationId ? { operationId: request.operationId } : {}),
             ...(request.prompt !== undefined && request.prompt !== body ? { prompt: request.prompt } : {}),
-            turn: {
-              permissionMode: request.permissionMode,
-              effort: request.effort,
-              ultracode: request.ultracode,
-              fastMode: request.fastMode,
-              replies: request.replies,
-              tldrEnabled: request.tldrEnabled,
-            },
+            turn: turnOptions(request),
           };
           target = { chatId, sessionId: session.id };
           return { ...withSession, sessions: { ...withSession.sessions, [session.id]: { ...session, queued: [...(session.queued ?? []), queuedEntry] } } };
@@ -1033,19 +1023,10 @@ class ChatHost {
         }
         brief = freshChatBrief(withSession, session, { steering, handoff, firstMessage, brief });
         const next = withSession;
-        originalSession = editOriginal ?? beforeQueue;
-        let nextId = next.next_id;
-        const editNote = request.edit && {
-          id: nextId++,
-          session_id: session.id,
-          body: messageEditText(request.edit.context),
-          role: "assistant",
-          context: request.edit.context,
-        };
-        if (editNote) editNoteId = editNote.id;
-        if (handoff) dividerId = nextId++;
+        originalSession = beforeQueue;
+        if (handoff) dividerId = next.next_id;
         const message = sentMessage({
-          id: nextId,
+          id: handoff ? next.next_id + 1 : next.next_id,
           sessionId: session.id,
           body,
           images: storedImages,
@@ -1098,7 +1079,7 @@ class ChatHost {
           ...next,
           next_id: message.id + 1,
           sessions: { ...next.sessions, [session.id]: stagedSession },
-          messages: [...next.messages, ...(editNote ? [editNote] : []), ...(divider ? [divider] : []), message],
+          messages: [...next.messages, ...(divider ? [divider] : []), message],
         };
       },
       { chats: request.sessionId == null ? [] : [request.sessionId] },
@@ -1149,10 +1130,7 @@ class ChatHost {
           return {
             ...latest,
             sessions: { ...latest.sessions, [target.sessionId]: session },
-            messages: [
-              ...latest.messages.filter((message) => message.id !== pendingId && message.id !== dividerId && message.id !== editNoteId),
-              ...editDropped.filter((message) => !latest.messages.some((item) => item.id === message.id)),
-            ],
+            messages: latest.messages.filter((message) => message.id !== pendingId && message.id !== dividerId),
           };
         },
         { chats: [target.sessionId] },
@@ -1163,12 +1141,7 @@ class ChatHost {
     const turn = {
       provider: runProvider,
       model: runModel,
-      permissionMode: request.permissionMode,
-      effort: request.effort,
-      ultracode: request.ultracode,
-      fastMode: request.fastMode,
-      replies: request.replies,
-      tldrEnabled: request.tldrEnabled,
+      ...turnOptions(request),
       ...(guard ? { guard } : {}),
       prompt: brief !== undefined ? withLead(framedBrief(brief), request.prompt || body) : request.prompt || body || "Describe the attached images.",
     };
@@ -1180,11 +1153,7 @@ class ChatHost {
         (latest) => {
           const message = latest.messages.find((item) => item.id === pendingId);
           const divider = latest.messages.find((item) => item.id === dividerId);
-          const editNote = latest.messages.find((item) => item.id === editNoteId);
-          const withoutPending = {
-            ...latest,
-            messages: latest.messages.filter((item) => item.id !== pendingId && item.id !== dividerId && item.id !== editNoteId),
-          };
+          const withoutPending = { ...latest, messages: latest.messages.filter((item) => item.id !== pendingId && item.id !== dividerId) };
           const sent = applyAgentEvent(withoutPending, this.runs, projectPath, target.chatId, {
             type: "message-sent",
             model: runModel,
@@ -1195,7 +1164,7 @@ class ChatHost {
           this.turns.set(target.chatId, turn);
           this.doneStarting(target.chatId);
           seq = ++this.seq;
-          return { ...sent.state, messages: [...sent.state.messages, ...(editNote ? [editNote] : []), ...(divider ? [divider] : []), message] };
+          return { ...sent.state, messages: [...sent.state.messages, ...(divider ? [divider] : []), message] };
         },
         { chats: [target.sessionId] },
       )
@@ -1244,16 +1213,12 @@ class ChatHost {
           cwd: target.cwd,
           images,
           resumeId: target.resumeId,
-          ...(request.edit ? { rewind: request.edit.rewind ?? { fresh: true } } : {}),
+          rewind: request.rewind,
+          messageId: pendingId,
           ...(request.limitResumeId || request.limitSwitchToken || request.queueReleaseToken
             ? { canStart: request.canStart, expectedAccountId: request.expectedAccountId }
             : {}),
         });
-        const native = nativeTurn(turn.provider, result);
-        if (native)
-          await this.recordNative(projectPath, target.sessionId, pendingId, native).catch((error) =>
-            console.warn("Milagre couldn't keep a message's place in the agent's session:", error.message),
-          );
         if ((request.limitResumeId || request.limitSwitchToken || request.queueReleaseToken) && result?.cancelled)
           await this.cancelLimitStart(target.chatId, launchedTurn, pendingId, request.queueReleaseEntry);
         return result;
@@ -1269,20 +1234,6 @@ class ChatHost {
 
   doneStarting(chatId) {
     this.startingTurns.delete(chatId);
-  }
-
-  async recordNative(projectPath, sessionId, messageId, native) {
-    await this.states.update(
-      projectPath,
-      (latest) => {
-        const index = latest.messages.findIndex((message) => message.id === messageId);
-        if (index === -1) return latest;
-        const messages = latest.messages.slice();
-        messages[index] = { ...messages[index], native };
-        return { ...latest, messages };
-      },
-      { chats: [sessionId] },
-    );
   }
 
   async queueSaved(projectPath, target, entry) {
