@@ -623,8 +623,7 @@ export function ChatComposer({
                       const item = queue?.items.find((item) => Boolean(compactionContext(item)));
                       if (item) queue?.onRemove(item.id);
                     }}
-                    sendBlocked={sendBlocked}
-                    running={isSending}
+                    {...editFlow.composer(sendBlocked)}
                     runningProvider={sessionProvider}
                     suggestion={!approval && !asking && (!activity || activity.activity === "idle") ? suggestion : undefined}
                     models={models}

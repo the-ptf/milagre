@@ -3,13 +3,7 @@ import type { MessageEditContext } from "@milagre/shared/model";
 import { messageEditText } from "@milagre/shared/message-edit";
 import { TranscriptDivider } from "./primitives/TranscriptDivider";
 
-export function MessageEditDivider({
-  context,
-  onPreview,
-}: {
-  context: MessageEditContext;
-  onPreview?: (recoveryId: string, action: "Undo" | "Redo") => void;
-}) {
+export function MessageEditDivider({ context, onPreview }: { context: MessageEditContext; onPreview?: (recoveryId: string, action: "Undo" | "Redo") => void }) {
   const text = messageEditText(context);
   const recoveryId = context.recoveryId;
   return (

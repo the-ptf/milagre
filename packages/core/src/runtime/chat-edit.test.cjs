@@ -33,7 +33,7 @@ function fixture({ running = false, files = [], native = { provider: "claude", p
     agents: { isTurnActive: () => false, backgroundWork: () => 0 },
     checkpoints: {
       capturing: () => false,
-      rewind: async () => (files.length ? { token: "tok", files } : null),
+      rewind: async () => (files.length ? { token: "tok", revision: "current", files } : null),
       restore: async (_chatId, request) => {
         calls.restored.push(request);
         const kept = Object.values(request.decisions).filter((value) => value === "keep").length;
@@ -81,7 +81,11 @@ test("an edit stops the running turn, undoes the removed turns' files except lat
     { key: "0:b.ts", path: "b.ts", conflict: true },
   ];
   const f = fixture({ running: true, files });
-  await f.handlers["chat:edit"]({}, f.request({ undoFiles: {} }));
+  await assert.rejects(f.handlers["chat:edit"]({}, f.request({ undoFiles: { revision: "old", decisions: { "0:b.ts": "restore" } } })), /Files changed/);
+  await assert.rejects(f.handlers["chat:edit"]({}, f.request({ undoFiles: { decisions: {} } })), /Choose Keep current or Undo/);
+  assert.deepEqual(f.calls.restored, []);
+  assert.equal(f.state.messages.length, 5);
+  await f.handlers["chat:edit"]({}, f.request({ undoFiles: { revision: "current", decisions: { "0:b.ts": "keep" } } }));
   assert.equal(f.calls.stopped, 1);
   assert.deepEqual(f.calls.restored, [{ token: "tok", decisions: { "0:a.ts": "restore", "0:b.ts": "keep" }, approved: true }]);
   assert.equal(f.calls.notes.length, 1);
@@ -129,8 +133,7 @@ test("a provider that can't rewind continues in a new session, replacing the edi
     { id: 32, session_id: 4, role: "assistant", body: "", context: null },
   );
   g.state.next_id = 33;
-  g.edits.observe(CHAT, { type: "turn-failed", message: "Resume rejected by --resume-drops-turn: x", rewindFailed: true });
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await g.edits.observe(CHAT, { type: "turn-failed", message: "Resume rejected by --resume-drops-turn: x", rewindFailed: true });
   const retry = g.calls.sent[1];
   assert.deepEqual(retry.rewind, { fresh: true });
   assert.equal(retry.clientMessageId, undefined);
@@ -140,7 +143,6 @@ test("a provider that can't rewind continues in a new session, replacing the edi
   );
   assert.deepEqual(divider(g.state).context, { kind: "message-edit", edited: 10, removed: 4, newSession: true });
 
-  g.edits.observe(CHAT, { type: "turn-failed", message: "again", rewindFailed: true });
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await g.edits.observe(CHAT, { type: "turn-failed", message: "again", rewindFailed: true });
   assert.equal(g.calls.sent.length, 2);
 });

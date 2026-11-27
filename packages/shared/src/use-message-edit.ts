@@ -34,12 +34,7 @@ export function useMessageEdit(api: Pick<CheckpointApi, "rewind">, chatId: strin
             ? {
                 ...value,
                 preview: preview && preview.files.length ? preview : null,
-                decisions: Object.fromEntries(
-                  (preview?.files ?? []).flatMap((file) => {
-                    const chosen = value.decisions[file.key] ?? (file.conflict ? undefined : "restore");
-                    return chosen ? [[file.key, chosen]] : [];
-                  }),
-                ),
+                decisions: Object.fromEntries((preview?.files ?? []).filter((file) => !file.conflict).map((file) => [file.key, "restore"])),
                 loading: false,
               }
             : value,
@@ -83,12 +78,12 @@ export function useMessageEdit(api: Pick<CheckpointApi, "rewind">, chatId: strin
     [],
   );
   const files: CheckpointFile[] = edit?.preview?.files ?? [];
-  const unresolved = Boolean(edit?.undo) && files.some((file) => file.conflict && !edit?.decisions[file.key]);
+  const unresolved = Boolean(edit?.undo) && ((idle && edit?.loading) || files.some((file) => file.conflict && !edit?.decisions[file.key]));
   const request = useCallback(
-    () => (edit ? { messageId: edit.messageId, undoFiles: edit.undo ? { decisions: edit.decisions } : null } : null),
+    () => (edit ? { messageId: edit.messageId, undoFiles: edit.undo ? { revision: edit.preview?.revision, decisions: edit.decisions } : null } : null),
     [edit],
   );
-  return { edit, files, unresolved, start, cancel, setUndo, choose, request };
+  return { edit, files, refresh: () => editing !== undefined && load(editing), unresolved, start, cancel, setUndo, choose, request };
 }
 
 export type MessageEditFlow = ReturnType<typeof useMessageEdit>;

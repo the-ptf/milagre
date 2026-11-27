@@ -118,10 +118,10 @@ function registerChatEdit({ commands, chats, agents, checkpoints, stopChat, send
   }
 
   async function undoFiles(chatId, messageId, choice) {
-    const preview = await checkpoints.rewind(chatId, messageId).catch((error) => {
-      console.warn("Milagre couldn't read the files an edit would undo:", error.message);
-      return null;
-    });
+    const preview = await checkpoints.rewind(chatId, messageId);
+    if (choice?.revision && choice.revision !== preview?.revision) throw new Error("Files changed. Review the updated file choices before sending.");
+    if (choice?.decisions && preview?.files.some((file) => file.conflict && !choice.decisions[file.key]))
+      throw new Error("Choose Keep current or Undo for each file changed since the turn.");
     if (!preview?.files.length) return null;
     if (!choice) return { left: true };
     const decisions = Object.fromEntries(preview.files.map((file) => [file.key, choice.decisions?.[file.key] ?? (file.conflict ? "keep" : "restore")]));
@@ -156,7 +156,7 @@ function registerChatEdit({ commands, chats, agents, checkpoints, stopChat, send
     const record = pending.get(chatId);
     pending.delete(chatId);
     if (!record || event.type !== "turn-failed" || !event.rewindFailed) return;
-    void retry(chatId, record).catch((error) => console.warn("Milagre couldn't continue an edited message in a new session:", error.message));
+    return retry(chatId, record).catch((error) => console.warn("Milagre couldn't continue an edited message in a new session:", error.message));
   }
 
   async function retry(chatId, record) {

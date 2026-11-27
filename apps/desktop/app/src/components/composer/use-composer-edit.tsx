@@ -95,6 +95,7 @@ export function useComposerEdit(options: Options) {
       store.setQuotes([]);
       imageDraft.clear();
     } catch (failure) {
+      void flow.refresh();
       setError(`Could not edit the message: ${ipcErrorMessage(failure)}`);
     } finally {
       setSending(false);
@@ -119,6 +120,8 @@ export function useComposerEdit(options: Options) {
 
   return {
     editing: editingId !== null,
+    composer: (blocked: boolean) =>
+      editingId === null ? { running, sendBlocked: blocked } : { running: false, sendBlocked: Boolean(blocked || sending || flow.unresolved) },
     send,
     transcript: { onEdit: runtimeChat && !blocked ? start : undefined, editingId },
     card: editingId !== null && (

@@ -4207,7 +4207,23 @@ function chatHost({
     "../routine-run-divider": { RoutineRunDivider: "RoutineRunDivider" },
     "@milagre/shared/routines": require("@milagre/shared/routines"),
     "@milagre/shared/chat-reload": require("@milagre/shared/chat-reload"),
-    "../checkpoint-restore-divider": { CheckpointRestoreDivider: "CheckpointRestoreDivider" },
+    "../message-edit-divider": {
+      checkpointLine: (message, onPreview) =>
+        ({ "checkpoint-restore": "CheckpointRestoreDivider", "message-edit": "MessageEditDivider" })[message?.context?.kind] &&
+        jsx({ "checkpoint-restore": "CheckpointRestoreDivider", "message-edit": "MessageEditDivider" }[message.context.kind], {
+          context: message.context,
+          onPreview,
+        }),
+    },
+    "../use-chat-edit": {
+      useChatEdit: () => ({
+        editing: false,
+        composer: (sendBlocked) => ({ sendBlocked }),
+        row: (_message, highlighted) => ({ highlighted }),
+        dimmed: () => undefined,
+        card: false,
+      }),
+    },
     "@milagre/shared/checkpoint-restore": require("@milagre/shared/checkpoint-restore"),
     "@milagre/shared/use-checkpoints": { useCheckpoints: (api, chatId) => Object.assign(undo, { api, chatId }) },
     "../undo-panel": { UndoPanel: "UndoPanel" },
@@ -13323,6 +13339,7 @@ test("feedback from the designs shows as a card of the choice and each comment",
 test("a reply shows the thinking it wrote nothing after, once it waits on a question or ends, not while working", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const { ChatReply } = load("chat-reply.tsx", {
+    "@milagre/shared/message-edit": require("@milagre/shared/message-edit"),
     "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
     "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
@@ -13455,6 +13472,7 @@ test("mobile tool display keeps compact progress specific and Full detail in ord
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const reply = (display) => {
     const ChatReply = load("chat-reply.tsx", {
+      "@milagre/shared/message-edit": require("@milagre/shared/message-edit"),
       "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
       "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
       "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
@@ -15724,6 +15742,7 @@ test("mobile Babysit PRs page shows the four groups and saves each change to the
 test("mobile ChatReply shows the usage-limit card instead of the failed line, with a Project only when it can switch", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const { ChatReply } = load("chat-reply.tsx", {
+    "@milagre/shared/message-edit": require("@milagre/shared/message-edit"),
     "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
     "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
@@ -15782,6 +15801,7 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
 test("mobile ChatReply marks a Delegation and its report with their sender, never as the user's own message", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const { ChatReply } = load("chat-reply.tsx", {
+    "@milagre/shared/message-edit": require("@milagre/shared/message-edit"),
     "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
     "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
@@ -19496,6 +19516,7 @@ test("the phone Chat header keeps its title on one line with an ellipsis, clear 
 test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card, out of the activity rows", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const { ChatReply } = load("chat-reply.tsx", {
+    "@milagre/shared/message-edit": require("@milagre/shared/message-edit"),
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
     "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
     react: { ...react, useMemo: (compute) => compute() },
@@ -20230,6 +20251,8 @@ test("iPad panel drags preview the divider without reflowing content and commit 
 test("iOS messages select ranges inside the Chat and freeze streaming text until Done", async () => {
   const react = hookHost({ effects: true });
   const copied = [];
+  let edits = 0;
+  const onEdit = () => edits++;
   const platform = { OS: "ios" };
   const { MessageActions, messageActionProps } = load("message-actions.tsx", {
     react,
@@ -20253,7 +20276,12 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
   let text = "Some **selected** words";
   const render = () => {
     react.begin();
-    const tree = MessageActions({ text, markdown: true, children: (open, swap) => swap(jsx("Message", { ...messageActionProps(open), text })) });
+    const tree = MessageActions({
+      text,
+      markdown: true,
+      onEdit,
+      children: (open, swap) => swap(jsx("Message", { ...messageActionProps(open, onEdit), text })),
+    });
     const expand = (node) => {
       if (!node || typeof node !== "object") return node;
       if (Array.isArray(node)) return node.map(expand);
@@ -20283,6 +20311,14 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
     find(render(), (node) => node.type === "TextInput"),
     "VoiceOver opens the same in-place selection",
   );
+  const edit = find(render(), (node) => node.props.title === "Edit message");
+  edit.props.onPressIn();
+  edit.props.onPress();
+  assert.equal(edits, 1);
+  const message = find(render(), (node) => node.type === "Message");
+  assert.ok(message.props.accessibilityActions.some((action) => action.label === "Edit message"));
+  message.props.onAccessibilityAction({ nativeEvent: { actionName: "edit" } });
+  assert.equal(edits, 2);
   platform.OS = "android";
   assert.equal(render().type, "Message", "Android keeps its native inline Text selection");
 });
@@ -20371,7 +20407,7 @@ test("native selection freezes the passage, preserves the formatted view and quo
   const render = () => {
     react.begin();
     const tree = MessageActions({ text, markdown: true, children: (_open, swap) => swap(jsx("Formatted", { text })) });
-    const slot = tree.props.children;
+    const slot = [tree.props.children].flat()[0];
     return { tree, slot: slot.type(slot.props) };
   };
   render().tree.props.onLongPress({ nativeEvent: { pageX: 42, pageY: 180 } });

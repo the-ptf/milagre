@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
-import { Copy01Icon, GitForkIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { PencilEdit02Icon, Copy01Icon, GitForkIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import * as Clipboard from "expo-clipboard";
 import type { ChatMessage } from "@milagre/shared/model";
 import type { AgentRun } from "@milagre/shared/agent-runs";
@@ -12,12 +12,14 @@ export function MessageToolbar({
   message,
   run,
   onFork,
+  onEdit,
   align = "start",
 }: {
   text?: string;
   message?: ChatMessage;
   run?: AgentRun;
   onFork?: (messageId: number) => void;
+  onEdit?: () => void;
   align?: "start" | "end";
 }) {
   const forkThis = !run && message && message.id > 0 && onFork ? () => onFork(message.id) : undefined;
@@ -38,6 +40,7 @@ export function MessageToolbar({
   }
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs, alignSelf: align === "end" ? "flex-end" : "flex-start" }}>
+      {onEdit && <IconButton label="Edit message" icon={PencilEdit02Icon} tone="ink3" size={44} onPress={onEdit} />}
       {!!text?.trim() && (
         <IconButton
           label={copied ? "Copied message" : "Copy message"}

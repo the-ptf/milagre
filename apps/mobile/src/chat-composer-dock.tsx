@@ -462,6 +462,8 @@ type ChatComposerDockProps = {
   undoIntent: UndoIntent;
   onOpenUndoFile?: Parameters<typeof UndoPanel>[0]["onOpenFile"];
   btw?: ReactNode;
+  /** The card for a sent message being edited, above the composer. */
+  editing?: ReactNode;
   start: boolean;
   trayTarget: OfflineTrayTarget;
   tray: ReactNode;
@@ -558,6 +560,7 @@ export function ChatComposerDock({ onRoom, onHeight, column, padding, ...props }
         </View>
       )}
       {props.btw}
+      {props.editing}
       {props.undo.view !== "closed" && chat ? (
         <UndoPanel readOnly={!!chat.readOnlyReason} review={props.undo} intent={props.undoIntent} onOpenFile={props.onOpenUndoFile} />
       ) : (

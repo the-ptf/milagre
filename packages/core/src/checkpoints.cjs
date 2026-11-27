@@ -105,6 +105,16 @@ function rememberPreview(previews, chatId, ids, digest) {
   previews.set(token, { ids, chatId, digest, at: Date.now() });
   return token;
 }
+function rewindPreview(items, ids, result, token) {
+  return {
+    ...summary(items[0]),
+    tasks: items.length,
+    revision: hash(JSON.stringify([ids, result.digest])),
+    token,
+    files: result.files,
+    excluded: result.excluded,
+  };
+}
 function createCheckpoints({
   directory,
   budget = 100 * 1024 * 1024,
@@ -277,7 +287,7 @@ function createCheckpoints({
         if (!items.length) return null;
         const ids = items.map((item) => item.id),
           result = await impact(items);
-        return { ...summary(items[0]), tasks: items.length, token: remember(chatId, ids, result.digest), files: result.files, excluded: result.excluded };
+        return rewindPreview(items, ids, result, remember(chatId, ids, result.digest));
       }),
     running: (chatId) => running.has(chatId),
     restore: (chatId, request = {}) =>

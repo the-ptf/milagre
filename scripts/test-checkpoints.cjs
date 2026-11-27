@@ -33,7 +33,7 @@ window.milagre = {
   listEditors: async () => [],
   editMessage: async (request) => { window.calls.edits.push(request); return { sessionId: 1 }; },
   checkpoints: {
-    rewind: async (request) => { window.calls.rewind.push(request); return { ...redirect, tasks: 1, token: "rewind-1", files }; },
+    rewind: async (request) => { window.calls.rewind.push(request); return { ...redirect, tasks: 1, revision: "review-1", token: "rewind-1", files }; },
     list: async () => { window.calls.list++; return window.restored ? [{ ...redirect, id: "recovery-1", kind: "recovery", changed: 2, createdAt: at.getTime() + 120000 }, redirect, settings] : [redirect, settings]; },
     preview: async ({ id }) => {
       window.calls.preview.push(id);
@@ -476,9 +476,16 @@ async function browserChecks() {
     await evaluate('window.setDraft("half-written note")');
     await evaluate('document.querySelector("[data-edit-message=\\"13\\"]").click()');
     await wait('!!document.querySelector("[data-message-edit-card]")');
-    assert.match(await evaluate('document.querySelector("[data-message-edit-card]").textContent'), /Editing a message · the 1 message after it will be removed/);
+    assert.match(
+      await evaluate('document.querySelector("[data-message-edit-card]").textContent'),
+      /Editing a message · the 1 message after it will be removed/,
+    );
     assert.equal(await evaluate('!!document.querySelector("[data-edit-message=\\"11\\"]")'), true, "every typed message offers Edit");
-    assert.equal(await evaluate('!!document.querySelector("#message-12 [data-edit-message], #message-15 [data-edit-message]")'), false, "replies and lines don't");
+    assert.equal(
+      await evaluate('!!document.querySelector("#message-12 [data-edit-message], #message-15 [data-edit-message]")'),
+      false,
+      "replies and lines don't",
+    );
     await wait('document.querySelector("[data-prompt-editor]").textContent.includes("account page")');
     assert.deepEqual(await ringed(), ["message-13"]);
     assert.equal(await evaluate('document.querySelector("#message-14").dataset.dimmed'), "true");
@@ -496,14 +503,19 @@ async function browserChecks() {
     await evaluate('window.setDraft("After login, send people to the account page.")');
     await evaluate('document.querySelector("[data-message-edit-review]").click()');
     await wait('document.querySelectorAll("[data-message-edit-files] [data-checkpoint-file]").length === 3');
-    await evaluate('[...document.querySelectorAll("[data-message-edit-files] [data-checkpoint-choice]")].find((b) => b.textContent === "Keep current").click()');
+    await evaluate(
+      '[...document.querySelectorAll("[data-message-edit-files] [data-checkpoint-choice]")].find((b) => b.textContent === "Keep current").click()',
+    );
     await evaluate('document.querySelector("[aria-label=\\"Send\\"]").click()');
     await wait("window.calls.edits.length === 1");
     const edit = await evaluate("window.calls.edits[0]");
     assert.equal(edit.messageId, 13);
     assert.equal(edit.body, "After login, send people to the account page.");
     assert.equal(edit.keepAttachments, true);
-    assert.deepEqual(edit.undoFiles, { decisions: { "0:src/auth/login.ts": "keep", "0:src/auth/redirect.ts": "restore", "0:src/auth/login.test.ts": "restore" } });
+    assert.deepEqual(edit.undoFiles, {
+      revision: "review-1",
+      decisions: { "0:src/auth/login.ts": "keep", "0:src/auth/redirect.ts": "restore", "0:src/auth/login.test.ts": "restore" },
+    });
     await wait('!document.querySelector("[data-message-edit-card]")');
     assert.equal(await evaluate("window.sent"), undefined, "an edit never goes out as a new message");
     await wait('document.querySelector("[data-prompt-editor]").textContent.trim() === ""');

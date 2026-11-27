@@ -49,6 +49,19 @@ function startThread(id, method, params) {
   return send({ id, result: { thread: { id: `thread-${threadStarts}` }, model: params.model } });
 }
 
+function resumeThread(id, params) {
+  if (scenario === "hang-thread") return undefined;
+  if (scenario === "reject-extra-mcp" && Object.entries(params.config?.mcp_servers ?? {}).some(([name, server]) => name !== "milagre" && server.url))
+    return send({ id, error: { code: -32602, message: "invalid params: mcp_servers" } });
+  if (scenario === "reject-config" && params.config) return send({ id, error: { code: -32602, message: "invalid params: config" } });
+  if (scenario === "resume-exit") {
+    process.stderr.write("resume exploded\n");
+    process.exit(4);
+  }
+  if (params.threadId === "missing") return send({ id, error: { code: -32600, message: "no rollout found for thread id missing" } });
+  return send({ id, result: { thread: { id: params.threadId }, model: params.model } });
+}
+
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
   received.push(message);
@@ -133,16 +146,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     case "thread/start":
       return startThread(id, method, params);
     case "thread/resume":
-      if (scenario === "hang-thread") return undefined;
-      if (scenario === "reject-extra-mcp" && Object.entries(params.config?.mcp_servers ?? {}).some(([name, server]) => name !== "milagre" && server.url))
-        return send({ id, error: { code: -32602, message: "invalid params: mcp_servers" } });
-      if (scenario === "reject-config" && params.config) return send({ id, error: { code: -32602, message: "invalid params: config" } });
-      if (scenario === "resume-exit") {
-        process.stderr.write("resume exploded\n");
-        process.exit(4);
-      }
-      if (params.threadId === "missing") return send({ id, error: { code: -32600, message: "no rollout found for thread id missing" } });
-      return send({ id, result: { thread: { id: params.threadId }, model: params.model } });
+      return resumeThread(id, params);
     case "thread/revert":
       if (params.beforeTurnId === "missing") return send({ id, error: { code: -32600, message: "turn missing not found" } });
       return send({ id, result: { thread: { id: params.threadId, turns: [] } } });

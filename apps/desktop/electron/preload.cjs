@@ -252,6 +252,19 @@ function issueBridges(invoke) {
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {import("../app/src/electron.d.ts").MilagreBridge["checkpoints"]}
+ */
+function checkpointBridge(invoke) {
+  return {
+    list: (request) => invoke("checkpoint:list", request),
+    preview: (request) => invoke("checkpoint:preview", request),
+    restore: (request) => invoke("checkpoint:restore", request),
+    rewind: (request) => invoke("checkpoint:rewind", request),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @param {(channel: string, ...args: any[]) => void} send
  * @returns {import("../app/src/electron.d.ts").MilagreBridge}
@@ -511,12 +524,7 @@ function makeBridge(invoke, listen, send) {
     retryQuit: () => invoke("app:retry-quit"),
     onQuitFailed: (callback) => listen("app:quit-failed", callback),
     onProjectState: (callback) => listen("project:state", callback),
-    checkpoints: {
-      list: (request) => invoke("checkpoint:list", request),
-      preview: (request) => invoke("checkpoint:preview", request),
-      restore: (request) => invoke("checkpoint:restore", request),
-      rewind: (request) => invoke("checkpoint:rewind", request),
-    },
+    checkpoints: checkpointBridge(invoke),
     sendMessage: (request) => invoke("chat:send", request),
     editMessage: (request) => invoke("chat:edit", request),
     sendStatus: (owner, id) => invoke("chat:send-status", owner, id),
