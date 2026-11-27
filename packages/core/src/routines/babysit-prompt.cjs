@@ -43,7 +43,7 @@ function levelLines(level, onBranch, settings, headBranch, prBranch) {
   return lines;
 }
 
-function babysitPrompt({ settings, event, pr, onBranch, headBranch = null, routineId }) {
+function babysitPrompt({ settings, event, pr, onBranch, headBranch = null, routineId, worktreeAlias }) {
   const level = effectiveLevel(settings, onBranch);
   const heartbeat = routineId ? `this Heartbeat (${routineId})` : "this Heartbeat";
   const changes = renderRoutinePrompt("{{body}}", { body: event.summary }, { body: `PR #${pr.number} changes` });
@@ -53,6 +53,7 @@ function babysitPrompt({ settings, event, pr, onBranch, headBranch = null, routi
     "",
     changes,
     "",
+    ...(worktreeAlias ? [`Run Git and GitHub commands in the member Worktree ${JSON.stringify(worktreeAlias)}.`, ""] : []),
     ...levelLines(level, onBranch, settings, headBranch, event.branch),
     "",
     "Use the skill for each kind of change: a review comment, milagre-address-review; a failing check, milagre-fix-ci; merge conflicts, milagre-resolve-conflicts; a branch behind its base, milagre-update-branch. The level above limits what you do with them.",
