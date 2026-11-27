@@ -342,17 +342,55 @@ test("MCP approvals never grant analysis-only access or submit unknown forms", a
   }
 });
 
-test("switching to Auto mid-turn leaves a waiting command to the user", async (t) => {
-  const { session, events } = codex(t, { scenario: "approval" });
+const turnStarts = (requests) => requests.filter((request) => request.method === "turn/start");
+
+test("switching to Auto mid-turn goes on in a Codex turn with Auto's policy", async (t) => {
+  const { session, events, requests } = codex(t, { scenario: "approval" });
   await session.startTurn({ ...TURN, permissionMode: "ask" });
   await asked(events);
   session.setPermissionMode("auto");
-  assert.equal(
-    events.some((event) => event.type === "permission-resolved"),
-    false,
+  await waitUntil(() => turnStarts(requests).length === 2);
+  const [first, second] = turnStarts(requests).map((request) => request.params);
+  assert.equal(first.approvalPolicy, "untrusted");
+  assert.equal(second.approvalPolicy, "on-request");
+  assert.equal(second.sandboxPolicy.type, "workspaceWrite");
+  assert.match(second.input[0].text, /permissions to Auto mode/);
+  assert.deepEqual(
+    events.find((event) => event.type === "permission-resolved"),
+    { type: "permission-resolved", requestId: "srv-1", decision: "cancelled" },
   );
+  assert.equal(events.filter(isTerminal).length, 0);
+  await waitUntil(() => events.filter((event) => event.type === "permission-request").length === 2);
   session.respondToPermission("srv-1", "deny");
   await ended(events);
+  assert.deepEqual(events.filter(isTerminal), [{ type: "turn-completed" }]);
+});
+
+test("switching to Ask mid-turn stops Auto's turn so later commands ask", async (t) => {
+  const { session, events, requests } = codex(t, { scenario: "slow" });
+  await session.startTurn({ ...TURN, permissionMode: "auto" });
+  session.setPermissionMode("ask");
+  await waitUntil(() => turnStarts(requests).length === 2);
+  const policies = turnStarts(requests).map((request) => request.params.approvalPolicy);
+  assert.deepEqual(policies, ["on-request", "untrusted"]);
+  assert.equal(events.filter(isTerminal).length, 0);
+});
+
+test("a message sent with a new mode mid-turn starts a Codex turn with that mode's policy", async (t) => {
+  const { session, events } = codex(t, { scenario: "steer" });
+  await session.startTurn({ ...TURN, permissionMode: "ask" });
+  const next = await session.startTurn({ ...TURN, prompt: "Keep going", permissionMode: "auto" });
+  await ended(events);
+  assert.deepEqual(next, { turnId: "turn-1", steered: true });
+  const messages = await received(session);
+  assert.equal(
+    messages.some((message) => message.method === "turn/steer"),
+    false,
+  );
+  const second = messages.filter((message) => message.method === "turn/start")[1].params;
+  assert.equal(second.approvalPolicy, "on-request");
+  assert.deepEqual(second.input, [{ type: "text", text: "Keep going", text_elements: [] }]);
+  assert.deepEqual(events.filter(isTerminal), [{ type: "turn-completed" }]);
 });
 
 const PUSH_DENIED = "Babysit level Fix, don't push doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs.";

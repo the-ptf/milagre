@@ -11,7 +11,7 @@ import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 
 export default function PermissionSheet() {
   const styles = useStyles();
-  const { chatId, busy } = useLocalSearchParams<{ chatId: string; busy?: string }>();
+  const { chatId } = useLocalSearchParams<{ chatId: string }>();
   const composer = useComposer();
   const session = useSession();
   const [error, setError] = useState("");
@@ -50,7 +50,6 @@ export default function PermissionSheet() {
             {error}
           </Text>
         )}
-        {busy === "1" && <Text style={styles.caption}>Applies to your next message. This turn keeps its permissions.</Text>}
         <Group role="radiogroup" accessibilityLabel="Permissions">
           {PERMISSION_MODES.map((mode) => (
             <CheckRow
