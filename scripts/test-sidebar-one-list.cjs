@@ -129,7 +129,14 @@ async function browserChecks() {
     );
 
     await waitFor(`document.querySelectorAll("[data-all-pinned] [data-chat-id]").length === 1`);
-    assert.equal(await evaluate(`document.querySelector("[data-all-pinned] p")?.textContent`), "Pinned");
+    assert.equal(await evaluate(`document.querySelector("[data-all-pinned] p")`), null, "One list pins have no Pinned heading");
+    assert.equal(
+      await evaluate(
+        `!!(document.querySelector("[data-sidebar-search]").compareDocumentPosition(document.querySelector("[data-all-pinned] [data-chat-id]")) & Node.DOCUMENT_POSITION_FOLLOWING)`,
+      ),
+      true,
+      "Pinned Chats lead the list, right under Search",
+    );
     assert.deepEqual(
       (await rows("[data-all-pinned]")).map(([title, project]) => [title.includes("Pinned shop chat"), project]),
       [[true, "shop"]],
@@ -318,10 +325,46 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector("[data-chat-menu]")`);
     await evaluate(`document.querySelector("[data-chat-menu]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await waitFor(`!document.querySelector("[data-chat-menu]")`);
-    assert.equal(await evaluate(`!!document.querySelector("[data-one-list-header] button[aria-label='New chat']")`), true, "New chat stays in the list header");
+    assert.equal(await evaluate(`document.querySelector("[data-one-list-header]")`), null, "No All Chats header");
+    assert.deepEqual(
+      await evaluate(`[...document.querySelectorAll("[data-sidebar-search] button")].map((button) => button.getAttribute("aria-label"))`),
+      ["Filters", "Add Project", "New chat"],
+      "Filters, Add Project and New chat sit beside Search",
+    );
     await screenshot("one-list");
 
+    const search = (text) =>
+      evaluate(
+        `(() => { const input = document.querySelector('[data-sidebar-search] input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(text)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+      );
+    await search("shop");
+    await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 3`);
+    assert.deepEqual(
+      (await rows("[data-chat-list-flat]")).map(([title]) => title.includes("Pinned shop chat")),
+      [true, false, false],
+      "A Project name matches all its Chats, pinned first",
+    );
+    assert.equal(await evaluate(`document.querySelector("[data-all-pinned]")`), null, "Search shows one list of matches");
+    await search("LOGIN");
+    await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 1`);
+    assert.ok((await rows("[data-chat-list-flat]"))[0][0].includes("Fix the login flow"), "Titles match without case");
+    await search("fix-log");
+    await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 1`);
+    await search("nothing like this");
+    await waitFor(`document.querySelector("[data-sidebar-search-empty]")?.textContent === "No Chats match your search."`);
+    await evaluate(`document.querySelector('[data-sidebar-search] input').dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+    await waitFor(
+      `document.querySelector('[data-sidebar-search] input').value === "" && document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 4`,
+    );
+
     await choose("By Project");
+    await waitFor(`document.querySelectorAll("[data-sidebar-scope]").length === 3`);
+    assert.equal(await evaluate(`document.querySelector("[data-all-pinned] p")?.textContent`), "Pinned", "Project groups keep the Pinned heading");
+    await search("api");
+    await waitFor(
+      `document.querySelectorAll("[data-sidebar-scope]").length === 0 && document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 1`,
+    );
+    await search("");
     await waitFor(`document.querySelectorAll("[data-sidebar-scope]").length === 3`);
     assert.deepEqual(await evaluate(`[...document.querySelectorAll("[data-sidebar-scope]")].map((node) => node.dataset.sidebarScope)`), [
       "/work/atlas",
@@ -351,7 +394,7 @@ async function browserChecks() {
 
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: the One list sidebar shows pinned Chats under Pinned and every other Chat in one latest-first list of inbox rows (Project icon, title with time, spinner or unread dot, Project leading the second line, no branch or ⋯ button, menu on right-click and Shift-F10, opening the Chat's Project Designs page), and Settings › General switches to Project groups and back",
+      "PASS: the One list sidebar leads with pinned Chats (no Pinned heading) under a Search row with Filters, Add Project and New chat, searches Chats by title, branch and Project in both views, and lists every other Chat in one latest-first list of inbox rows (Project icon, title with time, spinner or unread dot, Project leading the second line, no branch or ⋯ button, menu on right-click and Shift-F10, opening the Chat's Project Designs page), and Settings › General switches to Project groups and back",
     );
     app.exit(0);
   } catch (error) {
