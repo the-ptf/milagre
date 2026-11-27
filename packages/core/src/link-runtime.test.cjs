@@ -9,7 +9,7 @@ const { createRuntime } = require("./runtime.cjs");
 const { scopeKey, chatKeyForScope } = require("@milagre/shared/chat-scopes");
 // `approvals`: sessions keep their turn's permission mode and hold Milagre's approval cards in it, as real ones do.
 // `hold`: each turn stays running until the promise it returns settles.
-async function fixture(t, { approvals = null, hold = null, pullRequest = null } = {}) {
+async function fixture(t, { approvals = null, hold = null, pullRequest = null, readPullRequestState } = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-link-runtime-")));
   const events = [],
     created = [],
@@ -25,6 +25,7 @@ async function fixture(t, { approvals = null, hold = null, pullRequest = null } 
     registryRoots: [],
     version: "test",
     environmentReady: Promise.resolve(),
+    readPullRequestState,
     titleModels: {},
     agentCli: async () => ({ command: "/fake" }),
     ...(pullRequest ? { routines: { setTimeout: () => ({ unref() {} }), clearTimeout() {} } } : {}),
@@ -97,18 +98,44 @@ async function fixture(t, { approvals = null, hold = null, pullRequest = null } 
 }
 
 test("a Link PR action persists the action and names the member Worktree in the provider prompt", async (t) => {
-  const { runtime, projects, settle, requests } = await fixture(t);
+  const url = "https://github.com/example/web/pull/77";
+  const checked = [];
+  let lookup = { known: true, pr: { url, state: "OPEN" } };
+  const { runtime, projects, settle, requests } = await fixture(t, {
+    readPullRequestState: async (cwd) => {
+      checked.push(cwd);
+      const branch = execFileSync("git", ["-C", cwd, "branch", "--show-current"], { encoding: "utf8" }).trim();
+      return branch === "another-pr" ? { known: true, pr: { url: "https://github.com/other/web/pull/77", state: "OPEN" } } : lookup;
+    },
+  });
   const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((project) => project.id) }]);
   await runtime.invoke("link:open", [link.id]);
   const request = { linkId: link.id, operationId: randomUUID(), body: "Edit both", provider: "codex", model: "test" };
   const { sessionId } = await runtime.invoke("link:send", [request]);
   await settle(1);
-  const url = "https://github.com/example/web/pull/77";
-  const prAction = { action: "checks-failed", pr: 77, url, projectId: projects.find((project) => project.name === "web").id };
+  const { id: projectId } = projects.find((project) => project.name === "web");
+  const prAction = { action: "checks-failed", pr: 77, url, projectId };
+  const stale = { ...request, sessionId, operationId: randomUUID(), prAction };
+  const session = (await runtime.invoke("link:snapshot", [link.id])).state.sessions[sessionId];
+  const member = session.worktrees.find((entry) => entry.projectId === projectId);
+  execFileSync("git", ["-C", member.worktreePath, "switch", "-qc", "another-pr"]);
+  await assert.rejects(runtime.invoke("link:send", [stale]), /no longer the open pull request/);
+  execFileSync("git", ["-C", member.worktreePath, "switch", "-q", member.branch]);
+  lookup = { known: false, pr: null };
+  await assert.rejects(runtime.invoke("link:send", [stale]), /verify the current pull request/);
+  lookup = { known: true, pr: { url, state: "CLOSED" } };
+  await assert.rejects(runtime.invoke("link:send", [stale]), /no longer the open pull request/);
+  assert.equal(requests.length, 1);
+  lookup = { known: true, pr: { url, state: "OPEN" } };
   const send = { ...request, sessionId, operationId: randomUUID(), prAction };
   await runtime.invoke("link:send", [send]);
   await settle(2);
   const state = (await runtime.invoke("link:snapshot", [link.id])).state;
+  assert.equal(
+    state.messages.some((message) => message.operationId === stale.operationId),
+    false,
+  );
+  assert.deepEqual([...new Set(checked)], [member.worktreePath]);
   assert.deepEqual(state.messages.find((message) => message.operationId === send.operationId)?.context, {
     kind: "pr-action",
     action: "checks-failed",
@@ -118,6 +145,8 @@ test("a Link PR action persists the action and names the member Worktree in the 
   assert.match(requests[1].prompt, /Fix CI on pull request #77/);
   assert.match(requests[1].prompt, /Worktree "web"/);
   assert.match(requests[1].prompt, /Skill \/milagre-fix-ci/);
+  lookup = { known: false, pr: null };
+  assert.deepEqual(await runtime.invoke("link:send", [send]), { sessionId });
   await assert.rejects(runtime.invoke("link:send", [{ ...send, operationId: randomUUID(), prAction: { ...prAction, projectId: "unrelated" } }]), /Worktree/);
 });
 

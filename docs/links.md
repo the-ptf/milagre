@@ -24,7 +24,7 @@ A Named Link is an ordered set of two or more Projects. Its Chats have one trans
 - The daemon owns every member repository and records preparation before any Git change. Partial preparation never starts a provider. A missing member blocks new turns without deleting the transcript or shrinking membership.
 - A Named Link's Chats design with one member's design system, chosen in its settings (the first member by default); see [designs](designs.md).
 - Named Link metadata is stored apart from canvas edges, and neither creates the other. A shared Chat uses an explicit Link scope, never an arbitrary member as owner. Git operations always target an explicitly chosen member Worktree.
-- PR actions use the member Worktree's branch PR and identify that Worktree in the agent's prompt. Babysit PRs uses the same setting as standalone Chats. Before a Run can fix or push, the host must match the watched PR URL to exactly one member Worktree on the PR's branch. Otherwise the Run reports only.
+- PR actions verify that the selected member Worktree's current branch still has the requested open PR, including when a device sends a queued action after reconnecting. The action starts in an idle Chat and identifies the Worktree in the agent's prompt. Babysit PRs uses the same setting as standalone Chats. Before a Run can fix or push, the host must match the watched PR URL to exactly one member Worktree on the PR's branch. Otherwise the Run reports only.
 - Project reconciliation must never create a second editable Chat in a shared Chat's Worktree.
 
 ## Shared Chat on existing Worktrees

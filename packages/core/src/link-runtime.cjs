@@ -5,11 +5,15 @@ const { linkRunningText } = require("@milagre/shared/worktree-link");
 const { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } = require("@milagre/shared/pr-action");
 const { createSentFromNotes } = require("./sent-from.cjs");
 
-function linkPullRequestMessage(request, action, session) {
+async function linkPullRequestMessage(request, action, session, readPullRequestState) {
   const context = pullRequestActionContext(action);
   if (!context) throw new Error("That pull request action isn't valid.");
   const member = session?.worktrees.find((entry) => entry.projectId === action.projectId);
   if (!member) throw new Error("Choose the pull request's member Worktree.");
+  const { known, pr } = await readPullRequestState(member.worktreePath);
+  if (!known) throw new Error("Milagre couldn't verify the current pull request for this Worktree. Try again when GitHub is available.");
+  if (pr?.state !== "OPEN" || pr.url !== context.url)
+    throw new Error("This is no longer the open pull request for this Worktree's branch. Refresh the pull request before trying again.");
   return {
     ...request,
     body: pullRequestActionBody(context),
@@ -17,7 +21,15 @@ function linkPullRequestMessage(request, action, session) {
     images: [],
     files: [],
     context,
+    idleOnly: true,
   };
+}
+
+async function linkSendMessage(request, session, readPullRequestState, issues) {
+  const { linearIssue, prAction, ...rest } = request;
+  if (prAction !== undefined) return { message: await linkPullRequestMessage(rest, prAction, session, readPullRequestState), issue: null };
+  if (linearIssue !== undefined && issues) return issues.message(rest, linearIssue);
+  return { message: { ...rest, context: undefined }, issue: null };
 }
 
 function registerLinkRuntime({
@@ -26,6 +38,7 @@ function registerLinkRuntime({
   store,
   workspaces,
   chats,
+  readPullRequestState,
   sentFromNotes = createSentFromNotes(),
   rememberTurnDefaults = () => {},
   broadcast,
@@ -189,13 +202,7 @@ function registerLinkRuntime({
           : state.messages.find((message) => message.operationId === operationId);
         if (earlier) return { sessionId: earlier.session_id };
         await workspaces.membersAvailable(link);
-        const { linearIssue, prAction, ...rest } = request;
-        const started =
-          prAction !== undefined
-            ? { message: linkPullRequestMessage(rest, prAction, state.sessions[request.sessionId ?? (link.canvasLinkId ? 1 : 0)]), issue: null }
-            : linearIssue !== undefined && issues
-              ? await issues.message(rest, linearIssue)
-              : { message: { ...rest, context: undefined }, issue: null };
+        const started = await linkSendMessage(request, state.sessions[request.sessionId ?? (link.canvasLinkId ? 1 : 0)], readPullRequestState, issues);
         let sessionId = request.sessionId;
         if (link.canvasLinkId) {
           if (state.releasedAt) throw new Error("This shared Chat is read-only. Continue in a new Chat in either Worktree.");
