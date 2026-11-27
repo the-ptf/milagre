@@ -11,6 +11,8 @@ const findingId = (url, finding) =>
     .digest("hex")
     .slice(0, 12);
 
+const sameFix = (a, b) => a.severity === b.severity && a.body === b.body && a.suggestion === b.suggestion;
+
 function readFile(file) {
   try {
     const raw = object(JSON.parse(fs.readFileSync(file, "utf8")));
@@ -47,10 +49,12 @@ function createPrReviews({ file, emit = () => {}, now = Date.now, sendFix, babys
     if (!data.settings.enabled) throw new Error("The review agent is off. Turn it on in Settings › Church › Review agent.");
     const parsed = parseReviewReport(input);
     if (parsed instanceof Error) throw parsed;
-    const before = new Map((data.reviews[parsed.url]?.findings ?? []).map((finding) => [finding.id, finding.status]));
+    const before = new Map((data.reviews[parsed.url]?.findings ?? []).map((finding) => [finding.id, finding]));
     const findings = parsed.findings.map((finding) => {
       const id = findingId(parsed.url, finding);
-      return { id, ...finding, status: before.get(id) ?? "open" };
+      const previous = before.get(id);
+      const status = previous?.status === "sent" && !sameFix(previous, finding) ? "open" : (previous?.status ?? "open");
+      return { id, ...finding, status };
     });
     const review = { url: parsed.url, summary: parsed.summary, reviewedAt: now(), chatId, findings, babysat: false };
     data.reviews[parsed.url] = review;
@@ -87,10 +91,11 @@ function createPrReviews({ file, emit = () => {}, now = Date.now, sendFix, babys
       const review = data.reviews[url];
       const finding = review?.findings.find((item) => item.id === id);
       if (!data.settings.enabled || !finding || finding.status !== "open") throw new Error("This finding is no longer open for fixes.");
-      const messageId = `pr-review:${review.reviewedAt}:${finding.id}`;
-      await sendFix(review, reviewFixMessage(url, [finding]), messageId);
+      const message = reviewFixMessage(url, [finding]);
+      const messageId = `pr-review:${review.reviewedAt}:${createHash("sha256").update(message).digest("hex")}`;
+      await sendFix(review, message, messageId);
       const current = data.reviews[url]?.findings.find((item) => item.id === id);
-      if (current?.status === "open") setStatus({ url, ids: [id], status: "sent" });
+      if (current?.status === "open" && sameFix(current, finding)) setStatus({ url, ids: [id], status: "sent" });
       return data.reviews[url];
     },
     report,

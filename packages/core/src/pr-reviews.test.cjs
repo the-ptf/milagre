@@ -124,3 +124,28 @@ test("Fix in Chat records a handoff only once the message is accepted", async (t
   await assert.rejects(reviews.fix({ url, id }), /no longer open/);
   assert.equal(deliveries.length, 2);
 });
+
+test("a revised finding stays open when a previous fix reaches the Chat", async (t) => {
+  const delivered = Promise.withResolvers();
+  const messages = [];
+  const reviews = setup(t, {
+    sendFix: async (_review, _body, id) => {
+      messages.push(id);
+      await delivered.promise;
+    },
+  }).make();
+  reviews.saveSettings({ enabled: true });
+  await reviews.report(report([low]));
+  const { id } = reviews.read(url).findings[0];
+  const first = reviews.fix({ url, id });
+  const revised = { ...low, suggestion: "Use a stable identifier" };
+  await reviews.report(report([revised]));
+  delivered.resolve();
+  assert.equal((await first).findings[0].status, "open");
+  assert.equal((await reviews.fix({ url, id })).findings[0].status, "sent");
+  assert.notEqual(messages[0], messages[1]);
+  await reviews.report(report([revised]));
+  assert.equal(reviews.read(url).findings[0].status, "sent");
+  await reviews.report(report([{ ...revised, severity: "medium" }]));
+  assert.equal(reviews.read(url).findings[0].status, "open");
+});
