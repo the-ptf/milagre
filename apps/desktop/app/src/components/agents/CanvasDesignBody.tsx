@@ -3,7 +3,7 @@ import { isInteractiveDesign, type Artifact } from "@milagre/shared/artifact";
 import { designDocumentForMode } from "@milagre/shared/design";
 import { designHtmlForMode, type DesignMode } from "@milagre/shared/design-modes";
 import { ArtifactFrame, type PageFiles } from "./ArtifactCanvas";
-import { isVersionKept } from "./artifact-read";
+import { isVersionKept, useFramedHtml } from "./artifact-read";
 import { designPreviews, designPreviewScale } from "./design-preview-cache";
 
 export function CanvasDesignBody({
@@ -137,6 +137,7 @@ const DecodedPreviewImage = memo(function DecodedPreviewImage({
 /** Unmount on the way back to an image. Every new iframe starts hidden and fades over the decoded preview. */
 function PaintedFrame({ artifact, mode, title, onPainted }: { artifact: Artifact; mode: DesignMode; title: string; onPainted: (painted: boolean) => void }) {
   const [ready, setReady] = useState(false);
+  const html = useFramedHtml(artifact);
   useEffect(() => {
     onPainted(ready);
     return () => onPainted(false);
@@ -149,7 +150,7 @@ function PaintedFrame({ artifact, mode, title, onPainted }: { artifact: Artifact
       style={{ opacity: ready ? 1 : 0 }}
     >
       <ArtifactFrame
-        html={artifact.format === "design" && !isInteractiveDesign(artifact) ? designHtmlForMode(artifact.html, mode) : artifact.html}
+        html={artifact.format === "design" && !isInteractiveDesign(artifact) ? designHtmlForMode(html, mode) : html}
         title={title}
         format={artifact.format}
         code={isInteractiveDesign(artifact)}
