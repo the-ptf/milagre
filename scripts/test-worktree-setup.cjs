@@ -45,6 +45,7 @@ window.milagre = new Proxy({
     state.next_id = id + 2;
     return { project: { path: "/fixture", name: "shop", state: structuredClone(state) }, worktreeId: id };
   },
+  validation: { read: async () => ({ commands: [], afterTask: true }) },
   readWorktreeSetup: async () => window.setupSettings,
   saveWorktreeSetup: async (_projectPath, command) => {
     window.calls.saved.push(command);
