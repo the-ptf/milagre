@@ -7,7 +7,9 @@ import { formatElapsed } from "@milagre/shared/display-clock";
 import {
   AlertCircleIcon,
   Archive02Icon,
+  ArrowDown01Icon,
   ArrowLeft01Icon,
+  ArrowRight01Icon,
   ArrowShrink02Icon,
   CommandLineIcon,
   File01Icon,
@@ -22,6 +24,7 @@ import {
 import { advisorAction, subagentRoleLabel, subagentActivityLabel } from "@milagre/shared/agent-activity";
 import { lastSaid, planCounts, plainTitle, subagentOutcome, subagentSteps, toolChips, toolSummary, type SubagentStep } from "@milagre/shared/subagent-glance";
 import { qaFleetFirst, qaPersona, qaPersonaMood, type QaPersona } from "@milagre/shared/qa-personas";
+import { subagentCounts, subagentTree, type SubagentTreeRow } from "@milagre/shared/subagent-tree";
 import { PersonaAvatar } from "./PersonaAvatar";
 import type { AgentTask, ModelProvider, Subagent, ToolCategory } from "../../model";
 import { subagentActive, subagentFinished } from "../../lib/subagents";
@@ -168,7 +171,7 @@ function PersonaCard({ persona }: { persona: QaPersona }) {
 
 function StatusIcon({ agent, provider }: { agent: Subagent; provider: ModelProvider }) {
   if (subagentActive(agent)) return <SpinnerRing size={12} />;
-  if (agent.status === "failed") return <Icon icon={AlertCircleIcon} size={14} />;
+  if (agent.status === "failed") return <Icon icon={AlertCircleIcon} size={14} className="text-red" />;
   return <ProviderLogo provider={agent.provider ?? provider} size={14} />;
 }
 
@@ -460,7 +463,7 @@ function SubagentRow({ agent, provider }: { agent: Subagent; provider: ModelProv
             <>
               <QaTag persona={persona} />
               <span className="flex-1" />
-              {running ? <SpinnerRing size={12} /> : agent.status === "failed" && <Icon icon={AlertCircleIcon} size={12} />}
+              {running ? <SpinnerRing size={12} /> : agent.status === "failed" && <Icon icon={AlertCircleIcon} size={12} className="text-red" />}
             </>
           )}
         </span>
@@ -472,6 +475,56 @@ function SubagentRow({ agent, provider }: { agent: Subagent; provider: ModelProv
         {meta && <span className="truncate text-11 text-ink-3">{meta}</span>}
       </span>
     </span>
+  );
+}
+
+const INDENT = 20;
+const ICON_CENTER_X = 16;
+const ICON_CENTER_Y = 18;
+const guideX = (level: number) => ICON_CENTER_X + level * INDENT;
+
+function BranchLines({ row }: { row: SubagentTreeRow }) {
+  const line = "pointer-events-none absolute w-px bg-line-strong";
+  return (
+    <>
+      {row.rails
+        .flatMap((on, level) => (on ? [guideX(level)] : []))
+        .map((left) => (
+          <span key={left} aria-hidden className={`${line} top-0 -bottom-0.5`} style={{ left }} />
+        ))}
+      {row.depth > 0 && (
+        <>
+          <span
+            aria-hidden
+            className={`${line} top-0 ${row.last ? "" : "-bottom-0.5"}`}
+            style={{ left: guideX(row.depth - 1), ...(row.last ? { height: ICON_CENTER_Y + 1 } : {}) }}
+          />
+          <span aria-hidden className="pointer-events-none absolute h-px w-2 bg-line-strong" style={{ left: guideX(row.depth - 1), top: ICON_CENTER_Y }} />
+        </>
+      )}
+      {row.children > 0 && !row.folded && <span aria-hidden className={`${line} -bottom-0.5`} style={{ left: guideX(row.depth), top: ICON_CENTER_Y + 12 }} />}
+    </>
+  );
+}
+
+function BranchToggle({ row, onToggle }: { row: SubagentTreeRow; onToggle: (id: string) => void }) {
+  const count = `${row.children} ${row.children === 1 ? "subagent" : "subagents"}`;
+  return (
+    <Tooltip label={`${row.folded ? "Show" : "Hide"} the ${count} it started`}>
+      <button
+        type="button"
+        data-subagent-branch
+        aria-expanded={!row.folded}
+        aria-label={`${row.folded ? "Show" : "Hide"} the ${count} ${row.agent.title} started`}
+        onClick={() => onToggle(row.agent.id)}
+        className="relative flex h-5 items-center gap-1 rounded-chip bg-hover px-1.5 text-11 font-medium text-ink-2 tabular-nums transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-0.5 hover:bg-hover-2 hover:text-ink"
+      >
+        {row.folded && row.hidden === "running" && <SpinnerRing size={12} />}
+        {row.folded && row.hidden === "failed" && <Icon icon={AlertCircleIcon} size={12} className="text-red" />}
+        {row.children}
+        <Icon icon={row.folded ? ArrowRight01Icon : ArrowDown01Icon} size={12} className="text-ink-3" />
+      </button>
+    </Tooltip>
   );
 }
 
@@ -495,26 +548,40 @@ export function SubagentTrack({
   const [opened, setOpened] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [archived, setArchived] = useState(false);
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   const visible = agents.filter((agent) => !agent.archived);
   const archivedCount = agents.length - visible.length;
   const rows = agents.filter((agent) => Boolean(agent.archived) === archived);
   const child = rows.find((agent) => agent.id === selected);
-  const running = visible.filter(subagentActive).length;
-  const done = visible.filter(subagentFinished).length;
+  const { running, failed, done } = subagentCounts(visible);
   const now = useDisplayNow(1000, opened && rows.some(subagentActive));
   const { fleet, others } = qaFleetFirst(rows);
-  const row = (agent: Subagent) => (
+  const tree = subagentTree(others, folded);
+  const treeRows = new Map(tree.rows.map((item) => [item.agent.id, item]));
+  const toggle = (id: string, fold = !folded.has(id)) =>
+    setFolded((current) => {
+      if (current.has(id) === fold) return current;
+      const next = new Set(current);
+      if (fold) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  const row = (agent: Subagent, item?: SubagentTreeRow) => (
     <li
       key={agent.id}
       data-subagent-row
-      className="group flex items-start gap-1 rounded-control px-1 transition-colors duration-fast hover:bg-hover focus-within:bg-hover"
+      data-depth={item?.depth}
+      className="group relative flex items-start gap-1 rounded-control px-1 transition-colors duration-fast hover:bg-hover focus-within:bg-hover"
     >
+      {item && <BranchLines row={item} />}
       <button
         type="button"
         data-subagent-open
+        data-subagent-id={agent.id}
         onClick={() => setSelected(agent.id)}
         title={`${agent.title} (${labels[agent.status]})`}
         className="flex min-w-0 flex-1 py-2 pl-1 text-left text-13"
+        style={item?.depth ? { paddingLeft: 4 + item.depth * INDENT } : undefined}
       >
         <SubagentRow agent={agent} provider={provider} />
       </button>
@@ -533,6 +600,7 @@ export function SubagentTrack({
             />
           </Tooltip>
         </span>
+        {item && item.children > 0 && <BranchToggle row={item} onToggle={toggle} />}
         <span data-subagent-elapsed className="text-11 text-ink-3 tabular-nums">
           {elapsed(agent, now)}
         </span>
@@ -568,6 +636,16 @@ export function SubagentTrack({
         <div
           className="flex min-h-0 flex-col p-1"
           onKeyDown={(event) => {
+            if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+              const id = (document.activeElement as HTMLElement | null)?.dataset.subagentId;
+              const item = id ? treeRows.get(id) : undefined;
+              if (!item) return;
+              event.preventDefault();
+              if (item.children && item.folded === (event.key === "ArrowRight")) toggle(item.agent.id, event.key === "ArrowLeft");
+              else if (event.key === "ArrowLeft" && item.parent)
+                event.currentTarget.querySelector<HTMLButtonElement>(`[data-subagent-id="${CSS.escape(item.parent)}"]`)?.focus();
+              return;
+            }
             if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
             const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-subagent-open]")];
             if (!buttons.length) return;
@@ -599,7 +677,18 @@ export function SubagentTrack({
               <div className="flex shrink-0 items-center gap-2 px-2 pt-1 pb-1">
                 <SectionLabel as="h3" className="flex flex-1 items-center justify-between">
                   <span>{archived ? "Archived" : "Subagents"}</span>
-                  {!archived && <span className="tabular-nums">{[running && `${running} running`, done && `${done} done`].filter(Boolean).join(" · ")}</span>}
+                  {!archived && (
+                    <span className="tabular-nums">
+                      {running > 0 && `${running} running`}
+                      {failed > 0 && (
+                        <>
+                          {running > 0 && " · "}
+                          <span className="text-red-ink">{failed} failed</span>
+                        </>
+                      )}
+                      {done > 0 && `${running || failed ? " · " : ""}${done} done`}
+                    </span>
+                  )}
                 </SectionLabel>
                 <IconButton label="Collapse subagents" icon={ArrowShrink02Icon} size={24} onClick={close} className="-my-1" />
               </div>
@@ -617,9 +706,9 @@ export function SubagentTrack({
                     </span>
                   </li>
                 )}
-                {fleet.map(row)}
+                {fleet.map((agent) => row(agent))}
                 {fleet.length > 0 && others.length > 0 && <li aria-hidden className="mx-2 my-1 border-t border-line" />}
-                {others.map(row)}
+                {tree.nested ? tree.rows.map((item) => row(item.agent, item)) : others.map((agent) => row(agent))}
               </ScrollArea>
               {!rows.length && <EmptyState size="compact" title={archived ? "No archived subagents" : "No subagents to show"} />}
               <footer className="mt-1 flex shrink-0 items-center gap-1 border-t border-line pt-1">

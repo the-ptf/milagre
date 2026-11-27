@@ -417,6 +417,7 @@ function createRuntime(options) {
   commands.handle("app:set-keep-awake", (_event, enabled) => keepAwake.setEnabled(enabled === true));
 
   let limitSwitch = null;
+  let validation = null;
   let limitResume = null;
   let routines = null;
   let babysitWatch = null;
@@ -435,7 +436,9 @@ function createRuntime(options) {
     }
     for (const watcher of [routines, babysitWatch, autopilot]) watcher?.observe(chatId, event);
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type)) {
-      void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
+      void track(() => checkpoints.finish(chatId).then((changed) => validation?.afterTurn(chatId, event, changed)), background).catch((error) =>
+        console.warn("Checkpoint end capture failed:", error.message),
+      );
       chatSecrets?.cancel(chatId);
       bugReports?.cancel(chatId);
     }
@@ -999,6 +1002,16 @@ function createRuntime(options) {
     note: (chatId, message) => chats.addNote(chatId, message),
     tell: (chatId, text) => agentNotes.set(chatId, [...(agentNotes.get(chatId) ?? []), text]),
   });
+  validation = require("./runtime/validation-wiring.cjs").registerValidation({
+    commands,
+    chats,
+    scopeStates,
+    projectSettings,
+    git,
+    dataDir,
+    knownFolder,
+    tell: (chatId, text) => agentNotes.set(chatId, [...(agentNotes.get(chatId) ?? []), text]),
+  });
 
   const {
     stopChat,
@@ -1065,6 +1078,7 @@ function createRuntime(options) {
     routines: () => routines,
     subchatEscalation: () => subchatEscalation,
     validateAccountScope: (...args) => validateAccountScope(...args),
+    validations: () => validation?.validations,
   });
   async function notifyIfWaiting(chatId, event) {
     const projectPath = projectOfKey(chatId);
@@ -1132,71 +1146,18 @@ function createRuntime(options) {
     send: (chatId, event) => chats.receive(chatId, event),
     active: (chatId) => Boolean(chats.runs[chatId]) && !closing,
   });
-  bugReports = createBugReportsForRuntime();
-  function createBugReportsForRuntime() {
-    const os = require("node:os");
-    const reports = require("./bug-reports.cjs");
-    const override = process.env.MILAGRE_BUG_REPORT_REPO;
-    const { providerName } = require("@milagre/shared/providers");
-    let osLine;
-    return reports.createBugReports({
-      send: (chatId, event) => chats.receive(chatId, event),
-      active: (chatId) => Boolean(chats.runs[chatId]) && !closing,
-      ...(override && /^[\w.-]+\/[\w.-]+$/.test(override) ? { repo: override } : {}),
-      ...(options.postBugReport ? { post: options.postBugReport } : {}),
-      readLog: () => reports.readHostLog(path.join(dataDir, "daemon.log")),
-      async facts(chatId) {
-        const turn = chats.turns.get(chatId);
-        osLine ??= reports.osDescription();
-        return {
-          version,
-          os: await osLine,
-          ...(turn?.provider ? { provider: providerName(turn.provider) } : {}),
-          ...(typeof turn?.model === "string" ? { model: turn.model } : {}),
-          ...(turn?.effort ? { effort: turn.effort } : {}),
-          ...(turn?.permissionMode ? { permissionMode: turn.permissionMode } : {}),
-          ...(turn?.guard?.level ? { babysit: turn.guard.level } : {}),
-        };
-      },
-      async known(chatId) {
-        const projectPath = projectOfKey(chatId);
-        const quiet = (promise, fallback, ms = 3000) =>
-          Promise.race([Promise.resolve(promise).catch(() => fallback), new Promise((resolve) => setTimeout(resolve, ms, fallback).unref?.())]);
-        const [registered, recent, state] = await Promise.all([
-          quiet(
-            projectRegistry()
-              .snapshot()
-              .then((snapshot) => snapshot.projects),
-            [],
-          ),
-          quiet(recentProjects().list(), []),
-          quiet(scopeStates.has(projectPath) ? scopeStates.get(projectPath) : null, null),
-        ]);
-        const projects = [...registered, ...recent, { path: projectPath }]
-          .filter((project) => typeof project?.path === "string" && path.isAbsolute(project.path))
-          .slice(0, 200);
-        const withOrigin = await Promise.all(projects.map(async (project) => ({ ...project, origin: await quiet(projectOrigin(project.path), null) })));
-        const identity = path.isAbsolute(projectPath) ? await quiet(reports.gitIdentity(projectPath), {}) : {};
-        return reports.knownValues({
-          projects: withOrigin,
-          state,
-          computers: [options.hostNetwork?.().name, ...quietList(() => remoteComputers?.list() ?? []).map((computer) => computer?.name)],
-          hostname: os.hostname(),
-          home: os.homedir(),
-          username: quietList(() => [os.userInfo().username])[0],
-          gitName: identity.name,
-          gitEmail: identity.email,
-        });
-      },
-    });
-  }
-  function quietList(read) {
-    try {
-      return read();
-    } catch {
-      return [];
-    }
-  }
+  bugReports = require("./runtime/bug-reports-wiring.cjs").createBugReportsForRuntime({
+    chats,
+    options,
+    dataDir,
+    version,
+    projectRegistry,
+    recentProjects,
+    scopeStates,
+    isClosing: () => closing,
+    projectOrigin: (...args) => projectOrigin(...args),
+    remoteComputers: () => remoteComputers,
+  });
   const remoteDelegation = require("./design-settings.cjs").createDesignSettings(path.join(dataDir, "remote-delegation.json"), {
     name: "Delegating to other computers",
     missing: false,
@@ -1251,6 +1212,7 @@ function createRuntime(options) {
       (await advisorStore.read(chatId)).some((record) => record.completions?.some((result) => ["pending", "sending"].includes(result.delivery))),
     extraTools: (chatId, context) => [
       ...planTools.definitions(chatId),
+      ...validation.tools(chatId),
       ...(autopilot?.tools(chatId) ?? []),
       ...chatSecrets.definitions(chatId),
       ...bugReports.definitions(chatId),
@@ -1361,15 +1323,13 @@ function createRuntime(options) {
     store: linkStore,
     workspaces: linkWorkspaces,
     chats,
+    readPullRequestState: (cwd) => environmentReady.then(() => readPullRequestStateOf(cwd)),
     sentFromNotes,
     rememberTurnDefaults: (request) => turnDefaults.remember(request),
     broadcast: broadcastProjectState,
     titles: chatTitles,
     issues: { message: linearIssueMessage, started: markIssueStarted },
-    retire: async (scope, sessionId) => {
-      const { stopped } = await archiveChat(scope, sessionId);
-      await stopped;
-    },
+    retire: (scope, sessionId) => archiveChat(scope, sessionId).then(({ stopped }) => stopped),
     released: async ({ removed, kept }) => {
       for (const member of removed) await worktreeSetups.forget(member.worktreePath);
       for (const projectPath of new Set([...removed, ...kept].map((member) => member.projectPath))) {
@@ -1616,7 +1576,7 @@ function createRuntime(options) {
     if (states.closed) return;
     await chats.suspendRunning();
     await scopeStates.flush().catch(() => {});
-    await Promise.allSettled([worktreeSetups.cancelAll(), agents.closeAll()]);
+    await Promise.allSettled([worktreeSetups.cancelAll(), agents.closeAll(), validation?.validations.stopAll()]);
     await Promise.allSettled(starting);
     await agents.closeAll();
     await Promise.allSettled([...background, ...chatTitles.pending.values()]);
@@ -1689,6 +1649,7 @@ function createRuntime(options) {
     chatOpened: (chatId) =>
       accept(() => {
         diffs.focusedChat(chatId);
+        validation?.chatOpened(chatId);
         return readOpenChat(chatId);
       }),
     unloadIdle: () => Promise.all([states.unloadIdle(), linkStore.unloadIdle()]).then(() => undefined),

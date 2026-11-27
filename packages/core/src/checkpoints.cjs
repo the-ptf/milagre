@@ -221,7 +221,7 @@ function createCheckpoints({
           item.completedAt = Date.now();
           item.excluded = Math.max(item.excluded, captured.excluded);
           item.changed = changedCount(item.before, item.after);
-          await save(item);
+          return save(item).then(() => item.changed);
         } finally {
           running.delete(chatId);
         }

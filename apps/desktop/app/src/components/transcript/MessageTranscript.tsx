@@ -10,6 +10,7 @@ import { InlineError } from "../primitives/InlineError";
 import { groupQuietRuns, isRoutineRun, routineRunOf } from "@milagre/shared/routines";
 import { RoutineRunDivider } from "../RoutineRunDivider";
 import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
+import { isValidation } from "@milagre/shared/validation";
 import { type UndoIntent } from "../checkpoints/UndoPanel";
 import { foldLinkedExchanges } from "@milagre/shared/linked-message";
 import { MessageFollowContext, TRANSCRIPT_END_EVENT, TRANSCRIPT_SHOWN_EVENT } from "../agents/message-scroller";
@@ -85,6 +86,7 @@ export const MessageTranscript = memo(function MessageTranscript({
   onSettle,
   highlightId = null,
   onCheckpointPreview,
+  validationChat = null,
 }: {
   undoable?: Map<number, { id: string; latest: boolean }>;
   undoBlocked?: boolean;
@@ -96,6 +98,7 @@ export const MessageTranscript = memo(function MessageTranscript({
   limitResumeBlocked?: boolean;
   highlightId?: number | null;
   onCheckpointPreview?: (recoveryId: string, action: UndoIntent) => void;
+  validationChat?: string | null;
 } & Pick<
   ChatComposerProps,
   | "earlier"
@@ -294,6 +297,7 @@ export const MessageTranscript = memo(function MessageTranscript({
               onSettle={message === transcript.at(-1)?.message && message.role === "assistant" ? onSettle : undefined}
               highlighted={message.id === highlightId}
               onCheckpointPreview={isCheckpointRestore(message) && !undoBlocked ? onCheckpointPreview : undefined}
+              validationChat={isValidation(message) ? validationChat : undefined}
             />
           </Fragment>
         );

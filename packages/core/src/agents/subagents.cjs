@@ -154,6 +154,25 @@ function claudeSubagents(message, state) {
   }
   return events;
 }
+/** Codex names a subagent by its path under the main thread (`/root/review/check_sum`); its title is that last part in words. */
+function codexAgentName(path) {
+  const words = String(path ?? "")
+    .split("/")
+    .findLast(Boolean)
+    ?.replace(/[_-]+/g, " ")
+    .trim();
+  return words ? `${words[0].toUpperCase()}${words.slice(1)}`.slice(0, 120) : undefined;
+}
+function codexNamed(state, id, path) {
+  const name = codexAgentName(path);
+  if (!name) return {};
+  (state.namedSubagents ??= new Set()).add(id);
+  return { title: name };
+}
+const codexSpawned = (state, id, prompt) => ({
+  prompt,
+  ...(state.namedSubagents?.has(id) ? {} : { title: prompt?.split("\n")[0].slice(0, 120) || "Subagent" }),
+});
 const codexStatus = (status) =>
   ({
     pendingInit: "initializing",
@@ -190,7 +209,7 @@ function codexSubagents(method, params, state) {
       const status = { started: "running", interrupted: "cancelled", completed: "completed" }[item.kind];
       events.push(
         update(state, target, {
-          title: item.agentPath || "Subagent",
+          ...codexNamed(state, target, item.agentPath),
           status: status ?? "unknown",
           ...(foreign && item.kind === "started" ? { parentId: params.threadId } : {}),
         }),
@@ -214,7 +233,7 @@ function codexSubagents(method, params, state) {
       if (!state.subagents?.has(id) && !status && item.tool !== "spawnAgent") continue;
       const patch = {
         ...(foreign && item.tool === "spawnAgent" ? { parentId: params.threadId } : {}),
-        ...(item.tool === "spawnAgent" ? { title: item.prompt?.split("\n")[0].slice(0, 120) || "Subagent", prompt: item.prompt } : {}),
+        ...(item.tool === "spawnAgent" ? codexSpawned(state, id, item.prompt) : {}),
         ...(status ? { status: codexStatus(status.status) } : {}),
       };
       events.push(update(state, id, patch, status?.message ? { id: "result", kind: "message", text: status.message } : undefined));

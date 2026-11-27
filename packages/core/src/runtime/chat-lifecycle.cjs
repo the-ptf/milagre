@@ -306,6 +306,7 @@ function createChatRetirement({
   linked,
   routines,
   stopChat,
+  validations = () => null,
 }) {
   const steps = [
     { name: "end Heartbeats", run: (chatId) => routines().chatArchived(chatId) },
@@ -315,6 +316,7 @@ function createChatRetirement({
     },
     { name: "stop the turn and queued sends", frees: true, run: (chatId) => chats.runs[chatId] && stopChat(chatId) },
     { name: "cancel Worktree setup", frees: true, run: (chatId) => worktreeSetups.cancel(chatId) },
+    { name: "stop validation", frees: true, run: (chatId) => validations()?.cancelChat(chatId) },
     { name: "close side questions", frees: true, run: (chatId) => btw()?.closeChat(chatId) },
     { name: "close the agent session", frees: true, run: (chatId) => agents.closeChat(chatId) },
     { name: "stop background commands", frees: true, run: (chatId) => terminals.closeChat(chatId) },
@@ -687,6 +689,7 @@ function registerChatLifecycle({
   routines,
   subchatEscalation,
   validateAccountScope,
+  validations,
 }) {
   const { stopChat, respondPermission, noteHumanActed, answerQuestion, setPermissionMode } = registerChatControls({
     commands,
@@ -744,6 +747,7 @@ function registerChatLifecycle({
     linked,
     routines,
     stopChat,
+    validations,
   });
   const { archiveChat, moveRunChats, archiveRunChat, keepRunChat, patchChat, reopenDoneChat, wakeSnoozedChat, archiveDoneChat } = registerChatRetire({
     commands,

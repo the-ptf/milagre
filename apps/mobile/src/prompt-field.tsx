@@ -6,7 +6,14 @@ import * as Font from "expo-font";
 import { Pressable, Text, View } from "react-native";
 import Animated, { Easing, FadeInDown, ReduceMotion } from "react-native-reanimated";
 import type { SkillCatalog } from "@milagre/shared/model";
-import { formatChatMention, formatComputerMention, formatFileMention, matchesParadiseMention, promptParts } from "@milagre/shared/prompt-parts";
+import {
+  formatChatMention,
+  formatComputerMention,
+  formatFileMention,
+  matchesParadiseMention,
+  promptParts,
+  type PromptPart,
+} from "@milagre/shared/prompt-parts";
 import { MilagreMentionRows } from "./milagre-mention-rows";
 import {
   PROMPT_PLACEHOLDER,
@@ -14,7 +21,12 @@ import {
   matchingMentionComputers,
   type MentionChat,
   type MentionComputer,
+  type ShownPrompt,
+  draftSelection,
   editImageMentions,
+  editShownPrompt,
+  shownPrompt,
+  shownSelection,
 } from "@milagre/shared/prompt-mentions";
 import { ArrowRightToLineIcon } from "@hugeicons/core-free-icons";
 import { Icon } from "./icons";
@@ -24,7 +36,8 @@ import { promptSkillAtSelection, promptSkillParts, promptSkillQuery } from "@mil
 import type { Client } from "./client";
 import { fileQueryAt, isOldMacError, mentionPaths, type KnownFiles } from "./file-mentions";
 import { useRpc } from "./use-rpc";
-import { Field, ListRow, PageScroll, SectionLabel, useAnnounce, useStyles } from "./ui";
+import { Field, ListRow, PageScroll, useAnnounce, useStyles } from "./ui";
+import { MentionIcon } from "./prompt-chip";
 import { duration, easing, lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { useImagePaste } from "./use-image-paste";
@@ -55,6 +68,69 @@ const OLD_MAC_ROW = "Update Milagre on your computer to mention files.";
 const GLYPHS = "MilagreChipGlyphs";
 const GLYPH_FONT = { [GLYPHS]: require("../assets/fonts/MilagreChipGlyphs.ttf") };
 
+function MentionRows({
+  files,
+  chats,
+  computers,
+  choose,
+}: {
+  files: readonly string[];
+  chats: readonly MentionChat[];
+  computers: readonly MentionComputer[];
+  choose: (mention: string, path?: string) => void;
+}) {
+  return (
+    <>
+      {files.slice(0, chats.length || computers.length ? 1 : 40).map((path) => (
+        <ListRow
+          key={path}
+          leading={<MentionIcon path={path} />}
+          title={path.split("/").pop()!}
+          subtitle={path}
+          onPress={() => choose(formatFileMention(path), path)}
+        />
+      ))}
+      {chats.map((chat) => (
+        <ListRow
+          key={`chat:${chat.id}`}
+          leading={<MentionIcon kind="chat" />}
+          title={chat.title}
+          subtitle={chat.branch}
+          onPress={() => choose(formatChatMention(chat.id))}
+        />
+      ))}
+      {computers.map((computer) => (
+        <ListRow
+          key={`computer:${computer.id}`}
+          leading={<MentionIcon kind="computer" />}
+          title={computer.name}
+          subtitle={computer.self ? "This computer" : computer.online ? "Online" : "Offline"}
+          onPress={() => choose(formatComputerMention(computer.name))}
+        />
+      ))}
+    </>
+  );
+}
+
+/** The field shows each chat mention as `@<title>`; the draft keeps `@chat:<id>`. */
+function useShownField(marks: readonly PromptPart[], chats: readonly MentionChat[], restore: TextRange | undefined) {
+  const shown = useMemo(() => shownPrompt(marks, (id) => chats.find((chat) => chat.id === id)?.title), [marks, chats]);
+  const shownRestore = useMemo(() => restore && shownSelection(shown.spans, restore), [restore, shown]);
+  return { shown, shownRestore };
+}
+
+function draftEdit(draft: string, shown: ShownPrompt, text: string, images: number, selection: TextRange) {
+  const typed = editShownPrompt(draft, shown, text, shownSelection(shown.spans, selection));
+  const edit = editImageMentions(draft, typed.value, images, selection);
+  const at = edit.caret ?? typed.caret;
+  return { value: edit.value, caret: at === null ? null : { start: at, end: at } };
+}
+
+function shownPart(shown: ShownPrompt, part: PromptPart) {
+  const span = part.kind === "chat" ? shown.spans.find((item) => item.start === part.start) : undefined;
+  return span ? shown.text.slice(span.shownStart, span.shownEnd) : part.text;
+}
+
 function useChipGlyphs() {
   const [ready, setReady] = useState(() => Font.isLoaded(GLYPHS));
   useEffect(() => {
@@ -83,14 +159,6 @@ const openSkills = (scale: number) =>
         .reduceMotion(ReduceMotion.System);
 
 /** Native attributed text keeps skill colors in the editable input, including wrapped/scrolled lines. */
-function MenuSection({ shown, children }: { shown: boolean; children: string }) {
-  return shown ? (
-    <SectionLabel flush style={{ paddingVertical: 6 }}>
-      {children}
-    </SectionLabel>
-  ) : null;
-}
-
 export function PromptField({
   client,
   chats = NO_CHATS,
@@ -360,6 +428,7 @@ export function PromptField({
   const changed = rendered.draft !== draft || rendered.parts !== marks;
   const restore = requested?.draft === draft ? requested.selection : changed ? (rendered.draft === draft ? selection : undefined) : rendered.restore;
   if (changed) setRendered({ draft, parts: marks, restore });
+  const { shown, shownRestore } = useShownField(marks, chats, restore);
   const name = focused ? promptSkillAtSelection(parts, selection) : null;
   const skill = name ? skills?.find((item) => item.name.toLowerCase() === name) : null;
   const query = focused
@@ -502,22 +571,7 @@ export function PromptField({
             keyboardShouldPersistTaps="always"
           >
             <MilagreMentionRows client={client} query={fileToken.query} onPick={chooseMention} />
-            {(onMention ? files.items : []).slice(0, chatRows.length || computerRows.length ? 1 : 40).map((path) => (
-              <ListRow key={path} title={path.split("/").pop()!} subtitle={path} onPress={() => chooseMention(formatFileMention(path), path)} />
-            ))}
-            <MenuSection shown={chatRows.length > 0}>Chats</MenuSection>
-            {chatRows.map((chat) => (
-              <ListRow key={`chat:${chat.id}`} title={chat.title} subtitle={chat.branch} onPress={() => chooseMention(formatChatMention(chat.id))} />
-            ))}
-            <MenuSection shown={computerRows.length > 0}>Computers</MenuSection>
-            {computerRows.map((computer) => (
-              <ListRow
-                key={`computer:${computer.id}`}
-                title={computer.name}
-                subtitle={computer.self ? "This computer" : computer.online ? "Online" : "Offline"}
-                onPress={() => chooseMention(formatComputerMention(computer.name))}
-              />
-            ))}
+            <MentionRows files={onMention ? files.items : []} chats={chatRows} computers={computerRows} choose={chooseMention} />
             {onMention && files.error ? (
               isOldMacError(files.error) ? (
                 <ListRow title={OLD_MAC_ROW} onPress={files.retry} />
@@ -548,20 +602,19 @@ export function PromptField({
           autoCorrect
           spellCheck
           autoCapitalize="sentences"
-          onChangeText={(value) => {
-            const edit = editImageMentions(draft, value, images, selection);
-            const caret = edit.caret === null ? null : { start: edit.caret, end: edit.caret };
-            setRequested(caret ? { draft: edit.value, selection: caret } : null);
+          onChangeText={(text) => {
+            const { value, caret } = draftEdit(draft, shown, text, images, selection);
+            setRequested(caret ? { draft: value, selection: caret } : null);
             if (caret) setSelection(caret);
-            onChangeText(edit.value);
+            onChangeText(value);
           }}
           onSelectionChange={(event) => {
             placed.current = true;
-            setSelection(event.nativeEvent.selection);
+            setSelection(draftSelection(shown.spans, event.nativeEvent.selection));
             setRequested(null);
             setRendered((current) => (current.restore ? { ...current, restore: undefined } : current));
           }}
-          selection={restore}
+          selection={shownRestore}
           onFocus={() => {
             paste.onFocus();
             enter.attach();
@@ -610,7 +663,7 @@ export function PromptField({
                       <Text style={{ fontFamily: GLYPHS }}>{part.text.slice(-1)}</Text>
                     </>
                   ) : (
-                    part.text.slice(1)
+                    shownPart(shown, part).slice(1)
                   )}
                 </Text>
               ) : (
@@ -621,7 +674,7 @@ export function PromptField({
                     backgroundColor: part.kind === "file" || part.kind === "image" ? withAlpha(colors.accent, 0.14) : colors.accentTint,
                   }}
                 >
-                  {part.text}
+                  {shownPart(shown, part)}
                 </Text>
               ),
             )}

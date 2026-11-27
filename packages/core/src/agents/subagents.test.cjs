@@ -539,3 +539,56 @@ test("Codex keeps a subagent's plan updates on it, not on the chat", () => {
     ["completed", "in_progress"],
   );
 });
+
+test("Codex titles a subagent by its agent name, whichever of its spawn call and activity arrives first", () => {
+  const state = { threadId: "root" };
+  const spawn = (threadId, id, prompt) =>
+    mapCodexNotification(
+      "item/completed",
+      { threadId, item: { type: "collabAgentToolCall", status: "completed", id: `spawn-${id}`, tool: "spawnAgent", receiverThreadIds: [id], prompt } },
+      state,
+    );
+  const activity = (threadId, id, path) =>
+    mapCodexNotification(
+      "item/completed",
+      { threadId, item: { type: "subAgentActivity", id: `activity-${id}`, kind: "started", agentThreadId: id, agentPath: path } },
+      state,
+    );
+  spawn("root", "a", "You review the source.\nRead sum.js.");
+  assert.equal(state.subagents.get("a").title, "You review the source.");
+  activity("root", "a", "/root/source_review_live");
+  activity("a", "b", "/root/source_review_live/check-sum");
+  spawn("a", "b", "Check the sum.");
+  assert.deepEqual(
+    [...state.subagents.values()].map((agent) => [agent.id, agent.title, agent.parentId ?? null, agent.prompt ?? null]),
+    [
+      ["a", "Source review live", null, "You review the source.\nRead sum.js."],
+      ["b", "Check sum", "a", "Check the sum."],
+    ],
+  );
+});
+
+test("Claude records which subagent started a nested one", () => {
+  const state = {};
+  const agentCall = (parent, id, description) => ({
+    type: "assistant",
+    parent_tool_use_id: parent,
+    message: {
+      id: `m-${id}`,
+      content: [{ type: "tool_use", id, name: "Agent", input: { description, prompt: description, subagent_type: "general-purpose" } }],
+    },
+  });
+  mapClaudeMessage(agentCall(null, "outer", "Run nested probe"), state);
+  mapClaudeMessage(agentCall("outer", "inner", "Inner replies ok"), state);
+  mapClaudeMessage(
+    { type: "system", subtype: "task_started", task_id: "t-inner", tool_use_id: "inner", description: "Inner replies ok", task_type: "local_agent" },
+    state,
+  );
+  assert.deepEqual(
+    [...state.subagents.values()].map((agent) => [agent.id, agent.title, agent.parentId ?? null]),
+    [
+      ["outer", "Run nested probe", null],
+      ["inner", "Inner replies ok", "outer"],
+    ],
+  );
+});

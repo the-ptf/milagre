@@ -9,10 +9,11 @@ const { createRuntime } = require("./runtime.cjs");
 const { scopeKey, chatKeyForScope } = require("@milagre/shared/chat-scopes");
 // `approvals`: sessions keep their turn's permission mode and hold Milagre's approval cards in it, as real ones do.
 // `hold`: each turn stays running until the promise it returns settles.
-async function fixture(t, { approvals = null, hold = null } = {}) {
+async function fixture(t, { approvals = null, hold = null, pullRequest = null, readPullRequestState } = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-link-runtime-")));
   const events = [],
     created = [],
+    requests = [],
     runtimes = [],
     turns = [],
     // The Projects the fake agent changes, by name: each gets the shared Chat's Worktree first, as a real agent's would.
@@ -24,8 +25,10 @@ async function fixture(t, { approvals = null, hold = null } = {}) {
     registryRoots: [],
     version: "test",
     environmentReady: Promise.resolve(),
+    readPullRequestState,
     titleModels: {},
     agentCli: async () => ({ command: "/fake" }),
+    ...(pullRequest ? { routines: { setTimeout: () => ({ unref() {} }), clearTimeout() {} } } : {}),
     emit: (channel, payload) => events.push({ channel, payload }),
     createSession: (provider, context) => {
       created.push(context);
@@ -40,6 +43,7 @@ async function fixture(t, { approvals = null, hold = null } = {}) {
         turnActive: false,
         ...(permissions ? { permissions } : {}),
         startTurn(request) {
+          requests.push(request);
           if (permissions && request?.permissionMode) permissions.mode = request.permissionMode;
           const run = (async () => {
             const create = context.linked?.tools.find((tool) => tool.name === "link_worktree_create");
@@ -49,6 +53,10 @@ async function fixture(t, { approvals = null, hold = null } = {}) {
             const turnId = randomUUID();
             context.emit({ type: "session-started", nativeId: "native" });
             context.emit({ type: "turn-started", turnId });
+            if (pullRequest && requests.length === 1) {
+              context.emit({ type: "step-started", step: { id: "open-pr", kind: "shell" } });
+              context.emit({ type: "step-completed", id: "open-pr", status: "done", detail: `$ gh pr create\n${pullRequest}` });
+            }
             context.emit({ type: "text-delta", messageId: "reply", text: "Changed both" });
             if (hold) await hold();
             context.emit({ type: "turn-completed" });
@@ -86,8 +94,80 @@ async function fixture(t, { approvals = null, hold = null } = {}) {
     await Promise.all(turns);
     await current.flush();
   };
-  return { dir, runtime, make, projects, events, created, edits, settle };
+  return { dir, runtime, make, projects, events, created, edits, settle, requests };
 }
+
+test("a Link PR action persists the action and names the member Worktree in the provider prompt", async (t) => {
+  const url = "https://github.com/example/web/pull/77";
+  const checked = [];
+  let lookup = { known: true, pr: { url, state: "OPEN" } };
+  const { runtime, projects, settle, requests } = await fixture(t, {
+    readPullRequestState: async (cwd) => {
+      checked.push(cwd);
+      const branch = execFileSync("git", ["-C", cwd, "branch", "--show-current"], { encoding: "utf8" }).trim();
+      return branch === "another-pr" ? { known: true, pr: { url: "https://github.com/other/web/pull/77", state: "OPEN" } } : lookup;
+    },
+  });
+  const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((project) => project.id) }]);
+  await runtime.invoke("link:open", [link.id]);
+  const request = { linkId: link.id, operationId: randomUUID(), body: "Edit both", provider: "codex", model: "test" };
+  const { sessionId } = await runtime.invoke("link:send", [request]);
+  await settle(1);
+  const { id: projectId } = projects.find((project) => project.name === "web");
+  const prAction = { action: "checks-failed", pr: 77, url, projectId };
+  const stale = { ...request, sessionId, operationId: randomUUID(), prAction };
+  const session = (await runtime.invoke("link:snapshot", [link.id])).state.sessions[sessionId];
+  const member = session.worktrees.find((entry) => entry.projectId === projectId);
+  execFileSync("git", ["-C", member.worktreePath, "switch", "-qc", "another-pr"]);
+  await assert.rejects(runtime.invoke("link:send", [stale]), /no longer the open pull request/);
+  execFileSync("git", ["-C", member.worktreePath, "switch", "-q", member.branch]);
+  lookup = { known: false, pr: null };
+  await assert.rejects(runtime.invoke("link:send", [stale]), /verify the current pull request/);
+  lookup = { known: true, pr: { url, state: "CLOSED" } };
+  await assert.rejects(runtime.invoke("link:send", [stale]), /no longer the open pull request/);
+  assert.equal(requests.length, 1);
+  lookup = { known: true, pr: { url, state: "OPEN" } };
+  const send = { ...request, sessionId, operationId: randomUUID(), prAction };
+  await runtime.invoke("link:send", [send]);
+  await settle(2);
+  const state = (await runtime.invoke("link:snapshot", [link.id])).state;
+  assert.equal(
+    state.messages.some((message) => message.operationId === stale.operationId),
+    false,
+  );
+  assert.deepEqual([...new Set(checked)], [member.worktreePath]);
+  assert.deepEqual(state.messages.find((message) => message.operationId === send.operationId)?.context, {
+    kind: "pr-action",
+    action: "checks-failed",
+    pr: 77,
+    url,
+  });
+  assert.match(requests[1].prompt, /Fix CI on pull request #77/);
+  assert.match(requests[1].prompt, /Worktree "web"/);
+  assert.match(requests[1].prompt, /Skill \/milagre-fix-ci/);
+  lookup = { known: false, pr: null };
+  assert.deepEqual(await runtime.invoke("link:send", [send]), { sessionId });
+  await assert.rejects(runtime.invoke("link:send", [{ ...send, operationId: randomUUID(), prAction: { ...prAction, projectId: "unrelated" } }]), /Worktree/);
+});
+
+test("Babysit PR watches a pull request opened from a Link Chat", async (t) => {
+  const url = "https://github.com/example/web/pull/77";
+  const { runtime, projects, settle, events } = await fixture(t, { pullRequest: url });
+  await runtime.invoke("babysit:settings:save", [{ enabled: true }]);
+  const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((project) => project.id) }]);
+  await runtime.invoke("link:open", [link.id]);
+  const scope = { kind: "link", linkId: link.id };
+  const { sessionId } = await runtime.invoke("link:send", [
+    { linkId: link.id, operationId: randomUUID(), body: "Edit both", provider: "codex", model: "test" },
+  ]);
+  await settle(1);
+  for (let i = 0; i < 50 && !events.some(({ channel }) => channel === "routines:changed"); i++) await new Promise((resolve) => setImmediate(resolve));
+  const { routines } = await runtime.invoke("routines:list");
+  assert.equal(routines.length, 1);
+  assert.equal(routines[0].trigger.url, url);
+  assert.deepEqual(routines[0].target, { kind: "chat", chatId: chatKeyForScope(scope, sessionId) });
+  await runtime.invoke("routines:delete", [routines[0].id]);
+});
 test("shared Chat keeps one canonical transcript and exact Worktrees across retries and restart", async (t) => {
   const { runtime, make, projects, events, created, settle } = await fixture(t);
   assert.ok(runtime.methods.includes("link:create"));
@@ -808,7 +888,6 @@ test("canvas conversion refuses scheduled Heartbeats, and read-only histories ca
   await f.runtime.invoke("routines:delete", [routine.id]);
   const shared = (await f.runtime.invoke("canvas:chat-mode", [link.id, "shared"])).find((item) => item.id === link.id).sharedChat;
   await assert.rejects(f.runtime.invoke("routines:create", [input]), /read-only/);
-  // Existing lifecycle: Named/shared Chats cannot schedule Heartbeats or Babysit PR in the first place.
   await assert.rejects(
     f.runtime.invoke("routines:create", [{ ...input, target: { kind: "chat", chatId: chatKeyForScope({ kind: "link", linkId: shared.linkId }, 1) } }]),
     /Project|listed/,

@@ -336,10 +336,10 @@ function createRoutineScheduler({
       return;
     }
     const { event } = run;
-    let headBranch = null;
-    try {
-      headBranch = (await chats.headBranch?.(chatId)) ?? null;
-    } catch {}
+    const { settings, url, number } = routine.trigger;
+    const worktree = await Promise.resolve()
+      .then(() => chats.pullRequestWorktree?.(chatId, url))
+      .catch(() => null);
     if (stopped) {
       store.deferRun(run.id, now());
       return;
@@ -353,10 +353,10 @@ function createRoutineScheduler({
       store.deferRun(run.id, now() + COMMENT_RETRY_MS);
       return;
     }
-    const { settings, url, number } = routine.trigger;
+    const headBranch = worktree?.branch ?? null;
     const onBranch = headBranch !== null && headBranch === event.branch;
     const level = effectiveLevel(settings, onBranch);
-    const text = babysitPrompt({ settings, event, pr: { url, number }, onBranch, headBranch, routineId: routine.id });
+    const text = babysitPrompt({ settings, event, pr: { url, number }, onBranch, headBranch, routineId: routine.id, worktreeAlias: worktree?.alias });
     const body = `PR #${number} changed:\n${event.summary}`;
     const entry = { runId: run.id, sent: false, turnStarted: false, comment: true };
     pending.set(chatId, entry);

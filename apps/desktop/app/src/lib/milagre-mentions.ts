@@ -17,7 +17,6 @@ export function milagreMentionRows(open: boolean, query: string) {
       name,
       desc,
       computer: undefined,
-      group: "Milagre",
     }),
   );
 }

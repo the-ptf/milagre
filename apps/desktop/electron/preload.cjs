@@ -269,6 +269,20 @@ function issueBridges(invoke) {
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {import("../app/src/electron.d.ts").MilagreBridge["validation"]}
+ */
+function validationBridge(invoke) {
+  return {
+    read: (projectPath) => invoke("project-validation:read", projectPath),
+    save: (projectPath, value) => invoke("project-validation:save", projectPath, value),
+    run: (request) => invoke("validation:run", request),
+    stop: (request) => invoke("validation:stop", request),
+    log: (request) => invoke("validation:log", request),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @param {(channel: string, ...args: any[]) => void} send
  * @returns {import("../app/src/electron.d.ts").MilagreBridge}
@@ -332,7 +346,7 @@ function makeBridge(invoke, listen, send) {
     onRuntimeConnection: (callback) => listen("runtime:connection", callback),
     onRuntimeSnapshot: (callback) => listen("runtime:snapshot", callback),
     getPathForFile: (file) => webUtils.getPathForFile(file),
-    ...dictationAndAttachmentBridge(invoke),
+    ...utilityBridge(invoke),
     searchProjectFiles: (root, query) => invoke("project:files", root, query),
     listSkills: (projectPath) => invoke("skills:list", projectPath),
     readSkill: (projectPath, file) => invoke("skills:read", projectPath, file),
@@ -794,10 +808,11 @@ contextBridge.exposeInMainWorld("milagrePreferences", {
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
- * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readAttachment" | "dictationCorrections" | "setDictationCorrection" | "readAttachmentChunk">}
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readAttachment" | "dictationCorrections" | "setDictationCorrection" | "readAttachmentChunk" | "validation">}
  */
-function dictationAndAttachmentBridge(invoke) {
+function utilityBridge(invoke) {
   return {
+    validation: validationBridge(invoke),
     dictationCorrections: (cwd) => invoke("dictation:corrections", cwd),
     setDictationCorrection: (cwd, heard, spelling) => invoke("dictation:correct", cwd, heard, spelling),
     readAttachment: (file) => invoke("attachment:preview", file),

@@ -246,23 +246,27 @@ test("always allowing in this chat can't exceed what the request offered", () =>
   );
 });
 
-test("switching to Auto answers waiting edits inside the worktree; Full answers everything", () => {
+test("switching to Auto answers what Auto allows (worktree edits, safe commands); Full answers everything", () => {
   const { permissions, events, answers } = pending();
-  const add = (requestId, kind, inWorkspace) =>
-    permissions.add({ requestId, kind, tool: "T", title: "Allow?", allowForChat: false }, (decision) => answers.push({ requestId, decision }), { inWorkspace });
-  add("edit", "edit", true);
-  add("outside", "edit", false);
-  add("command", "command", true);
+  const add = (requestId, kind, options) =>
+    permissions.add({ requestId, kind, tool: "T", title: "Allow?", allowForChat: false }, (decision) => answers.push({ requestId, decision }), options);
+  add("edit", "edit", { inWorkspace: true });
+  add("outside", "edit", { inWorkspace: false });
+  add("command", "command", { inWorkspace: true });
+  add("safe", "command", { safeCommand: true });
   permissions.setMode("auto");
-  assert.deepEqual(answers, [{ requestId: "edit", decision: "allow" }]);
+  assert.deepEqual(answers, [
+    { requestId: "edit", decision: "allow" },
+    { requestId: "safe", decision: "allow" },
+  ]);
   permissions.setMode("full");
   assert.deepEqual(
     answers.map((answer) => answer.requestId),
-    ["edit", "outside", "command"],
+    ["edit", "safe", "outside", "command"],
   );
   assert.deepEqual(
     events.filter((event) => event.type === "permission-resolved").map((event) => event.requestId),
-    ["edit", "outside", "command"],
+    ["edit", "safe", "outside", "command"],
   );
 });
 

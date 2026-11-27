@@ -122,6 +122,7 @@ const ALLOWED: Record<string, string[]> = {
   "components/SidebarNav.tsx": ["listRecentProjects", "listNamedLinks", "listProjects", "setProjectHidden", "updateNamedLink"],
   // Reveal in Finder shows only for this computer's own Projects.
   "components/sidebar/project-menu.ts": ["revealInFolder"],
+  "components/markdown/LinkMenu.tsx": ["revealFile"],
   // This Mac's own Projects and Links in the new-chat Project picker and computer chip; other computers' come through their bridges.
   "lib/project-copies.ts": ["listRecentProjects", "listNamedLinks"],
   // Canvas Links are this Mac's own, like the canvas.

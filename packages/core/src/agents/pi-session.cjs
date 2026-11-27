@@ -444,8 +444,8 @@ class PiSession {
       this.decide(id, "allow");
       return;
     }
-    if (this.permissions.mode === "auto" && request.kind === "command") {
-      const risk = commandRisk(request.command, { cwd: this.cwd, roots });
+    const risk = request.kind === "command" ? commandRisk(request.command, { cwd: this.cwd, roots }) : undefined;
+    if (this.permissions.mode === "auto" && risk !== undefined) {
       if (!risk) {
         this.decide(id, "allow");
         return;
@@ -459,7 +459,7 @@ class PiSession {
         if (decision === "allow-for-chat") this.chatAllowed.add(rule);
         this.decide(id, decision, decision === "cancelled" ? "The turn was stopped." : undefined);
       },
-      { inWorkspace },
+      { inWorkspace, safeCommand: risk === null },
     );
   }
 
