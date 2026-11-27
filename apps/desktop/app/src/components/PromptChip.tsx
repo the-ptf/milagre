@@ -163,7 +163,7 @@ export function MentionRowIcon({ row }: { row: { key: string; path?: string; cha
   const icon = row.chatId !== undefined ? BubbleChatIcon : row.computer ? ComputerIcon : MILAGRE_ICONS[row.key];
   const kind = row.path ? "file" : row.chatId !== undefined ? "chat" : row.computer ? "computer" : row.key;
   return (
-    <span aria-hidden data-mention-icon={kind} className="flex size-4 shrink-0 items-center justify-center text-[15px] text-ink-3">
+    <span aria-hidden data-mention-icon={kind} className="flex size-4 shrink-0 items-center justify-center text-15 text-ink-3">
       {row.path ? <FileKindIcon path={row.path} badge={false} /> : icon && <HugeiconsIcon icon={icon} size={ICON_SIZE} strokeWidth={1.8} />}
     </span>
   );
