@@ -477,7 +477,15 @@ async function browserChecks() {
 
     await sendNow();
     await typeText("run it on @San");
-    await waitFor(`[...document.querySelectorAll('[data-skill-group]')].some(group => group.textContent === 'Computers')`, "the Computers group");
+    await waitFor(
+      `[...document.querySelectorAll('[aria-label="Project files and Chats"] button')].some(row => row.textContent.includes('Santo') && row.querySelector('[data-mention-icon="computer"]'))`,
+      "the computer row with its icon",
+    );
+    assert.equal(
+      await evaluate(`document.querySelectorAll('[aria-label="Project files and Chats"] [data-skill-group]').length`),
+      0,
+      "the @ menu has no headings",
+    );
     await screenshot("composer-computer-menu");
     await keydown("Enter");
     await draftIs("run it on @computer:Santo ");

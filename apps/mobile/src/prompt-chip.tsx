@@ -1,9 +1,20 @@
 import { Pressable, Text, View } from "react-native";
-import { BubbleChatIcon, ComputerIcon, File01Icon, Folder01Icon, Image01Icon, MagicWand01Icon, ReactIcon } from "@hugeicons/core-free-icons";
+import {
+  BubbleChatIcon,
+  ComputerIcon,
+  File01Icon,
+  Folder01Icon,
+  Globe02Icon,
+  Image01Icon,
+  KanbanIcon,
+  MagicWand01Icon,
+  PaintBoardIcon,
+  ReactIcon,
+} from "@hugeicons/core-free-icons";
 import { fileKind, IMAGE_COLOR } from "@milagre/shared/file-kinds";
 import { imageLabel, skillLabel } from "@milagre/shared/prompt-parts";
 import { withAlpha } from "@milagre/shared/themes";
-import { Icon } from "./icons";
+import { Icon, type IconData } from "./icons";
 import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
@@ -64,9 +75,9 @@ export function SkillChip({ name }: { name: string }) {
   );
 }
 
-function KindIcon({ path, size }: { path: string; size: number }) {
+function KindIcon({ path, size, badge = true }: { path: string; size: number; badge?: boolean }) {
   const kind = fileKind(path);
-  if (kind.badge)
+  if (kind.badge && badge)
     return (
       <View style={{ borderRadius: radius.chip, borderCurve: "continuous", paddingHorizontal: 4, backgroundColor: withAlpha(kind.color, 0.16) }}>
         <Text style={{ color: kind.color, fontSize: type.caption2, lineHeight: lineHeight.caption2, fontWeight: "600" }}>{kind.badge}</Text>
@@ -123,5 +134,23 @@ export function ComputerMentionChip({ name }: { name: string }) {
         {name}
       </Text>
     </Box>
+  );
+}
+
+const MENTION_ICONS: Record<"chat" | "computer" | "orchestrator" | "paradise" | "browser", IconData> = {
+  chat: BubbleChatIcon,
+  computer: ComputerIcon,
+  orchestrator: KanbanIcon,
+  paradise: PaintBoardIcon,
+  browser: Globe02Icon,
+};
+
+/** What an @ menu row names, at a glance: the file's kind, a Chat, a computer or a part of Milagre. */
+export function MentionIcon({ kind, path }: { kind?: keyof typeof MENTION_ICONS; path?: string }) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ width: 20, alignItems: "center" }}>
+      {path ? <KindIcon path={path} size={20} badge={false} /> : kind ? <Icon icon={MENTION_ICONS[kind]} size={18} color={colors.ink3} /> : null}
+    </View>
   );
 }
