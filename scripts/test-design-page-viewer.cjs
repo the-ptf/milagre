@@ -447,13 +447,22 @@ async function checkPresentation({ window, evaluate, ready, send, url }) {
     else await delay(20);
   }
   assert.ok(frame, "the interactive screen loads");
-  const button = await frame.executeJavaScript("(r => [r.x + r.width / 2, r.y + r.height / 2])(document.getElementById('count').getBoundingClientRect())");
-  const screen = await evaluate("(r => ({x:r.x,width:r.width,y:r.y}))(document.querySelector('.mvp-slide:not([hidden]) .mvp-screen').getBoundingClientRect())");
-  const ratio = screen.width / 390;
   const mouse = (type, x, y) => send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
-  await mouse("mouseMoved", screen.x + button[0] * ratio, screen.y + button[1] * ratio);
-  await mouse("mousePressed", screen.x + button[0] * ratio, screen.y + button[1] * ratio);
-  await mouse("mouseReleased", screen.x + button[0] * ratio, screen.y + button[1] * ratio);
+  let target;
+  for (let tries = 0; tries < 100 && !target; tries++) {
+    const button = await frame.executeJavaScript("(r => [r.x + r.width / 2, r.y + r.height / 2])(document.getElementById('count').getBoundingClientRect())");
+    const box = await evaluate(
+      "(e => {const r = e.getBoundingClientRect(); return [r.x, r.y, r.width / e.offsetWidth]})(document.querySelector('.mvp-slide:not([hidden]) iframe'))",
+    );
+    const x = box[0] + button[0] * box[2];
+    const y = box[1] + button[1] * box[2];
+    await mouse("mouseMoved", x, y);
+    if (await frame.executeJavaScript("document.getElementById('count').matches(':hover')")) target = { x, y };
+    else await delay(20);
+  }
+  assert.ok(target, "the visible counter receives pointer input");
+  await mouse("mousePressed", target.x, target.y);
+  await mouse("mouseReleased", target.x, target.y);
   const counted = () => frame.executeJavaScript("document.getElementById('count').textContent");
   for (let tries = 0; tries < 100 && (await counted()) !== "1"; tries++) await delay(10);
   assert.equal(await counted(), "1", "an interactive screen takes clicks directly");
