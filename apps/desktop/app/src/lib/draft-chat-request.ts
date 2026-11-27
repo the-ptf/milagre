@@ -1,4 +1,4 @@
-export const DRAFT_CHAT = "milagre:draft-chat";
+const DRAFT_CHAT = "milagre:draft-chat";
 
 /** Asks the window to leave Settings and open a new Chat without a Project, with `text` ready in its composer. */
 export function requestDraftChat(text: string) {
