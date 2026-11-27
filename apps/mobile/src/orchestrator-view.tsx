@@ -217,7 +217,7 @@ export function OrchestratorView() {
       {toast ? (
         <StartedToast
           key={toast.id}
-          project={projectName(toast.projectPath, listed ?? session.recent)}
+          text={`Started in ${projectName(toast.projectPath, listed ?? session.recent)}`}
           color={color}
           onHide={hideToast}
           onUndo={() => {

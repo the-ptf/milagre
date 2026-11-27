@@ -6,7 +6,7 @@ import { type SnoozeMark } from "./snooze-actions";
 import { useSnoozeMinutes } from "./snooze-setting";
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { FlatList, Platform, RefreshControl, StyleSheet, Text, View, type TextInputInstance } from "react-native";
-import { ArrowLeft01Icon, Cancel01Icon, MoreHorizontalIcon, RepeatIcon, Settings01Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, Cancel01Icon, GitPullRequestIcon, MoreHorizontalIcon, RepeatIcon, Settings01Icon } from "@hugeicons/core-free-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { chatMarkTone, chatPullRequests } from "@milagre/shared/chats";
 import { unreadRunRoutines } from "@milagre/shared/routines";
@@ -419,13 +419,7 @@ const NavigationBody = memo(function NavigationBody({
   });
   const filterSections = [
     {
-      items: [
-        {
-          id: "choose-projects",
-          title: "Choose projects…",
-          systemImage: "checklist",
-        },
-      ],
+      items: [{ id: "choose-projects", title: "Choose projects…", systemImage: "checklist" }],
     },
     {
       title: "Show",
@@ -605,6 +599,7 @@ const NavigationBody = memo(function NavigationBody({
                 {unreadRuns && <View pointerEvents="none" style={[s.headerDot, { backgroundColor: colors[chatMarkTone("unread")] }]} />}
               </View>
             )}
+            {views.length > 0 && <HeaderButton label="Pull requests" icon={GitPullRequestIcon} onPress={() => onNavigate("/pull-requests", true)} />}
             <PullDown
               label="More"
               sections={[
