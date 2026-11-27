@@ -159,8 +159,8 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await waitFor('!!document.querySelector("[data-slot=subagent-track]")');
     await assertMainGutters();
-    assert.equal(await evaluate('document.querySelector("[data-slot=subagent-track]").textContent.includes("active")'), false);
-    assert.equal(await evaluate('document.querySelector("[data-slot=subagent-track]").textContent.includes("failed")'), false);
+    assert.equal(await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill]").textContent.includes("active")'), false);
+    assert.equal(await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill]").textContent.includes("failed")'), false);
     await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
     await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state === "open"');
     assert.equal(await evaluate('document.querySelectorAll("dialog[open], [aria-modal=true]").length'), 0);
@@ -234,6 +234,52 @@ async function browserChecks() {
     assert.ok(await evaluate('document.querySelector("[data-subagent-row]").textContent.includes("Now running the auth suite to confirm.")'));
     await screenshot("subagents-glance-list");
     await evaluate("window.setChildren(window.savedChildren)");
+    // Nested subagents sit under the one that started them; a folded branch stays folded through live updates.
+    const nested = (status) => `window.setChildren(items => [
+      ...items.filter(item => !item.parentId),
+      {id:"unit",title:"Run unit tests",parentId:"tests",status:${JSON.stringify(status)},startedAt:Date.now()-20000,updatedAt:Date.now(),transcript:[]},
+      {id:"flake",title:"Retry the flaky one",parentId:"unit",status:"running",startedAt:Date.now()-5000,updatedAt:Date.now(),transcript:[]},
+      {id:"e2e",title:"Run e2e tests",parentId:"tests",status:"completed",startedAt:Date.now()-30000,updatedAt:Date.now(),endedAt:Date.now(),transcript:[]},
+    ])`;
+    const treeRows =
+      '[...document.querySelectorAll("[data-subagent-row]")].map(row => [row.querySelector("[data-subagent-open]").dataset.subagentId, Number(row.dataset.depth)])';
+    await evaluate(nested("running"));
+    await waitFor('document.querySelectorAll("[data-subagent-row]").length === 5');
+    assert.deepEqual(await evaluate(treeRows), [
+      ["review", 0],
+      ["tests", 0],
+      ["unit", 1],
+      ["flake", 2],
+      ["e2e", 1],
+    ]);
+    assert.ok(await evaluate('document.querySelector("[data-slot=subagent-popover]").textContent.includes("3 running · 1 failed · 1 done")'));
+    const iconX = (id) => evaluate(`document.querySelector('[data-subagent-id="${id}"] [data-subagent-title]').getBoundingClientRect().left`);
+    assert.equal((await iconX("unit")) - (await iconX("tests")), 20, "A child's row starts one indent past its parent's");
+    await screenshot("subagents-tree");
+    await clickLabel("Hide the 2 subagents Run tests started");
+    await waitFor('document.querySelectorAll("[data-subagent-row]").length === 2');
+    assert.ok(await evaluate('!!document.querySelector("[data-subagent-branch][aria-expanded=false] svg circle")'), "A folded branch shows its running work");
+    await evaluate(nested("failed"));
+    await evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))");
+    assert.equal(await evaluate('document.querySelectorAll("[data-subagent-row]").length'), 2, "A folded branch stays folded through updates");
+    await screenshot("subagents-tree-folded");
+    await evaluate("document.querySelector('[data-subagent-id=\"tests\"]').focus()");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Right" });
+    await waitFor('document.querySelectorAll("[data-subagent-row]").length === 5');
+    await evaluate("document.querySelector('[data-subagent-id=\"flake\"]').focus()");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Left" });
+    await waitFor('document.activeElement?.dataset.subagentId === "unit"');
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Left" });
+    await waitFor('document.querySelectorAll("[data-subagent-row]").length === 4');
+    assert.deepEqual(await evaluate(treeRows), [
+      ["review", 0],
+      ["tests", 0],
+      ["unit", 1],
+      ["e2e", 1],
+    ]);
+    await evaluate("window.setChildren(window.savedChildren)");
+    await waitFor('document.querySelectorAll("[data-subagent-row]").length === 2');
+    assert.equal(await evaluate('document.querySelectorAll("[data-subagent-branch]").length'), 0, "A flat list draws no tree");
     await clickLabel("Collapse subagents");
     assert.equal(await evaluate('document.activeElement === document.querySelector("[data-slot=subagent-track] [data-face=pill] button")'), true);
     await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');

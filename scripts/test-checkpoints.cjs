@@ -119,7 +119,7 @@ async function browserChecks() {
       if (await evaluate(source)) return;
       await delay(25);
     }
-    throw new Error("Timed out: " + source);
+    throw new Error(["Timed out: " + source, ...errors].join("\n"));
   };
   const shot = async (name) => {
     await delay(260);
@@ -473,6 +473,8 @@ async function browserChecks() {
 
     // Edit message: the pencil loads the message into the composer, sets the draft aside, outlines the bubble, dims what
     // follows and says what goes with it. Esc puts the draft back; Send replaces the message through chat:edit.
+    await evaluate(`window.setExtra([{id: 19, session_id: 1, role: "assistant", body: "Validation passed",
+      context: {kind: "validation", runId: "r19", status: "passed", trigger: "user", startedAt: 1, worktreePath: "/Projects/storefront", results: []}}])`);
     await evaluate('window.setDraft("half-written note")');
     await evaluate('document.querySelector("[data-edit-message=\\"13\\"]").click()');
     await wait('!!document.querySelector("[data-message-edit-card]")');
@@ -488,6 +490,11 @@ async function browserChecks() {
     );
     await wait('document.querySelector("[data-prompt-editor]").textContent.includes("account page")');
     assert.deepEqual(await ringed(), ["message-13"]);
+    assert.equal(
+      await evaluate('!!document.querySelector("[data-validation-card=passed]")?.closest(".opacity-40")'),
+      true,
+      "later validation evidence stays visible and dimmed while editing",
+    );
     assert.equal(await evaluate('document.querySelector("#message-14").dataset.dimmed'), "true");
     assert.equal(await evaluate('document.querySelector("#message-12").dataset.dimmed'), undefined);
     await wait('document.querySelector("[data-message-edit-card]").textContent.includes("Also undo the changes to 3 files")');

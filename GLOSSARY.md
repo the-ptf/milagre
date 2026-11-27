@@ -89,6 +89,10 @@ _Avoid_: tab alone where a **Browser page** is meant
 **Task list**:
 A **Chat**'s tree of tasks, at most three levels deep, written by the agent with Milagre's `tasks_set` and `task_update`. Saved with the **Chat**; a provider's own todo list fills it until Milagre's tools take over.
 
+**Validation**:
+A **Project**'s commands (typecheck, lint, tests) that Milagre runs itself in a **Chat**'s **Worktree**, after a task that changed files or when the user or agent asks, and records in the **Chat** as passed, failed, interrupted or not run, with each command's exit code and log. Only exit codes count: an agent saying its tests pass is not **Validation**. A result goes out of date once a file Git doesn't ignore changes after it ran. See [chat-storage](docs/chat-storage.md#validation).
+_Avoid_: checks (GitHub's CI checks on a PR), verification
+
 **Phase**:
 Where a **Chat**'s work is (Start, Plan, Build, Test, Review, Merge, Release, Done), set by the agent with `phase_set` and drawn on the Tasks pill's phase graph.
 

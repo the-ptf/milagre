@@ -575,7 +575,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2391,
+            "max": 2368,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -583,7 +583,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2139,
+            "max": 2127,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1007,7 +1007,7 @@
     {
       "files": ["packages/core/src/agents/subagents.cjs"],
       "rules": {
-        "complexity": ["error", 93]
+        "complexity": ["error", 90]
       }
     },
     {
@@ -1310,7 +1310,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1659,
+            "max": 1622,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1318,7 +1318,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 1571,
+            "max": 1534,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1432,7 +1432,7 @@
         "max-lines": [
           "error",
           {
-            "max": 914,
+            "max": 908,
             "skipBlankLines": true,
             "skipComments": true
           }

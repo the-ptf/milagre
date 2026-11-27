@@ -1,9 +1,5 @@
 import type { ChatMessage } from "./model.ts";
 
-export function checkpointRestoreText(context: CheckpointRestoreContext): string;
-export function checkpointRestoreAction(context: CheckpointRestoreContext): string;
-export function isCheckpointRestore(message: ChatMessage | null | undefined): message is ChatMessage & { context: CheckpointRestoreContext };
-
 /**
  * Undo changes wrote files: `restored` of them went back to how they were before the task (`checkpointId`), `kept` stayed
  * as they were. `recoveryId` is the checkpoint saved just before, which the line's Redo previews. `redo` marks restoring
@@ -17,3 +13,7 @@ export type CheckpointRestoreContext = {
   kept: number;
   redo: boolean;
 };
+
+export function checkpointRestoreText(context: CheckpointRestoreContext): string;
+export function checkpointRestoreAction(context: CheckpointRestoreContext): string;
+export function isCheckpointRestore(message: ChatMessage | null | undefined): message is ChatMessage & { context: CheckpointRestoreContext };

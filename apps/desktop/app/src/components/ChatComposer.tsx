@@ -203,8 +203,8 @@ export function ChatComposer({
   const { steps: streamingSteps, phase } = useLiveSteps(givenSteps, streamingKey, statusLabel);
   const [jumpToBottom, setJumpToBottom] = useState<{ key: string | null | undefined; jump: () => void } | null>(null);
   const [transcriptAtEnd, setTranscriptAtEnd] = useState(true);
-  const transcriptSession = useTranscriptSession(session, isSending, onSettle);
   const runtimeChat = typeof chatId === "number" && chatId > 0 && projectPath ? (agentChatId ?? `${messageScope ?? projectPath}#${chatId}`) : null;
+  const transcriptSession = useTranscriptSession(session, isSending, onSettle, { chat: runtimeChat, readOnly: readOnlyHistory });
   const draftKey = scrollKey === undefined ? null : `view:${scrollKey}`;
   const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat ?? draftKey);
   const browserChat = !isNewChat ? runtimeChat : null;

@@ -15,6 +15,7 @@ import { setProjectImage, useProjectImages } from "../../lib/project-images";
 import { thisComputer } from "../../lib/shortcut-hints";
 import { SECONDARY_BUTTON, DANGER_BUTTON } from "./settings-parts";
 import { MainSyncSetting } from "./MainSyncSettings";
+import { ProjectValidationSettings } from "./ProjectValidationSettings";
 import type { SettingsProject } from "../Settings";
 
 // Icons are scaled down before saving: the phone gets the same image, and a full-size app icon would not fit.
@@ -391,6 +392,7 @@ export function ProjectSettings({ project, onManageAccounts }: { project: Settin
         <FilesToCopy projectPath={project.path} />
         <SetupCommand projectPath={project.path} />
       </Group>
+      <ProjectValidationSettings projectPath={project.path} />
       <Group title="Remove Project">
         <Row label="Remove from Projects list" description="Files, Worktrees and saved Chats stay on disk. Add the Project again to bring it back.">
           <button type="button" data-project-remove className={DANGER_BUTTON} onClick={() => setRemoving(true)}>

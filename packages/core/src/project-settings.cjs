@@ -110,6 +110,24 @@ function createProjectSettings(file) {
         else delete entry.git;
       });
     },
+    async getValidation(projectPath) {
+      const { normalizeValidationSettings } = require("@milagre/shared/validation");
+      const entry = (await read({ strict: false })).projects[path.resolve(projectPath)];
+      try {
+        return normalizeValidationSettings(entry?.validation);
+      } catch {
+        return normalizeValidationSettings(null);
+      }
+    },
+    async setValidation(projectPath, value) {
+      const { normalizeValidationSettings } = require("@milagre/shared/validation");
+      const settings = normalizeValidationSettings(value);
+      await update(projectPath, (entry) => {
+        if (settings.commands.length || !settings.afterTask) entry.validation = settings;
+        else delete entry.validation;
+      });
+      return settings;
+    },
     async get(projectPath) {
       const entry = (await read({ strict: false })).projects[path.resolve(projectPath)] ?? {};
       return { filesToCopy: normalizeFilesToCopy(entry.filesToCopy), setupCommand: normalizeSetupCommand(entry.setupCommand), icon: normalizeIcon(entry.icon) };

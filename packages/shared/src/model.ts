@@ -12,12 +12,13 @@ import type {
 import type { ContextUsage, ModelMeta, TurnMetrics } from "./model-meta.ts";
 import type { GithubIssueContext } from "./github-issue.mjs";
 import type { LinearIssueContext } from "./linear.ts";
-
+import type { ValidationContext } from "./validation.mjs";
 import type { CheckpointRestoreContext } from "./checkpoint-restore.mjs";
-export type { CheckpointRestoreContext };
+
+import type { HandoffContext } from "./handoff.mjs";
 import type { MessageEditContext } from "./message-edit.mjs";
 export type { ChatEditRequest, MessageEditContext } from "./message-edit.mjs";
-export type { GithubIssueContext, LinearIssueContext };
+export type { HandoffContext, CheckpointRestoreContext, GithubIssueContext, LinearIssueContext, ValidationContext };
 
 export type SessionStatus = "Created" | "Running" | "Stopped";
 export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro" | "pi";
@@ -355,15 +356,6 @@ export interface AnsweredQuestion {
   question: string;
   answers: string[];
 }
-
-export type HandoffContext = {
-  kind: "handoff";
-  from: { provider: ModelProvider; model?: string };
-  to: { provider: ModelProvider; model?: string };
-  status: "preparing" | "done" | "failed";
-  brief?: string;
-  transcriptPath?: string;
-};
 
 /**
  * A manual or automatic compaction, shown as a divider like a handoff. A manual request keeps `/compact` as its body;
@@ -743,6 +735,7 @@ export type ChatContext =
   | RoutineRunContext
   | BabysitStoppedContext
   | CheckpointRestoreContext
+  | ValidationContext
   | SubchatWaitingContext
   | SubchatEscalationContext
   | SubchatSuggestionContext

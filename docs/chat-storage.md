@@ -56,7 +56,7 @@ Rejected: a hidden Project per Chat (every list skips hidden homes, so the phone
 
 Chat menus on desktop and phone offer Delete, not Archive. Delete acts at once, with no confirmation, and permanently removes the conversation, its rows, its local Designs and its page comments.
 
-Archive, delete, Worktree removal and Routine Run cleanup all retire a Chat through one ordered sequence, `createChatRetirement` in `packages/core/src/runtime/chat-lifecycle.cjs`: end its Heartbeats, cancel a pending usage-limit continuation, stop the running turn (which holds queued sends), cancel Worktree setup, close side questions and the agent session, stop Terminals and background commands, settle advisors and delegations, and cancel pending secret and bug-report questions. The Project state change is what notifies clients. The modes differ only around that sequence:
+Archive, delete, Worktree removal and Routine Run cleanup all retire a Chat through one ordered sequence, `createChatRetirement` in `packages/core/src/runtime/chat-lifecycle.cjs`: end its Heartbeats, cancel a pending usage-limit continuation, stop the running turn (which holds queued sends), cancel Worktree setup, stop a validation run, close side questions and the agent session, stop Terminals and background commands, settle advisors and delegations, and cancel pending secret and bug-report questions. The Project state change is what notifies clients. The modes differ only around that sequence:
 
 - Archive saves at once and finishes the sequence in the background, so the row moves without waiting on the agent or advisors (#718, #734). Messages, page comments and Designs stay restorable.
 - Delete runs the sequence, removes the Chat from state, then removes its stored data: page comments, Designs and artifacts, the computer-use screen. Secret files are not per Chat; they expire on their own.
@@ -86,6 +86,16 @@ Users add exclusions in `.milagre/checkpoint-ignore` per Worktree: one relative 
 Editing a sent message replaces it and removes later messages from the shared transcript. Optional file undo combines the removed tasks' checkpoints. Each file returns to its state before the first removed task that changed it. The host checks the file preview again on Send so a later edit requires a new choice. Redo recovers files only.
 
 Checkpoints are local recovery data with no retention limit yet, not a backup.
+
+## Validation
+
+A Project's validation commands (Settings › Project › Validation, desktop and phone) live in the computer's Project settings, outside the repository, so an agent can't rewrite what checks its own work. `packages/core/src/validation.cjs` runs them one after another in the Chat's Worktree through the login shell (as Worktree setup does), 10 minutes each, and records the run as a note in the Chat, `context.kind: "validation"`, updated in place while it runs.
+
+- **Evidence, not claims.** A command's status comes only from its exit code or signal: passed, failed, interrupted (Stop, timeout, the Chat retired, the host stopping) or not run. The note keeps each command, folder, exit code, duration and the last 40 lines; the whole log (up to 2 MB) stays in the data directory's `validations/runs/<runId>/` and `validation:log` reads it for that Chat only. The last 200 runs are kept.
+- **When.** After a completed turn whose checkpoint changed files, when "Run after each task" is on. In Ask mode that run is recorded as not run until the user presses Run, which is the approval. The user's Run, the command palette and the agent's `validation_run` tool (gated by the provider like any tool) start one at any time; a run already going in the Worktree is joined. The agent hears a task's result as a `<milagre_note>` with its next turn.
+- **Code state.** A run records HEAD plus a digest of every file Git doesn't ignore that differs from it, `.milagre/` left out. When a turn in that Worktree ends, or the Chat is opened, the host compares it again and marks the note out of date with the files that changed; a run whose files changed while it ran is out of date at once. `validations/fresh.json` keeps the runs still current, so a restart keeps watching them.
+- A run left running by a host that stopped is settled as interrupted at the next start, never left looking like it could pass.
+- Named Link shared Chats have no validation yet: the tools and Run refuse them.
 
 ## Imported Chats
 

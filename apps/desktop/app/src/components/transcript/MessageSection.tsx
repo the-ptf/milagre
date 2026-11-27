@@ -58,6 +58,8 @@ import { CheckpointRestoreDivider } from "../CheckpointRestoreDivider";
 import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
 import { canEditMessage, isMessageEdit } from "@milagre/shared/message-edit";
 import { MessageEditDivider } from "../MessageEditDivider";
+import { isValidation } from "@milagre/shared/validation";
+import { ValidationCard } from "./ValidationCard";
 import { type UndoIntent } from "../checkpoints/UndoPanel";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { LinkedExchangeLine, LinkedMessageHeader, LinkedMessageLine, linkedContext, linkedLine } from "../LinkedMessage";
@@ -299,6 +301,7 @@ type MessageSectionProps = {
   /** After the message being edited: removed when the edit is sent. */
   dimmed?: boolean;
   onCheckpointPreview?: (recoveryId: string, action: UndoIntent) => void;
+  validationChat?: string | null;
   onRecommendationSelect: (option: string) => void;
   onUpdateCli?: (provider: ModelProvider) => void;
   updatingCli?: ModelProvider | null;
@@ -315,14 +318,24 @@ type MessageSectionProps = {
   onOpenAccounts?: () => void;
 };
 
-function messageDivider(message: AppChatMessage, options: Pick<MessageSectionProps, "models" | "merged" | "onCheckpointPreview" | "onOpenChat" | "dimmed">) {
+function messageDivider(
+  message: AppChatMessage,
+  options: Pick<MessageSectionProps, "models" | "merged" | "onCheckpointPreview" | "onOpenChat" | "dimmed" | "validationChat" | "onRecommendationSelect">,
+) {
   const divider = dividerFor(message, options);
   return divider && options.dimmed ? <div className="opacity-40">{divider}</div> : divider;
 }
 
 function dividerFor(
   message: AppChatMessage,
-  { models, merged, onCheckpointPreview, onOpenChat }: Pick<MessageSectionProps, "models" | "merged" | "onCheckpointPreview" | "onOpenChat">,
+  {
+    models,
+    merged,
+    onCheckpointPreview,
+    onOpenChat,
+    validationChat = null,
+    onRecommendationSelect,
+  }: Pick<MessageSectionProps, "models" | "merged" | "onCheckpointPreview" | "onOpenChat" | "validationChat" | "onRecommendationSelect">,
 ): ReactNode {
   if (typeof message.context === "object" && message.context?.kind === "chat-fork") {
     const context = message.context;
@@ -353,6 +366,8 @@ function dividerFor(
   if (isRoutineRun(message)) return <RoutineRunDivider context={message.context} merged={merged} />;
   if (isCheckpointRestore(message)) return <CheckpointRestoreDivider context={message.context} onPreview={onCheckpointPreview} />;
   if (isMessageEdit(message)) return <MessageEditDivider context={message.context} onPreview={onCheckpointPreview} />;
+  if (isValidation(message))
+    return <ValidationCard context={message.context} chatId={validationChat} onAskToFix={validationChat ? onRecommendationSelect : undefined} />;
   return null;
 }
 
@@ -664,9 +679,10 @@ export const MessageSection = memo(function MessageSection({
   editing = false,
   dimmed = false,
   onCheckpointPreview,
+  validationChat,
 }: MessageSectionProps) {
   const mentions = usePromptMentions(message, isUser);
-  const divider = messageDivider(message, { models, merged, onCheckpointPreview, onOpenChat, dimmed });
+  const divider = messageDivider(message, { models, merged, onCheckpointPreview, onOpenChat, validationChat, onRecommendationSelect, dimmed });
   if (divider) return divider;
   const linked = linkedContext(message);
   const linkedArticle = linkedLineArticle(message, isUser, linked, { exchange, onOpenChat });

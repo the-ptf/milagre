@@ -16,6 +16,7 @@ import type {
 } from "@milagre/shared/orchestrator";
 import type { DoneSettings } from "@milagre/shared/done";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
+import type { ValidationSettings } from "@milagre/shared/validation";
 import type { KeybindingCommandId, KeybindingRule, KeybindingsState } from "@milagre/shared/keybindings";
 import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync";
 import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider } from "@milagre/shared/mcp";
@@ -765,6 +766,13 @@ export type MilagreBridge = {
   onProjectState: (callback: (update: { path: string; state?: CoordinatorState } & StateNumbering) => void) => () => void;
   /** Saves a message in its chat (a new one when `sessionId` is null), then starts or steers the chat's turn. */
   checkpoints: CheckpointApi;
+  validation: {
+    read: (projectPath: string) => Promise<ValidationSettings>;
+    save: (projectPath: string, value: ValidationSettings) => Promise<ValidationSettings>;
+    run: (request: { chatId: string }) => Promise<{ runId: string }>;
+    stop: (request: { chatId: string; runId: string }) => Promise<boolean>;
+    log: (request: { chatId: string; runId: string; index: number }) => Promise<{ text: string }>;
+  };
   sendStatus: (owner: string, id: string) => Promise<{ sessionId: number } | null>;
   sendMessage: (request: ChatSendRequest) => Promise<{ sessionId: number }>;
   editMessage: (request: ChatEditRequest) => Promise<{ sessionId: number }>;

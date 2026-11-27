@@ -1,4 +1,13 @@
-import type { ChatMessage, HandoffContext, ModelProvider, TranscriptState } from "./model.ts";
+import type { ChatMessage, ModelProvider, TranscriptState } from "./model.ts";
+
+export type HandoffContext = {
+  kind: "handoff";
+  from: { provider: ModelProvider; model?: string };
+  to: { provider: ModelProvider; model?: string };
+  status: "preparing" | "done" | "failed";
+  brief?: string;
+  transcriptPath?: string;
+};
 
 type HandoffState = Pick<TranscriptState, "sessions" | "messages">;
 
