@@ -451,9 +451,17 @@ async function checkPresentation({ window, evaluate, ready, send, url }) {
   const screen = await evaluate("(r => ({x:r.x,width:r.width,y:r.y}))(document.querySelector('.mvp-slide:not([hidden]) .mvp-screen').getBoundingClientRect())");
   const ratio = screen.width / 390;
   const mouse = (type, x, y) => send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
-  await mouse("mouseMoved", screen.x + button[0] * ratio, screen.y + button[1] * ratio);
-  await mouse("mousePressed", screen.x + button[0] * ratio, screen.y + button[1] * ratio);
-  await mouse("mouseReleased", screen.x + button[0] * ratio, screen.y + button[1] * ratio);
+  const x = screen.x + button[0] * ratio;
+  const y = screen.y + button[1] * ratio;
+  const hovered = () => frame.executeJavaScript("document.getElementById('count').matches(':hover')");
+  for (let tries = 0; tries < 100; tries++) {
+    await mouse("mouseMoved", x, y);
+    if (await hovered()) break;
+    await delay(10);
+  }
+  assert.ok(await hovered(), "the pointer reaches the counter in the presented frame");
+  await mouse("mousePressed", x, y);
+  await mouse("mouseReleased", x, y);
   const counted = () => frame.executeJavaScript("document.getElementById('count').textContent");
   for (let tries = 0; tries < 100 && (await counted()) !== "1"; tries++) await delay(10);
   assert.equal(await counted(), "1", "an interactive screen takes clicks directly");
