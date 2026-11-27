@@ -1007,7 +1007,7 @@
     {
       "files": ["packages/core/src/agents/subagents.cjs"],
       "rules": {
-        "complexity": ["error", 93]
+        "complexity": ["error", 90]
       }
     },
     {
