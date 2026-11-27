@@ -1,6 +1,7 @@
 import { requestSideQuestion } from "./chat-branch-events";
 import { bridgeForKey } from "./computer-bridge";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
+import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { UI_COPY } from "@milagre/shared/model-copy";
 import { GITHUB_ISSUE_TITLE } from "@milagre/shared/github-issue";
 import { requestGithubIssuePicker } from "./issue-picker-request";
@@ -315,6 +316,18 @@ function currentChatCommands(ctx: AppCommandContext, session: AgentSession): Com
         actions.openChat(result.sessionId);
       },
     },
+    ...(isLinkScopeKey(ctx.current.path)
+      ? []
+      : [
+          {
+            id: "validation",
+            label: "Run validation",
+            group: UI_COPY.currentChat,
+            icon: "terminal" as const,
+            keywords: "test typecheck lint check build verify",
+            run: () => bridgeForKey(ctx.current.path).validation.run({ chatId: `${ctx.current.path}#${sessionId}` }),
+          },
+        ]),
     {
       id: "reload",
       label: UI_COPY.reloadChat,

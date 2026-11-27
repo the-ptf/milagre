@@ -20,20 +20,16 @@ function fixture() {
   const calls = [];
   let rejectFonts = false;
   const full = { format: "design", id: "home", version: 1, html: "<head><style>css</style></head>" };
-  const local = {
+  const host = (local) => ({
     get: async (request) => {
-      calls.push({ local: true, ...request });
-      return full;
-    },
-  };
-  const makeRemote = () => ({
-    get: async (request) => {
-      calls.push({ local: false, ...request });
+      calls.push({ local, ...request });
       if (!request.fonts) return full;
-      if (rejectFonts) throw Error("Error invoking remote method 'computers:invoke': Error: Invalid arguments: fonts not allowed");
+      if (!local && rejectFonts) throw Error("Error invoking remote method 'computers:invoke': Error: Invalid arguments: fonts not allowed");
       return { ...full, html: "<head></head>", fontKey: "key", ...(!request.fonts.have.includes("key") ? { fontCss: "css" } : {}) };
     },
   });
+  const local = host(true);
+  const makeRemote = () => host(false);
   let remote = makeRemote();
   const exports = {};
   const window = {
@@ -71,19 +67,24 @@ function fixture() {
   };
 }
 
-test("desktop local reads stay full; remote reads negotiate and restore before the version cache", async () => {
+test("local and remote reads negotiate fonts; kept versions hold them apart until a frame restores them", async () => {
   const f = fixture();
-  await f.read("/p#1", "home", null);
-  assert.equal(f.calls[0].fonts, undefined);
-  assert.equal(f.listeners.size, 0);
+  const page = await f.read("/p#1", "home", null);
+  assert.deepEqual([...f.calls[0].fonts.have], []);
+  assert.equal(page.html, "<head></head>");
+  assert.equal(restoreDesignFonts(page).html, f.full.html);
+  assert.equal(f.listeners.size, 0, "only another computer's reads follow its connection");
   const first = await f.read("peer|/p#1", "home", 1);
-  assert.equal(first.html, f.full.html);
-  assert.equal(first.fontKey, undefined);
+  assert.equal(first.html, "<head></head>");
+  assert.equal(first.fontKey, "key");
+  assert.equal(restoreDesignFonts(first).html, f.full.html);
   assert.deepEqual([...f.calls[1].fonts.have], []);
   await f.read("peer|/p#1", "home", 1);
-  assert.equal(f.calls.length, 2, "the restored version is cached");
+  assert.equal(f.calls.length, 2, "the version is cached");
   await f.read("peer|/p#1", "home", null);
   assert.deepEqual([...f.calls[2].fonts.have], ["key"]);
+  await f.read("/p#1", "home", 1);
+  assert.deepEqual([...f.calls[3].fonts.have], ["key"]);
 });
 
 test("desktop reconnect retries negotiation; forgetting releases the listener and re-pair starts fresh", async () => {

@@ -110,6 +110,11 @@ const turnInput = (prompt, files) =>
     block.type === "text" ? { type: "text", text: block.text, text_elements: [] } : { type: "localImage", path: block.image },
   );
 
+const MODE_NAMES = { ask: "Ask", auto: "Auto", full: "Full" };
+const modeChangedInput = (mode) =>
+  turnInput(`The user changed this Chat's permissions to ${MODE_NAMES[mode] ?? mode} mode. Continue the task from where you stopped.`);
+const samePolicy = (a, b) => a.approvalPolicy === b.approvalPolicy && isDeepStrictEqual(a.sandboxPolicy, b.sandboxPolicy);
+
 // account/read answers in well under a second; a Codex that doesn't is not held up for the default RPC timeout.
 const ACCOUNT_TIMEOUT_MS = 8000;
 const TOOL_ITEMS = new Set(["commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "webSearch", "imageView", "collabAgentToolCall"]);
@@ -230,11 +235,12 @@ class CodexSession {
   }
 
   async beginTurn({ prompt, images = [], model, permissionMode, effort, fastMode = false, canStart }) {
-    const policy = this.analysisOnly
-      ? advisorPolicy("codex", this.linked?.tools ?? [])
-      : codexPolicy(permissionMode, this.cwd, this.access.roots, { guarded: Boolean(this.guard), readOnly: Boolean(this.escalation) });
     this.access.learned();
     this.permissions.setMode(permissionMode);
+    const policy = this.analysisOnly ? advisorPolicy("codex", this.linked?.tools ?? []) : this.policyFor(permissionMode);
+    this.turnPolicy = null;
+    this.modeSwitch = null;
+    this.turnSettings = { model, effort, fastMode };
     try {
       this.starting ??= this.start(model, policy);
       await this.starting;
@@ -248,22 +254,9 @@ class CodexSession {
         await this.finishTurn([]);
         return { turnId: null, steered: false, cancelled: true };
       }
-      const { turn } = await this.rpc.request(
-        "turn/start",
-        {
-          threadId: this.state.threadId,
-          ...(this.analysisOnly ? { environments: [] } : {}),
-          input: turnInput(prompt, files),
-          model,
-          ...(effort ? { effort } : {}),
-          // Codex only sends reasoning summaries when asked; they are the reply's thinking steps.
-          summary: "auto",
-          serviceTierForTurn: fastMode ? CODEX_FAST_TIER : "default",
-          approvalPolicy: policy.approvalPolicy,
-          sandboxPolicy: policy.sandboxPolicy,
-        },
-        { timeoutMs: 90_000 },
-      );
+      const turnPolicy = this.analysisOnly ? policy : this.policyFor(this.permissions.mode);
+      this.turnPolicy = this.analysisOnly ? null : turnPolicy;
+      const turn = await this.requestTurn(turnInput(prompt, files), turnPolicy);
       this.state.turnId ??= turn?.id ?? null;
       if (this.cancelRequested) void this.interrupt();
       return { turnId: this.state.turnId, steered: false };
@@ -285,6 +278,96 @@ class CodexSession {
     }
   }
 
+  async requestTurn(input, policy) {
+    const { model, effort, fastMode } = this.turnSettings;
+    const { turn } = await this.rpc.request(
+      "turn/start",
+      {
+        threadId: this.state.threadId,
+        ...(this.analysisOnly ? { environments: [] } : {}),
+        input,
+        model,
+        ...(effort ? { effort } : {}),
+        // Codex only sends reasoning summaries when asked; they are the reply's thinking steps.
+        summary: "auto",
+        serviceTierForTurn: fastMode ? CODEX_FAST_TIER : "default",
+        approvalPolicy: policy.approvalPolicy,
+        sandboxPolicy: policy.sandboxPolicy,
+      },
+      { timeoutMs: 90_000 },
+    );
+    return turn;
+  }
+
+  policyFor(mode) {
+    return codexPolicy(mode, this.cwd, this.access.roots, { guarded: Boolean(this.guard), readOnly: Boolean(this.escalation) });
+  }
+
+  wantsNewPolicy() {
+    const mode = this.permissions.mode;
+    return Boolean(
+      this.turnPolicy &&
+      this.turnActive &&
+      this.state.turnId &&
+      !this.cancelRequested &&
+      !this.closed &&
+      !this.escalation &&
+      mode !== "full" &&
+      !samePolicy(this.policyFor(mode), this.turnPolicy),
+    );
+  }
+
+  // Codex takes a turn's approval policy and sandbox only at turn/start. A turn started under a policy the
+  // Chat's mode no longer has stops, and the same Milagre turn goes on in a new Codex turn with the mode's policy
+  // (handleNotification), whose input is the user's next message or a note that the mode changed. A message is taken
+  // only once that turn has started; otherwise it runs as the next turn.
+  async switchTurnPolicy(steered) {
+    const started = Boolean(this.modeSwitch);
+    this.modeSwitch ??= { inputs: [], waiters: [] };
+    const switching = this.modeSwitch;
+    const delivered = steered
+      ? new Promise((resolve) => {
+          switching.inputs.push(...steered);
+          switching.waiters.push(resolve);
+        })
+      : null;
+    if (!started) {
+      try {
+        await this.rpc.request("turn/interrupt", { threadId: this.state.threadId, turnId: this.state.turnId }, { timeoutMs: this.interruptGraceMs });
+      } catch {
+        this.dropModeSwitch();
+        await this.interrupt();
+      }
+    }
+    return delivered;
+  }
+
+  dropModeSwitch() {
+    const switching = this.modeSwitch;
+    this.modeSwitch = null;
+    switching?.waiters.forEach((resolve) => resolve(false));
+  }
+
+  async continueInNewPolicy() {
+    const { inputs, waiters } = this.modeSwitch;
+    this.modeSwitch = null;
+    this.permissions.cancelAll();
+    this.questions.cancelAll();
+    this.fileChanges.clear();
+    this.state.turnId = null;
+    const policy = this.policyFor(this.permissions.mode);
+    this.turnPolicy = policy;
+    try {
+      const turn = await this.requestTurn(inputs.length ? inputs : modeChangedInput(this.permissions.mode), policy);
+      this.state.turnId ??= turn?.id ?? null;
+      waiters.forEach((resolve) => resolve(true));
+      if (this.cancelRequested) void this.interrupt();
+    } catch (error) {
+      waiters.forEach((resolve) => resolve(false));
+      await this.finishTurn([this.cancelRequested ? { type: "turn-cancelled" } : { type: "turn-failed", message: error.message }]);
+    }
+  }
+
   // A message for the running turn joins it through turn/steer, once the turn has an id. If Codex
   async steer(request) {
     await this.turnReady;
@@ -295,18 +378,26 @@ class CodexSession {
       if (this.closed) throw sessionClosedError();
       return this.startTurn(request);
     }
+    await this.continuing;
+    if (!this.turnActive) return this.startTurn(request);
     // Without a turn id Codex can't be steered; send the message as the next turn once this one ends.
-    if (!this.state.turnId) {
+    if (!this.state.turnId && !this.modeSwitch) {
       await ended;
       if (this.closed) throw sessionClosedError();
       return this.startTurn(request);
     }
-    if (request.permissionMode) this.setPermissionMode(request.permissionMode);
+    if (request.permissionMode && !this.analysisOnly) this.permissions.setMode(request.permissionMode);
     if (request.guard) this.guard = request.guard;
     const turnId = this.state.turnId;
     this.questions.dismissAll();
     const files = request.images?.length ? await writeImages(request.images) : null;
     if (files) this.imageSets.push(files);
+    if (this.modeSwitch || this.wantsNewPolicy()) {
+      if (await this.switchTurnPolicy(turnInput(request.prompt, files))) return { turnId, steered: true };
+      await ended;
+      if (this.closed) throw sessionClosedError();
+      return this.startTurn(request);
+    }
     try {
       await this.rpc.request("turn/steer", { threadId: this.state.threadId, expectedTurnId: turnId, input: turnInput(request.prompt, files) });
       return { turnId, steered: true };
@@ -445,6 +536,14 @@ class CodexSession {
     if (recheck || events.some((event) => event.type === "subagent-update")) this.scheduleSubagents();
     if (!events.some(isTerminal)) {
       events.forEach((event) => this.emit(event));
+      return;
+    }
+    const stopped = events.some((event) => event.type === "turn-cancelled" || (this.modeSwitch?.inputs.length && event.type === "turn-completed"));
+    if (this.modeSwitch && !this.cancelRequested && stopped) {
+      events.filter((event) => !isTerminal(event)).forEach((event) => this.emit(event));
+      this.continuing = this.continueInNewPolicy().finally(() => {
+        this.continuing = null;
+      });
       return;
     }
     const loggedOut = !this.cancelRequested && events.some((event) => event.login);
@@ -621,10 +720,16 @@ class CodexSession {
     return this.questions.answer(requestId, answers);
   }
 
-  // Codex fixes its approval policy when a turn starts, so a switch mid-turn is applied here (see
   setPermissionMode(permissionMode) {
     if (this.analysisOnly) return;
     this.permissions.setMode(permissionMode);
+    void this.applyModeToTurn(permissionMode);
+  }
+
+  async applyModeToTurn(permissionMode) {
+    await this.turnReady;
+    await this.continuing;
+    if (this.permissions.mode === permissionMode && this.wantsNewPolicy()) await this.switchTurnPolicy(null);
   }
 
   handleExit(detail, signal) {
@@ -638,6 +743,8 @@ class CodexSession {
     if (!this.turnActive) return;
     this.turnActive = false;
     this.escalation = null;
+    this.dropModeSwitch();
+    this.turnPolicy = null;
     const markEnded = this.markTurnEnded;
     this.markTurnEnded = null;
     clearTimeout(this.interruptTimer);

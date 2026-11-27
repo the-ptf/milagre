@@ -10,6 +10,7 @@ import {
   isInteractiveDesign,
   parseDesignFeedback,
   resolutionNotes,
+  type Artifact,
   type ArtifactComment,
   type DesignComment,
 } from "@milagre/shared/artifact";
@@ -21,7 +22,7 @@ import { useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
 import { usePanelWidth } from "./panel-width";
 import { ArtifactFrame, pageFiles, type DesignPin, type PageFiles } from "./ArtifactCanvas";
-import { useArtifact } from "./artifact-read";
+import { useArtifact, useFramedHtml } from "./artifact-read";
 import { SentCommentImages } from "./CommentImages";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey } from "../../lib/computer-bridge";
@@ -124,24 +125,18 @@ function usePinColors() {
 }
 
 function ScaledPreview({
-  html,
+  artifact,
   title,
-  width = 1280,
-  height = 800,
   pin,
-  format,
-  code,
   files,
 }: {
-  html: string;
+  artifact: Artifact;
   title: string;
-  format?: "design" | "html";
-  code?: boolean;
   files?: PageFiles;
-  width?: number;
-  height?: number;
   pin?: { x: number; y: number; label: string; resolved?: boolean; anchor?: string };
 }) {
+  const { width, height, format } = artifact;
+  const html = useFramedHtml(artifact);
   const box = useRef<HTMLDivElement>(null);
   const colors = usePinColors();
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -177,7 +172,7 @@ function ScaledPreview({
             title={title}
             preview
             format={format}
-            code={code}
+            code={isInteractiveDesign(artifact)}
             files={files}
             page={
               format === "html" && pin
@@ -233,15 +228,7 @@ const ArtifactCard = memo(function ArtifactCard({ step }: { step: ChatStep & { a
     <div data-slot="artifact-card" data-artifact={id} className="my-2 max-w-xl overflow-hidden rounded-card border border-line bg-surface">
       <div className="relative h-56 overflow-hidden border-b border-line bg-paper">
         {artifact ? (
-          <ScaledPreview
-            html={artifact.html}
-            format={artifact.format}
-            code={isInteractiveDesign(artifact)}
-            title={`Preview of ${title}`}
-            width={artifact.width}
-            height={artifact.height}
-            files={pageFiles(chatId, artifact)}
-          />
+          <ScaledPreview artifact={artifact} title={`Preview of ${title}`} files={pageFiles(chatId, artifact)} />
         ) : (
           <div className="grid size-full place-items-center px-6 text-center text-12 text-ink-3">
             {error ?? (chatId ? "Loading design…" : "Open this Chat in its Project to see the design.")}
@@ -345,12 +332,8 @@ function FeedbackComment({ comment, number, images, onOpen }: { comment: DesignC
         {artifact && (
           <ScaledPreview
             files={pageFiles(chatId, artifact)}
-            html={artifact.html}
-            format={artifact.format}
-            code={isInteractiveDesign(artifact)}
+            artifact={artifact}
             title={`Preview of ${comment.design.title}`}
-            width={artifact.width}
-            height={artifact.height}
             pin={
               comment.x === undefined || comment.y === undefined
                 ? undefined
@@ -444,15 +427,7 @@ function GroupThumb({ design }: { design: ArtifactRef }) {
     >
       <span className="relative block h-28 w-full overflow-hidden rounded-chip border border-line">
         {artifact ? (
-          <ScaledPreview
-            html={artifact.html}
-            format={artifact.format}
-            code={isInteractiveDesign(artifact)}
-            title={`Preview of ${design.title}`}
-            width={artifact.width}
-            height={artifact.height}
-            files={pageFiles(chatId, artifact)}
-          />
+          <ScaledPreview artifact={artifact} title={`Preview of ${design.title}`} files={pageFiles(chatId, artifact)} />
         ) : (
           <span className="grid size-full place-items-center px-2 text-center text-11 text-ink-3">{error ?? "Loading…"}</span>
         )}

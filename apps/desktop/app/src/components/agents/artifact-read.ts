@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createDesignFontReader, designScope, libraryProject, restoreDesignFonts, type Artifact } from "@milagre/shared/artifact";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey, isRemoteKey, onComputerConnection } from "../../lib/computer-bridge";
@@ -12,14 +12,13 @@ export function readArtifact(chatId: string, id: string, version: number | null)
   const api = bridgeForKey(chatId).artifacts;
   const request = { ...designScope(chatId), id, ...(version === null ? {} : { version }) };
   const readDesign = () => {
-    if (!isRemoteKey(chatId)) return api.get(request);
     let reader = fontReaders.get(api);
     if (!reader) {
       reader = createDesignFontReader((args) => api.get(args));
       fontReaders.set(api, reader);
-      onComputerConnection(chatId, reader.reconnect, () => fontReaders.delete(api));
+      if (isRemoteKey(chatId)) onComputerConnection(chatId, reader.reconnect, () => fontReaders.delete(api));
     }
-    return reader(request).then(restoreDesignFonts);
+    return reader(request);
   };
   if (version === null) return readDesign();
   const key = `${chatId}\n${id}\n${version}`;
@@ -98,3 +97,6 @@ export function useArtifact(chatId: string | null, id: string, version: number |
   }, [chatId, id, version, enabled, revision, kitRevision]);
   return chatId && (enabled || state.artifact?.format === "html") ? state : { artifact: null, error: null };
 }
+
+/** Kept designs leave their fonts out: a frame that draws one puts them back for as long as it shows. */
+export const useFramedHtml = (artifact: Artifact) => useMemo(() => restoreDesignFonts(artifact).html, [artifact]);

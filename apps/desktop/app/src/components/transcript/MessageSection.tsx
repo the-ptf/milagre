@@ -56,6 +56,8 @@ import { RoutineRunDivider } from "../RoutineRunDivider";
 import { CompactionDivider } from "../CompactionDivider";
 import { CheckpointRestoreDivider } from "../CheckpointRestoreDivider";
 import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
+import { isValidation } from "@milagre/shared/validation";
+import { ValidationCard } from "./ValidationCard";
 import { type UndoIntent } from "../checkpoints/UndoPanel";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { LinkedExchangeLine, LinkedMessageHeader, LinkedMessageLine, linkedContext, linkedLine } from "../LinkedMessage";
@@ -292,6 +294,7 @@ type MessageSectionProps = {
   onSettle?: (snoozeUntil?: number) => void;
   highlighted?: boolean;
   onCheckpointPreview?: (recoveryId: string, action: UndoIntent) => void;
+  validationChat?: string | null;
   onRecommendationSelect: (option: string) => void;
   onUpdateCli?: (provider: ModelProvider) => void;
   updatingCli?: ModelProvider | null;
@@ -310,7 +313,14 @@ type MessageSectionProps = {
 
 function messageDivider(
   message: AppChatMessage,
-  { models, merged, onCheckpointPreview, onOpenChat }: Pick<MessageSectionProps, "models" | "merged" | "onCheckpointPreview" | "onOpenChat">,
+  {
+    models,
+    merged,
+    onCheckpointPreview,
+    onOpenChat,
+    validationChat = null,
+    onRecommendationSelect,
+  }: Pick<MessageSectionProps, "models" | "merged" | "onCheckpointPreview" | "onOpenChat" | "validationChat" | "onRecommendationSelect">,
 ): ReactNode {
   if (typeof message.context === "object" && message.context?.kind === "chat-fork") {
     const context = message.context;
@@ -340,6 +350,8 @@ function messageDivider(
   if (isOrchestratorAnswer(message)) return <OrchestratorAnswerLine summaries={message.context.summaries ?? [message.context.summary]} />;
   if (isRoutineRun(message)) return <RoutineRunDivider context={message.context} merged={merged} />;
   if (isCheckpointRestore(message)) return <CheckpointRestoreDivider context={message.context} onPreview={onCheckpointPreview} />;
+  if (isValidation(message))
+    return <ValidationCard context={message.context} chatId={validationChat} onAskToFix={validationChat ? onRecommendationSelect : undefined} />;
   return null;
 }
 
@@ -633,9 +645,10 @@ export const MessageSection = memo(function MessageSection({
   onSettle,
   highlighted = false,
   onCheckpointPreview,
+  validationChat,
 }: MessageSectionProps) {
   const mentions = usePromptMentions(message, isUser);
-  const divider = messageDivider(message, { models, merged, onCheckpointPreview, onOpenChat });
+  const divider = messageDivider(message, { models, merged, onCheckpointPreview, onOpenChat, validationChat, onRecommendationSelect });
   if (divider) return divider;
   const linked = linkedContext(message);
   const linkedArticle = linkedLineArticle(message, isUser, linked, { exchange, onOpenChat });

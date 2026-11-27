@@ -1,5 +1,3 @@
-const fs = require("node:fs/promises");
-const path = require("node:path");
 const { chatKey, isTurnEnd, lastUserModel, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { backgroundWork, holdsAnnouncement } = require("@milagre/shared/chat-activity");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
@@ -16,14 +14,13 @@ const { readPullRequestState } = require("../pull-request.cjs");
 const { createRoutineScheduler, linearPrompt, schedulePrompt } = require("./scheduler.cjs");
 const { babysitReviewFindings } = require("./review-findings.cjs");
 const { createRoutineTools } = require("./tools.cjs");
+const { routineTargets } = require("./targets.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
 const { createPullRequestPoller } = require("./pr-poller.cjs");
 const { readPullRequestSnapshot } = require("./pull-request-watch.cjs");
 const { DEFAULT_SIGNING_HEADER, hookIdOf, newHookSecret, hookUrl, verifySignature, webhookPrompt } = require("./webhook.cjs");
 
 const WEBHOOK_LATER = "Webhook Routines arrive in a later update.";
-const UNLISTED = "Choose a Project Milagre lists.";
-const NO_CHAT = "That Chat is no longer in its Project.";
 const BUSY = "chat was busy";
 const busyError = () => Object.assign(new Error(BUSY), { busy: true });
 const knownMode = (mode) => (PERMISSION_MODES.has(mode) ? mode : undefined);
@@ -91,6 +88,7 @@ function routineChats({
   projectState = async () => null,
   linearWorkspaces = () => [],
   startCheck = async () => {},
+  readBranchPr = readPullRequestState,
   now = Date.now,
   timeoutMs = START_TIMEOUT_MS,
   hooks = () => null,
@@ -228,7 +226,10 @@ function routineChats({
   function headBranch(chatId) {
     const state = cachedState(projectOfKey(chatId));
     const target = session(chatId);
-    const cwd = target?.workspacePath ?? state?.worktrees?.[target?.worktree_id]?.path;
+    return branchAt(target?.workspacePath ?? state?.worktrees?.[target?.worktree_id]?.path);
+  }
+
+  function branchAt(cwd) {
     if (!cwd) return Promise.resolve(null);
     return git.read
       .checked(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"])
@@ -278,7 +279,7 @@ function routineChats({
       let asks = 0;
       let sending;
       try {
-        await startCheck({ kind: "chat", chatId });
+        await startCheck({ kind: "chat", chatId }, { babysit: Boolean(context?.babysit) });
         const state = await openState(projectPath, sessionId);
         const target = state?.sessions?.[sessionId];
         if (!target) throw new Error("That Chat is no longer in its Project.");
@@ -299,7 +300,7 @@ function routineChats({
           files: [],
           projectPath,
           sessionId,
-          worktreeId: target.worktree_id,
+          worktreeId: target.worktree_id ?? 0,
           canStart: () => {
             asks += 1;
             if (asks > 2 || !busy(chatId)) return true;
@@ -361,7 +362,21 @@ function routineChats({
       }
       return result;
     },
-    headBranch: (chatId) => headBranch(chatId),
+    headBranch,
+    async pullRequestWorktree(chatId, url) {
+      if (!isLinkScopeKey(projectOfKey(chatId))) return { branch: await headBranch(chatId) };
+      const target = await startCheck({ kind: "chat", chatId }, { babysit: true });
+      const matches = await Promise.all(
+        target.worktrees.map(async (member) => {
+          const { pr } = await readBranchPr(member.worktreePath);
+          return pr?.url === url ? member : null;
+        }),
+      );
+      const members = matches.filter(Boolean);
+      if (members.length !== 1) return { branch: null };
+      const [member] = members;
+      return { branch: await branchAt(member.worktreePath), alias: member.alias ?? member.worktreePath };
+    },
     cwd(chatId) {
       const state = cachedState(projectOfKey(chatId));
       const target = session(chatId);
@@ -389,45 +404,6 @@ function routineChats({
       );
     },
   };
-}
-
-function routineTargets({ projects, openState }) {
-  async function listedProject(input) {
-    if (typeof input !== "string" || !path.isAbsolute(input) || input.includes("\0")) throw new Error(UNLISTED);
-    const resolved = path.resolve(input);
-    const real = await fs.realpath(resolved).catch(() => resolved);
-    for (const project of await projects()) {
-      if (project.path === real) return project.path;
-      if ((await fs.realpath(project.path).catch(() => project.path)) === real) return project.path;
-    }
-    throw new Error(UNLISTED);
-  }
-  async function atStart(target) {
-    const folder = target?.kind === "new-chat" ? target.projectPath : target?.kind === "chat" ? projectOfKey(String(target.chatId ?? "")) : null;
-    if (typeof folder !== "string" || !path.isAbsolute(folder)) throw new Error(UNLISTED);
-    if ((await fs.realpath(folder).catch(() => null)) !== folder) throw new Error(`The Project folder ${folder} moved or is no longer a folder.`);
-    if (!(await projects()).some((project) => project.path === folder)) throw new Error(UNLISTED);
-    if (target.kind === "chat") {
-      const sessionId = sessionIdFromKey(target.chatId);
-      const session = (await openState(folder, sessionId))?.sessions?.[sessionId];
-      if (!session || session.archived) throw new Error(NO_CHAT);
-      if (session.readOnlyReason) throw new Error(session.readOnlyReason);
-    }
-  }
-  async function checkTarget(target) {
-    if (target?.kind === "new-chat") return { ...target, projectPath: await listedProject(target.projectPath) };
-    if (target?.kind !== "chat") return target;
-    if (typeof target.chatId !== "string" || !target.chatId.includes("#")) throw new Error("Choose a Chat.");
-    const scope = projectOfKey(target.chatId);
-    if (isLinkScopeKey(scope)) throw new Error(UNLISTED);
-    const projectPath = await listedProject(scope);
-    const sessionId = sessionIdFromKey(target.chatId);
-    const session = (await openState(projectPath, sessionId))?.sessions?.[sessionId];
-    if (!session || session.archived) throw new Error(NO_CHAT);
-    if (session.readOnlyReason) throw new Error(session.readOnlyReason);
-    return { kind: "chat", chatId: chatKey(projectPath, sessionId) };
-  }
-  return Object.assign(checkTarget, { atStart });
 }
 
 function createRoutines({
@@ -506,7 +482,7 @@ function createRoutines({
     chats,
     projects,
     projectState,
-    startCheck: (target) => checkTarget.atStart(target),
+    startCheck: checkTarget.atStart,
     linearWorkspaces: () => linearWorkspaces(),
     cachedState,
     openState,
@@ -735,7 +711,7 @@ function createRoutines({
 
   return {
     definitions: (chatId) =>
-      [...(isLinkScopeKey(projectOfKey(chatId)) ? [] : tools.definitions(chatId)), ...(startedByRoutine(chatId) ? [flowOutputTool(chatId)] : [])]
+      [...tools.definitions(chatId, { babysitOnly: isLinkScopeKey(projectOfKey(chatId)) }), ...(startedByRoutine(chatId) ? [flowOutputTool(chatId)] : [])]
         .filter((tool) => !startedByRoutine(chatId) || !WITHHELD.has(tool.name))
         .map((tool) => {
           const { run } = tool;
@@ -777,7 +753,7 @@ function createRoutines({
     list: () => ({ routines: store.list().map((routine) => Object.assign(routine, { runs: store.runs(routine.id) })) }),
     findPullRequest: (repo, number) => store.findPullRequest(repo, number),
     async createBabysit({ chatId, url, repo, number, settings }) {
-      const target = await checkTarget({ kind: "chat", chatId });
+      const target = await checkTarget({ kind: "chat", chatId }, { babysit: true });
       const days = settings.stopAfterDays?.on ? settings.stopAfterDays.days : BABYSIT_DEFAULT_DAYS;
       const name = `Babysit PR #${number}`;
       const routine = store.create({

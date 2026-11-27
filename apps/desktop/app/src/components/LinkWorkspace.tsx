@@ -10,7 +10,8 @@ import { prepareImageUploads, prepareLocalFileUploads } from "../lib/attachment-
 import { PersistenceNotices, type UnsavedScope } from "./PersistenceNotice";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { useChanges } from "./changes/useChanges";
-import { useBranchPullRequests, useLocalChanges, usePullRequest } from "./changes/usePullRequest";
+import { useLocalChanges, usePullRequest } from "./changes/usePullRequest";
+import { useLinkPullRequests } from "./changes/useLinkPullRequests";
 import { usePrReviewActions } from "./changes/usePrReviewActions";
 import { PullRequestPanelBody } from "./changes/PullRequestPanel";
 import { prRange } from "../lib/pull-request-view";
@@ -28,11 +29,11 @@ import { prefetchChatMessages, useChatMessages } from "../lib/chat-messages";
 import { beginChatSwitch } from "../lib/chat-switch-timing";
 import { isLean } from "../lib/state-events";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import type { AgentPorts, LinkedWork, LinkState, OpenLink, WorktreeBinding } from "@milagre/shared/model";
+import type { AgentPorts, LinkedWork, LinkState, OpenLink, PullRequestActionContext, WorktreeBinding } from "@milagre/shared/model";
+import { pullRequestActionRequest } from "@milagre/shared/pr-action";
 import { chatKeyForScope, computerOfKey, scopeKey } from "@milagre/shared/chat-scopes";
 import { showNotice } from "../lib/notice";
 import { chatTitle, createPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
-import { chatPullRequestLink } from "./markdown/LinkMenu";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { chatsNeedingAttention } from "@milagre/shared/attention";
 import { useHiddenProjects } from "../lib/hidden-projects";
@@ -254,13 +255,7 @@ export function LinkWorkspace({
   useTerminalSync(terminalChatId);
   const chosen = session?.worktrees.find((member) => member.projectId === memberId);
   const members = session?.worktrees ?? NO_MEMBERS;
-  const branchPrs = useBranchPullRequests({ paths: members.map((member) => member.worktreePath), active: Boolean(session), bridge });
-  const memberPrs = members
-    .flatMap((member) => {
-      const pr = branchPrs[member.worktreePath];
-      return pr ? [{ member, pr, name: opened.projects.find((project) => project.id === member.projectId)?.name ?? member.projectId }] : [];
-    })
-    .sort((a, b) => Number(a.pr.state === "MERGED") - Number(b.pr.state === "MERGED"));
+  const { memberPrs, composerProps: prComposerProps } = useLinkPullRequests({ members, projects: opened.projects, bridge });
   const prEntry = memberPrs.find((entry) => entry.member.projectId === memberId);
   const [prWanted, setPrWanted] = useState(false);
   const prReview = usePullRequest({ cwd: prEntry?.member.worktreePath, number: prEntry?.pr.number, active: prWanted, bridge });
@@ -437,13 +432,14 @@ export function LinkWorkspace({
     delivery?: MessageDelivery,
     issue?: PickedIssue,
     additionalImages: ImageAttachment[] = [],
+    prAction?: PullRequestActionContext & { projectId: string },
   ) {
     const typed = draftStore.get().trim();
     const images = [...(attach ? imageDraft.images : []), ...additionalImages];
     const files = attach ? imageDraft.files : [];
     if (preparing || sendsInFlight.current.has(sendKey) || (attach && imageDraft.loading) || (!body && !images.length && !files.length)) return false;
     const selection = latest.current.selection;
-    const operation = drafts.beginSend(scope, sessionId, JSON.stringify({ body, images, files }));
+    const operation = drafts.beginSend(scope, sessionId, JSON.stringify({ body, images, files, prAction }));
     sendsInFlight.current.add(sendKey);
     setError(null);
     const model = preferences.selectedModel;
@@ -467,6 +463,7 @@ export function LinkWorkspace({
             images: [],
             files: [],
             prompt: body,
+            prAction: pullRequestActionRequest(prAction),
             provider: model.provider,
             model: model.id,
             permissionMode,
@@ -501,7 +498,7 @@ export function LinkWorkspace({
       files,
       model: model.id,
       provider: model.provider,
-      ...(issue ? { context: issueStartContext(issue, typed) } : {}),
+      context: issue ? issueStartContext(issue, typed) : prAction,
     });
     const previewId = preview.message.clientMessageId;
     setPendingSends((current) => [...current, { ...preview, key: sendKey, provider: model.provider }]);
@@ -520,6 +517,7 @@ export function LinkWorkspace({
         clientMessageId: previewId,
         body,
         prompt: attachmentPrompt(body, uploadedFiles),
+        prAction: pullRequestActionRequest(prAction),
         images: await prepareImageUploads(owner, images),
         files: uploadedFiles,
         provider: model.provider,
@@ -596,6 +594,10 @@ export function LinkWorkspace({
   const pickPr = (projectId: string) => {
     setMemberId(projectId);
     changes.setMode("pr");
+  };
+  const openMemberPr = (projectId: string) => {
+    pickPr(projectId);
+    if (!changes.open) changes.toggle();
   };
   /** The Changes button: the panel opens on the Link Chat's first PR when one of its Projects has one. */
   const toggleChanges = () => {
@@ -757,13 +759,7 @@ export function LinkWorkspace({
                         store={draftStore}
                         projectPath={root}
                         messageScope={owner}
-                        pullRequestLink={chatPullRequestLink(
-                          memberPrs.map((entry) => ({ ...entry, url: entry.pr.url })),
-                          (entry) => {
-                            pickPr(entry.member.projectId);
-                            if (!changes.open) changes.toggle();
-                          },
-                        )}
+                        {...prComposerProps(openMemberPr, (body, action) => void send(body, true, false, undefined, undefined, [], action), prShown)}
                         earlier={earlierMessages}
                         trimHistory={lean ? chatWindow.trim : undefined}
                         messages={shownMessages}

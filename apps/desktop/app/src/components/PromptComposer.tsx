@@ -29,6 +29,7 @@ import { formatChatMention, formatComputerMention, formatFileMention, promptPart
 import { rankSkillMatches } from "@milagre/shared/skill-catalog";
 import { useSkills } from "./useSkills";
 import { ScrollArea } from "./primitives/ScrollArea";
+import { MentionRowIcon } from "./PromptChip";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { useKnownFiles } from "./useKnownFiles";
 import { ContextCapsule, isLocalModel, shownContextUsage } from "./composer/ContextCapsule";
@@ -303,20 +304,18 @@ export function PromptComposer({
           ...milagreMentionRows(menu === "at", tokenQuery),
           ...fileSearch.files
             .slice(0, chatMatches.length || computerMatches.length ? 3 : undefined)
-            .map((path) => ({ key: `file:${path}`, name: path.split("/").at(-1) || path, desc: path, path, group: "Files" })),
+            .map((path) => ({ key: `file:${path}`, name: path.split("/").at(-1) || path, desc: path, path })),
           ...chatMatches.map((chat) => ({
             key: `chat:${chat.id}`,
             name: chat.title,
             desc: chat.branch,
             chatId: chat.id,
-            group: "Chats",
           })),
           ...computerMatches.map((computer) => ({
             key: `computer:${computer.id}`,
             name: computer.name,
             desc: computer.self ? "This Mac" : computer.online ? "Online" : "Offline",
             computer: computer.name,
-            group: "Computers",
           })),
         ]
       : menu === "slash"
@@ -603,7 +602,7 @@ export function PromptComposer({
                 }}
               />
               {rows.map((row, index) => {
-                const showGroup = (menu === "at" || !tokenQuery) && row.group && row.group !== rows[index - 1]?.group;
+                const showGroup = !tokenQuery && row.group && row.group !== rows[index - 1]?.group;
                 return (
                   <Fragment key={row.key}>
                     {showGroup && (
@@ -625,6 +624,7 @@ export function PromptComposer({
                       title={row.path ?? row.desc}
                       className="relative z-10 flex h-8 w-full items-center gap-2 rounded-inline px-2 text-left focus-visible:-outline-offset-2"
                     >
+                      {menu === "at" && <MentionRowIcon row={row} />}
                       <span className="max-w-[45%] shrink-0 truncate text-13 font-medium text-ink">{row.name}</span>
                       <span className="min-w-0 flex-1 truncate text-12 text-ink-3">{row.desc}</span>
                       {row.source && <span className="shrink-0 text-11 text-ink-3">{row.source}</span>}
@@ -648,15 +648,11 @@ export function PromptComposer({
                 {skillWarnings.length === 1 ? skillWarnings[0] : `${skillWarnings.length} skills could not be loaded. Hover for details.`}
               </div>
             )}
-            <div className="mt-1 border-t border-line px-2 pt-1.5 pb-1 text-11 text-ink-3">
-              {menu === "at"
-                ? mentionComputers.length > 1
-                  ? "Type to search files, Chats and computers"
-                  : "Type to search files and Chats"
-                : skillsLoading
-                  ? "Loading skills…"
-                  : "Type to search commands & skills"}
-            </div>
+            {menu === "slash" && (
+              <div className="mt-1 border-t border-line px-2 pt-1.5 pb-1 text-11 text-ink-3">
+                {skillsLoading ? "Loading skills…" : "Type to search commands & skills"}
+              </div>
+            )}
           </div>
         )}
 

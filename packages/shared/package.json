@@ -258,6 +258,10 @@
       "types": "./src/routine-form.d.mts",
       "default": "./src/routine-form.mjs"
     },
+    "./validation": {
+      "types": "./src/validation.d.mts",
+      "default": "./src/validation.mjs"
+    },
     "./checkpoint-restore": {
       "types": "./src/checkpoint-restore.d.mts",
       "default": "./src/checkpoint-restore.mjs"
@@ -473,6 +477,7 @@
     },
     "./agent-activity": "./src/agent-activity.ts",
     "./qa-personas": "./src/qa-personas.ts",
+    "./subagent-tree": "./src/subagent-tree.ts",
     "./advisor-result": "./src/advisor-result.ts",
     "./use-task-output": "./src/use-task-output.ts",
     "./themes": "./src/themes/index.ts",

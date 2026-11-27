@@ -633,6 +633,13 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "use-github-issues" && !(id in modules)) return { useGithubIssuesAvailable: () => false };
       if (base === "issue-card" && !(id in modules)) return { IssueCard: "IssueCard" };
       if (base === "chat-done" && !(id in modules)) return require("../apps/mobile/src/chat-done.ts");
+      // A validation note's card has its own test; the Chat renders it by name and reads labels from plain logic.
+      if (id === "@milagre/shared/validation" && !(id in modules)) return require(id);
+      if (base === "validation-card" && !(id in modules))
+        return { ValidationCard: "ValidationCard", isValidation: require("@milagre/shared/validation").isValidation };
+      if (base === "navigation-label" && !(id in modules)) return load("navigation-label.ts", modules, "", cache);
+      if (base === "handoff-sides" && !(id in modules)) return require("../apps/mobile/src/handoff-sides.ts");
+      if (base === "project-validation-settings" && !(id in modules)) return { ProjectValidationSettings: () => null };
       // The runs reply merge is plain logic; which Chats are on screen only narrows the host's runs reads, so UI tests
       // register nothing.
       if (base === "runs-reply" && !(id in modules)) return load("runs-reply.ts", modules, "", cache);
@@ -4247,17 +4254,13 @@ function chatHost({
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-function subagentsHost({ call = async () => {} } = {}) {
+function subagentsHost({
+  call = async () => {},
+  agents = ["running", "completed", "failed", "cancelled", "unknown"].map((status) => ({ id: status, title: status, status, transcript: [] })),
+} = {}) {
   const react = hookHost();
   const calls = [];
-  const state = {
-    sessions: {
-      7: {
-        id: 7,
-        subagents: ["running", "completed", "failed", "cancelled", "unknown"].map((status) => ({ id: status, title: status, status, transcript: [] })),
-      },
-    },
-  };
+  const state = { sessions: { 7: { id: 7, subagents: agents } } };
   const session = {
     snapshot: { project: { path: "/project", state } },
     client: {
@@ -4283,6 +4286,7 @@ function subagentsHost({ call = async () => {} } = {}) {
     "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
     "@milagre/shared/project-edits": require("@milagre/shared/project-edits"),
     "@milagre/shared/agent-activity": require("@milagre/shared/agent-activity"),
+    "@milagre/shared/subagent-tree": require("@milagre/shared/subagent-tree"),
     "../session": { useSession: () => session },
     "../subagent-glance": {
       SubagentRow: "SubagentRow",
@@ -4338,6 +4342,45 @@ test("mobile archives finished subagents without offering archived browsing", as
     find(host.render(), (node) => node.type === "SubagentRow" && node.props.agent.id === "running"),
     undefined,
   );
+});
+
+test("mobile lays nested subagents out under the one that started them, and a folded branch stays folded through updates", () => {
+  const agent = (id, parentId, status = "completed") => ({ id, title: id, status, transcript: [], ...(parentId ? { parentId } : {}) });
+  const host = subagentsHost({
+    agents: [agent("map"), agent("build", undefined, "running"), agent("tests", "build", "failed"), agent("fix", "build", "running"), agent("find", "map")],
+  });
+  const rows = () =>
+    findAll(host.render(), (node) => node.type === "SubagentRow").map((node) => [
+      node.props.agent.id,
+      node.props.branch ? `${node.props.branch.count}${node.props.branch.folded ? ` folded, ${node.props.branch.hidden}` : ""}` : null,
+    ]);
+  assert.deepEqual(rows(), [
+    ["map", "1"],
+    ["find", null],
+    ["build", "2"],
+    ["tests", null],
+    ["fix", null],
+  ]);
+  assert.equal(findAll(host.render(), (node) => node.type === "View" && node.props.style?.paddingLeft === 28).length, 3, "children sit one indent in");
+  assert.ok(find(host.render(), (node) => node.props?.subtitle === "2 running · 1 failed · 2 done"));
+  find(host.render(), (node) => node.type === "SubagentRow" && node.props.agent.id === "build").props.branch.onToggle();
+  assert.deepEqual(rows(), [
+    ["map", "1"],
+    ["find", null],
+    ["build", "2 folded, failed"],
+  ]);
+  host.state.sessions[7].subagents = [...host.state.sessions[7].subagents, agent("lint", "build", "running")];
+  assert.deepEqual(rows(), [
+    ["map", "1"],
+    ["find", null],
+    ["build", "3 folded, failed"],
+  ]);
+});
+
+test("a flat mobile subagent list draws no tree", () => {
+  const host = subagentsHost();
+  assert.equal(findAll(host.render(), (node) => node.type === "SubagentRow" && node.props.branch).length, 0);
+  assert.equal(findAll(host.render(), (node) => node.type === "View" && node.props.style?.paddingLeft > 0).length, 0);
 });
 
 test("mobile blocks duplicate archive taps and reports a failed request without hiding entries", async () => {
@@ -7301,6 +7344,54 @@ test("the PR pill sends a PR action whose preview is already a card", async () =
     );
   } finally {
     delete globalThis.chatPullRequest;
+  }
+});
+
+test("the PR pill on a Link sends the blocked PR's member Project", async () => {
+  const id = "40996067-6cc2-4427-bc1e-9007c5f51875";
+  const url = "https://github.com/o/web/pull/77";
+  const screen = chatHost({ call: async () => ({ sessionId: 42 }) });
+  screen.session.snapshot = require("../apps/mobile/src/chat-scope.ts").phoneSnapshot({
+    link: {
+      link: { id, name: "Food", projectIds: ["api", "web"] },
+      projects: [
+        { id: "api", path: "/api", name: "API" },
+        { id: "web", path: "/web", name: "Web" },
+      ],
+      state: {
+        next_id: 43,
+        sessions: {
+          42: {
+            id: 42,
+            provider: "codex",
+            workspacePath: "/link-workspace",
+            worktrees: [
+              { projectId: "api", projectPath: "/api", worktreePath: "/api-worktree" },
+              { projectId: "web", projectPath: "/web", worktreePath: "/web-worktree" },
+            ],
+          },
+        },
+        messages: [],
+        preparations: {},
+      },
+    },
+    runs: { runs: {} },
+  });
+  screen.params.id = "42";
+  screen.params.worktreeId = "42";
+  globalThis.branchPullRequests = {
+    "/api-worktree": { number: 77, url: "https://github.com/o/api/pull/77", state: "OPEN" },
+    "/web-worktree": { number: 77, url, state: "OPEN", changesRequested: true },
+  };
+  try {
+    find(screen.render(), (node) => node.type === "PullRequestAction").props.onRun();
+    await settle();
+    const sent = screen.calls.find((call) => call.method === "link:send").args[0];
+    assert.equal(sent.sessionId, 42);
+    assert.equal(JSON.stringify(sent.prAction), JSON.stringify({ action: "changes-requested", pr: 77, url, projectId: "web" }));
+    assert.equal(sent.prompt, `Address the review on pull request #77 (${url}). /milagre-address-review`);
+  } finally {
+    delete globalThis.branchPullRequests;
   }
 });
 
@@ -14324,6 +14415,31 @@ const glanceAgent = {
   ],
 };
 
+test("a mobile subagent row that started others folds them from its chip or a VoiceOver action", () => {
+  const { SubagentRow, render } = subagentGlance();
+  const toggles = [];
+  const branch = { count: 2, folded: true, hidden: "failed", onToggle: () => toggles.push("toggle") };
+  const row = render(SubagentRow, { agent: glanceAgent, provider: "claude", now: 66000, onPress() {}, branch });
+  const chip = find(row, (node) => node.props?.accessibilityLabel === "Show the 2 subagents Review authentication started");
+  assert.ok(chip, "the chip names what it shows");
+  assert.equal(chip.props.accessibilityState.expanded, false);
+  assert.ok(
+    find(chip, (node) => node.type === "Icon" && node.props.icon === "AlertCircleIcon" && node.props.tone === "red"),
+    "a folded failure shows on the chip",
+  );
+  chip.props.onPress();
+  const pressable = find(row, (node) => node.props?.accessibilityHint === "Opens what this subagent is doing");
+  assert.equal(JSON.stringify(pressable.props.accessibilityActions), JSON.stringify([{ name: "toggle", label: "Show the subagents it started" }]));
+  pressable.props.onAccessibilityAction({ nativeEvent: { actionName: "toggle" } });
+  assert.deepEqual(toggles, ["toggle", "toggle"]);
+  const leaf = render(SubagentRow, { agent: glanceAgent, provider: "claude", now: 66000, onPress() {} });
+  assert.equal(
+    find(leaf, (node) => node.props?.accessibilityActions),
+    undefined,
+    "a row that started nothing has no fold action",
+  );
+});
+
 test("mobile subagent rows say what it does now and how far it got, and a finished one its outcome", () => {
   const { SubagentRow, render } = subagentGlance();
   const row = render(SubagentRow, { agent: glanceAgent, provider: "claude", now: 66000, onPress() {} });
@@ -20665,14 +20781,26 @@ test("phone Chat mentions work without a Worktree and never search or attach fil
     let field = find(render(), (node) => node.type === "Field");
     field.props.onFocus();
     field.props.onSelectionChange({ nativeEvent: { selection: { start: draft.length, end: draft.length } } });
-    const row = find(render(), (node) => node.type === "ListRow" && node.props.title === "Plan review");
+    const menu = () => {
+      const rows = find(render(), (node) => node.type?.name === "MentionRows");
+      return rows.type(rows.props);
+    };
+    const row = find(menu(), (node) => node.type === "ListRow" && node.props.title === "Plan review");
     assert.ok(row);
+    assert.equal(row.props.leading.props.kind, "chat", "a Chat row carries the Chat icon instead of a Chats heading");
     assert.equal(
-      find(render(), (node) => node.type === "ListRow" && node.props.title === "Plan self"),
+      find(menu(), (node) => node.type === "ListRow" && node.props.title === "Plan self"),
       undefined,
     );
     row.props.onPress();
     assert.equal(draft, "@chat:12 ");
+    field = find(render(), (node) => node.type === "Field");
+    assert.equal(textOf(field), "@Plan review ", "the field shows the Chat's title, not its id");
+    field.props.onChangeText("@Plan review now");
+    assert.equal(draft, "@chat:12 now");
+    field = find(render(), (node) => node.type === "Field");
+    field.props.onChangeText("@Plan revie now");
+    assert.equal(draft, " now", "Backspace into the title removes the whole mention");
     render();
     await new Promise((resolve) => setTimeout(resolve, 170));
     assert.deepEqual(calls, [], "no file callback means no file RPC, even with a Chat menu");

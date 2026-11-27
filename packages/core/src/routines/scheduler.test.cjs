@@ -1727,7 +1727,7 @@ const prEvent = (n, over = {}) => ({
   branch: "feature",
   ...over,
 });
-const onFeature = { headBranch: async () => "feature" };
+const onFeature = { pullRequestWorktree: async () => ({ branch: "feature" }) };
 
 test("a pull-request run is sent to its own chat with the babysit prompt", async () => {
   const ctx = triggers({ chatOptions: onFeature });
@@ -1808,7 +1808,7 @@ test("context carries the effective level", async () => {
 });
 
 test("a Worktree on another branch makes the run report only", async () => {
-  const ctx = triggers({ chatOptions: { headBranch: async () => "main" } });
+  const ctx = triggers({ chatOptions: { pullRequestWorktree: async () => ({ branch: "main" }) } });
   const routine = createBabysit(ctx, { level: 5 });
   ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
   await ctx.scheduler.tick();
@@ -1818,17 +1818,26 @@ test("a Worktree on another branch makes the run report only", async () => {
 });
 
 test("on the branch, resolveThreads is the setting at a level that replies", async () => {
-  const ctx = triggers({ chatOptions: onFeature });
+  const ctx = triggers({
+    chatOptions: {
+      pullRequestWorktree: async (chatId, url) => {
+        assert.equal(chatId, "c1");
+        assert.equal(url, PR_URL);
+        return { branch: "feature", alias: "app" };
+      },
+    },
+  });
   const high = createBabysit(ctx, { level: 4, resolveThreads: true });
   ctx.scheduler.enqueueEvent(high.id, prEvent(1));
   await ctx.scheduler.tick();
   assert.deepEqual(ctx.calls.send[0].context.babysit, { level: 4, resolveThreads: true });
+  assert.match(ctx.calls.send[0].prompt, /member Worktree "app"/);
 });
 
 test("a pull-request run's branch lookup never holds up a heartbeat in the same tick", async () => {
   let release;
   const gate = new Promise((resolve) => (release = resolve));
-  const ctx = triggers({ chatOptions: { headBranch: () => gate.then(() => "feature") } });
+  const ctx = triggers({ chatOptions: { pullRequestWorktree: () => gate.then(() => ({ branch: "feature" })) } });
   const routine = createBabysit(ctx);
   const beat = ctx.store.upsertHeartbeat({ ...base, chatId: "c2", name: "beat" });
   ctx.clock.t = beat.nextRunAt;
@@ -1849,7 +1858,7 @@ test("a pull-request run's branch lookup never holds up a heartbeat in the same 
 test("a branch that can't be read counts as another branch", async () => {
   const ctx = triggers({
     chatOptions: {
-      headBranch: async () => {
+      pullRequestWorktree: async () => {
         throw new Error("no git");
       },
     },

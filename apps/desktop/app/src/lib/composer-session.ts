@@ -6,7 +6,12 @@ type Settle = (sessionId: number, snoozeUntil?: number) => void;
 
 /** The transcript props that come from the open Chat: the usage-limit card's, and what the last reply's Done and Snooze
  * run (nothing while the agent works or once the Chat can't be marked Done). */
-export function useTranscriptSession(session: ComposerSession | undefined, sending: boolean, settle: Settle | undefined) {
+export function useTranscriptSession(
+  session: ComposerSession | undefined,
+  sending: boolean,
+  settle: Settle | undefined,
+  { chat = null, readOnly = false }: { chat?: string | null; readOnly?: boolean } = {},
+) {
   const latest = useRef(settle);
   latest.current = settle;
   const settleId = session && settle && !sending && doneFromReply(session) ? session.id : undefined;
@@ -16,5 +21,6 @@ export function useTranscriptSession(session: ComposerSession | undefined, sendi
     limitSourceMessageId: session?.limitTurn?.sourceMessageId,
     limitResumeBlocked: !!session?.queued?.length,
     onSettle,
+    validationChat: readOnly ? null : chat,
   };
 }

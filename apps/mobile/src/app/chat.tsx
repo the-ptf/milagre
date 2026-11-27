@@ -4,7 +4,7 @@ import type { BranchPolicySettings } from "@milagre/shared/branch-policy";
 import { chrome, lineHeight, type } from "../design-tokens";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { useContextSettings } from "../context-settings";
-import { COMPACT_COMMAND, compactionContext, compactionText, isCompaction } from "@milagre/shared/compaction";
+import { COMPACT_COMMAND, compactionContext, isCompaction } from "@milagre/shared/compaction";
 import {
   ArrowDown01Icon,
   Globe02Icon,
@@ -17,7 +17,7 @@ import {
   UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
 import { outbox, outboxAttachments, hasQueuedChat } from "../outbox";
-import { LINK_CHAT_WORKTREES_TEXT, isWorktreeLinked, linkDeletedElsewhereText, worktreeLinkText } from "@milagre/shared/worktree-link";
+import { LINK_CHAT_WORKTREES_TEXT, isWorktreeLinked, linkDeletedElsewhereText } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chatHistory } from "@milagre/shared/chat-history";
@@ -37,14 +37,12 @@ import { CHAT_COMMANDS, STORAGE_COMMANDS, NO_CHECKPOINTS, composerCommandHandler
 import { useBtw } from "../use-btw";
 import { chatTitle, createPendingChat, createResendMemory, pendingChatSessionId } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
-import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { LINK_PR_HINT, type LinearIssue } from "@milagre/shared/linear";
 import { worktreeShared } from "@milagre/shared/archive";
 import type { Client, OpenProject, Snapshot } from "../client";
 import { answeredQuestions, lastUserModel, projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import { pullRequestAction } from "@milagre/shared/pr-blockers";
-import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
+import { pullRequestActionBody, pullRequestActionPrompt, pullRequestActionRequest } from "@milagre/shared/pr-action";
 import { issueChoiceId, issueSendFields, issueStartContext, issueStartMessage, issueWorktreeFields, type PickedIssue } from "@milagre/shared/issue-start";
 import { pickGithubIssue, pickLinearIssue } from "../issue-pickers";
 import { useGithubIssuesAvailable } from "../use-github-issues";
@@ -91,7 +89,6 @@ import { ChatReply, ChatRow, type ReplyChat } from "../chat-reply";
 import { onSendDesignMessageNow, sendWaitingDesign, type DesignMessage } from "../design-outbox";
 import { PanelTabsContext } from "../panel-tabs";
 import { chosenDesign } from "@milagre/shared/artifact";
-import { handoffSides } from "../handoff-sides";
 import { HandoffDivider } from "../handoff-divider";
 import { showBrief } from "../handoff-brief-store";
 import { foldLinkedExchanges } from "@milagre/shared/linked-message";
@@ -101,26 +98,18 @@ import { ChatReloadDivider } from "../chat-reload-divider";
 import { BabysitStoppedDivider } from "../babysit-stopped-divider";
 import { CheckpointRestoreDivider } from "../checkpoint-restore-divider";
 import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
+import { ValidationCard, isValidation } from "../validation-card";
 import { useCheckpoints } from "@milagre/shared/use-checkpoints";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import { type UndoIntent } from "../undo-panel";
-import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
-import { babysitStoppedText, isBabysitStopped } from "@milagre/shared/babysit";
+import { isChatReload } from "@milagre/shared/chat-reload";
+import { isBabysitStopped } from "@milagre/shared/babysit";
 import { RoutineRunDivider } from "../routine-run-divider";
-import {
-  chatBranchLabel,
-  RUN_WORKTREE_REMOVED_NOTE,
-  chatRoutine,
-  clock,
-  groupQuietRuns,
-  isRoutineRun,
-  mergedRoutineRunText,
-  routineRunOf,
-  routineRunText,
-} from "@milagre/shared/routines";
-import { CompactionDivider } from "../compaction-divider";
+import { chatBranchLabel, RUN_WORKTREE_REMOVED_NOTE, chatRoutine, clock, groupQuietRuns, isRoutineRun } from "@milagre/shared/routines";
+import { navigationLabel } from "../navigation-label";
 import { isHandoff } from "@milagre/shared/handoff";
-import { accountSwitchText, isAccountSwitch, isLimitReset, limitResetText } from "@milagre/shared/usage-limit";
+import { CompactionDivider } from "../compaction-divider";
+import { isAccountSwitch, isLimitReset } from "@milagre/shared/usage-limit";
 import { BackgroundIndicator } from "../running-logo";
 import { RunIndicator } from "../run-indicator";
 import { EdgeFade } from "../bottom-fade";
@@ -549,7 +538,7 @@ function ChatPane({
     scrollKey,
   );
   const pageLoading = lean && Boolean(params.id) && historyPage.loading && !messages.length;
-  const { prPath, chatPrs, rowPrs, pr, placeOf, prCwd, prChoices, prOpenThreads } = useChatPrs({
+  const { prPath, prAction, rowPrs, pr, placeOf, prCwd, prChoices, prOpenThreads } = useChatPrs({
     session,
     chatsHomeOpen,
     worktreeOf,
@@ -610,28 +599,9 @@ function ChatPane({
         if (!entry || isSilentNote(entry.message)) return [];
         const { message, merged } = entry;
         const position = `${index + 1} of ${shownEntries.length}`;
-        const run = routineRunOf(message);
         return {
           index,
-          label: isHandoff(message)
-            ? `Go to ${handoffSides(message.context, handoffModels).restored ? "context restored" : "context handoff"} ${position}.`
-            : isWorktreeLinked(message)
-              ? `Go to ${worktreeLinkText(message.context)}, ${position}.`
-              : isCompaction(message)
-                ? `Go to ${compactionText(message.context)}, ${position}.`
-                : isAccountSwitch(message)
-                  ? `Go to ${accountSwitchText(message.context)}, ${position}.`
-                  : isLimitReset(message)
-                    ? `Go to ${limitResetText()}, ${position}.`
-                    : isChatReload(message)
-                      ? `Go to ${RELOAD_TEXT}, ${position}.`
-                      : isBabysitStopped(message)
-                        ? `Go to ${babysitStoppedText(message.context).replace(/\.$/, "")}, ${position}.`
-                        : run
-                          ? `Go to ${merged ? mergedRoutineRunText(merged) : routineRunText(run)}, ${position}.`
-                          : isCheckpointRestore(message)
-                            ? `Go to ${message.body}, ${position}.`
-                            : `Go to ${messageSender(message)} message ${position}. ${message.body.slice(0, 88)}`,
+          label: navigationLabel(message, merged, position, handoffModels),
         };
       }),
     [shownEntries, handoffModels],
@@ -1264,7 +1234,7 @@ function ChatPane({
   async function send(
     typedBody?: string,
     withAttachments = true,
-    prAction?: PullRequestActionContext,
+    prAction?: PullRequestActionContext & { projectId?: string },
     issue?: PickedIssue,
     stay = false,
     extra: NonNullable<DesignMessage["images"]> = [],
@@ -1273,7 +1243,7 @@ function ChatPane({
     const outgoing = quotedMessage(quotes, draft);
     const body = typedBody ?? outgoing;
     const messageDelivery = run && !prAction && !issue ? delivery : undefined;
-    const own = body === outgoing;
+    const own = !prAction && body === outgoing;
     const typed = own ? draft : body;
     const sentQuotes = own ? quotes : NO_QUOTES;
     const sentQuoteIds = new Set(sentQuotes.map((quote) => quote.id));
@@ -1318,7 +1288,7 @@ function ChatPane({
             prompt: prAction ? pullRequestActionPrompt(prAction) : body,
             ...sendOptions(model, preferences),
             delivery: messageDelivery,
-            ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
+            prAction: pullRequestActionRequest(prAction),
             ...issueSendFields(issue, draft),
           },
           ...(project.link ? { link: { linkId: project.link.link.id, operationId: id } } : {}),
@@ -1367,7 +1337,9 @@ function ChatPane({
     const current = () => !stay && focus !== null && focused.current === focus && session.isSelected();
     const clearsDraft = own || issueKey !== undefined;
     const creates = !project.link && (newWorktree || stay || issueKey !== undefined);
-    const operationId = project.link ? composer.linkOperations.forSend(key, JSON.stringify([sent, sending.map((item) => item.id)]), randomUUID) : null;
+    const operationId = project.link
+      ? composer.linkOperations.forSend(key, JSON.stringify([sent, sending.map((item) => item.id), prAction]), randomUUID)
+      : null;
     const resendParts = sending.map((item) => item.id);
     const preview = createPendingChat({
       clientMessageId: failedSends.current.reuse(key, sent, resendParts),
@@ -1402,7 +1374,7 @@ function ChatPane({
     composer.setAttachments((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((item) => !sentIds.has(item.id)) }));
     following.current = true;
     if (!stay) Keyboard.dismiss();
-    const options = { ...sendOptions(model, preferences), delivery: messageDelivery };
+    const options = { ...sendOptions(model, preferences), delivery: messageDelivery, prAction: pullRequestActionRequest(prAction) };
     const retried = <T,>(work: () => Promise<T>) => retrySend(work, { retryable: (error) => retryKind(error) !== null });
     const retriedUnsent = <T,>(work: () => Promise<T>) => retrySend(work, { retryable: (error) => retryKind(error) === "unsent" });
     let accepted = false;
@@ -1435,6 +1407,7 @@ function ChatPane({
         current[key] ? { ...current, [key]: { ...current[key], preview: { ...current[key].preview, targetSessionId: target.sessionId } } } : current,
       );
       const link = project.link;
+      const prompt = prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(sent, media.files);
       const result = await retriedUnsent(() =>
         link
           ? client.call<{ sessionId: number }>("link:send", [
@@ -1445,7 +1418,7 @@ function ChatPane({
                 clientMessageId: preview.message.clientMessageId,
                 body: sent,
                 ...media,
-                prompt: attachmentPrompt(sent, media.files),
+                prompt,
                 ...options,
                 sentFrom: SENT_FROM,
                 ...issueSendFields(issue, draft),
@@ -1458,10 +1431,9 @@ function ChatPane({
                 clientMessageId: preview.message.clientMessageId,
                 body: sent,
                 ...media,
-                prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(sent, media.files),
+                prompt,
                 ...options,
                 sentFrom: SENT_FROM,
-                ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
                 ...issueSendFields(issue, draft),
               },
             ]),
@@ -1635,8 +1607,6 @@ function ChatPane({
       archiveRequest.current = false;
     }
   }
-  const prAction = pullRequestAction(chatPrs);
-  const prActionRequest = prAction ? pullRequestActionContext({ action: prAction.blocker, pr: prAction.pr.number, url: prAction.pr.url }) : null;
   const agents = (chat?.subagents || []).filter((agent) => !agent.archived);
   const diff = worktree?.diff;
   const linearIssue: LinearIssue | undefined = worktree ? linearIssues[worktree.path] : undefined;
@@ -1885,13 +1855,13 @@ function ChatPane({
       answering={answering}
       chips={{
         savedId: params.id,
-        actionPr: prAction && prActionRequest ? prAction.pr : undefined,
+        actionPr: prAction?.pr,
         actionDisabled: busy || !!run,
-        onAction: () => prActionRequest && void send(pullRequestActionBody(prActionRequest), false, prActionRequest),
+        onAction: () => prAction && void send(pullRequestActionBody(prAction.request), false, prAction.request),
         pr,
         mergeable: !prAction && pr?.state === "OPEN" && !!pr.readyToMerge,
         openThreads: prOpenThreads,
-        onOpenPr: (page) => pr && openPr(pr.number, page),
+        onOpenPr: (page) => pr && openPr(pr.number, page, placeOf(pr)?.cwd),
         terminalDocks,
         terminalShown,
         terminalCount,
@@ -2186,6 +2156,13 @@ function ChatPane({
                                 <BabysitStoppedDivider context={message.context} />
                               ) : isRoutineRun(message) ? (
                                 <RoutineRunDivider context={message.context} merged={merged} />
+                              ) : isValidation(message) ? (
+                                <ValidationCard
+                                  context={message.context}
+                                  chatId={chat?.readOnlyReason ? null : chatId}
+                                  call={client?.call.bind(client)}
+                                  onAskToFix={(text) => void send(text, false)}
+                                />
                               ) : isCheckpointRestore(message) ? (
                                 <CheckpointRestoreDivider
                                   context={message.context}
