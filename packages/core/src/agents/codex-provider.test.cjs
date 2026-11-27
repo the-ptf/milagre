@@ -23,7 +23,18 @@ const TURN = { prompt: "Hi", images: [], model: "gpt-6-sol", permissionMode: "au
 
 function codex(
   t,
-  { scenario = "reply", resumeId, tldrEnabled, analysisOnly, executionAdvisor, linked, mcpExtras, command = process.execPath, interruptGraceMs } = {},
+  {
+    scenario = "reply",
+    resumeId,
+    tldrEnabled,
+    analysisOnly,
+    executionAdvisor,
+    linked,
+    mcpExtras,
+    command = process.execPath,
+    interruptGraceMs,
+    refuse = () => null,
+  } = {},
 ) {
   const events = [];
   const requests = [];
@@ -44,7 +55,8 @@ function codex(
       const request = rpc.request.bind(rpc);
       rpc.request = (method, params, options) => {
         requests.push({ method, params, options });
-        return request(method, params, options);
+        const refused = refuse(method, requests);
+        return refused ? Promise.reject(refused) : request(method, params, options);
       };
       return rpc;
     },
@@ -374,6 +386,23 @@ test("switching to Ask mid-turn stops Auto's turn so later commands ask", async 
   const policies = turnStarts(requests).map((request) => request.params.approvalPolicy);
   assert.deepEqual(policies, ["on-request", "untrusted"]);
   assert.equal(events.filter(isTerminal).length, 0);
+});
+
+test("a message sent with a new mode runs as the next turn when the switch can't start Codex's turn", async (t) => {
+  const refuse = (method, requests) =>
+    method === "turn/start" && turnStarts(requests).length === 2 ? Object.assign(new Error("stream disconnected"), { rpcError: true }) : null;
+  const { session, events, requests } = codex(t, { scenario: "steer", refuse });
+  await session.startTurn({ ...TURN, permissionMode: "ask" });
+  const next = await session.startTurn({ ...TURN, prompt: "Keep going", permissionMode: "auto" });
+  await ended(events, 2);
+  assert.equal(next.steered, false);
+  const third = turnStarts(requests)[2].params;
+  assert.equal(third.approvalPolicy, "on-request");
+  assert.deepEqual(third.input, [{ type: "text", text: "Keep going", text_elements: [] }]);
+  assert.deepEqual(
+    events.filter(isTerminal).map((event) => event.type),
+    ["turn-failed", "turn-completed"],
+  );
 });
 
 test("a message sent with a new mode mid-turn starts a Codex turn with that mode's policy", async (t) => {
