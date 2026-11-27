@@ -13,6 +13,7 @@ import type { SidebarRecent } from "../components/sidebar/ChatRow";
 import { chatMark, chatTitle, isChatListed, orderChats, type ChatOrder } from "./chat-list.ts";
 import type { ProjectKind } from "@milagre/shared/chats-home";
 import { sessionsWithPins, type DevicePins } from "@milagre/shared/chat-pins";
+import { tabWorktree, workspaceKey } from "@milagre/shared/workspace-tabs";
 
 const projectCopies = new Map<string, OpenProject>();
 export function cachedProjectCopy(path: string): OpenProject | undefined {
@@ -100,6 +101,7 @@ export function scopeChats(
       ...(session.done_at ? { doneAt: session.done_at } : {}),
       ...(isSnoozed(session) ? { snoozedUntil: session.snoozed_until } : {}),
       ...("parent" in session && session.parent !== undefined ? { parent: String(session.parent) } : {}),
+      tabSet: "worktrees" in session ? workspaceKey(key, "link", 0) : rowTabSet(key, worktree, session.id),
       unread: Boolean(session.unread),
       mark: chatMark({
         asking: asking.has(chatKey),
@@ -121,6 +123,10 @@ export function scopeChats(
     };
   });
 }
+
+/** The Workspace tab set a Project's Chat lives in: its Worktree's, or its own in the Project folder. */
+export const rowTabSet = (scope: string, worktree: { id: number; path: string } | undefined, chatId: number) =>
+  workspaceKey(scope, tabWorktree(scope, worktree), chatId);
 
 export type FlatChat = { scopeKey: string; row: SidebarRecent };
 

@@ -71,6 +71,10 @@ export type SidebarRecent = {
   doneAt?: number;
   snoozedUntil?: number;
   parent?: string;
+  /** The Workspace tab set the Chat lives in (workspaceKey); Chats sharing one fold into a single row while tabs are on. */
+  tabSet?: string;
+  /** On a folded row: the other Chats of its Worktree or Link, which live only as tabs and follow its Done, Snooze and Delete. */
+  tabChats?: string[];
   heartbeat?: string;
   details?: ChatDetails;
 };
@@ -91,8 +95,9 @@ export type ChatRowActions = {
   remote?: boolean;
   onCommit?: (id: string) => void;
   gitless?: boolean;
-  onArchiveCheck?: (id: string) => Promise<ArchivePlan>;
-  onArchive?: (id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown> | void;
+  /** `together`: the Chats deleted with this one (a folded row's tabs), which don't keep its Worktree. */
+  onArchiveCheck?: (id: string, together?: string[]) => Promise<ArchivePlan>;
+  onArchive?: (id: string, mode: ArchiveMode, plan: ArchivePlan, together?: string[]) => Promise<unknown> | void;
   onUndoArchive?: (id: string) => boolean;
   onLinkIssue?: (id: string, key: string, workspace?: string) => void;
   onUnlinkIssue?: (id: string) => void;

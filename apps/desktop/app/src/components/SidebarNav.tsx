@@ -88,7 +88,7 @@ import { sidebarModes, splitGroupRows } from "../lib/sidebar-modes";
 import { ScopeMenuItem, ScopeHeader, ScopeBody } from "./sidebar/ScopeHeader";
 import { ScopeBadge, FlatScope, NO_BADGE, CHATS_BADGE, FlatChatList, ChatList } from "./sidebar/ChatLists";
 import { dragScopeHeader } from "./sidebar/scope-drag";
-import { reopenFromDone, wakeFromSnoozed, withoutSetAside } from "./sidebar/chat-row-actions";
+import { foldTabRows, frontChat, isRowOf, reopenFromDone, wakeFromSnoozed, withoutSetAside } from "./sidebar/chat-row-actions";
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 const copy = (text: string) => void navigator.clipboard.writeText(text).catch(() => {});
@@ -148,8 +148,8 @@ type SidebarNavProps = {
   waitingKeys?: string;
   askingKeys?: string;
   onOpenScopeChat?: (scopeKey: string, id: string) => void;
-  onScopeArchiveCheck?: (scopeKey: string, id: string) => Promise<ArchivePlan>;
-  onScopeArchive?: (scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown>;
+  onScopeArchiveCheck?: (scopeKey: string, id: string, together?: string[]) => Promise<ArchivePlan>;
+  onScopeArchive?: (scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan, together?: string[]) => Promise<unknown>;
   archivingChats?: ReadonlySet<string>;
   onHoverChat?: (scopeKey: string, id: string) => void;
   onAskChat?: (scopeKey: string, id: string, message: { body: string; prompt: string }) => Promise<unknown>;
@@ -281,13 +281,13 @@ export default memo(function SidebarNav({
   const currentKey = selectedLink ? `milagre-link:${selectedLink.id}` : (projectPath ?? "");
   const donePending = useDonePending();
   const snoozePending = useSnoozePending();
+  const { chatOrder, chatRowShow, chatList, workspaceTabs } = useSettings();
   const listedRecents = useMemo(
-    () => withSnoozePending(currentKey, withDonePending(currentKey, hostRecents, donePending), snoozePending),
-    [currentKey, hostRecents, donePending, snoozePending],
+    () => foldTabRows(withSnoozePending(currentKey, withDonePending(currentKey, hostRecents, donePending), snoozePending), workspaceTabs),
+    [currentKey, hostRecents, donePending, snoozePending, workspaceTabs],
   );
   const recents = useMemo(() => withoutSetAside(listedRecents), [listedRecents]);
   const { settings: doneSettings } = useDoneSettings();
-  const { chatOrder, chatRowShow, chatList } = useSettings();
   const pins = useChatPins();
   const { thisMac, computers } = useComputers();
   const remote = useComputerScopes(computers);
@@ -353,7 +353,7 @@ export default memo(function SidebarNav({
   const pickChat = useCallback(
     (item: SidebarRecent) => {
       if (activeTitle === undefined) setDemoActiveTitle(item.label);
-      onPick?.(item.id, item.label, item.prompt);
+      onPick?.(frontChat(item), item.label, item.prompt);
     },
     [activeTitle, onPick],
   );
@@ -503,21 +503,19 @@ export default memo(function SidebarNav({
     if (snoozePending.size) for (const [key, rows] of hostRows) settleSnoozePending(key, rows);
   });
   const unarchived = (key: string, rows: SidebarRecent[]) => (archivingChats?.size ? rows.filter((row) => !archivingChats.has(`${key}#${row.id}`)) : rows);
-  const withoutDone = withoutSetAside;
+  const scopeRows = (key: string, state: Parameters<typeof scopeChats>[1], gitless = false) =>
+    foldTabRows(unarchived(key, pendingDone(key, scopeChats(key, state, chatOrder, marks, { gitless, pins }))), workspaceTabs);
   const linkProjectIdOf = (key: string | undefined) =>
     key && !key.startsWith("milagre-link:") && !isRemoteKey(key) ? (registeredProjects.find((project) => project.path === key)?.id ?? null) : null;
   const groups = buildGroups
     ? scopes.map((scope) => {
         const current = scope.key === currentKey;
         const state = scopeStates[scope.key] ?? (scope.link ? undefined : cachedProjectCopy(scope.key)?.state);
-        const all = withBeats(
-          scope.key,
-          current ? listedRecents : state ? unarchived(scope.key, pendingDone(scope.key, scopeChats(scope.key, state, chatOrder, marks, { pins }))) : [],
-        );
-        const rows = withoutDone(all);
+        const all = withBeats(scope.key, current ? listedRecents : state ? scopeRows(scope.key, state) : []);
+        const rows = withoutSetAside(all);
         const list = current
           ? {
-              isActive: (item: SidebarRecent) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle),
+              isActive: (item: SidebarRecent) => (activeId !== undefined ? isRowOf(item, activeId) : item.label === selectedTitle),
               collapsed: false,
               actions: chatActions,
               showHints,
@@ -552,13 +550,10 @@ export default memo(function SidebarNav({
     ? homeScopes.map((key) => {
         const current = key === currentKey;
         const state = scopeStates[key] ?? cachedProjectCopy(key)?.state;
-        const all = withBeats(
-          key,
-          current ? listedRecents : state ? unarchived(key, pendingDone(key, scopeChats(key, state, chatOrder, marks, { gitless: true, pins }))) : [],
-        );
-        const rows = withoutDone(all);
+        const all = withBeats(key, current ? listedRecents : state ? scopeRows(key, state, true) : []);
+        const rows = withoutSetAside(all);
         const list = {
-          isActive: current ? (item: SidebarRecent) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle) : NEVER_ACTIVE,
+          isActive: current ? (item: SidebarRecent) => (activeId !== undefined ? isRowOf(item, activeId) : item.label === selectedTitle) : NEVER_ACTIVE,
           collapsed: false,
           actions: current ? chatActions : actionsFor(key, true),
           showHints: current && showHints,
@@ -643,11 +638,7 @@ export default memo(function SidebarNav({
     ? scopes.map((scope) => {
         const current = scope.key === currentKey;
         const state = scopeStates[scope.key] ?? (scope.link ? undefined : cachedProjectCopy(scope.key)?.state);
-        const rows = current
-          ? recents
-          : state
-            ? withoutDone(unarchived(scope.key, pendingDone(scope.key, scopeChats(scope.key, state, chatOrder, marks, { pins }))))
-            : [];
+        const rows = current ? recents : state ? withoutSetAside(scopeRows(scope.key, state)) : [];
         const { status, chats } = railLive(rows);
         return { key: scope.key, name: scope.name, icon: scopeIcon(scope, current), current, status, chats };
       })
@@ -849,7 +840,7 @@ export default memo(function SidebarNav({
           key: `${scopeKey}#${row.id}`,
           name: scope?.name ?? CHATS_GROUP_LABEL,
           icon: scope ? scopeIcon(scope, current) : <Icon icon={BubbleChatIcon} size={18} />,
-          current: current && (activeId !== undefined ? row.id === activeId : row.label === selectedTitle),
+          current: current && (activeId !== undefined ? isRowOf(row, activeId) : row.label === selectedTitle),
           status: railLive([row]).status,
           chats: [row],
           chat: { scopeKey, id: row.id },
@@ -1319,7 +1310,7 @@ export default memo(function SidebarNav({
                   projectImage={workspace.image}
                   projectInitial={workspace.name}
                   scopeKey={currentKey}
-                  isActive={(item) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle)}
+                  isActive={(item) => (activeId !== undefined ? isRowOf(item, activeId) : item.label === selectedTitle)}
                   collapsed={collapsed}
                   actions={chatActions}
                   showHints={showHints}
