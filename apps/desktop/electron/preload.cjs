@@ -240,6 +240,23 @@ function revealBridges(invoke) {
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @param {(channel: string, callback: (...args: any[]) => void) => () => void} listen
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readPullRequest" | "readPullRequests" | "readPullRequestSnapshot" | "listOpenPullRequests" | "listPullRequests" | "readPullRequestChecks" | "onPullRequestsChanged">}
+ */
+function pullRequestBridges(invoke, listen) {
+  return {
+    readPullRequest: (worktreePath) => invoke("worktree:pull-request", worktreePath),
+    readPullRequests: (worktreePath, refs) => invoke("worktree:pull-requests", worktreePath, refs),
+    readPullRequestSnapshot: (projectPath) => invoke("pull-requests:snapshot", projectPath),
+    listOpenPullRequests: (projectPath) => invoke("pull-requests:open", projectPath),
+    listPullRequests: (request) => invoke("pull-requests:list", request),
+    readPullRequestChecks: (request) => invoke("pull-requests:checks", request),
+    onPullRequestsChanged: (callback) => listen("pull-requests:changed", callback),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "listLinearIssues" | "readWorktreeLinearIssues" | "listGithubIssues">}
  */
 function issueBridges(invoke) {
@@ -440,11 +457,7 @@ function makeBridge(invoke, listen, send) {
     ...issueBridges(invoke),
     onWorktreeRenamed: (callback) => listen("worktree:renamed", callback),
     refreshDiffs: (projectPath, worktreeIds) => invoke("worktree:refresh-diffs", projectPath, worktreeIds),
-    readPullRequest: (worktreePath) => invoke("worktree:pull-request", worktreePath),
-    readPullRequests: (worktreePath, refs) => invoke("worktree:pull-requests", worktreePath, refs),
-    readPullRequestSnapshot: (projectPath) => invoke("pull-requests:snapshot", projectPath),
-    listOpenPullRequests: (projectPath) => invoke("pull-requests:open", projectPath),
-    onPullRequestsChanged: (callback) => listen("pull-requests:changed", callback),
+    ...pullRequestBridges(invoke, listen),
     ...revealBridges(invoke),
     copyImage: (file) => invoke("image:copy", file),
     saveImage: (file, name) => invoke("image:save", file, name),

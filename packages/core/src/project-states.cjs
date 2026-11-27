@@ -26,6 +26,10 @@ class ProjectStates {
   projects() {
     return [...this.states.keys()];
   }
+  /** The state already in memory, without loading one. */
+  loaded(projectPath) {
+    return this.states.get(projectPath) ?? null;
+  }
   worktreePaths() {
     return [...this.states.values()].flatMap((state) => Object.values(state.worktrees ?? {}).map((worktree) => worktree.path));
   }

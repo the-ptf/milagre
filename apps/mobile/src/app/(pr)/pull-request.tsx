@@ -17,7 +17,12 @@ export default function PullRequestSheet() {
   const top = Platform.OS === "android" ? insets.top : 0;
   const choices = chatPullRequestChoices(route.chat);
   const shown = choices.find((choice) => choice.number === number && choice.cwd === route.cwd);
-  const project = shown?.project && shown.projectPath ? { name: shown.project, path: shown.projectPath } : undefined;
+  const project =
+    shown?.project && shown.projectPath
+      ? { name: shown.project, path: shown.projectPath }
+      : route.projectName && route.projectPath
+        ? { name: route.projectName, path: route.projectPath }
+        : undefined;
   if (!valid || !client || !cwd)
     return (
       <View style={[styles.screen, { paddingTop: top }]}>
@@ -39,10 +44,14 @@ export default function PullRequestSheet() {
           const next = choices.find((choice) => prChoiceKey(choice) === key);
           if (next) router.setParams({ number: String(next.number), ...(next.cwd ? { cwd: next.cwd } : {}) });
         }}
-        onChanges={() => {
-          close();
-          setTimeout(() => showChatChanges(route.chat), 350);
-        }}
+        onChanges={
+          route.host
+            ? undefined
+            : () => {
+                close();
+                setTimeout(() => showChatChanges(route.chat), 350);
+              }
+        }
         onChat={close}
         onOpen={(page, extra) => openPrPage(page, route, extra)}
       />

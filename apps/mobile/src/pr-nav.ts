@@ -1,9 +1,11 @@
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback } from "react";
 import { projectOfKey } from "@milagre/shared/agent-runs";
+import { allComputers } from "./all-computers";
 import { useSession } from "./session";
 
-export type PrRoute = { worktreeId: string; number: string; chat?: string; cwd?: string };
+/** A PR in the current Project's Worktree (`worktreeId`), or on any computer (`host` and a folder there, `cwd`). */
+export type PrRoute = { worktreeId?: string; number: string; chat?: string; cwd?: string; host?: string; projectName?: string; projectPath?: string };
 
 export type PrPage = "threads" | "review" | "diff" | "labels" | "reviewers";
 
@@ -32,11 +34,29 @@ export function openPrFile(route: PrRoute, path: string) {
 export function usePrRoute() {
   const params = useLocalSearchParams<PrRoute & Record<string, string>>();
   const session = useSession();
+  const number = Number(params.number);
+  if (params.host) {
+    const client = params.host === session.client?.url ? session.client : allComputers.clientFor(params.host);
+    const cwd = params.cwd || undefined;
+    return {
+      params,
+      route: {
+        host: params.host,
+        number: String(params.number ?? ""),
+        ...(cwd ? { cwd } : {}),
+        ...(params.projectName && params.projectPath ? { projectName: params.projectName, projectPath: params.projectPath } : {}),
+      } as PrRoute,
+      cwd,
+      number,
+      client,
+      valid: !!cwd && Number.isSafeInteger(number) && number > 0,
+      waiting: !client,
+    };
+  }
   const link = session.snapshot?.project.link;
   const linkChat = link && params.chat ? link.state.sessions[params.chat.slice(params.chat.lastIndexOf("#") + 1)] : undefined;
   const member = linkChat?.worktrees.find((entry) => entry.worktreePath === params.cwd);
   const worktree = link ? (member ? { path: member.worktreePath } : undefined) : session.snapshot?.project.state.worktrees[Number(params.worktreeId)];
-  const number = Number(params.number);
   const route: PrRoute = {
     worktreeId: String(params.worktreeId ?? ""),
     number: String(params.number ?? ""),

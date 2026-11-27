@@ -978,7 +978,7 @@ function createRuntime(options) {
     cli: async (name, cwd) => agentCli(name, await accountScopeForFolder(cwd)),
     ready: () => environmentReady,
     clientVersion: version,
-    knownFolders: () => scopeStates.worktreePaths(),
+    knownFolders: async () => [...scopeStates.worktreePaths(), ...(await recentProjects().list()).map((entry) => entry.path)],
     pullRequestChanged: (folder) => pullRequests.poke(folder),
   });
 

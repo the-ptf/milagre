@@ -117,6 +117,7 @@ export default function Layout() {
                             <Stack.Screen name="projects" options={{ title: "Projects" }} />
                             <Stack.Screen name="canvas" options={{ title: "Canvas" }} />
                             <Stack.Screen name="routines" options={{ title: "Routines" }} />
+                            <Stack.Screen name="pull-requests" options={{ title: "Pull requests" }} />
                             <Stack.Screen name="design-library" options={{ title: "Designs" }} />
                             <Stack.Screen name="orchestrator" options={{ title: "Orchestrator" }} />
                             <Stack.Screen name="orchestrator-task" options={{ ...sheet, sheetAllowedDetents: [0.7, 1], sheetInitialDetentIndex: 0 }} />

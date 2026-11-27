@@ -297,6 +297,8 @@ const PATHS = Object.freeze({
   "worktree:pull-request": ([worktreePath]) => [worktreePath],
   "worktree:pull-requests": ([worktreePath]) => [worktreePath],
   "pull-requests:open": ([projectPath]) => [projectPath],
+  "pull-requests:list": denied,
+  "pull-requests:checks": denied,
   "project:branches": ([projectPath]) => [projectPath],
   "attachment:preview": ([file]) => [attached(file)],
   "attachment:read": ([file]) => [attached(file)],

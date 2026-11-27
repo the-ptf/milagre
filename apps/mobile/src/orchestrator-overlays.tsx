@@ -64,16 +64,18 @@ function ToastAction({ label, onPress }: { label: string; onPress: () => void })
   );
 }
 
-/** "Started in <Project>", with Undo and Open, over the bottom of the board for a few seconds. */
+/** What the Orchestrator did with a task ("Started in <Project>"), with Undo and Open, over the bottom of the page for a few seconds. */
 export function StartedToast({
-  project,
+  text,
   color,
+  bottom,
   onUndo,
   onOpen,
   onHide,
 }: {
-  project: string;
+  text: string;
   color: string;
+  bottom?: number;
   onUndo: () => void;
   onOpen: () => void;
   onHide: () => void;
@@ -89,7 +91,13 @@ export function StartedToast({
       entering={FadeInDown}
       exiting={FadeOutDown}
       pointerEvents="box-none"
-      style={{ position: "absolute", left: space.gutter, right: space.gutter, bottom: Math.max(insets.bottom + space.lg, space.xxl), alignItems: "center" }}
+      style={{
+        position: "absolute",
+        left: space.gutter,
+        right: space.gutter,
+        bottom: bottom ?? Math.max(insets.bottom + space.lg, space.xxl),
+        alignItems: "center",
+      }}
     >
       <View
         accessibilityLiveRegion="polite"
@@ -110,7 +118,7 @@ export function StartedToast({
       >
         <Mascot size={24} color={color} mood="happy" />
         <Text numberOfLines={1} style={{ flex: 1, color: colors.onInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600" }}>
-          Started in {project}
+          {text}
         </Text>
         <ToastAction label="Undo" onPress={onUndo} />
         <ToastAction label="Open" onPress={onOpen} />

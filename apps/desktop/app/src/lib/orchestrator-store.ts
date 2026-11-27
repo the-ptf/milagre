@@ -199,3 +199,16 @@ export function orchestratorEnabled() {
   start();
   return snapshot.settings.enabled;
 }
+
+export type FlightRequest = { id: string; text: string; from: DOMRect };
+const flightListeners = new Set<(request: FlightRequest) => void>();
+
+/** Sends the sidebar's mascot to pick up `text` from `from` and carry it to the task, as a send from the quick box does. */
+export function flyToOrchestrator(request: FlightRequest) {
+  flightListeners.forEach((listener) => listener(request));
+}
+
+export function onOrchestratorFlight(listener: (request: FlightRequest) => void) {
+  flightListeners.add(listener);
+  return () => void flightListeners.delete(listener);
+}

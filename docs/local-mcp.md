@@ -98,6 +98,8 @@ Compose both diffs into an integration checkout. In `runtime.cjs`, retain the De
 
 `orchestrator_send({prompt})` hands a request to the Orchestrator, which picks the Project, role, model, account and computer and starts a hidden task Chat (`projects: create`); it fails while the Orchestrator is off. `orchestrator_tasks()` lists its tasks (`projects: read`). See [orchestrator.md](orchestrator.md).
 
+`pull_requests_list({state})` lists the PRs in this computer's Projects' GitHub repositories (`open` by default), with checks, review decision, whether the user's review is requested and the Chats that opened them (`projects: read`). A connection scoped to some Projects sees only their PRs. See [host.md](host.md#pull-requests).
+
 The CLI exposes the same scoped tools to other Chats:
 
 ```sh
