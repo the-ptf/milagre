@@ -1,6 +1,7 @@
 const { createPullRequestReader, listOpenPullRequests, readPullRequests } = require("../pull-request.cjs");
 const { createPullRequestWatch } = require("../pull-request-watch.cjs");
 const { createPullRequestList } = require("../pull-request-list.cjs");
+const { registerPrReviews } = require("../pr-reviews.cjs");
 
 /** The recent Projects the sidebar shows, with their `origin` remotes: the repositories the Pull requests page lists. */
 async function pullRequestProjects(commands) {
@@ -10,7 +11,7 @@ async function pullRequestProjects(commands) {
 
 const chatTitleOf = (session) => session.title || session.generatedTitle || session.summary?.titleLine || "Chat";
 
-function registerPullRequests({ commands, options, states, emit, environmentReady }) {
+function registerPullRequests({ commands, options, states, emit, environmentReady, routines = () => null }) {
   const injectedPullRequests = Boolean(options.readPullRequest || options.readPullRequests);
   const readPullRequest = options.readPullRequest ?? createPullRequestReader();
   const pullRequestWatch = injectedPullRequests
@@ -105,6 +106,13 @@ function registerPullRequests({ commands, options, states, emit, environmentRead
     await environmentReady;
     return pullRequestList.checksOf({ repo: request?.repo, number: request?.number });
   });
+  const reviews = registerPrReviews({
+    commands,
+    dataDir: options.dataDir,
+    emit,
+    babysit: () => async (url, findings) => Boolean(routines()?.reviewFindings?.(url, findings)),
+  });
+  commands.handle("pr-reviews:report", (_event, report, chatId) => reviews.report(report, typeof chatId === "string" ? chatId : null));
   return {
     watching: Boolean(pullRequestWatch),
     poke: (folder) => pullRequestWatch?.poke(folder),

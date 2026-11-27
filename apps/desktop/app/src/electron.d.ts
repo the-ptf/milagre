@@ -1,4 +1,5 @@
 import type { PullRequestList, PullRequestListCheck, PullRequestListState } from "@milagre/shared/pull-request-list";
+import type { PrReview, ReviewCounts, ReviewFindingStatus } from "@milagre/shared/pr-review";
 import type { BranchPolicy, BranchPolicySettings } from "@milagre/shared/branch-policy";
 import type { IdleWorktrees, RemoveWorktree } from "@milagre/shared/storage";
 import type { ImportRequest, ImportResult, ImportScan } from "@milagre/shared/ade-import";
@@ -584,6 +585,17 @@ export type MilagreBridge = {
   listPullRequests: (request?: { state?: PullRequestListState; force?: boolean }) => Promise<PullRequestList>;
   /** Every check on a PR's head commit, failures first; cached 30 s. */
   readPullRequestChecks: (request: { repo: string; number: number }) => Promise<PullRequestListCheck[]>;
+  /** The review agent's latest report on a PR, or null. */
+  readPrReview: (url: string) => Promise<PrReview | null>;
+  /** Open findings per reviewed PR URL, for the list's badges. */
+  readPrReviewCounts: () => Promise<Record<string, ReviewCounts & { reviewedAt: number }>>;
+  /** Marks findings sent (to a Chat), dismissed or open again. */
+  setPrReviewStatus: (request: { url: string; ids: string[]; status: ReviewFindingStatus }) => Promise<PrReview>;
+  /** Settings › Experimental › Review agent. */
+  readPrReviewSettings: () => Promise<{ enabled: boolean }>;
+  savePrReviewSettings: (patch: { enabled: boolean }) => Promise<{ enabled: boolean }>;
+  onPrReviewsChanged: (callback: (change: { url: string }) => void) => () => void;
+  onPrReviewSettings: (callback: (value: { enabled: boolean }) => void) => () => void;
   /** A Project's PRs changed on the host's poll; read the snapshot again. */
   onPullRequestsChanged: (callback: (change: { projectPath: string }) => void) => () => void;
   /** Opens a project or worktree folder in the file manager; rejects for any other folder. */

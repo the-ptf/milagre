@@ -214,7 +214,7 @@ function createPullRequestList({ exec = defaultExec, env = process.env, now = Da
 }
 
 /** The `pull_requests_list` agent tool. A connection scoped to some Projects sees only their PRs. */
-function pullRequestTools({ read, host, scope, inProjectScope }) {
+function pullRequestTools({ read, act, host, scope, inProjectScope, caller }) {
   return [
     read(
       "pull_requests_list",
@@ -228,6 +228,28 @@ function pullRequestTools({ read, host, scope, inProjectScope }) {
           .filter((item) => item.projects.length);
         return { ...list, items };
       },
+    ),
+    act(
+      "pr_review_report",
+      "Hand a finished pull request review to Milagre: the PR's URL, a short summary and every finding (path, line, severity high/medium/low, title, body, suggestion). Milagre shows them on the PR and can send them to the Chat that fixes it. Works while the review agent is on in Settings › Experimental.",
+      "create",
+      {
+        url: z.string().min(1).max(300),
+        summary: z.string().max(2000).default(""),
+        findings: z
+          .array(
+            z.object({
+              path: z.string().min(1).max(500),
+              line: z.number().int().positive().optional(),
+              severity: z.enum(["high", "medium", "low"]),
+              title: z.string().min(1).max(200),
+              body: z.string().max(4000).default(""),
+              suggestion: z.string().max(4000).optional(),
+            }),
+          )
+          .max(50),
+      },
+      (args) => host.reviewReport(args, caller ?? null),
     ),
   ];
 }

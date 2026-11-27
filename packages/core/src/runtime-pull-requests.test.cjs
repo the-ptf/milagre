@@ -139,3 +139,34 @@ test("pull-requests:list reads every recent Project's repository with its origin
   assert.deepEqual(calls[0].projects, [{ path: project, name: "project", origin: "github.com/acme/web" }]);
   assert.deepEqual(await runtime.invoke("pull-requests:checks", [{ repo: "acme/web", number: 3 }]), [{ repo: "acme/web", number: 3 }]);
 });
+
+test("the review agent's reports go through the runtime: off until switched on, then read back and triaged", async (t) => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-pr-reviews-")));
+  const project = path.join(dir, "project");
+  await fs.mkdir(project);
+  execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });
+  const runtime = createRuntime({
+    dataDir: path.join(dir, "data"),
+    chatsHome: path.join(dir, "chats"),
+    cwd: project,
+    environmentReady: Promise.resolve(),
+    titleModels: {},
+    agentCli: async () => ({ command: "fixture" }),
+  });
+  t.after(async () => {
+    await runtime.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+  const url = "https://github.com/acme/web/pull/7";
+  const report = { url, summary: "One bug", findings: [{ path: "a.ts", line: 2, severity: "medium", title: "Off by one" }] };
+  await assert.rejects(runtime.invoke("pr-reviews:report", [report, "/p#1"]), /review agent is off/);
+  assert.deepEqual(await runtime.invoke("pr-reviews:settings:save", [{ enabled: true }]), { enabled: true });
+  const answer = await runtime.invoke("pr-reviews:report", [report, "/p#1"]);
+  assert.equal(answer.medium, 1);
+  assert.equal(answer.babysat, false, "No Babysit Heartbeat watches this PR");
+  const review = await runtime.invoke("pr-reviews:read", [url]);
+  assert.equal(review.findings[0].title, "Off by one");
+  const triaged = await runtime.invoke("pr-reviews:set-status", [{ url, ids: [review.findings[0].id], status: "dismissed" }]);
+  assert.equal(triaged.findings[0].status, "dismissed");
+  assert.deepEqual(await runtime.invoke("pr-reviews:counts", []), { [url]: { open: 0, high: 0, medium: 0, low: 0, reviewedAt: review.reviewedAt } });
+});
