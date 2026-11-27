@@ -469,6 +469,7 @@
     "./use-task-output": "./src/use-task-output.ts",
     "./themes": "./src/themes/index.ts",
     "./chat-row": "./src/chat-row.ts",
+    "./message-search-view": "./src/message-search-view.ts",
     "./subchats": "./src/subchats.ts",
     "./workspace-tabs": "./src/workspace-tabs.ts",
     "./chat-pins": "./src/chat-pins.ts",

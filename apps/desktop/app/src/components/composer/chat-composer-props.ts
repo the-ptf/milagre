@@ -135,6 +135,8 @@ export interface ChatComposerProps {
   notice?: string | null;
   onDismissNotice?: () => void;
   composerNote?: string;
+  /** Shown beside the note on an archived Chat: puts it back in the list so it can take messages again. */
+  onRestoreChat?: () => void;
   noGit?: boolean;
   starters?: Starter[];
 }

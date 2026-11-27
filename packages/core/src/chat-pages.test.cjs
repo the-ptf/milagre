@@ -36,3 +36,8 @@ test("search covers Chats that aren't archived and says where each match is", ()
   assert.equal(found[0].term, "answer", "with a typo, the first word it matched");
   assert.equal(chatSearch(state, "other").length, 0, "an archived Chat isn't searched");
 });
+
+test("search covers archived Chats when asked", () => {
+  const state = { sessions: { 1: { id: 1 }, 2: { id: 2, archived: true } }, messages };
+  assert.equal(chatSearch(state, "other", { archived: true })[0].message.session_id, 2);
+});

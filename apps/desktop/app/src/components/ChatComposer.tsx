@@ -161,6 +161,7 @@ export function ChatComposer({
   onStartFromIssue,
   newChatError,
   composerNote,
+  onRestoreChat,
   noGit,
   starters,
   findOpen = false,
@@ -651,11 +652,7 @@ export function ChatComposer({
                   View checkpoints
                 </Button>
               )}
-              {composerNote && (
-                <p data-composer-note className="mt-1.5 px-2 text-12 text-ink-3">
-                  {composerNote}
-                </p>
-              )}
+              <ComposerNote note={composerNote} onRestore={onRestoreChat} />
             </div>
           </div>
           {projectNewChat && !offScreen && (
@@ -668,5 +665,22 @@ export function ChatComposer({
         </div>
       </PullRequestLinkContext.Provider>
     </ReplyProviders>
+  );
+}
+
+/** The line under a composer that can't send (archived, read-only, Run Worktree gone), with Restore on an archived Chat. */
+function ComposerNote({ note, onRestore }: { note?: string; onRestore?: () => void }) {
+  if (!note) return null;
+  return (
+    <>
+      <p data-composer-note className="mt-1.5 px-2 text-12 text-ink-3">
+        {note}
+      </p>
+      {onRestore && (
+        <Button variant="ghost" onClick={onRestore} className="self-start">
+          Restore Chat
+        </Button>
+      )}
+    </>
   );
 }

@@ -40,6 +40,18 @@ A subagent's transcript lives in a sidecar under `.milagre/subagents/` (`project
 
 Rejected: stubbing each message's payload while keeping it in the array (every reader would see an empty body, and a save could write the stub over the row); a full message store behind every reader at once (dozens more call sites changed in one step).
 
+## Search
+
+`chats:search` (`chat-search.cjs`) searches one scope, or every Project the computer knows (the recent list, the registry and the Chats home), with the same word matching as `@milagre/shared/message-search`. Archived Chats are searched only when asked and come back marked; a deleted Chat's leftover rows never match. Each match names its Project, Chat title, archive state and last activity, at most three per Chat. Projects that can't be read are listed in `failed`, so a client tells "no matches" from "couldn't search"; a paired computer that is offline fails the whole call with "<name> is offline.". `chat:search` stays for older clients and takes `archived` too.
+
+- **Unopened Projects are read, not opened.** Their `coordination.json` and `chats.db` bodies are read directly: no worktree discovery, no resume, no Routine sweep. Open scopes go through `scopeStates.searchableMessages`, so unloaded Chats are covered without loading them.
+- **Index lifecycle.** The word index of each scope is kept while searches come in and dropped 60 seconds after the last one. An open scope's index follows its state object; an unopened one's follows the `mtime` and size of both files.
+- **Budget.** Measured on the largest real Project (80 Chats, 4.5k messages, 4 MB of text): 47 ms to read, about 110 ms for the first search, about 12 ms per search after. The search yields between Projects so other requests interleave, and returns at most 500 matches (100 by default).
+- **One request per computer.** The phone calls `/search-all` once per computer, never once per Project, which kept it under the host's pending-request cap; a host without the route answers 404 and the phone falls back to `/search` per loaded Project. A confined phone sees only its allowed Projects.
+- **Links.** Searching every Project leaves Named Links out; a Link's own palette searches it as its narrow scope.
+
+Desktop: ⌘⇧K (`messages.search`) opens the command palette in message mode with This Project / All Projects and Include archived; the palette also ends every list with "Search messages for …", so a matching command never hides messages. Phone and iPad: the sidebar search lists messages from every Project on every computer, with an Include archived chip; ⌘⇧K focuses it on iPad. A result opens the Chat with the find bar on the match; an archived Chat opens read-only with Restore and is never unarchived by opening it. Agents and the CLI use `chat_search` with `archived: true`.
+
 ## Chats home
 
 A Chat started with No project is an ordinary Chat in an ordinary Project, so sessions, resume, `chats.db`, unloading, Accounts, approvals and Terminals all work unchanged. That Project is the Chats home: one Git repository per computer at `~/.milagre/chats` (`chats-home.cjs`), made on first use with one empty commit by "Milagre". Each Chat gets its own Worktree under `~/.milagre/worktrees/chats/`, isolation always `worktree`.

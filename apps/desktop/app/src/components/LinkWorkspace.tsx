@@ -23,7 +23,7 @@ import { DiffBar } from "./changes/ChangesChrome";
 import { DiffToolbar, useDiffPreferences } from "./changes/DiffPrefs";
 import { useDiffComments } from "./changes/useDiffComments";
 import { formatCommentsMessage } from "../lib/diff-comments";
-import { messageCommands, messageCommandsFrom } from "../lib/message-commands";
+import { messageCommands, messageCommandsFrom, messageSearchSource } from "../lib/message-commands";
 import { prefetchChatMessages, useChatMessages } from "../lib/chat-messages";
 import { beginChatSwitch } from "../lib/chat-switch-timing";
 import { isLean } from "../lib/state-events";
@@ -248,7 +248,7 @@ export function LinkWorkspace({
   const [gitMemberId, setGitMemberId] = useState("");
   const [gitDialog, setGitDialog] = useState<{ sessionId: number; member: WorktreeBinding } | null>(null);
   const [gitChoice, setGitChoice] = useState<number | null>(null);
-  const [commandsOpen, setCommandsOpen] = useState(false);
+  const [commandsOpen, setCommandsOpen] = useState<false | "commands" | "messages">(false);
   const [canvasOpen, setCanvasOpen] = useState(false);
   const terminalChatId = canvasOpen || session?.archived ? null : chatId;
   useTerminalSync(terminalChatId);
@@ -366,9 +366,9 @@ export function LinkWorkspace({
           document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
         }
       }
-      if (command === "commandPalette.toggle") {
+      if (command === "commandPalette.toggle" || command === "messages.search") {
         event.preventDefault();
-        setCommandsOpen(true);
+        setCommandsOpen(command === "messages.search" ? "messages" : "commands");
       }
       if (command === "terminal.new" && terminalChatId) {
         event.preventDefault();
@@ -577,6 +577,7 @@ export function LinkWorkspace({
     } else pick(id);
   }
   const recents = scopeChats(owner, state, chatOrder, runMarks, { pins }).filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))));
+  const recentTitles = new Map(recents.map((row) => [Number(row.id), row.label]));
   const approval = run?.approvals[0],
     question = approval ? undefined : run?.questions[0],
     card = cardQuestion(question);
@@ -640,7 +641,7 @@ export function LinkWorkspace({
                 onDeleteLink={onDeleteLink}
                 onSwitchProject={onSwitchProject}
                 onOpenProject={onOpenProject}
-                onOpenCommands={() => setCommandsOpen(true)}
+                onOpenCommands={() => setCommandsOpen("commands")}
                 onOpenSettings={onSettings}
                 onNewChat={onNewChat ? () => onNewChat() : () => pick(null)}
                 onNewCurrentScopeChat={() => pick(null)}
@@ -1001,15 +1002,10 @@ export function LinkWorkspace({
                   run: () => onSwitchProject(project.path),
                 })),
               ]}
-              searchMessages={
-                lean ? undefined : (query) => messageCommands(state.messages, query, new Map(recents.map((row) => [Number(row.id), row.label])), openMessage)
-              }
-              searchMessagesAsync={
-                lean
-                  ? async (query) =>
-                      messageCommandsFrom(await bridge.searchChats(owner, query), new Map(recents.map((row) => [Number(row.id), row.label])), openMessage)
-                  : undefined
-              }
+              searchMessages={lean ? undefined : (query) => messageCommands(state.messages, query, recentTitles, openMessage)}
+              searchMessagesAsync={lean ? async (query) => messageCommandsFrom(await bridge.searchChats(owner, query), recentTitles, openMessage) : undefined}
+              messageSearch={messageSearchSource(bridge, owner, openMessage, (hit) => onCanvasChat(hit.projectPath, hit.chat.id))}
+              initialMode={commandsOpen}
               onStartChat={(query) => {
                 onPickChat?.();
                 if (onNewChat) {

@@ -16,8 +16,8 @@ function chatPage(messages, chatId, { before, turns = 10, limit = 75 } = {}) {
   return { messages: chat.slice(start, end), hasMore: start > 0, total: chat.length };
 }
 
-function chatSearch(state, query, { limit = 200 } = {}, all = state.messages) {
-  const messages = all.filter((message) => state.sessions[message.session_id] && !state.sessions[message.session_id].archived);
+function chatSearch(state, query, { limit = 200, archived = false } = {}, all = state.messages) {
+  const messages = all.filter((message) => state.sessions[message.session_id] && (archived === true || !state.sessions[message.session_id].archived));
   return searchMessages(messages, String(query ?? ""), limit).map(({ message, score, snippet, highlight, term }) => ({
     message: { id: message.id, session_id: message.session_id },
     score,

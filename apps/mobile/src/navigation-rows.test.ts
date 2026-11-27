@@ -108,3 +108,65 @@ test("a search that finds nothing offers to start a Chat with it, then the Setti
   assert.equal(rows[1]?.key, "section:Settings");
   assert.ok(rows.slice(2).every((row) => row.kind === "settingHit"));
 });
+
+test("one answer per computer lists every Project's hits, marks archived Chats, and names what it couldn't read", () => {
+  const tag = { hostId: "mac", hostName: "Studio", reach: "online" as const };
+  const hit = (id: number, archived: boolean) => ({
+    projectPath: "/elsewhere",
+    projectName: "elsewhere",
+    chat: { id, title: `Chat ${id}`, archived, lastAt: 1 },
+    message: { id: 100 + id, session_id: id },
+    score: 4,
+    snippet: "wrangler deploy",
+    highlight: [0, 8] as [number, number],
+    term: "wrangler",
+  });
+  const legacyScope = { ...tag, path: "/old", project: "old", messages: null, chats: new Map() };
+  const rows = searchRows({
+    rows: [],
+    needle: "wrangler",
+    query: "wrangler",
+    searchable: [legacyScope],
+    hostMatches: { query: "wrangler", matches: { "mac\t/old": [{ message: { id: 1, session_id: 1 }, score: 1, snippet: "x", highlight: [0, 1], term: "x" }] } },
+    hostHits: {
+      query: "wrangler",
+      archived: true,
+      byHost: { mac: { result: { matches: [hit(1, false), hit(2, true)], failed: [{ projectPath: "/q", projectName: "q", error: "Gone." }], searched: 2 } } },
+    },
+    hosts: [tag],
+    archived: true,
+    now: 1 + 2 * 3_600_000,
+    projectHits: [],
+    manyHosts: false,
+    connected: true,
+    ipad: false,
+  });
+  assert.deepEqual(
+    rows.map((row) => row.kind),
+    ["searchFilters", "section", "message", "message", "notice"],
+    "a computer that answered isn't asked per Project too",
+  );
+  const archived = rows[3] as Extract<(typeof rows)[number], { kind: "message" }>;
+  assert.deepEqual([archived.chatId, archived.archived, archived.ago, archived.path], [2, true, "2h", "/elsewhere"]);
+  assert.equal((rows[4] as Extract<(typeof rows)[number], { kind: "notice" }>).message, "Couldn't search q: Gone.");
+});
+
+test("a search with no hits keeps the archived filter, so the user can widen it", () => {
+  const rows = searchRows({
+    rows: [],
+    needle: "nothing",
+    query: "nothing",
+    searchable: [],
+    hostMatches: { query: "", matches: {} },
+    hostHits: { query: "nothing", archived: false, byHost: { mac: { result: { matches: [], failed: [], searched: 3 } } } },
+    hosts: [{ hostId: "mac", hostName: "Studio", reach: "online" }],
+    projectHits: [],
+    manyHosts: false,
+    connected: true,
+    ipad: false,
+  });
+  assert.deepEqual(
+    rows.slice(0, 2).map((row) => row.kind),
+    ["searchFilters", "start"],
+  );
+});

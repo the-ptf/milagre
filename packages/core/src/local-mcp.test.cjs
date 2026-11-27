@@ -391,7 +391,10 @@ function steeringHost(t, overrides = {}) {
     answerQuestion: async (...args) => (calls.push(["answer", ...args]), true),
     suggestAnswer: async (...args) => calls.push(["suggest", ...args]),
     patchChat: async (...args) => calls.push(["patch", ...args]),
-    searchChats: async () => [{ message: { id: 7, session_id: 1 }, snippet: "found it" }],
+    searchChats: async (_projectPath, _query, _limit, archived) => [
+      { message: { id: 7, session_id: 1 }, snippet: "found it" },
+      ...(archived ? [{ message: { id: 9, session_id: 3 }, snippet: "kept it" }] : []),
+    ],
     links: {
       list: async () => links,
       add: async (a, b) => (links = [...links, { id: `l${links.length}`, a, b }]),
@@ -760,6 +763,12 @@ test("chat_update renames and archives, and won't archive a running Chat", async
 test("chat_search returns Chat refs and snippets", async (t) => {
   const { host, projectPath, chatId } = steeringHost(t);
   assert.deepEqual(await host.searchChats({ projectPath, query: "found", limit: 5 }), [{ chatId, title: "Target", messageId: 7, snippet: "found it" }]);
+});
+
+test("chat_search covers archived Chats when asked and marks them", async (t) => {
+  const { host, projectPath } = steeringHost(t, { sessions: { 3: { id: 3, worktree_id: 1, title: "Old", archived: true } } });
+  const found = await host.searchChats({ projectPath, query: "kept", limit: 5, archived: true });
+  assert.deepEqual(found.at(-1), { chatId: `${projectPath}#3`, title: "Old", messageId: 9, snippet: "kept it", archived: true });
 });
 
 test("chat_start tells the receiving agent who sent it, and the Chat shows it as a line from that sender", async (t) => {

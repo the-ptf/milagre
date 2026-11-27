@@ -63,6 +63,7 @@ export type ProjectRead = Omit<OpenProject, "state"> & { state?: CoordinatorStat
 export type MessageChanges = { changed: Array<{ message: ChatMessage; after: number | null }>; removed: number[] };
 /** Where a search match is and what matched. */
 export type ChatSearchMatch = { message: { id: number; session_id: number }; score: number; snippet: string; highlight: [number, number]; term: string };
+import type { ChatSearchOptions, ChatSearchResult } from "@milagre/shared/message-search";
 import type { SimulatorApi } from "@milagre/shared/simulator";
 import type { BrowserApi } from "@milagre/shared/browser";
 import type { TerminalApi } from "@milagre/shared/terminal";
@@ -845,7 +846,9 @@ export type MilagreBridge = {
     options?: { before?: number; turns?: number; limit?: number },
   ) => Promise<{ messages: ChatMessage[]; hasMore: boolean; total: number }>;
   /** Matches across the Chats of a Project or Link, best first (chat-pages-v1). */
-  searchChats: (scope: string, query: string, options?: { limit?: number }) => Promise<ChatSearchMatch[]>;
+  searchChats: (scope: string, query: string, options?: { limit?: number; archived?: boolean }) => Promise<ChatSearchMatch[]>;
+  /** Messages in one scope or every Project on this computer, archived Chats on request (chats:search). */
+  searchAllChats: (query: string, options?: ChatSearchOptions) => Promise<ChatSearchResult>;
   /** One subagent of Chat `chatId` with its whole transcript (subagent-tails-v1). */
   readSubagent: (scope: string, chatId: number, agentId: string) => Promise<Subagent>;
   /** The end of a background command's output in Chat `chatId` (a chat key), read from its live agent process. */

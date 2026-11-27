@@ -1,5 +1,6 @@
 export type KeybindingCommandId =
   | "commandPalette.toggle"
+  | "messages.search"
   | "chat.new"
   | "worktree.new"
   | "project.add"

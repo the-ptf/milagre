@@ -97,6 +97,17 @@ function simulatorBridges(invoke) {
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "searchChats" | "searchAllChats">}
+ */
+function chatSearchBridge(invoke) {
+  return {
+    searchChats: (scope, query, options) => invoke("chat:search", scope, query, options),
+    searchAllChats: (query, options) => invoke("chats:search", query, options),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "askBtw" | "stopBtw" | "readBtw" | "onBtwEvent" | "forkChat" | "deleteChat">}
  */
@@ -537,7 +548,7 @@ function makeBridge(invoke, listen, send) {
     getMessage: (scope, id) => invoke("chat:message", scope, id),
     readState: (scope) => invoke("state:read", scope),
     readChatMessages: (scope, chatId, options) => invoke("chat:messages", scope, chatId, options),
-    searchChats: (scope, query, options) => invoke("chat:search", scope, query, options),
+    ...chatSearchBridge(invoke),
     readSubagent: (scope, chatId, agentId) => invoke("chat:subagent", scope, chatId, agentId),
     readTaskOutput: (chatId, taskId) => invoke("chat:task-output", chatId, taskId),
     listAccountScopes: () => invoke("accounts:scopes"),

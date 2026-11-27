@@ -4,6 +4,7 @@ const { originId } = require("@milagre/shared/project-origin");
 const { realpathSync, existsSync } = require("node:fs");
 const { withDetails, loadSubagent } = require("../project-content.cjs");
 const { chatPage, chatSearch } = require("../chat-pages.cjs");
+const { createChatSearch } = require("../chat-search.cjs");
 const { dbFile: chatDbFile, readChatRows } = require("../chat-db.cjs");
 const { createProjectFinder } = require("../project-finder.cjs");
 const { scanFolder } = require("../folder-scan.cjs");
@@ -221,9 +222,25 @@ function registerChatReads({
   commands.handle("chat:search", async (_event, scope, query, options) => {
     const state = await readScope(scope);
     const open = Object.values(state.sessions ?? {})
-      .filter((session) => !session.archived)
+      .filter((session) => options?.archived === true || !session.archived)
       .map((session) => session.id);
     return chatSearch(state, query, options ?? {}, await scopeStates.searchableMessages(scope, open));
+  });
+  const knownProjects = async () => {
+    const paths = [...(await recentProjects().list()), ...(await projectRegistry().list())].map((item) => item.path);
+    if (await chatsHome.exists()) paths.push(chatsHome.path);
+    return [...new Set(paths)];
+  };
+  const search = createChatSearch({
+    scopeStates,
+    knownProjects,
+    nameOf: (scope) => (isLinkScopeKey(scope) ? "Link" : chatsHome.isHome(scope) ? "No project" : projectName(scope)),
+  });
+  commands.handle("chats:search", async (_event, query, options) => {
+    const scope = typeof options?.scope === "string" && options.scope ? options.scope : undefined;
+    if (scope && !scopeStates.has(scope) && (isLinkScopeKey(scope) || !(await knownProjects()).includes(scope)))
+      throw new Error("Open the Project before searching its messages.");
+    return search.search(query, { ...options, scope });
   });
   commands.handle("chat:subagent", async (_event, scope, chatId, agentId) => {
     const agent = (await readScope(scope)).sessions?.[chatId]?.subagents?.find((item) => item.id === agentId);

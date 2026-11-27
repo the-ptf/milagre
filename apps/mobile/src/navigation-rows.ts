@@ -6,11 +6,14 @@ import { linkOwners, nestUnder, worktreeGroups, worktreeHeading } from "@milagre
 import type { AgentSession } from "@milagre/shared/model";
 import type { ChatList } from "@milagre/shared/chat-display";
 import type { ChatSearchMatch } from "./client";
+import { activityAgo } from "@milagre/shared/chat-row";
+import { failedLines } from "@milagre/shared/message-search-view";
+import type { HostHits } from "./host-search.ts";
 import { SETTINGS_PAGES, searchPhoneSettings } from "./settings-index.ts";
 import { chatsGroupChats, chatsGroupList } from "./chats-group.ts";
 import { mergeChatLists } from "./chat-list-order.ts";
 import { nestChatRows } from "./subchat-rows.ts";
-import type { ChatEntry, ChatRow, HostBuild, ProjectBuild, Row, SearchScope, Show } from "./navigation-build.ts";
+import type { ChatEntry, ChatRow, HostBuild, HostTag, ProjectBuild, Row, SearchScope, Show } from "./navigation-build.ts";
 
 export const TREE_INDENT = 16;
 const SETTINGS_SHOWN = 6;
@@ -411,16 +414,54 @@ export type SearchInput = {
   query: string;
   searchable: SearchScope[];
   hostMatches: { query: string; matches: Record<string, ChatSearchMatch[]> };
+  /** chats:search per computer: hits from every Project on it, archived Chats when `archived`. */
+  hostHits?: HostHits;
+  hosts?: HostTag[];
+  archived?: boolean;
+  now?: number;
   projectHits: Row[];
   manyHosts: boolean;
   connected: boolean;
   ipad: boolean;
 };
 
-export function searchRows({ rows, needle, query, searchable, hostMatches, projectHits, manyHosts, connected, ipad }: SearchInput): Row[] {
+function hostRows({ hostHits, hosts = [], needle, archived = false, manyHosts, now = Date.now() }: SearchInput, found: Row[], notices: Row[]) {
+  const answered = new Set<string>();
+  if (!hostHits || hostHits.query !== needle || hostHits.archived !== archived) return answered;
+  for (const tag of hosts) {
+    const reply = hostHits.byHost[tag.hostId];
+    if (!reply || "legacy" in reply) continue;
+    answered.add(tag.hostId);
+    const lines = "error" in reply ? [`Couldn't search ${tag.hostName}: ${reply.error}`] : failedLines(reply.result, manyHosts ? tag.hostName : undefined);
+    for (const line of lines) notices.push({ key: `search-failed:${tag.hostId}:${line}`, path: "", kind: "notice", message: line, ...tag });
+    if ("error" in reply) continue;
+    for (const hit of reply.result.matches)
+      found.push({
+        key: `${tag.hostId}|${hit.projectPath}#${hit.chat.id}:message:${hit.message.id}`,
+        path: hit.projectPath,
+        kind: "message",
+        ...tag,
+        chatId: hit.chat.id,
+        title: hit.chat.title,
+        project: hit.projectName,
+        many: manyHosts,
+        snippet: hit.snippet,
+        highlight: hit.highlight,
+        ...(hit.chat.archived ? { archived: true } : {}),
+        ...(hit.chat.lastAt ? { ago: activityAgo(hit.chat.lastAt, now) } : {}),
+      });
+  }
+  return answered;
+}
+
+export function searchRows(input: SearchInput): Row[] {
+  const { rows, needle, query, searchable, hostMatches, projectHits, manyHosts, connected, ipad, archived = false } = input;
   if (!needle) return rows;
   const found: Row[] = [];
+  const notices: Row[] = [];
+  const answered = hostRows(input, found, notices);
   for (const { hostId, hostName, reach, path, project, messages, chats } of searchable) {
+    if (answered.has(hostId)) continue;
     const perChat = new Map<number, number>();
     const matches = messages ? searchMessages(messages, needle, 200) : hostMatches.query === needle ? (hostMatches.matches[`${hostId}\t${path}`] ?? []) : [];
     for (const match of matches) {
@@ -436,7 +477,7 @@ export function searchRows({ rows, needle, query, searchable, hostMatches, proje
         hostId,
         hostName,
         reach,
-        chat,
+        chatId: chat.id,
         title,
         project,
         many: manyHosts,
@@ -446,7 +487,8 @@ export function searchRows({ rows, needle, query, searchable, hostMatches, proje
     }
   }
   const next = [...rows];
-  if (found.length)
+  if (input.hostHits) next.push({ key: "search-filters", path: "", kind: "searchFilters", archived });
+  if (found.length || notices.length)
     next.push(
       {
         key: "section:Messages",
@@ -455,6 +497,7 @@ export function searchRows({ rows, needle, query, searchable, hostMatches, proje
         name: "Messages",
       },
       ...found.slice(0, 30),
+      ...notices,
     );
   if (projectHits.length)
     next.push(
@@ -479,6 +522,10 @@ export function searchRows({ rows, needle, query, searchable, hostMatches, proje
     }));
   const settingsSection: Row[] = settings.length ? [{ key: "section:Settings", path: "", kind: "section", name: "Settings" }, ...settings] : [];
   if (!next.some((row) => row.kind === "chat" || row.kind === "message" || row.kind === "projectHit"))
-    return [...next.filter((row) => row.kind === "notice"), { key: "start", path: "", kind: "start" as const, query }, ...settingsSection];
+    return [
+      ...next.filter((row) => row.kind === "searchFilters" || row.kind === "notice"),
+      { key: "start", path: "", kind: "start" as const, query },
+      ...settingsSection,
+    ];
   return [...next, ...settingsSection];
 }

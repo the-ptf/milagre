@@ -41,6 +41,19 @@ test("inbox actions retain the owning computer for Project and Link Chats", () =
   assert.equal(isLocalOnly("floating-inbox:snapshot"), true);
 });
 
+test("message search across a computer's Projects names each Project with that computer", () => {
+  const response = {
+    matches: [{ projectPath: "/p", projectName: "p", chat: { id: 2, title: "T", archived: true }, message: { id: 5, session_id: 2 } }],
+    failed: [{ projectPath: "/q", projectName: "q", error: "Its messages file (.milagre/chats.db) is missing." }],
+    searched: 1,
+  };
+  const result = qualifyResult(ID, "chats:search", response);
+  assert.equal(result.matches[0].projectPath, `${ID}|/p`);
+  assert.equal(result.failed[0].projectPath, `${ID}|/q`);
+  assert.equal(result.matches[0].chat.title, "T");
+  assert.deepEqual(stripComputer(ID, result), response);
+});
+
 test("a call to a computer loses that computer's id everywhere in its arguments, and only that one", () => {
   assert.deepEqual(
     stripComputer(ID, [

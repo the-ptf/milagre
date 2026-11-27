@@ -479,14 +479,14 @@ function createLocalMcpHost({
       await patchChat(projectPath, session.id, { ...(title !== undefined ? { title: title.trim() } : {}), ...(archived !== undefined ? { archived } : {}) });
       return { chatId, ...(title !== undefined ? { title: title.trim() } : {}), ...(archived !== undefined ? { archived } : {}) };
     },
-    async searchChats({ projectPath, query, limit }) {
+    async searchChats({ projectPath, query, limit, archived = false }) {
       const state = await project(projectPath);
-      const matches = await searchChats(projectPath, query, limit);
-      return matches.map(({ message, snippet }) => ({
+      return (await searchChats(projectPath, query, limit, archived)).map(({ message, snippet }) => ({
         chatId: `${projectPath}#${message.session_id}`,
         title: state.sessions[message.session_id]?.title || state.sessions[message.session_id]?.generatedTitle || "Chat",
         messageId: message.id,
         snippet,
+        ...(state.sessions[message.session_id]?.archived ? { archived: true } : {}),
       }));
     },
     async linkWorktrees({ projectPath, worktreeId, targetProjectPath, targetWorktreeId }, caller, inScope) {

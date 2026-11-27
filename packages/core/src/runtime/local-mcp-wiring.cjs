@@ -54,7 +54,7 @@ function createLocalMcpWiring({
     answerQuestion: (chatId, requestId, answers, summary, sender) => answerQuestion({ chatId, requestId, answers, summary }, sender),
     suggestAnswer: (chatId, details) => subchatEscalation().suggest(chatId, details),
     patchChat,
-    searchChats: async (projectPath, query, limit) => await handlers.get("chat:search")(null, projectPath, query, { limit }),
+    searchChats: async (projectPath, query, limit, archived) => await handlers.get("chat:search")(null, projectPath, query, { limit, archived }),
     links: { list: async () => (await projectRegistry().snapshot()).links, add: addLink, remove: removeLink },
     activeWorktrees: async (projectPath) => (await activeWorktrees(projectPath)).map((worktree) => worktree.path),
     approve: (chatId, request) => agents.askApproval(chatId, request),

@@ -1786,6 +1786,16 @@ test("an app that reads Chats as pages gets snapshots without messages, a Chat's
   assert.equal(latest.total, 2);
   const found = (await (await request(`/search?projectPath=${encodeURIComponent(project)}&q=${encodeURIComponent("second note")}`)).json()).result;
   assert.deepEqual(found[0].message, { id: latest.messages[1].id, session_id: session.id });
+  const searchAll = async (query) => (await (await request(`/search-all?q=${encodeURIComponent("second note")}${query}`)).json()).result;
+  const across = await searchAll("");
+  assert.deepEqual(
+    across.matches.map((match) => [match.projectPath, match.chat.title, match.chat.archived, match.message.id]),
+    [[project, "Notes", false, latest.messages[1].id]],
+  );
+  assert.deepEqual(across.failed, []);
+  assert.equal((await rpc("chat:patch", [project, session.id, { archived: true }])).status, 200);
+  assert.deepEqual((await searchAll("")).matches, [], "an archived Chat stays out unless asked for");
+  assert.equal((await searchAll("&archived=1")).matches[0].chat.archived, true);
   // Without the header, the snapshot is whole, as an older app expects.
   const whole = (await (await request("/snapshot?projectPath=" + encodeURIComponent(project))).json()).result;
   assert.equal(whole.project.state.messages.length, 2);

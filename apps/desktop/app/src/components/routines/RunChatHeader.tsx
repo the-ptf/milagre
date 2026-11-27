@@ -6,7 +6,7 @@ import { taskForChat } from "../../lib/orchestrator-board";
 import { useOrchestrator } from "../../lib/orchestrator-store";
 import { OrchestratorTaskHeader } from "../orchestrator/OrchestratorTaskHeader";
 
-export const RUN_CHAT_REPLY_NOTE = "Replying keeps this Chat: it joins your sidebar and stays in this Routine's Runs.";
+export { RUN_CHAT_REPLY_NOTE } from "../../lib/composer-block";
 
 export function RunChatHeader({
   chatKey,

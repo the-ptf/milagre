@@ -407,6 +407,13 @@ function createConfinement({ allowedRoot, uploadsDir }) {
       const kept = await Promise.all(result.projects.map((project) => allows(project?.path)));
       return { ...result, projects: result.projects.filter((_project, index) => kept[index]) };
     }
+    if (method === "chats:search" && result && Array.isArray(result.matches)) {
+      const keep = async (items) => {
+        const allowed = await Promise.all(items.map((item) => allows(item?.projectPath)));
+        return items.filter((_item, index) => allowed[index]);
+      };
+      return { ...result, matches: await keep(result.matches), failed: await keep(result.failed ?? []) };
+    }
     if (method === "chat:inbox" && result) {
       const keep = async (items) => {
         const allowed = await Promise.all(items.map((item) => allows(chatProject(item.key))));

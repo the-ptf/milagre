@@ -9,6 +9,8 @@ export type Command = {
   keywords?: string;
   keybinding?: KeybindingCommandId;
   highlight?: [start: number, end: number];
+  /** A short tag beside the label, such as "Archived" on a message from an archived Chat. */
+  badge?: string;
   icon:
     | "chat"
     | "add"
