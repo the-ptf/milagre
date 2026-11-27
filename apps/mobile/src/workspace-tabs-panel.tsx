@@ -2,24 +2,28 @@ import { useEffect } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { router } from "expo-router";
 import { BubbleChatIcon, Cancel01Icon, ComputerTerminal01Icon, CornerDownRightIcon, Globe02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
-import { chatTitle } from "@milagre/shared/chats";
+import { chatTitle, isHiddenRunChat, isHiddenTaskChat } from "@milagre/shared/chats";
 import type { AgentSession } from "@milagre/shared/model";
 import {
+  chatCloseAction,
   closeOtherTabs,
   closeTab,
   keepListedChats,
   MAIN_CHAT_CLOSE_TITLE,
   mainChatCloseMessage,
-  newChatTabLabel,
-  type TabPlace,
-  mainChatId,
   moveTab,
+  NEW_TAB_LABEL,
+  newChatTabLabel,
   openTab,
+  RUNNING_CHAT_CLOSE_TITLE,
+  runningChatCloseMessage,
   subchatAnchor,
   tabId,
-  workspaceKey,
+  withLoneChatTabs,
   type OpenTab,
+  type TabPlace,
 } from "@milagre/shared/workspace-tabs";
+import { closeTabIntoDone } from "./chat-done";
 import { useHeaderStripWidth } from "./chat-header";
 import { confirm } from "./confirm-store";
 import { lineHeight, radius, space, type } from "./design-tokens";
@@ -29,16 +33,14 @@ import { useSession } from "./session";
 import { ChatMarkIcon } from "./status-indicators";
 import { useTheme } from "./theme";
 import { IconButton, PullDown, tap, type MenuSection } from "./ui";
-import { inScope, LINK_TABS, type TabScope } from "./workspace-tabs-kinds";
+import { inScope, LINK_TABS, scopeKey, scopeWorktree, tabScope, type TabScope } from "./workspace-tabs-kinds";
 import { tabSet, updateTabSet, useTabSet } from "./workspace-tabs-store";
 
 type Where = { hostId: string; projectPath: string; worktreeId: TabScope };
 
 const placeOf = (where: Where): TabPlace => (where.worktreeId === LINK_TABS ? "link" : "worktree");
 
-function phoneWorkspace(where: Where, chatId: number) {
-  return `${where.hostId}|${workspaceKey(where.projectPath, where.worktreeId, chatId)}`;
-}
+const phoneWorkspace = (where: Where) => `${where.hostId}|${scopeKey(where.projectPath, where.worktreeId)}`;
 
 /** Keeps the open Chat's tab in its Worktree's tab set, and drops tabs of Chats that are gone or moved away. */
 export function useWorkspaceTabSync(enabled: boolean, where: Where | null, sessions: Record<string, AgentSession> | undefined, chatId: number | undefined) {
@@ -48,11 +50,10 @@ export function useWorkspaceTabSync(enabled: boolean, where: Where | null, sessi
   useEffect(() => {
     if (!enabled || hostId === undefined || projectPath === undefined || worktreeId === undefined || !sessions) return;
     const parentOf = (id: number) => sessions[id]?.parent;
-    updateTabSet(phoneWorkspace({ hostId, projectPath, worktreeId }, chatId ?? -1), (current) => {
-      let next = keepListedChats(current, (id) => {
-        const session = sessions[id];
-        return Boolean(session && !session.archived && inScope(session, worktreeId));
-      });
+    updateTabSet(phoneWorkspace({ hostId, projectPath, worktreeId }), (current) => {
+      const members = Object.values(sessions).filter((session) => !session.archived && inScope(session, worktreeId));
+      let next = keepListedChats(current, (id) => members.some((member) => member.id === id && (!member.done_at || id === chatId)));
+      next = withLoneChatTabs(next, members, (id) => !isHiddenRunChat(sessions[id]!, false) && !isHiddenTaskChat(sessions[id]!));
       const session = chatId === undefined ? undefined : sessions[chatId];
       if (chatId !== undefined && session && !session.archived && inScope(session, worktreeId)) {
         const after = session.parent === undefined ? undefined : subchatAnchor(next, session.parent, parentOf);
@@ -65,37 +66,65 @@ export function useWorkspaceTabSync(enabled: boolean, where: Where | null, sessi
 
 function useTabs(where: Where, activeChatId: number | undefined, onDone?: () => void) {
   const session = useSession();
-  const workspace = phoneWorkspace(where, activeChatId ?? -1);
+  const workspace = phoneWorkspace(where);
   const set = useTabSet(workspace);
   const sessions = session.snapshot?.project.path === where.projectPath ? session.snapshot.project.state.sessions : undefined;
   const runs = session.snapshot?.runs.runs;
   const chatOf = (tab: OpenTab) => (tab.kind === "chat" ? sessions?.[tab.chatId] : undefined);
-  const main = mainChatId(Object.values(sessions ?? {}).filter((chat) => inScope(chat, where.worktreeId)));
+  const sheet = (pathname: "/browser-sheet" | "/terminal-sheet", chatId: number) =>
+    router.push({ pathname, params: { hostId: where.hostId, chatId: `${where.projectPath}#${chatId}` } });
   const open = (tab: OpenTab) => {
+    if (tab.kind === "new") return;
     onDone?.();
-    const chatKey = "chatId" in tab ? `${where.projectPath}#${tab.chatId}` : "";
-    if (tab.kind === "browser") router.push({ pathname: "/browser-sheet", params: { hostId: where.hostId, chatId: chatKey } });
-    else if (tab.kind === "terminal") router.push({ pathname: "/terminal-sheet", params: { hostId: where.hostId, chatId: chatKey } });
+    if (tab.kind === "browser") sheet("/browser-sheet", tab.chatId);
+    else if (tab.kind === "terminal") sheet("/terminal-sheet", tab.chatId);
     else if (tab.kind === "chat" && tab.chatId !== activeChatId)
       router.replace({ pathname: "/chat", params: { hostId: where.hostId, projectPath: where.projectPath, id: String(tab.chatId) } });
   };
   const newChat = () => {
     onDone?.();
-    const worktree = where.worktreeId === LINK_TABS ? {} : { worktreeId: String(where.worktreeId) };
-    router.replace({ pathname: "/chat", params: { hostId: where.hostId, projectPath: where.projectPath, ...worktree } });
+    const worktree = scopeWorktree(where.worktreeId, sessions);
+    router.replace({
+      pathname: "/chat",
+      params: { hostId: where.hostId, projectPath: where.projectPath, ...(worktree === undefined ? {} : { worktreeId: String(worktree) }) },
+    });
   };
-  const close = async (id: string) => {
-    if (main !== undefined && id === `chat:${main}`) {
-      const title = sessions?.[main] ? chatTitle(sessions[main]) : "Chat";
-      if (!(await confirm(MAIN_CHAT_CLOSE_TITLE, mainChatCloseMessage(title, placeOf(where)), "Close tab"))) return;
-    }
-    const before = tabSet(workspace);
-    const after = closeTab(before, id);
+  const launch = (id: string, onPanel?: (tab: "changes" | "pr") => void) => {
+    if (id === "chat") newChat();
+    else if ((id === "terminal" || id === "browser") && activeChatId !== undefined) {
+      onDone?.();
+      sheet(id === "browser" ? "/browser-sheet" : "/terminal-sheet", activeChatId);
+    } else if (id === "changes" || id === "pr") onPanel?.(id);
+  };
+  const shut = (id: string) => {
+    const after = closeTab(tabSet(workspace), id);
     updateTabSet(workspace, () => after);
     if (id !== `chat:${activeChatId}`) return;
     const next = after.tabs.find((tab) => tabId(tab) === after.active);
     if (next) open(next);
     else newChat();
+  };
+  const close = async (id: string) => {
+    const closing = set.tabs.find((tab) => tabId(tab) === id);
+    const chat = closing && chatOf(closing);
+    const running = !!chat && !!runs?.[`${where.projectPath}#${chat.id}`];
+    const how = chat
+      ? chatCloseAction(
+          chat.id,
+          Object.values(sessions ?? {}).filter((other) => inScope(other, where.worktreeId)),
+          running,
+        )
+      : "close";
+    const title = chat ? chatTitle(chat) : "Chat";
+    if (how === "confirm-main" && !(await confirm(MAIN_CHAT_CLOSE_TITLE, mainChatCloseMessage(title, placeOf(where)), "Close tab"))) return;
+    if (how === "confirm-done" && !(await confirm(RUNNING_CHAT_CLOSE_TITLE, runningChatCloseMessage(title), "Close tab"))) return;
+    shut(id);
+    if (!chat || (how !== "done" && how !== "confirm-done") || !session.client) return;
+    const tab = (reopen: boolean) =>
+      updateTabSet(workspace, (current) =>
+        reopen ? openTab(current, { kind: "chat", chatId: chat.id }, { focus: false, unread: false }) : closeTab(current, id),
+      );
+    void closeTabIntoDone({ client: session.client, projectPath: where.projectPath, chatId: chat.id, running, tab });
   };
   const choose = (tab: OpenTab, choice: string) => {
     const id = tabId(tab);
@@ -125,53 +154,77 @@ function useTabs(where: Where, activeChatId: number | undefined, onDone?: () => 
   const describe = (tab: OpenTab) => {
     const chat = chatOf(tab);
     const owner = "chatId" in tab ? sessions?.[tab.chatId] : undefined;
-    const page = tab.kind === "browser" ? "Browser" : tab.kind === "terminal" ? "Terminal" : null;
+    const page = tab.kind === "browser" ? "Browser" : tab.kind === "terminal" ? "Terminal" : tab.kind === "new" ? NEW_TAB_LABEL : null;
     const title = page ?? (chat ? chatTitle(chat) : "Chat");
     const mark = chat ? chatMark(chat, runs?.[`${where.projectPath}#${chat.id}`]) : "idle";
     return {
       title,
       detail: page && owner ? chatTitle(owner) : null,
-      icon: tab.kind === "browser" ? Globe02Icon : tab.kind === "terminal" ? ComputerTerminal01Icon : null,
+      icon: tab.kind === "browser" ? Globe02Icon : tab.kind === "terminal" ? ComputerTerminal01Icon : tab.kind === "new" ? PlusSignIcon : null,
       mark,
       subchat: chat?.parent !== undefined,
       unread: Boolean(tab.unread || chat?.unread),
     };
   };
-  return { set, open, newChat, close, choose, menu, describe };
+  return { set, open, launch, close, choose, menu, describe };
 }
 
-const newTab = (place: TabPlace): MenuSection[] => [{ items: [{ id: "chat", title: newChatTabLabel(place), systemImage: "square.and.pencil" }] }];
-const newPanelTab = (place: TabPlace): MenuSection[] => [
-  ...newTab(place),
-  {
-    items: [
-      { id: "changes", title: "Diff", systemImage: "plus.forwardslash.minus" },
-      { id: "pr", title: "Pull request", systemImage: "arrow.triangle.pull" },
-    ],
-  },
-];
+/** What + opens in a tab set, as the computer's New tab lists it: a New Chat, the open Chat's Terminal and Browser, and the panels this Chat has. */
+function launcher(place: TabPlace | null, can: { owner: boolean; changes?: boolean; pr?: number }): MenuSection[] {
+  const open = [
+    ...(place ? [{ id: "chat", title: newChatTabLabel(place), systemImage: "square.and.pencil" }] : []),
+    ...(can.owner
+      ? [
+          { id: "terminal", title: "Terminal", systemImage: "apple.terminal" },
+          { id: "browser", title: "Browser", systemImage: "globe" },
+        ]
+      : []),
+  ];
+  const panels = [
+    ...(can.changes ? [{ id: "changes", title: "Diff", systemImage: "plus.forwardslash.minus" }] : []),
+    ...(can.pr !== undefined ? [{ id: "pr", title: `Pull request #${can.pr}`, systemImage: "arrow.triangle.pull" }] : []),
+  ];
+  return [open, panels].filter((items) => items.length).map((items) => ({ items }));
+}
 
-export function WorkspaceTabsView({
-  worktreeId,
-  activeChatId,
-  onDone,
-  onPanel,
-}: {
-  worktreeId: number | undefined;
-  activeChatId: number | undefined;
-  onDone: () => void;
-  onPanel: (tab: "changes" | "pr") => void;
-}) {
-  const session = useSession();
-  const scope = session.snapshot?.project.link ? LINK_TABS : worktreeId;
-  if (scope === undefined || !session.client || !session.snapshot) return null;
+function NewTabButton({ sections, onSelect }: { sections: MenuSection[]; onSelect: (id: string) => void }) {
+  if (!sections.length) return null;
   return (
-    <WorkspaceTabsList
-      where={{ hostId: session.client.url, projectPath: session.snapshot.project.path, worktreeId: scope }}
-      activeChatId={activeChatId}
-      onDone={onDone}
-      onPanel={onPanel}
-    />
+    <PullDown label={NEW_TAB_LABEL} sections={sections} onSelect={onSelect}>
+      <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+        <Icon icon={PlusSignIcon} tone="ink" size={20} />
+      </View>
+    </PullDown>
+  );
+}
+
+type PanelScreen = { chatId?: number; worktreeId?: number; pullRequest?: { number: number } };
+
+export function WorkspaceTabsView({ screen, onDone, onPanel }: { screen: PanelScreen; onDone: () => void; onPanel: (tab: "changes" | "pr") => void }) {
+  const { colors } = useTheme();
+  const session = useSession();
+  const project = session.snapshot?.project;
+  const worktree = screen.worktreeId === undefined ? undefined : String(screen.worktreeId);
+  const scope = tabScope(project, screen.chatId, worktree) ?? tabScope(project, undefined, worktree);
+  const panels = { changes: screen.worktreeId !== undefined, pr: screen.pullRequest?.number };
+  if (!session.client || !project) return null;
+  if (scope !== undefined)
+    return (
+      <WorkspaceTabsList
+        where={{ hostId: session.client.url, projectPath: project.path, worktreeId: scope }}
+        activeChatId={screen.chatId}
+        panels={panels}
+        onDone={onDone}
+        onPanel={onPanel}
+      />
+    );
+  return (
+    <View style={{ padding: space.gutter, flexDirection: "row", alignItems: "center" }}>
+      <Text style={{ flex: 1, paddingLeft: space.xs, color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
+        Tabs open once this Chat is sent
+      </Text>
+      <NewTabButton sections={launcher(null, { owner: false, ...panels })} onSelect={(id) => onPanel(id as "changes" | "pr")} />
+    </View>
   );
 }
 
@@ -179,11 +232,13 @@ export function WorkspaceTabsView({
 function WorkspaceTabsList({
   where,
   activeChatId,
+  panels,
   onDone,
   onPanel,
 }: {
   where: Where;
   activeChatId: number | undefined;
+  panels: { changes: boolean; pr?: number };
   onDone: () => void;
   onPanel: (tab: "changes" | "pr") => void;
 }) {
@@ -193,11 +248,7 @@ function WorkspaceTabsList({
     <ScrollView contentContainerStyle={{ padding: space.gutter, gap: space.md }}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingLeft: space.xs }}>
         <Text style={{ flex: 1, color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{`${tabs.set.tabs.length} open`}</Text>
-        <PullDown label="New tab" sections={newPanelTab(placeOf(where))} onSelect={(id) => (id === "chat" ? tabs.newChat() : onPanel(id as "changes" | "pr"))}>
-          <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-            <Icon icon={PlusSignIcon} tone="ink" size={20} />
-          </View>
-        </PullDown>
+        <NewTabButton sections={launcher(placeOf(where), { owner: activeChatId !== undefined, ...panels })} onSelect={(id) => tabs.launch(id, onPanel)} />
       </View>
       <View
         style={{
@@ -352,19 +403,15 @@ export function WorkspaceTabStrip({ where, activeChatId, actionCount }: { where:
           );
         })}
       </ScrollView>
-      <PullDown label="New tab" sections={newTab(placeOf(where))} onSelect={tabs.newChat}>
-        <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-          <Icon icon={PlusSignIcon} tone="ink" size={20} />
-        </View>
-      </PullDown>
+      <NewTabButton sections={launcher(placeOf(where), { owner: activeChatId !== undefined })} onSelect={(id) => tabs.launch(id)} />
     </View>
   );
 }
 
 /** The phone header's tab count: a rounded square with the number, and a dot while an unopened tab has news. */
-export function TabCountAction({ where, activeChatId, onPress }: { where: Where; activeChatId: number | undefined; onPress: () => void }) {
+export function TabCountAction({ where, onPress }: { where: Where; onPress: () => void }) {
   const { colors } = useTheme();
-  const set = useTabSet(phoneWorkspace(where, activeChatId ?? -1));
+  const set = useTabSet(phoneWorkspace(where));
   const count = Math.max(1, set.tabs.length);
   return (
     <Pressable

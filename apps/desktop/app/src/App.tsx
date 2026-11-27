@@ -114,7 +114,7 @@ import { DotBackground } from "./components/DotBackground";
 import { AppSplash } from "./components/StartupSplash";
 import { settleSplash, useSplash } from "./lib/startup-splash";
 import SidebarNav, { knownLink } from "./components/SidebarNav";
-import { cachedProjectCopy, cachedScopeState, rememberProjectCopy, runKeys, seedScopeState, useScopeStates } from "./lib/sidebar-scopes";
+import { cachedProjectCopy, cachedScopeState, rememberProjectCopy, rowTabSet, runKeys, seedScopeState, useScopeStates } from "./lib/sidebar-scopes";
 import { type AppView, chatOnScreen, chatPanelsHidden, keepsRoutinesView, readsOnPick, runPaneRestore, type RunPaneReturn, runPaneState } from "./lib/run-pane";
 import { ChatGrid, GridDropOverlay } from "./components/ChatGrid";
 import { createPendingChat, pendingChatSessionId, withPreview } from "@milagre/shared/chats";
@@ -849,6 +849,7 @@ function App() {
         ...(session.done_at ? { doneAt: session.done_at } : {}),
         ...(isSnoozed(session) ? { snoozedUntil: session.snoozed_until } : {}),
         ...(session.parent !== undefined ? { parent: String(session.parent) } : {}),
+        ...(project ? { tabSet: rowTabSet(project.path, worktree, session.id) } : {}),
         mark: chatMark({
           asking: asking.has(session.id),
           waiting: waiting.has(session.id),
@@ -904,7 +905,7 @@ function App() {
     archivingChats,
   ]);
   const openProjectPath = () => projectRef.current?.path;
-  const { archiveState, patchChat, checkArchive, revealChat, openChatInEditor, reloadChat, chatActions, scopeChatActions } = useChatRowActions({
+  const { archiveState, patchChat, scopeArchive, revealChat, openChatInEditor, reloadChat, chatActions, scopeChatActions } = useChatRowActions({
     projectRef,
     project,
     state,
@@ -1014,7 +1015,7 @@ function App() {
       .catch(() => {});
   }, [selectedSessionId, view, runPaneOpen, project?.path, selectedLink?.link.id]);
 
-  function archiveChat(sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath: string | undefined) {
+  function archiveChat(sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath: string | undefined, together?: number[]) {
     if (!projectPath) return Promise.resolve();
     const open = projectPath === project?.path;
     const key = chatKey(projectPath, sessionId);
@@ -1025,6 +1026,7 @@ function App() {
       {
         projectPath,
         chatId: key,
+        together,
         getState: () => archiveState(projectPath) ?? null,
         currentProjectPath: () => projectRef.current?.path,
         stop: () => (agentRuns.store.latest()[key] ? agentRuns.interrupt(key).catch(() => {}) : undefined),
@@ -1872,8 +1874,6 @@ function App() {
   const setJumpChats = useJumpToChat({ enabled: () => !selectedLinkRef.current && view === "chat", openChat });
 
   const pickChat = useEvent((id: string) => openChat(Number(id)));
-  const checkScopeArchive = useEvent((scopeKey: string, id: string) => checkArchive(Number(id), scopeKey));
-  const archiveScopeChat = useEvent((scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan) => archiveChat(Number(id), mode, plan, scopeKey));
   const startNewChatFromSidebar = useEvent(() => startNewChatOnThisMac());
   const openProjectFromSidebar = useEvent(() => void openProject());
   const switchProjectFromSidebar = useEvent((path: string) => void switchProject(path));
@@ -2497,8 +2497,8 @@ function App() {
                   waitingKeys={sidebarRunKeys.waiting}
                   askingKeys={sidebarRunKeys.asking}
                   onOpenScopeChat={openScopeChat}
-                  onScopeArchiveCheck={checkScopeArchive}
-                  onScopeArchive={archiveScopeChat}
+                  onScopeArchiveCheck={scopeArchive.check}
+                  onScopeArchive={scopeArchive.archive}
                   archivingChats={archivingChats}
                   onHoverChat={hoverChat}
                   onAskChat={askLinkedChat}

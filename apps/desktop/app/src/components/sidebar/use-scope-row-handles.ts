@@ -1,6 +1,7 @@
 import { useMemo, useRef } from "react";
 import type { ArchiveMode, ArchivePlan } from "@/lib/archive";
 import { useRoutines } from "../../lib/routines";
+import { frontChat } from "./chat-row-actions";
 import { cachedProjectCopy, heartbeatKeys, heartbeatLines, withHeartbeats, type useScopeStates } from "../../lib/sidebar-scopes";
 import { bridgeForKey, isRemoteKey } from "../../lib/computer-bridge";
 import { pinChat } from "../../lib/chat-pins";
@@ -13,8 +14,8 @@ import { openDesignLibrary } from "../../lib/design-library-page";
 type ScopeRowHandlesProps = {
   scopeStates: ReturnType<typeof useScopeStates>["states"];
   scopeChatActions?: (key: string, gitless: boolean) => ChatRowActions;
-  onScopeArchiveCheck?: (key: string, id: string) => Promise<ArchivePlan>;
-  onScopeArchive?: (key: string, id: string, mode: ArchiveMode, plan: ArchivePlan) => void;
+  onScopeArchiveCheck?: (key: string, id: string, together?: string[]) => Promise<ArchivePlan>;
+  onScopeArchive?: (key: string, id: string, mode: ArchiveMode, plan: ArchivePlan, together?: string[]) => void;
   onOpenScopeChat?: (key: string, id: string) => void;
   onHoverChat?: (key: string, id: string) => void;
 };
@@ -60,8 +61,9 @@ export function useScopeRowHandles({ scopeStates, scopeChatActions, onScopeArchi
         onDesignLibrary: () => openDesignLibrary(key),
         ...(archivable
           ? {
-              onArchiveCheck: (id: string) => scopeArchive.current.check!(key, id),
-              onArchive: (id: string, mode: ArchiveMode, plan: ArchivePlan) => scopeArchive.current.archive!(key, id, mode, plan),
+              onArchiveCheck: (id: string, together?: string[]) => scopeArchive.current.check!(key, id, together),
+              onArchive: (id: string, mode: ArchiveMode, plan: ArchivePlan, together?: string[]) =>
+                scopeArchive.current.archive!(key, id, mode, plan, together),
             }
           : {}),
       };
@@ -73,7 +75,7 @@ export function useScopeRowHandles({ scopeStates, scopeChatActions, onScopeArchi
   const pickerFor = (key: string) => {
     let pick = scopePickers.current.get(key);
     if (!pick) {
-      pick = (item) => openScope.current(key, item.id);
+      pick = (item) => openScope.current(key, frontChat(item));
       scopePickers.current.set(key, pick);
     }
     return pick;
