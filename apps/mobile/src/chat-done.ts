@@ -1,6 +1,7 @@
 import { doneFromReply } from "@milagre/shared/done";
 import type { AgentSession, ChatMessage } from "@milagre/shared/model";
 import { undoHistory } from "@milagre/shared/undo-history";
+import { TAB_DONE_TEXT } from "@milagre/shared/workspace-tabs";
 import { markSettled } from "./settled-marks.ts";
 import type { SettleActions } from "./settle-drag";
 
@@ -70,4 +71,46 @@ export function settleActions(
   const { chat } = reply;
   if (!chat || doneReplyId(chat, reply.messages, reply.busy) === undefined) return undefined;
   return { done: (arrived) => markChatDone({ ...settle, chat }, arrived), snooze: (until) => void snoozeChat({ ...settle, chat }, until) };
+}
+
+/**
+ * Closing the tab of a Chat that lives only as a tab: its turn stops, it moves to Done (at once in the list), and the
+ * toast's Undo brings it back with its tab. `tab` opens or closes that tab.
+ */
+export async function closeTabIntoDone({
+  client,
+  projectPath,
+  chatId,
+  running,
+  tab,
+}: {
+  client: Caller;
+  projectPath: string;
+  chatId: number;
+  running: boolean;
+  tab: (open: boolean) => void;
+}) {
+  const hostId = client.url ?? "";
+  const settle = (done: boolean) => {
+    markSettled(hostId, projectPath, chatId, done ? Date.now() : null);
+    tab(!done);
+    return client.call("chat:patch", [projectPath, chatId, { done, ...(done ? { unread: false } : {}) }]);
+  };
+  try {
+    if (running) await client.call("agent:interrupt", [`${projectPath}#${chatId}`]).catch(() => {});
+    await settle(true);
+  } catch {
+    markSettled(hostId, projectPath, chatId, null);
+    tab(true);
+    return false;
+  }
+  undoHistory.record({
+    text: TAB_DONE_TEXT,
+    kind: "done",
+    undoneText: "Back in Chats",
+    place: "chat",
+    undo: () => void settle(false).catch(() => {}),
+    redo: () => void settle(true).catch(() => {}),
+  });
+  return true;
 }

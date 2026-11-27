@@ -1,4 +1,5 @@
-import { settleSnooze, snoozeAt, snoozeMarkFor, WAKE, type SnoozeMark } from "./snooze-actions";
+import { settleSnooze, snoozeAt, snoozeMarkFor, snoozePatch, WAKE, type SnoozeMark } from "./snooze-actions";
+import type { FoldedTabs } from "./workspace-tabs-kinds";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { Platform } from "react-native";
@@ -239,6 +240,14 @@ function linkActions(ctx: NavigationActionsContext, open: ReturnType<typeof open
   return { linkChatOf, linkChats, askChat, linkAction };
 }
 
+type ActRow = { hostId: string; path: string; chat: AgentSession; home?: boolean; folded?: FoldedTabs };
+
+/** Done, Snooze and Delete on a Worktree's row reach every Chat it stands for. */
+function rowMembers(row: ActRow, action: string, copy: ProjectCopy): AgentSession[] {
+  if (!row.folded || !(action === "done" || action === "reopen" || action === "archive" || snoozePatch(action))) return [];
+  return row.folded.chats.flatMap((id) => copy.project.state.sessions[id] ?? []);
+}
+
 function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof linkActions>) {
   const {
     setError,
@@ -257,7 +266,7 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
     alive,
   } = ctx;
   const { linkAction } = link;
-  function undoStep(row: { hostId: string; path: string; chat: AgentSession; home?: boolean }, action: string): UndoAction | undefined {
+  function undoStep(row: ActRow, action: string): UndoAction | undefined {
     const run = (next: string) => () => void act(row, next, false);
     if (action === "done")
       return {
@@ -309,7 +318,7 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
     }
     return undefined;
   }
-  async function act(row: { hostId: string; path: string; chat: AgentSession; home?: boolean }, choice: string, record = true) {
+  async function act(row: ActRow, choice: string, record = true): Promise<void> {
     const { hostId, path: projectPath, chat } = row;
     const action = settleSnooze(choice, snoozeMinutes);
     if (action === "open-beside") {
@@ -328,8 +337,17 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
       if (isCurrent) linkAction(projectPath, chat, action);
       return;
     }
+    const together = rowMembers(row, action, copy);
+    if (together.length && action !== "archive") {
+      const step = record ? undoStep(row, action) : undefined;
+      if (step) undoHistory.record(step);
+      const alone = (member: AgentSession): ActRow => ({ hostId, path: projectPath, chat: member, ...(row.home ? { home: true } : {}) });
+      await Promise.all([chat, ...together].map((member) => act(alone(member), action, false)));
+      return;
+    }
     const archiveKey = `${hostId}|${projectPath}#${chat.id}`;
     if (archiveRequests.has(archiveKey)) return;
+    const keys = action === "archive" ? [archiveKey, ...together.map((member) => `${hostId}|${projectPath}#${member.id}`)] : [archiveKey];
     const doneMark: DoneMark | undefined = action === "done" ? { doneAt: Date.now() } : action === "reopen" ? { doneAt: null } : undefined;
     const settleDone = () =>
       doneMark &&
@@ -354,7 +372,7 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
     if (snoozeMark) setSnoozeMarks((marks) => new Map(marks).set(archiveKey, snoozeMark));
     const step = record ? undoStep(row, action) : undefined;
     if (step) undoHistory.record(step);
-    if (action === "archive") archiveRequests.add(archiveKey);
+    if (action === "archive") for (const key of keys) archiveRequests.add(key);
     let confirmed = false;
     setError("");
     clearArchiveNotice();
@@ -362,6 +380,7 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
       const result = await runChatAction({
         action,
         chat,
+        together,
         running: !!copy.runs.runs[`${copy.project.path}#${chat.id}`],
         client,
         projectPath: copy.project.path,
@@ -393,7 +412,7 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
       if (confirmed) showArchiveNotice(`Could not delete Chat: ${(e as Error).message}`);
       else if (alive.current) setError((e as Error).message);
     } finally {
-      archiveRequests.delete(archiveKey);
+      for (const key of keys) archiveRequests.delete(key);
       settleDone();
       settleSnoozeMark();
     }
