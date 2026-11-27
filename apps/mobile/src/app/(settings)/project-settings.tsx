@@ -1,4 +1,5 @@
 import { ProjectGitSettings } from "../../project-git-settings";
+import { ProjectValidationSettings } from "../../project-validation-settings";
 import { useCallback, useState } from "react";
 import { Text, View } from "react-native";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
@@ -147,6 +148,7 @@ export default function ProjectSettingsScreen() {
         )}
         {error ? <ErrorNotice message={error} /> : null}
         <ProjectGitSettings client={client} path={path} />
+        <ProjectValidationSettings client={client} path={path} />
         <ProjectAccountsGroup path={path} />
         <View style={{ gap: 8 }}>
           <SectionLabel>Remove Project</SectionLabel>

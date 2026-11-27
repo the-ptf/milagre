@@ -631,6 +631,13 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "use-github-issues" && !(id in modules)) return { useGithubIssuesAvailable: () => false };
       if (base === "issue-card" && !(id in modules)) return { IssueCard: "IssueCard" };
       if (base === "chat-done" && !(id in modules)) return require("../apps/mobile/src/chat-done.ts");
+      // A validation note's card has its own test; the Chat renders it by name and reads labels from plain logic.
+      if (id === "@milagre/shared/validation" && !(id in modules)) return require(id);
+      if (base === "validation-card" && !(id in modules))
+        return { ValidationCard: "ValidationCard", isValidation: require("@milagre/shared/validation").isValidation };
+      if (base === "navigation-label" && !(id in modules)) return load("navigation-label.ts", modules, "", cache);
+      if (base === "handoff-sides" && !(id in modules)) return require("../apps/mobile/src/handoff-sides.ts");
+      if (base === "project-validation-settings" && !(id in modules)) return { ProjectValidationSettings: () => null };
       // The runs reply merge is plain logic; which Chats are on screen only narrows the host's runs reads, so UI tests
       // register nothing.
       if (base === "runs-reply" && !(id in modules)) return load("runs-reply.ts", modules, "", cache);
