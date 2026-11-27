@@ -1,5 +1,25 @@
 const { canEditMessage, isMessageEdit } = require("@milagre/shared/message-edit");
 
+const editOwner = Symbol("chat edit");
+
+function assertEditSend(host, chatId, request) {
+  const owner = host.editing.get(chatId);
+  if (owner && owner !== request[editOwner]) throw new Error("A message in this Chat is being edited. Try again after it finishes.");
+}
+
+function failedEditMessage(messages, attempt) {
+  const [divider, message, reply] = messages.slice(-3);
+  if (
+    divider?.id === attempt.dividerId &&
+    message?.role === "user" &&
+    message.clientMessageId === attempt.clientMessageId &&
+    reply?.role === "assistant" &&
+    reply.outcome === "failed"
+  )
+    return message;
+  return null;
+}
+
 // The Chat without the edited message and everything after it. A fallback edit also drops the divider its first try left.
 function rewindChat(state, session, { messageId, fresh = false, replaces }) {
   const all = state.messages.filter((message) => message.session_id === session.id);
@@ -44,4 +64,4 @@ function nativeTurn(provider, result) {
   return null;
 }
 
-module.exports = { rewindChat, rewindPlan, nativeTurn };
+module.exports = { assertEditSend, editOwner, failedEditMessage, rewindChat, rewindPlan, nativeTurn };

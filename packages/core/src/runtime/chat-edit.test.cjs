@@ -5,7 +5,7 @@ const { registerChatEdit } = require("./chat-edit.cjs");
 const PROJECT = "/projects/alpha";
 const CHAT = `${PROJECT}#4`;
 
-function fixture({ running = false, files = [], native = { provider: "claude", prompt: "p10" } } = {}) {
+function fixture({ running = false, files = [], wait, beforeSend, native = { provider: "claude", prompt: "p10" } } = {}) {
   const calls = { stopped: 0, restored: [], sent: [], notes: [] };
   let busy = running;
   const messages = [
@@ -29,7 +29,7 @@ function fixture({ running = false, files = [], native = { provider: "claude", p
   const agentNotes = new Map();
   const edits = registerChatEdit({
     commands: { handle: (name, handler) => (handlers[name] = handler) },
-    chats: { isBusy: () => busy, states, runs: {}, preparing: new Map(), startingTurns: new Map(), broadcast: () => {} },
+    chats: { editing: new Map(), isBusy: () => busy, states, runs: {}, preparing: new Map(), startingTurns: new Map(), broadcast: () => {} },
     agents: { isTurnActive: () => false, backgroundWork: () => 0 },
     checkpoints: {
       capturing: () => false,
@@ -42,14 +42,16 @@ function fixture({ running = false, files = [], native = { provider: "claude", p
     },
     stopChat: async () => {
       calls.stopped += 1;
-      setTimeout(() => (busy = false), 5);
+      busy = false;
     },
     sendAsUser: async (request) => {
+      await beforeSend?.(request);
       if (calls.fail) throw calls.fail;
       calls.sent.push(request);
       return { sessionId: 4 };
     },
     agentNotes,
+    wait,
   });
   calls.notes = {
     get length() {
@@ -70,7 +72,7 @@ function fixture({ running = false, files = [], native = { provider: "claude", p
     permissionMode: "auto",
     ...extra,
   });
-  return { calls, edits, handlers, state, request };
+  return { calls, edits, handlers, state, states, request };
 }
 
 const divider = (state) => state.messages.find((message) => message.context?.kind === "message-edit");
@@ -129,14 +131,24 @@ test("a provider that can't rewind continues in a new session, replacing the edi
   const g = fixture();
   await g.handlers["chat:edit"]({}, g.request());
   g.state.messages.push(
-    { id: 31, session_id: 4, role: "user", body: "add Retry to the sheet and the chip", context: null, images: [], files: [] },
-    { id: 32, session_id: 4, role: "assistant", body: "", context: null },
+    {
+      id: 31,
+      session_id: 4,
+      role: "user",
+      clientMessageId: g.calls.sent[0].clientMessageId,
+      body: "add Retry to the sheet and the chip",
+      context: null,
+      images: [],
+      files: [],
+    },
+    { id: 32, session_id: 4, role: "assistant", outcome: "failed", body: "", context: null },
   );
   g.state.next_id = 33;
   await g.edits.observe(CHAT, { type: "turn-failed", message: "Resume rejected by --resume-drops-turn: x", rewindFailed: true });
   const retry = g.calls.sent[1];
   assert.deepEqual(retry.rewind, { fresh: true });
-  assert.equal(retry.clientMessageId, undefined);
+  assert.ok(retry.clientMessageId);
+  assert.notEqual(retry.clientMessageId, g.calls.sent[0].clientMessageId);
   assert.deepEqual(
     g.state.messages.map((message) => message.id),
     [33],
@@ -145,4 +157,78 @@ test("a provider that can't rewind continues in a new session, replacing the edi
 
   await g.edits.observe(CHAT, { type: "turn-failed", message: "again", rewindFailed: true });
   assert.equal(g.calls.sent.length, 2);
+});
+
+test("a delayed rewind failure cannot retry over a later user send or another edit", async () => {
+  for (const next of ["send", "edit"]) {
+    const waiting = Promise.withResolvers();
+    const resume = Promise.withResolvers();
+    const f = fixture({
+      wait: async () => {
+        waiting.resolve();
+        await resume.promise;
+      },
+    });
+    await f.edits.editAsUser(f.request());
+    f.state.messages.push(
+      { id: 31, session_id: 4, role: "user", body: "replacement", clientMessageId: f.calls.sent[0].clientMessageId },
+      { id: 32, session_id: 4, role: "assistant", outcome: "failed" },
+    );
+    f.state.next_id = 33;
+    const retry = f.edits.observe(CHAT, { type: "turn-failed", rewindFailed: true });
+    await waiting.promise;
+    if (next === "edit") await f.edits.editAsUser(f.request({ messageId: 31, body: "newer edit" }));
+    f.state.messages.push({ id: f.state.next_id++, session_id: 4, role: "user", body: "newer message", clientMessageId: "newer" });
+    const before = structuredClone(f.state);
+    resume.resolve();
+    await retry;
+    assert.deepEqual(f.state, before);
+    assert.equal(f.calls.sent.length, next === "edit" ? 2 : 1);
+    assert.equal(f.calls.stopped, 0);
+  }
+});
+
+test("an overlapping edit cannot rewind while an earlier edit is sending or rolling back", async () => {
+  const sending = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  const f = fixture({
+    beforeSend: () => {
+      sending.resolve();
+      return finish.promise;
+    },
+  });
+  const first = f.edits.editAsUser(f.request({ messageId: 12 }));
+  await sending.promise;
+  await assert.rejects(f.edits.editAsUser(f.request({ messageId: 10 })), /being edited/);
+  f.state.sessions[4].title = "renamed on the phone";
+  f.state.messages.push({ id: 31, session_id: 4, role: "assistant", body: "note added by another device" });
+  const rejected = assert.rejects(first, /send failed/);
+  finish.reject(new Error("send failed"));
+  await rejected;
+  assert.deepEqual(
+    f.state.messages.map((m) => m.id),
+    [10, 11, 12, 13, 14, 31],
+  );
+  assert.equal(f.state.sessions[4].title, "renamed on the phone");
+});
+
+test("retry rechecks the failed turn inside the transcript update", async (t) => {
+  const f = fixture();
+  await f.edits.editAsUser(f.request());
+  f.state.messages.push(
+    { id: 31, session_id: 4, role: "user", body: "replacement", clientMessageId: f.calls.sent[0].clientMessageId },
+    { id: 32, session_id: 4, role: "assistant", outcome: "failed" },
+  );
+  f.state.next_id = 33;
+  const update = f.states.update;
+  t.mock.method(f.states, "update", (...args) => {
+    f.state.messages.push({ id: f.state.next_id++, session_id: 4, role: "assistant", body: "new activity" });
+    return update(...args);
+  });
+  await f.edits.observe(CHAT, { type: "turn-failed", rewindFailed: true });
+  assert.deepEqual(
+    f.state.messages.map((m) => m.id),
+    [30, 31, 32, 33],
+  );
+  assert.equal(f.calls.sent.length, 1);
 });

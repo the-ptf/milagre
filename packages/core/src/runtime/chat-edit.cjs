@@ -1,8 +1,9 @@
+const { randomUUID } = require("node:crypto");
 const { chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
 const { canEditMessage, messagesAfter, messageEditText } = require("@milagre/shared/message-edit");
-const { rewindChat, rewindPlan, nativeTurn } = require("../agents/message-edit.cjs");
-const { queuedImages } = require("../agents/chat-host.cjs");
+const { editOwner, failedEditMessage, rewindChat, rewindPlan, nativeTurn } = require("../agents/message-edit.cjs");
+const { queuedImages } = require("../chat-images.cjs");
 
 const STOP_TIMEOUT_MS = 30_000;
 const LEFT_FILES_NOTE =
@@ -19,11 +20,26 @@ function registerChatEdit({ commands, chats, agents, checkpoints, stopChat, send
   const states = chats.states;
   const pending = new Map();
 
+  const editing = chats.editing;
+
   async function editAsUser(request, fallback = null) {
     const { projectPath, sessionId, messageId } = request ?? {};
     if (!states.has(projectPath)) throw new Error("Open the project before editing its chats.");
     if (!Number.isSafeInteger(sessionId) || !Number.isSafeInteger(messageId)) throw new Error("Choose a message of an existing Chat to edit.");
     const chatId = chatKey(projectPath, sessionId);
+    if (editing.has(chatId)) throw new Error("A message in this Chat is being edited. Try again after it finishes.");
+    const owner = Symbol();
+    editing.set(chatId, owner);
+    try {
+      return await replaceMessage(request, chatId, owner, fallback);
+    } finally {
+      editing.delete(chatId);
+    }
+  }
+
+  async function replaceMessage(request, chatId, owner, fallback) {
+    const { projectPath, sessionId, messageId } = request;
+    if (fallback && (busy(chatId) || !failedEditMessage(await chatMessages(projectPath, sessionId), fallback))) return;
     const session = (await states.get(projectPath)).sessions[sessionId];
     if (!session) throw new Error("That chat is no longer in the project.");
     if (session.readOnlyReason) throw new Error(session.readOnlyReason);
@@ -33,6 +49,7 @@ function registerChatEdit({ commands, chats, agents, checkpoints, stopChat, send
     const background = Math.max(agents.backgroundWork(chatId), processWork(session).length);
     if (background) throw new Error(backgroundBusyMessage("edit", background));
     if (busy(chatId)) {
+      if (fallback) return;
       await stopChat(chatId);
       await wait(() => !busy(chatId), STOP_TIMEOUT_MS, "The running turn didn't stop. Try again once it has.");
     }
@@ -52,7 +69,9 @@ function registerChatEdit({ commands, chats, agents, checkpoints, stopChat, send
     };
     if (files?.left) agentNotes.set(chatId, [...(agentNotes.get(chatId) ?? []), LEFT_FILES_NOTE]);
     const attachments = request.keepAttachments ? await keptAttachments(original, request) : {};
-    const undo = await rewind(chatId, { messageId, fresh: Boolean(plan.fresh), replaces: fallback?.replaces, context });
+    const rewound = await rewind(chatId, { messageId, fresh: Boolean(plan.fresh), replaces: fallback?.dividerId, fallback, context });
+    if (!rewound) return;
+    const clientMessageId = request.clientMessageId || randomUUID();
     const {
       messageId: _id,
       undoFiles: _undo,
@@ -64,12 +83,12 @@ function registerChatEdit({ commands, chats, agents, checkpoints, stopChat, send
       ...send
     } = request;
     if (plan.fresh) pending.delete(chatId);
-    else pending.set(chatId, { request, context });
+    else pending.set(chatId, { request, context, dividerId: rewound.dividerId, clientMessageId });
     try {
-      return await sendAsUser({ ...send, delivery: undefined, ...attachments, rewind: plan });
+      return await sendAsUser({ ...send, delivery: undefined, ...attachments, rewind: plan, clientMessageId, [editOwner]: owner });
     } catch (error) {
       pending.delete(chatId);
-      await undo().catch((failure) => console.warn("Milagre couldn't put back the messages of an edit that failed to send:", failure.message));
+      await rewound.undo().catch((failure) => console.warn("Milagre couldn't put back the messages of an edit that failed to send:", failure.message));
       throw error;
     }
   }
@@ -86,6 +105,14 @@ function registerChatEdit({ commands, chats, agents, checkpoints, stopChat, send
       (latest) => {
         if (chats.runs[chatId] || chats.preparing.has(chatId) || chats.startingTurns.has(chatId))
           throw Object.assign(new Error("The chat is busy."), { chatBusy: true });
+        if (
+          edit.fallback &&
+          !failedEditMessage(
+            latest.messages.filter((item) => item.session_id === sessionId),
+            edit.fallback,
+          )
+        )
+          return latest;
         before = latest.sessions[sessionId];
         const rewound = rewindChat(latest, before, edit);
         dropped = rewound.dropped;
@@ -94,19 +121,24 @@ function registerChatEdit({ commands, chats, agents, checkpoints, stopChat, send
       },
       { chats: [sessionId] },
     );
+    if (!note) return null;
     chats.broadcast(projectPath, state);
-    return async () => {
+    const undo = async () => {
       const restored = await states.update(
         projectPath,
         (latest) => {
           const kept = latest.messages.filter((message) => message.id !== note.id);
-          const back = dropped.filter((message) => !kept.some((item) => item.id === message.id));
-          return { ...latest, sessions: { ...latest.sessions, [sessionId]: before }, messages: [...kept, ...back] };
+          const restoredSession = { ...latest.sessions[sessionId] };
+          for (const key of ["native_sessions", "native_session_id", "suggestion", "suggestionTurnId"]) {
+            if (!(key in restoredSession) && key in before) restoredSession[key] = before[key];
+          }
+          return { ...latest, sessions: { ...latest.sessions, [sessionId]: restoredSession }, messages: [...kept, ...dropped].sort((a, b) => a.id - b.id) };
         },
         { chats: [sessionId] },
       );
       chats.broadcast(projectPath, restored.state);
     };
+    return { dividerId: note.id, undo };
   }
 
   async function chatMessages(projectPath, sessionId) {
@@ -161,13 +193,12 @@ function registerChatEdit({ commands, chats, agents, checkpoints, stopChat, send
 
   async function retry(chatId, record) {
     const projectPath = projectOfKey(chatId);
-    await wait(() => !busy(chatId), STOP_TIMEOUT_MS, "The failed turn didn't end.");
+    await wait(() => !busy(chatId) && !editing.has(chatId), STOP_TIMEOUT_MS, "The failed turn didn't end.");
     const messages = await chatMessages(projectPath, sessionIdFromKey(chatId));
-    const divider = messages.findLast((message) => message.context?.kind === "message-edit");
-    const message = divider && messages.find((item) => item.id > divider.id && item.role === "user");
+    const message = failedEditMessage(messages, record);
     if (!message) return;
     const { images: _images, files: _files, clientMessageId: _client, ...request } = record.request;
-    await editAsUser({ ...request, messageId: message.id, keepAttachments: true }, { replaces: divider.id, context: { ...divider.context, newSession: true } });
+    await editAsUser({ ...request, messageId: message.id, keepAttachments: true }, { ...record, context: { ...record.context, newSession: true } });
   }
 
   commands.handle("chat:edit", (_event, request) => editAsUser(request));

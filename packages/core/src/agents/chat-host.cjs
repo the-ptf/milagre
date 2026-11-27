@@ -1,9 +1,8 @@
 const { withoutDraft, sentMessage } = require("./chat-session-state.cjs");
 const { forkChat, freshChatBrief } = require("./chat-fork.cjs");
-const fs = require("node:fs/promises");
-const path = require("node:path");
+const { assertEditSend } = require("./message-edit.cjs");
 const { randomUUID } = require("node:crypto");
-const { ChatImages } = require("../chat-images.cjs");
+const { ChatImages, queuedImages } = require("../chat-images.cjs");
 const { storeImages, withLoadedSubagent } = require("../project-content.cjs");
 const { ipcErrorMessage } = require("@milagre/shared/result");
 const {
@@ -108,20 +107,6 @@ function withoutQueued(session, id) {
   return { ...rest, queued: left, ...(session.queueHeld ? { queueHeld: true } : {}) };
 }
 
-const IMAGE_TYPES = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
-
-async function queuedImages(images = []) {
-  const read = await Promise.all(
-    images.map(async (image) => {
-      const mime = IMAGE_TYPES[path.extname(image.path ?? "").toLowerCase()];
-      if (!mime) return image.dataUrl ? image : null;
-      const bytes = await fs.readFile(image.path).catch(() => null);
-      return bytes ? { id: image.id, name: image.name, dataUrl: `data:${mime};base64,${bytes.toString("base64")}` } : null;
-    }),
-  );
-  return read.filter(Boolean);
-}
-
 function withNativeSessions(session, current, parked) {
   const { native_session_id: _current, native_sessions: _parked, ...rest } = session;
   return { ...rest, ...(current ? { native_session_id: current } : {}), ...(Object.keys(parked).length ? { native_sessions: parked } : {}) };
@@ -152,6 +137,8 @@ function newChat(latest, worktree) {
 }
 
 class ChatHost {
+  editing = new Map();
+
   constructor({
     states,
     startTurn,
@@ -934,6 +921,7 @@ class ChatHost {
         if (worktree.sharedChat) throw new Error("This Worktree belongs to a shared Link Chat. Open its Link instead.");
         const started = session ? { state: latest, session } : starterChat(latest, worktree);
         session = started.session;
+        assertEditSend(this, chatKey(projectPath, session.id), request);
         const firstMessage = !latest.messages.some((message) => message.session_id === session.id);
         brief = firstMessage ? session.handoverDraft : undefined;
         const chatId = chatKey(projectPath, session.id);
@@ -1022,11 +1010,10 @@ class ChatHost {
           runModel = this.runs[chatId]?.model || lastUserModel(withSession, session.id) || model;
         }
         brief = freshChatBrief(withSession, session, { steering, handoff, firstMessage, brief });
-        const next = withSession;
         originalSession = beforeQueue;
-        if (handoff) dividerId = next.next_id;
+        if (handoff) dividerId = withSession.next_id;
         const message = sentMessage({
-          id: handoff ? next.next_id + 1 : next.next_id,
+          id: handoff ? withSession.next_id + 1 : withSession.next_id,
           sessionId: session.id,
           body,
           images: storedImages,
@@ -1076,10 +1063,10 @@ class ChatHost {
         }
         if (!steering) this.startingTurns.set(chatId, { provider: runProvider, guard });
         return {
-          ...next,
+          ...withSession,
           next_id: message.id + 1,
-          sessions: { ...next.sessions, [session.id]: stagedSession },
-          messages: [...next.messages, ...(divider ? [divider] : []), message],
+          sessions: { ...withSession.sessions, [session.id]: stagedSession },
+          messages: [...withSession.messages, ...(divider ? [divider] : []), message],
         };
       },
       { chats: request.sessionId == null ? [] : [request.sessionId] },

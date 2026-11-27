@@ -3009,13 +3009,19 @@ test("editing an earlier message removes it and everything after, marks the edit
   });
   t.after(() => h.manager.closeAll());
   const handlers = {};
+  const atSend = Promise.withResolvers();
+  const proceed = Promise.withResolvers();
   edits = registerChatEdit({
     commands: { handle: (name, handler) => (handlers[name] = handler) },
     chats: h.host,
     agents: { isTurnActive: () => false, backgroundWork: () => 0 },
     checkpoints: { capturing: () => false, rewind: async () => null },
     stopChat: async () => {},
-    sendAsUser: (request) => h.host.send(request),
+    sendAsUser: async (request) => {
+      atSend.resolve();
+      await proceed.promise;
+      return h.host.send(request);
+    },
     agentNotes: new Map(),
   });
   h.states.has = () => true;
@@ -3033,10 +3039,14 @@ test("editing an earlier message removes it and everything after, marks the edit
   let state = await h.states.get(ALPHA);
   const edited = state.messages.find((item) => item.body === "add a Retry button");
   assert.deepEqual(edited.native, { provider: "claude", prompt: "p1" });
-  const sent = await handlers["chat:edit"](
+  const replacing = handlers["chat:edit"](
     {},
     { ...message(ALPHA, "add a Retry button to the sheet and the chip", { sessionId: first.sessionId }), messageId: edited.id },
   );
+  await atSend.promise;
+  await assert.rejects(h.host.send(message(ALPHA, "concurrent send", { sessionId: first.sessionId })), /being edited/);
+  proceed.resolve();
+  const sent = await replacing;
   await sent.started;
 
   state = await h.states.get(ALPHA);
