@@ -1,24 +1,16 @@
 import { useState, type ReactNode } from "react";
-import { Alert02Icon, ArrowDown01Icon, ArrowUp01Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import { ArrowRight01Icon, Key01Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import {
   CONNECTORS_HINT,
   CONNECTORS_TITLE,
-  CONNECTOR_SIGNING_IN,
-  connectorAccessGroups,
-  connectorAccessKey,
-  connectorAccountName,
-  connectorAllows,
   connectorPreset,
   connectorReach,
-  connectorStateLine,
   connectorSubtitle,
   connectorMovedNote,
-  CONNECTOR_PRESETS,
+  searchConnectorPresets,
   type ConnectorSummary,
 } from "@milagre/shared/connectors";
-import type { McpAccount } from "@milagre/shared/mcp";
 import { Button } from "../primitives/Button";
-import { SettingCheckbox } from "../primitives/Checkbox";
 import { EmptyState } from "../primitives/EmptyState";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
@@ -27,182 +19,77 @@ import { thisComputer } from "../../lib/shortcut-hints";
 import { McpSettings } from "../McpSettings";
 import { LocalMcpSettings } from "../LocalMcpSettings";
 import { Segmented } from "../primitives/Segmented";
+import { addedPresets, connectorIcon, isBuiltIn } from "./connector-look";
+import { ConnectorDrawer, ConnectorStatus } from "./ConnectorDrawer";
 import { ConnectorSheet } from "./ConnectorSheet";
 import { ConnectorEditSheet } from "./ConnectorEditSheet";
 import { ConnectorTile } from "./ConnectorTile";
-import { EmailMailboxes } from "./EmailMailboxes";
-import { LinearSettings } from "./LinearSettings";
 import { useConnectors, type ConnectorsState } from "./useConnectors";
 import type { MilagreBridge } from "../../electron";
 
 const card = "divide-y divide-line overflow-hidden rounded-card border border-line bg-surface";
-const LINEAR_ICON = CONNECTOR_PRESETS.find((preset) => preset.id === "linear")?.iconPath;
-const iconOf = (connector: ConnectorSummary) => (connector.kind === "linear" ? LINEAR_ICON : connectorPreset(connector)?.iconPath);
-const toolPrefix = (connector: ConnectorSummary) => (connector.kind === "linear" ? "linear_" : connector.kind === "email" ? "email_" : `${connector.id}__`);
-const builtIn = (connector: ConnectorSummary) => connector.kind === "linear" || connector.kind === "email";
-
-function RowAction({ connector, state, onEdit, remote }: { connector: ConnectorSummary; state: ConnectorsState; onEdit: () => void; remote?: string }) {
-  if (remote && (connector.state === "needs-sign-in" || connector.state === "needs-app"))
-    return <span className="shrink-0 text-12 text-ink-3">On {remote}</span>;
-  if (state.signingIn === connector.id)
-    return (
-      <Button variant="secondary" data-connector-cancel={connector.id} onClick={state.cancelSignIn}>
-        Cancel
-      </Button>
-    );
-  if (connector.state === "needs-sign-in" && connector.kind !== "command")
-    return (
-      <Button data-connector-sign-in={connector.id} disabled={state.signingIn !== null} onClick={() => void state.signIn(connector.id)}>
-        Sign in
-      </Button>
-    );
-  if (connector.state === "needs-app")
-    return (
-      <Button data-connector-add-app={connector.id} onClick={onEdit}>
-        Add app
-      </Button>
-    );
-  if (connector.state === "failed")
-    return (
-      <Button variant="secondary" data-connector-retry={connector.id} onClick={() => state.check(connector.id)}>
-        Retry
-      </Button>
-    );
-  return null;
-}
-
-function Access({ connector, accounts, state }: { connector: ConnectorSummary; accounts: McpAccount[]; state: ConnectorsState }) {
-  if (!accounts.length) return <p className="py-2 text-12 text-ink-3">No provider accounts yet. Every account you add gets this connector.</p>;
-  return connectorAccessGroups(connector).map((group) => (
-    <div key={group.id ?? connector.id} className="pb-1">
-      <SectionLabel as="h3" className="pb-1">
-        {group.id ? `${group.name} · Available to` : "Available to"}
-      </SectionLabel>
-      {accounts.map((account) => {
-        const key = connectorAccessKey(account.provider, account.accountId);
-        const label = connectorAccountName(account);
-        return (
-          <div key={key} className="flex min-h-10 items-center gap-3">
-            <span className="min-w-0 flex-1 truncate text-13 text-ink">{label}</span>
-            <span data-connector-access={[connector.id, group.id, key].filter(Boolean).join(":")} className="flex">
-              <SettingCheckbox
-                label={`${group.name} for ${label}`}
-                checked={connectorAllows(group, account.provider, account.accountId)}
-                onChange={(on) => state.setAccess(connector.id, account.provider, account.accountId, on, group.id)}
-              />
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  ));
-}
 
 function ConnectorRow({
   connector,
-  state,
+  accounts,
   open,
-  onToggle,
-  onEdit,
-  onAddMailbox,
+  onOpen,
   remote,
 }: {
   connector: ConnectorSummary;
-  state: ConnectorsState;
+  accounts: ConnectorsState["accounts"];
   open: boolean;
-  onToggle: () => void;
-  onEdit: () => void;
-  onAddMailbox?: () => void;
-  /** Another computer's name: its connectors are routed and removed from here, but added, edited and signed in to there. */
+  onOpen: () => void;
   remote?: string;
 }) {
-  const [confirming, setConfirming] = useState(false);
-  const failed = connector.state === "failed";
-  const signingIn = state.signingIn === connector.id;
-  const subtitle = signingIn ? CONNECTOR_SIGNING_IN : failed ? connectorStateLine(connector) : connectorSubtitle(connector);
-  const signsIn = connector.kind === "url" && connector.state !== "needs-sign-in" && connector.state !== "needs-app";
-  const summary =
-    connector.state === "connected"
-      ? `${connectorStateLine(connector)} · ${connectorReach(connector, state.accounts)}`
-      : connectorReach(connector, state.accounts);
   return (
     <div data-connector-row={connector.id} data-state={connector.state} data-open={open}>
-      <div className="flex min-h-15 items-center gap-3 px-4 py-3">
-        <button type="button" aria-expanded={open} onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-          <ConnectorTile
-            iconPath={iconOf(connector)}
-            command={connector.kind === "command"}
-            mail={connector.kind === "email"}
-            warn={connector.state === "needs-sign-in"}
-          />
-          <span className="grid min-w-0 flex-1 gap-0.5">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={onOpen}
+        className="flex min-h-15 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-hover active:bg-hover-2"
+      >
+        <ConnectorTile
+          iconPath={connectorIcon(connector)}
+          letter={connector.name}
+          command={connector.kind === "command"}
+          mail={connector.kind === "email"}
+          warn={connector.state === "needs-sign-in"}
+        />
+        <span className="grid min-w-0 flex-1 gap-0.5">
+          <span className="flex min-w-0 items-center gap-2">
             <span className="truncate text-13 font-semibold text-ink">{connector.name}</span>
-            <span className={`truncate text-12 ${failed ? "text-red-ink" : "text-ink-3"}`}>{subtitle}</span>
+            {isBuiltIn(connector) && <span className="shrink-0 rounded-chip bg-field px-1.5 text-10 leading-4.5 font-semibold text-ink-2">Built in</span>}
           </span>
-          <span className="flex shrink-0 items-center gap-1.5 text-12 text-ink-3">
-            {failed && <Icon icon={Alert02Icon} size={14} className="text-red-ink" />}
-            {summary}
-          </span>
-          <Icon icon={open ? ArrowUp01Icon : ArrowDown01Icon} size={16} className="shrink-0 text-ink-3" />
-        </button>
-        <RowAction connector={connector} state={state} onEdit={onEdit} remote={remote} />
-      </div>
-      {open && (
-        <div className="px-4 pt-1 pb-3">
-          <Access connector={connector} accounts={state.accounts} state={state} />
-          {connector.kind === "linear" &&
-            (remote ? (
-              <p className="py-2 text-12 text-ink-3">Linear's settings are on {remote}.</p>
-            ) : (
-              <div className="-mx-4 mt-2 border-t border-line">
-                <LinearSettings />
-              </div>
-            ))}
-          {connector.kind === "email" && <EmailMailboxes connector={connector} state={state} remote={remote} onAdd={onAddMailbox} />}
-          {confirming ? (
-            <div data-connector-remove-question className="mt-1 flex min-h-11 items-center gap-2">
-              <span className="min-w-0 flex-1 text-12 text-ink">Remove {connector.name}? Chats lose its tools and Milagre signs out of it.</span>
-              <Button variant="secondary" onClick={() => setConfirming(false)}>
-                Cancel
-              </Button>
-              <Button variant="danger" data-connector-remove-confirm onClick={() => state.remove(connector.id)}>
-                Remove
-              </Button>
-            </div>
-          ) : (
-            <div className="mt-1 flex min-h-11 items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-12 text-ink-3">
-                Tools read <code className="font-mono">{toolPrefix(connector)}…</code> for agents
-              </span>
-              {signsIn && !remote && (
-                <Button
-                  variant="secondary"
-                  data-connector-sign-in-again={connector.id}
-                  disabled={state.signingIn !== null}
-                  onClick={() => void state.signIn(connector.id)}
-                >
-                  Sign in again
-                </Button>
-              )}
-              {signsIn && (
-                <Button variant="secondary" data-connector-sign-out={connector.id} onClick={() => state.signOut(connector.id)}>
-                  Sign out
-                </Button>
-              )}
-              {!builtIn(connector) && !remote && (
-                <Button variant="secondary" data-connector-edit={connector.id} onClick={onEdit}>
-                  Edit
-                </Button>
-              )}
-              {connector.kind !== "linear" && (
-                <Button variant="danger-ghost" data-connector-remove={connector.id} onClick={() => setConfirming(true)}>
-                  Remove
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+          <span className="truncate text-12 text-ink-3">{connectorSubtitle(connector)}</span>
+        </span>
+        <span className="hidden w-32 shrink-0 text-right text-12 text-ink-3 min-[880px]:block">{connectorReach(connector, accounts)}</span>
+        <span className="flex w-36 shrink-0 justify-end">
+          <ConnectorStatus connector={connector} remote={remote} />
+        </span>
+        <Icon icon={ArrowRight01Icon} size={16} className="shrink-0 text-ink-4" />
+      </button>
+    </div>
+  );
+}
+
+/** One line over the list for the first connector that needs you, with a way to open it. */
+function NeedsYouBanner({ connectors, onOpen }: { connectors: ConnectorSummary[]; onOpen: (id: string) => void }) {
+  const first = connectors.find((connector) => connector.state === "needs-sign-in" || connector.state === "needs-app");
+  if (!first) return null;
+  const others = connectors.filter((connector) => connector.state === "needs-sign-in" || connector.state === "needs-app").length - 1;
+  return (
+    <div data-connectors-needs-you className="flex items-center gap-3 rounded-card bg-orange-tint py-2.5 pr-3 pl-4">
+      <Icon icon={Key01Icon} size={16} className="shrink-0 text-orange-ink" />
+      <p className="min-w-0 flex-1 text-13 text-orange-ink">
+        {first.name} needs you to {first.state === "needs-app" ? "add its app" : "sign in"}
+        {others > 0 ? `, and ${others} more` : ""}.
+      </p>
+      <Button size={28} variant="secondary" onClick={() => onOpen(first.id)}>
+        Review
+      </Button>
     </div>
   );
 }
@@ -235,6 +122,7 @@ function ConnectorsList({ title, tabs }: { title: string; tabs: ReactNode }) {
   const [adding, setAdding] = useState<"any" | "email" | null>(null);
   const [editing, setEditing] = useState<ConnectorSummary | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const opened = state.connectors?.find((connector) => connector.id === open) ?? null;
   return (
     <div data-connectors-page>
       <div className="flex items-center justify-between gap-4">
@@ -258,27 +146,38 @@ function ConnectorsList({ title, tabs }: { title: string; tabs: ReactNode }) {
             </Button>
           </div>
         )}
+        {state.connectors && <NeedsYouBanner connectors={state.connectors} onOpen={setOpen} />}
         {state.connectors?.length ? (
-          <div className={card}>
-            {state.connectors.map((connector) => (
-              <ConnectorRow
-                key={connector.id}
-                connector={connector}
-                state={state}
-                open={open === connector.id}
-                onToggle={() => setOpen(open === connector.id ? null : connector.id)}
-                onEdit={() => setEditing(connector)}
-                onAddMailbox={() => setAdding("email")}
-              />
-            ))}
-          </div>
+          <section className="space-y-2">
+            <SectionLabel className="px-1">Connected · {state.connectors.length}</SectionLabel>
+            <div className={card}>
+              {state.connectors.map((connector) => (
+                <ConnectorRow
+                  key={connector.id}
+                  connector={connector}
+                  accounts={state.accounts}
+                  open={open === connector.id}
+                  onOpen={() => setOpen(connector.id)}
+                />
+              ))}
+            </div>
+          </section>
         ) : (
           state.connectors && (
             <EmptyState title="No connectors yet" className="px-6 py-6">
-              Add your email, Slack, Linear, Notion or any MCP server with an address. You sign in once and every Chat can use it.
+              Give agents your email, Slack, Linear, Notion or any MCP server. You sign in once and every Chat can use it.
             </EmptyState>
           )
         )}
+        <button
+          type="button"
+          data-connector-browse
+          onClick={() => setAdding("any")}
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-card border border-dashed border-line-strong text-13 font-medium text-ink-2 transition-colors hover:bg-hover"
+        >
+          <Icon icon={PlusSignIcon} size={14} />
+          Browse {searchConnectorPresets("").length} services
+        </button>
         <MoveSection state={state} />
       </div>
       {adding && (
@@ -287,7 +186,17 @@ function ConnectorsList({ title, tabs }: { title: string; tabs: ReactNode }) {
           onLinear={state.connectLinear}
           onEmail={state.connectEmail}
           email={adding === "email"}
+          added={addedPresets(state.connectors)}
           onClose={() => setAdding(null)}
+        />
+      )}
+      {opened && (
+        <ConnectorDrawer
+          connector={opened}
+          state={state}
+          onEdit={() => setEditing(opened)}
+          onAddMailbox={() => setAdding("email")}
+          onClose={() => setOpen(null)}
         />
       )}
       {editing && (
@@ -329,6 +238,7 @@ export function ConnectorsSettings({ title = CONNECTORS_TITLE }: { title?: strin
 export function RemoteConnectors({ bridge, name }: { bridge: MilagreBridge; name: string }) {
   const state = useConnectors(bridge);
   const [open, setOpen] = useState<string | null>(null);
+  const opened = state.connectors?.find((connector) => connector.id === open) ?? null;
   return (
     <div data-remote-connectors className="space-y-2">
       <p className="px-1 text-12 text-ink-3">
@@ -342,17 +252,17 @@ export function RemoteConnectors({ bridge, name }: { bridge: MilagreBridge; name
             <ConnectorRow
               key={connector.id}
               connector={connector}
-              state={state}
+              accounts={state.accounts}
               remote={name}
               open={open === connector.id}
-              onToggle={() => setOpen(open === connector.id ? null : connector.id)}
-              onEdit={() => {}}
+              onOpen={() => setOpen(connector.id)}
             />
           ))}
         </div>
       ) : (
         state.connectors && <p className="px-1 text-12 text-ink-3">No connectors on {name} yet.</p>
       )}
+      {opened && <ConnectorDrawer connector={opened} state={state} remote={name} onEdit={() => {}} onClose={() => setOpen(null)} />}
     </div>
   );
 }

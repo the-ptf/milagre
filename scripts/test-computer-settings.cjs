@@ -155,13 +155,15 @@ async function browserChecks() {
     assert.match(await text('[data-connection="lan"]'), /ws:\/\/192\.168\.0\.24:8798, end-to-end encrypted/);
     assert.equal(await text('[data-connection="relay"] [data-connection-state]'), "Ready");
     await waitFor(`document.querySelectorAll('[data-remote-connectors] [data-connector-row]').length === 2`);
-    assert.match(await text('[data-connector-row="notion"]'), /On atlas/, "signing in to another computer's connector happens there");
+    assert.match(await text('[data-connector-row="notion"]'), /on atlas/, "signing in to another computer's connector happens there");
     await evaluate(`document.querySelector('[data-connector-row="slack"] button[aria-expanded]').click()`);
     await waitFor(`!!document.querySelector('[data-connector-access="slack:claude:default"]')`);
     assert.equal(await evaluate(`!!document.querySelector('[data-connector-edit], [data-connector-sign-in-again], [data-connector-add]')`), false);
     await evaluate(`document.querySelector('[data-connector-access="slack:claude:default"] [role="checkbox"]').click()`);
     await waitFor(`window.accessChanges.length === 1`);
     assert.deepEqual(await evaluate(`window.accessChanges[0]`), ["c-atlas", "slack", "claude", "default", false]);
+    await evaluate(`document.querySelector('[data-connector-drawer="slack"] button[aria-label="Close"]').click()`);
+    await waitFor(`!document.querySelector('[data-connector-drawer]')`);
     await waitFor(`document.querySelector('[data-computer-projects]')?.textContent.includes('2 Projects')`);
     assert.match(await text("[data-computer-projects]"), /atlas-web, infra\. Accounts and simulators stay on atlas\./);
     await waitFor(`!!document.querySelector('[data-computer-settings] [data-resource-meter=disk]')`);

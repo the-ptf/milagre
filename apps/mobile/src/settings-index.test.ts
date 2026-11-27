@@ -36,6 +36,8 @@ const SOURCES: Record<keyof typeof SETTINGS_PAGES, string[]> = {
   mcp: [
     "app/(settings)/mcp.tsx",
     "connectors-section.tsx",
+    "connector-detail.tsx",
+    "connector-gallery.tsx",
     "mcp-section.tsx",
     "local-mcp-section.tsx",
     "linear-section.tsx",
@@ -86,7 +88,7 @@ const NOT_INDEXED: Record<string, string> = {
   "mcp: Show": "a view switch on the page, not a setting",
   // Actions on the connector picked above them, shown only while one is open.
   "mcp: Sign out": "an action on the open connector, not a setting",
-  "mcp: Remove": "an action on the open connector, not a setting",
+  "mcp: Set up another mailbox": "an action on the open Email connector, not a setting",
 };
 
 const read = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");
