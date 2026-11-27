@@ -356,7 +356,7 @@
         "max-lines": [
           "error",
           {
-            "max": 872,
+            "max": 868,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -364,12 +364,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 763,
+            "max": 758,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 131]
+        "complexity": ["error", 130]
       }
     },
     {
@@ -799,12 +799,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 546,
+            "max": 531,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 67]
+        "complexity": ["error", 65]
       }
     },
     {

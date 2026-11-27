@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { BubbleChatIcon, ComputerIcon, File01Icon, Folder01Icon, Image01Icon, MagicWand01Icon, ReactIcon } from "@hugeicons/core-free-icons";
+import {
+  BubbleChatIcon,
+  ComputerIcon,
+  File01Icon,
+  Folder01Icon,
+  Globe02Icon,
+  Image01Icon,
+  KanbanIcon,
+  MagicWand01Icon,
+  PaintBoardIcon,
+  ReactIcon,
+} from "@hugeicons/core-free-icons";
 import { fileKind, IMAGE_COLOR } from "@milagre/shared/file-kinds";
 import { imageLabel, skillLabel } from "@milagre/shared/prompt-parts";
 import { TOOLTIP_SHOW_DELAY, TooltipBubble } from "./primitives/Tooltip";
@@ -13,9 +24,9 @@ export const ICON_SIZE = "0.95em";
 // button that lights up); focus is the base accent outline. File and image chips keep a native title: it reveals the full
 const OPENABLE = "cursor-pointer";
 
-export function FileKindIcon({ path }: { path: string }) {
+export function FileKindIcon({ path, badge = true }: { path: string; badge?: boolean }) {
   const kind = fileKind(path);
-  if (kind.badge)
+  if (kind.badge && badge)
     return (
       <span
         aria-hidden
@@ -141,6 +152,19 @@ export function ComputerChip({ name, online = true }: { name: string; online?: b
     >
       <HugeiconsIcon icon={ComputerIcon} size={ICON_SIZE} strokeWidth={1.8} aria-hidden />
       <span className={LABEL}>{name}</span>
+    </span>
+  );
+}
+
+const MILAGRE_ICONS: Record<string, typeof BubbleChatIcon> = { orchestrator: KanbanIcon, paradise: PaintBoardIcon, browser: Globe02Icon };
+
+/** What an @ menu row names, at a glance: the file's kind, a Chat, a computer or a part of Milagre. */
+export function MentionRowIcon({ row }: { row: { key: string; path?: string; chatId?: number; computer?: string } }) {
+  const icon = row.chatId !== undefined ? BubbleChatIcon : row.computer ? ComputerIcon : MILAGRE_ICONS[row.key];
+  const kind = row.path ? "file" : row.chatId !== undefined ? "chat" : row.computer ? "computer" : row.key;
+  return (
+    <span aria-hidden data-mention-icon={kind} className="flex size-4 shrink-0 items-center justify-center text-[15px] text-ink-3">
+      {row.path ? <FileKindIcon path={row.path} badge={false} /> : icon && <HugeiconsIcon icon={icon} size={ICON_SIZE} strokeWidth={1.8} />}
     </span>
   );
 }

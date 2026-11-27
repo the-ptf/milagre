@@ -20656,14 +20656,26 @@ test("phone Chat mentions work without a Worktree and never search or attach fil
     let field = find(render(), (node) => node.type === "Field");
     field.props.onFocus();
     field.props.onSelectionChange({ nativeEvent: { selection: { start: draft.length, end: draft.length } } });
-    const row = find(render(), (node) => node.type === "ListRow" && node.props.title === "Plan review");
+    const menu = () => {
+      const rows = find(render(), (node) => node.type?.name === "MentionRows");
+      return rows.type(rows.props);
+    };
+    const row = find(menu(), (node) => node.type === "ListRow" && node.props.title === "Plan review");
     assert.ok(row);
+    assert.equal(row.props.leading.props.kind, "chat", "a Chat row carries the Chat icon instead of a Chats heading");
     assert.equal(
-      find(render(), (node) => node.type === "ListRow" && node.props.title === "Plan self"),
+      find(menu(), (node) => node.type === "ListRow" && node.props.title === "Plan self"),
       undefined,
     );
     row.props.onPress();
     assert.equal(draft, "@chat:12 ");
+    field = find(render(), (node) => node.type === "Field");
+    assert.equal(textOf(field), "@Plan review ", "the field shows the Chat's title, not its id");
+    field.props.onChangeText("@Plan review now");
+    assert.equal(draft, "@chat:12 now");
+    field = find(render(), (node) => node.type === "Field");
+    field.props.onChangeText("@Plan revie now");
+    assert.equal(draft, " now", "Backspace into the title removes the whole mention");
     render();
     await new Promise((resolve) => setTimeout(resolve, 170));
     assert.deepEqual(calls, [], "no file callback means no file RPC, even with a Chat menu");
