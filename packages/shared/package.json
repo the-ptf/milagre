@@ -250,6 +250,10 @@
       "types": "./src/routine-form.d.mts",
       "default": "./src/routine-form.mjs"
     },
+    "./validation": {
+      "types": "./src/validation.d.mts",
+      "default": "./src/validation.mjs"
+    },
     "./checkpoint-restore": {
       "types": "./src/checkpoint-restore.d.mts",
       "default": "./src/checkpoint-restore.mjs"

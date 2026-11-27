@@ -12,8 +12,10 @@ import type {
 import type { ContextUsage, ModelMeta, TurnMetrics } from "./model-meta.ts";
 import type { GithubIssueContext } from "./github-issue.mjs";
 import type { LinearIssueContext } from "./linear.ts";
+import type { ValidationContext } from "./validation.mjs";
+import type { CheckpointRestoreContext } from "./checkpoint-restore.mjs";
 
-export type { GithubIssueContext, LinearIssueContext };
+export type { CheckpointRestoreContext, GithubIssueContext, LinearIssueContext, ValidationContext };
 
 export type SessionStatus = "Created" | "Running" | "Stopped";
 export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro" | "pi";
@@ -718,20 +720,6 @@ export type BabysitStoppedContext = {
   days?: number;
 };
 
-/**
- * Undo changes wrote files: `restored` of them went back to how they were before the task (`checkpointId`), `kept` stayed
- * as they were. `recoveryId` is the checkpoint saved just before, which the line's Redo previews. `redo` marks restoring
- * such a recovery checkpoint, which puts the files back again.
- */
-export type CheckpointRestoreContext = {
-  kind: "checkpoint-restore";
-  checkpointId: string;
-  recoveryId: string;
-  restored: number;
-  kept: number;
-  redo: boolean;
-};
-
 export type ChatContext =
   | { kind: "chat-fork"; from: string; title: string; messageId?: number }
   | AdvisorResultContext
@@ -750,6 +738,7 @@ export type ChatContext =
   | RoutineRunContext
   | BabysitStoppedContext
   | CheckpointRestoreContext
+  | ValidationContext
   | SubchatWaitingContext
   | SubchatEscalationContext
   | SubchatSuggestionContext
