@@ -12,11 +12,11 @@ import {
   applyNodeChanges,
   getSmoothStepPath,
   useReactFlow,
+  type ReactFlowInstance,
   useViewport,
   type Connection,
   type Edge,
   type EdgeProps,
-  type Node,
   type NodeChange,
   type NodeProps,
 } from "@xyflow/react";
@@ -27,9 +27,6 @@ import {
   canvasAttention,
   canvasFilterCounts,
   canvasStatus,
-  canvasWorktrees,
-  matchesCanvasFilter,
-  type CanvasChat,
   type CanvasFilter,
   type CanvasMark,
   type CanvasTone,
@@ -38,10 +35,7 @@ import {
 import type { RunStatuses } from "@/lib/agent-runs";
 import type { CanvasSnapshot, LinkEndpoint } from "@/electron";
 import type { CoordinatorState, LinkedWork, NamedProjectLink } from "@/model";
-import { chatMark } from "@/lib/chat-list";
-import { chatKey, chatsAskingUser, chatsInBackground, chatsRunning, chatsWaitingForUser } from "@/lib/agent-runs";
-import { delegatedChats } from "@/lib/linked-work";
-import { useProjectImages } from "@/lib/project-images";
+import { chatKey } from "@/lib/agent-runs";
 import { NEGOTIATION_ROUNDS } from "@milagre/shared/limits";
 import { DiffBar } from "./changes/ChangesChrome";
 import { ProviderLogo } from "./ProviderLogo";
@@ -55,62 +49,27 @@ import { Segmented } from "./primitives/Segmented";
 import { DURATION } from "@/lib/ease";
 import { ProjectAvatar } from "./primitives/ProjectAvatar";
 import { Dialog } from "./primitives/Dialog";
+import { CanvasChatContext, type CanvasChatActions } from "./canvas/CanvasChat";
+import { CardLive } from "./canvas/CardLive";
+import { ChatWindow, LineHandles, WindowEdge, windowEdges } from "./canvas/ChatWindows";
+import {
+  SECTION_HEADER,
+  endpointOf,
+  fitSections,
+  projectNodeId,
+  worktreeNodeId,
+  type CanvasNode,
+  type CardData,
+  type CardNode,
+  type CardRow,
+  type SectionNode,
+} from "./canvas/graph";
+import { useChatWindows } from "./canvas/use-chat-windows";
+import { useCanvasGraph } from "./canvas/use-canvas-graph";
 
-/* ─────────────────────────────────────────────────────────
- * LAYOUT
- * A Project is a tinted section; its Worktrees are cards inside it, one per Worktree, listing the chats the
- * sidebar shows. Card heights follow from their rows, so sections can be sized before React Flow measures.
- * ───────────────────────────────────────────────────────── */
-const CARD_WIDTH = 276;
-const SECTION_PADDING = 16;
-const SECTION_HEADER = 52;
-const CARD_GAP = 12;
-const SECTION_GAP = 96;
-const ROW_WIDTH = 1400;
 const CANVAS_REFRESH_MS = 60_000;
-const CHAT_ROW = 38;
-const DIVIDER = 21;
-const FOOTER = 26;
-const cardHeight = (rows: number) => 26 + rows * CHAT_ROW + (rows > 1 ? (rows - 1) * DIVIDER + FOOTER : 0);
-
-type CardRow = CanvasChat & { shared?: { linkId: string } };
-type SectionData = {
-  kind: "project";
-  endpoint: LinkEndpoint;
-  name: string;
-  projectPath: string;
-  image: string | null;
-  tone: string;
-  chatCount: number;
-  worktreeCount: number;
-  onNewChat?: (projectPath: string) => void;
-  [key: string]: unknown;
-};
-type CardData = {
-  kind: "worktree";
-  endpoint: LinkEndpoint;
-  projectPath: string;
-  worktree: CanvasWorktree;
-  rows: CardRow[];
-  dimmed: boolean;
-  now: number;
-  receiveOnly: ReadonlySet<number>;
-  onOpenChat?: (projectPath: string, id: number) => void;
-  [key: string]: unknown;
-};
-type SectionNode = Node<SectionData, "project">;
-type CardNode = Node<CardData, "worktree">;
-type CanvasNode = SectionNode | CardNode;
-const nodeTypes = { project: SectionNode, worktree: WorktreeCard };
-const edgeTypes = { link: LinkEdge, membership: MembershipEdge };
-
-const SECTION_TONES: [string, ...string[]] = ["var(--accent)", "var(--green)", "var(--purple, var(--accent))"];
-function sectionTone(id: string) {
-  let hash = 0;
-  for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) | 0;
-  return SECTION_TONES[Math.abs(hash) % SECTION_TONES.length] ?? SECTION_TONES[0];
-}
-
+const nodeTypes = { project: SectionNode, worktree: WorktreeCard, chatwindow: ChatWindow };
+const edgeTypes = { link: LinkEdge, membership: MembershipEdge, chatwindow: WindowEdge };
 /* ─────────────────────────────────────────────────────────
  * EDGES
  * ───────────────────────────────────────────────────────── */
@@ -247,32 +206,46 @@ function Diff({ diff }: { diff?: CanvasWorktree["diff"] }) {
   );
 }
 
+function openRow(row: CardRow, data: CardData) {
+  if (row.shared || !data.onOpenWindow) data.onOpenChat?.(row.shared ? scopeKey({ kind: "link", linkId: row.shared.linkId }) : data.projectPath, row.id);
+  else data.onOpenWindow(chatKey(data.projectPath, row.id));
+}
+
 function ChatRow({ row, data, single }: { row: CardRow; data: CardData; single: boolean }) {
   const status = row.shared ? { label: "The Link's shared conversation", tone: "ink3" as const } : canvasStatus(row, data.now);
+  const key = chatKey(data.projectPath, row.id);
+  const windowed = !row.shared && Boolean(data.opened?.includes(key));
   return (
-    <button
-      type="button"
-      data-canvas-chat={row.id}
-      className="group/chat flex h-[38px] w-full min-w-0 flex-col justify-between text-left"
-      onClick={() => data.onOpenChat?.(row.shared ? scopeKey({ kind: "link", linkId: row.shared.linkId }) : data.projectPath, row.id)}
-    >
-      <span className="flex h-[18px] w-full min-w-0 items-center gap-2">
-        <Mark mark={row.mark} failed={row.failed} />
-        <span className="min-w-0 flex-1 truncate text-13 font-semibold text-ink group-hover/chat:underline">{row.title}</span>
-        {single && <Diff diff={data.worktree.diff} />}
-      </span>
-      <span className="flex h-4 w-full min-w-0 items-center gap-1.5 pl-5 text-12">
-        <span className={`shrink-0 font-medium ${toneClass[status.tone]}`}>{status.label}</span>
-        {single && <span className="min-w-0 truncate text-ink-3">· {data.worktree.branch}</span>}
-        {data.receiveOnly.has(row.id) && (
-          <Tooltip label="This Codex Chat can't use the linked tools: it gets the summary and receives Delegations only." wrap className="shrink-0">
-            <span className="rounded-inline border border-line px-1 text-10 text-ink-3">receive-only</span>
-          </Tooltip>
-        )}
-        <span className="flex-1" />
-        {row.provider && <ProviderLogo provider={row.provider} size={12} />}
-      </span>
-    </button>
+    <>
+      <button
+        type="button"
+        data-canvas-chat={row.id}
+        data-canvas-windowed={windowed || undefined}
+        aria-current={windowed || undefined}
+        className="group/chat flex h-[38px] w-full min-w-0 flex-col justify-between text-left"
+        onClick={() => openRow(row, data)}
+      >
+        <span className="flex h-[18px] w-full min-w-0 items-center gap-2">
+          <Mark mark={row.mark} failed={row.failed} />
+          <span className={`min-w-0 flex-1 truncate text-13 font-semibold group-hover/chat:underline ${windowed ? "text-accent-ink" : "text-ink"}`}>
+            {row.title}
+          </span>
+          {single && <Diff diff={data.worktree.diff} />}
+        </span>
+        <span className="flex h-4 w-full min-w-0 items-center gap-1.5 pl-5 text-12">
+          <span className={`shrink-0 font-medium ${toneClass[status.tone]}`}>{status.label}</span>
+          {single && <span className="min-w-0 truncate text-ink-3">· {data.worktree.branch}</span>}
+          {data.receiveOnly.has(row.id) && (
+            <Tooltip label="This Codex Chat can't use the linked tools: it gets the summary and receives Delegations only." wrap className="shrink-0">
+              <span className="rounded-inline border border-line px-1 text-10 text-ink-3">receive-only</span>
+            </Tooltip>
+          )}
+          <span className="flex-1" />
+          {row.provider && <ProviderLogo provider={row.provider} size={12} />}
+        </span>
+      </button>
+      {row.live && data.onOpenWindow && <CardLive chatKey={key} live={row.live} onOpen={() => data.onOpenWindow?.(key)} />}
+    </>
   );
 }
 
@@ -288,6 +261,7 @@ function WorktreeCard({ data }: NodeProps<CardNode>) {
       } ${data.dimmed ? "opacity-35" : ""}`}
     >
       <LinkHandles />
+      <LineHandles type="source" />
       {data.rows.map((row, index) => (
         <div key={`${row.shared ? "shared" : "chat"}:${row.id}`}>
           {index > 0 && <div className="my-2.5 h-px bg-line" />}
@@ -303,156 +277,6 @@ function WorktreeCard({ data }: NodeProps<CardNode>) {
       )}
     </div>
   );
-}
-
-/* ─────────────────────────────────────────────────────────
- * BUILDING THE GRAPH
- * ───────────────────────────────────────────────────────── */
-const projectNodeId = (id: string) => `project:${encodeURIComponent(id)}`;
-const worktreeNodeId = (id: string, path: string) => `worktree:${encodeURIComponent(id)}:${encodeURIComponent(path)}`;
-
-type Built = { nodes: CanvasNode[]; worktrees: CanvasWorktree[] };
-
-/** A card's rows: its chats, then the named Link's shared conversation when the Worktree takes part in one. */
-const rowsOf = (worktree: CanvasWorktree): CardRow[] =>
-  worktree.sharedChat
-    ? [
-        ...worktree.chats,
-        { id: worktree.sharedChat.sessionId, title: "Shared Link Chat", mark: "idle", failed: false, shared: { linkId: worktree.sharedChat.linkId } },
-      ]
-    : worktree.chats;
-
-/** Two columns once a Project has two or more Worktrees, each card under the shorter column. */
-function defaultCardPositions(worktrees: CanvasWorktree[]) {
-  const columns: [number, number] = [SECTION_HEADER, SECTION_HEADER];
-  return worktrees.map((worktree) => {
-    const height = cardHeight(rowsOf(worktree).length);
-    const column = columns[0] <= columns[1] ? 0 : 1;
-    const position = { x: SECTION_PADDING + column * (CARD_WIDTH + SECTION_PADDING), y: columns[column] };
-    columns[column] += height + CARD_GAP;
-    return { worktree, height, position };
-  });
-}
-
-/** A section's size: around its cards, wherever they were dragged. */
-function sectionSize(cards: Array<{ position: { x: number; y: number }; height: number }>) {
-  let width = CARD_WIDTH + 2 * SECTION_PADDING,
-    height = SECTION_HEADER + SECTION_PADDING;
-  for (const card of cards) {
-    width = Math.max(width, card.position.x + CARD_WIDTH + SECTION_PADDING);
-    height = Math.max(height, card.position.y + card.height + SECTION_PADDING);
-  }
-  return { width, height };
-}
-
-function buildNodes(
-  snapshot: CanvasSnapshot,
-  states: Record<string, CoordinatorState>,
-  runs: RunStatuses,
-  work: LinkedWork,
-  filter: CanvasFilter,
-  now: number,
-  imageOf: (path: string) => string | null,
-  keep: ReadonlySet<string>,
-  handlers: { onOpenChat: (path: string, id: number) => void; onNewChat?: (path: string) => void },
-): Built {
-  const nodes: CanvasNode[] = [];
-  const shown: CanvasWorktree[] = [];
-  const cursor = { x: 0, y: 0, rowHeight: 0 };
-  for (const project of snapshot.projects) {
-    const state = states[project.path] ?? snapshot.states.find((entry) => entry.path === project.path)?.state;
-    const asking = chatsAskingUser(runs, project.path);
-    const waiting = chatsWaitingForUser(runs, project.path);
-    const running = chatsRunning(runs, project.path);
-    const background = chatsInBackground(runs, project.path, state?.sessions);
-    const delegated = delegatedChats(work, project.path);
-    const worktrees = canvasWorktrees(state, (id, unread) => {
-      const mark = chatMark({
-        asking: asking.has(id),
-        waiting: waiting.has(id),
-        delegated: delegated.has(id),
-        running: running.has(id),
-        background: background.has(id),
-        unread,
-      });
-      // ponytail: no interruption is passed here, so this never fires; drop it once CanvasMark (shared/canvas.ts) has "interrupted".
-      return mark === "interrupted" ? "idle" : mark;
-    });
-    if (!worktrees.length && !keep.has(project.id)) continue;
-    shown.push(...worktrees);
-    const receiveOnly = new Set(
-      worktrees.flatMap((worktree) => worktree.chats.filter((chat) => work.receiveOnly.includes(chatKey(project.path, chat.id))).map((chat) => chat.id)),
-    );
-    const cards = defaultCardPositions(worktrees).map((card) => ({
-      ...card,
-      position: snapshot.worktreePositions[project.id]?.[card.worktree.path] ?? card.position,
-    }));
-    const size = sectionSize(cards);
-    let position = project.position;
-    if (!position) {
-      if (cursor.x > 0 && cursor.x + size.width > ROW_WIDTH) Object.assign(cursor, { x: 0, y: cursor.y + cursor.rowHeight + SECTION_GAP, rowHeight: 0 });
-      position = { x: cursor.x, y: cursor.y };
-      cursor.x += size.width + SECTION_GAP;
-      cursor.rowHeight = Math.max(cursor.rowHeight, size.height);
-    }
-    nodes.push({
-      id: projectNodeId(project.id),
-      type: "project",
-      position,
-      data: {
-        kind: "project",
-        endpoint: { project_id: project.id },
-        name: project.name,
-        projectPath: project.path,
-        image: imageOf(project.path),
-        tone: sectionTone(project.id),
-        chatCount: worktrees.reduce((count, worktree) => count + rowsOf(worktree).length, 0),
-        worktreeCount: worktrees.length,
-        onNewChat: handlers.onNewChat,
-      },
-      style: size,
-      dragHandle: ".canvas-drag-handle",
-    });
-    for (const card of cards)
-      nodes.push({
-        id: worktreeNodeId(project.id, card.worktree.path),
-        type: "worktree",
-        parentId: projectNodeId(project.id),
-        extent: "parent",
-        expandParent: true,
-        position: card.position,
-        data: {
-          kind: "worktree",
-          endpoint: { project_id: project.id, worktree_path: card.worktree.path },
-          projectPath: project.path,
-          worktree: card.worktree,
-          rows: rowsOf(card.worktree),
-          dimmed: filter !== "all" && !card.worktree.chats.some((chat) => matchesCanvasFilter(chat.mark, filter)),
-          now,
-          receiveOnly,
-          onOpenChat: handlers.onOpenChat,
-        },
-        style: { width: CARD_WIDTH, height: card.height },
-      });
-  }
-  return { nodes, worktrees: shown };
-}
-
-/** Sections follow their cards: dragging one toward an edge grows its section, dragging it back shrinks it. */
-function fitSections(nodes: CanvasNode[]): CanvasNode[] {
-  const cards = new Map<string, Array<{ position: { x: number; y: number }; height: number }>>();
-  for (const node of nodes)
-    if (node.parentId) {
-      const list = cards.get(node.parentId) ?? [];
-      list.push({ position: node.position, height: Number(node.style?.height ?? 0) });
-      cards.set(node.parentId, list);
-    }
-  return nodes.map((node) => {
-    if (node.type !== "project") return node;
-    const size = sectionSize(cards.get(node.id) ?? []);
-    if (node.width === size.width && node.height === size.height) return node;
-    return { ...node, ...size, style: { ...node.style, ...size } };
-  });
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -495,6 +319,63 @@ function ZoomControls() {
   );
 }
 
+function linkEdges(
+  visible: CanvasSnapshot | null,
+  focusLink: NamedProjectLink | undefined,
+  selectedLink: string | null,
+  linkedWork: LinkedWork,
+  stopNegotiation: (id: string) => void,
+  nodeById: ReadonlyMap<string, CanvasNode>,
+) {
+  const centerX = (id: string) => {
+    const node = nodeById.get(id);
+    const parent = node?.parentId ? nodeById.get(node.parentId) : undefined;
+    const width = Number(node?.style?.width ?? 0);
+    return (node?.position.x ?? 0) + (parent?.position.x ?? 0) + width / 2;
+  };
+  const sides = (source: string, target: string) =>
+    centerX(source) <= centerX(target) ? { sourceHandle: "right", targetHandle: "left" } : { sourceHandle: "left", targetHandle: "right" };
+  const canvasEdges = (visible?.links ?? []).flatMap((link) => {
+    const source = link.a.worktree_path ? worktreeNodeId(link.a.project_id, link.a.worktree_path) : projectNodeId(link.a.project_id);
+    const target = link.b.worktree_path ? worktreeNodeId(link.b.project_id, link.b.worktree_path) : projectNodeId(link.b.project_id);
+    if (!nodeById.has(source) || !nodeById.has(target)) return [];
+    const selected = link.id === selectedLink;
+    return [
+      {
+        id: link.id,
+        source,
+        target,
+        ...sides(source, target),
+        type: "link" as const,
+        selected,
+        zIndex: 1,
+        data: { activity: linkActivity(linkedWork, link.id), projects: !link.a.worktree_path && !link.b.worktree_path, onStop: stopNegotiation },
+        style: { stroke: selected ? "var(--color-accent)" : "var(--color-ink-3)", strokeWidth: selected ? 2 : 1.5 },
+      },
+    ];
+  });
+  const groups = focusLink ? [focusLink] : (visible?.projectGroups ?? []);
+  const memberships = groups
+    .filter((group) => !group.canvasLinkId)
+    .flatMap((group) => {
+      const members = group.projectIds.map(projectNodeId).filter((id) => nodeById.has(id));
+      const [source, ...targets] = members;
+      if (!source) return [];
+      return targets.map((target) => ({
+        id: `membership:${group.id}:${target}`,
+        source,
+        target,
+        type: "membership",
+        ...sides(source, target),
+        selectable: false,
+        deletable: false,
+        data: { name: group.name, linkId: group.id },
+        style: { stroke: "var(--color-accent)", strokeWidth: 1.5, strokeDasharray: "5 4" },
+      }));
+    });
+  return [...canvasEdges, ...memberships];
+}
+
 export function CanvasView({
   states,
   runs,
@@ -503,6 +384,7 @@ export function CanvasView({
   onNewChat,
   onBack,
   focusLink,
+  chatActions,
 }: {
   states: Record<string, CoordinatorState>;
   runs: RunStatuses;
@@ -512,7 +394,11 @@ export function CanvasView({
   onNewChat?: (projectPath: string) => void;
   onBack: () => void;
   focusLink?: NamedProjectLink;
+  chatActions?: CanvasChatActions;
 }) {
+  const [flow, setFlow] = useState<ReactFlowInstance<CanvasNode> | null>(null);
+  const surface = useRef<HTMLDivElement>(null);
+  const dragged = useRef(new Map<string, { x: number; y: number }>());
   const [snapshot, setSnapshot] = useState<CanvasSnapshot | null>(null);
   const [nodes, setNodes] = useState<CanvasNode[]>([]);
   const [selectedLink, setSelectedLink] = useState<string | null>(null);
@@ -555,94 +441,55 @@ export function CanvasView({
   const newChatRef = useRef(onNewChat);
   newChatRef.current = onNewChat;
   const newChat = useCallback((path: string) => newChatRef.current?.(path), []);
+  const windows = useChatWindows({
+    chatActions,
+    states,
+    onOpenChat: openChat,
+    flow,
+    surface,
+    nodes,
+    dragged,
+    paused: Boolean(modeLink),
+    now,
+    onError: setError,
+  });
   const visible = useMemo(
     () => (snapshot && focusLink ? { ...snapshot, projects: snapshot.projects.filter((project) => focusLink.projectIds.includes(project.id)) } : snapshot),
     [snapshot, focusLink],
   );
-  const imageOf = useProjectImages(useMemo(() => visible?.projects.map((project) => project.path) ?? [], [visible]));
-  const keep = useMemo(() => {
-    const ids = new Set<string>();
-    for (const link of visible?.links ?? []) for (const end of [link.a, link.b]) if (!end.worktree_path) ids.add(end.project_id);
-    for (const group of focusLink ? [focusLink] : (visible?.projectGroups ?? [])) for (const id of group.projectIds) ids.add(id);
-    return ids;
-  }, [visible, focusLink]);
-  const imageKey = visible?.projects.map((project) => imageOf(project.path) ?? "").join("\n");
-  useEffect(() => {
-    if (!visible) return;
-    const built = buildNodes(visible, states, runs, linkedWork, filter, now, imageOf, keep, {
-      onOpenChat: openChat,
-      onNewChat: onNewChat ? newChat : undefined,
-    });
-    setShown(built.worktrees);
-    setNodes((previous) =>
-      fitSections(
-        built.nodes.map((node) => {
-          const old = previous.find((item) => item.id === node.id);
-          return old ? ({ ...node, position: old.position } as CanvasNode) : node;
-        }),
-      ),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, states, runs, linkedWork, filter, now, imageKey, keep, openChat, newChat, Boolean(onNewChat)]);
+  useCanvasGraph({
+    visible,
+    focusLink,
+    states,
+    runs,
+    linkedWork,
+    filter,
+    now,
+    onOpenChat: openChat,
+    onNewChat: onNewChat ? newChat : undefined,
+    windows,
+    windowsOn: Boolean(chatActions),
+    dragged,
+    setNodes,
+    setShown,
+  });
   const counts = useMemo(() => canvasFilterCounts(shown), [shown]);
   const onNodesChange = useCallback((changes: NodeChange<CanvasNode>[]) => setNodes((current) => fitSections(applyNodeChanges(changes, current))), []);
   const stopNegotiation = useCallback((id: string) => {
     window.milagre.stopNegotiation(id).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
   }, []);
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
-  const edges = useMemo(() => {
-    const centerX = (id: string) => {
-      const node = nodeById.get(id);
-      const parent = node?.parentId ? nodeById.get(node.parentId) : undefined;
-      const width = Number(node?.style?.width ?? 0);
-      return (node?.position.x ?? 0) + (parent?.position.x ?? 0) + width / 2;
-    };
-    const sides = (source: string, target: string) =>
-      centerX(source) <= centerX(target) ? { sourceHandle: "right", targetHandle: "left" } : { sourceHandle: "left", targetHandle: "right" };
-    const canvasEdges = (visible?.links ?? []).flatMap((link) => {
-      const source = link.a.worktree_path ? worktreeNodeId(link.a.project_id, link.a.worktree_path) : projectNodeId(link.a.project_id);
-      const target = link.b.worktree_path ? worktreeNodeId(link.b.project_id, link.b.worktree_path) : projectNodeId(link.b.project_id);
-      if (!nodeById.has(source) || !nodeById.has(target)) return [];
-      const selected = link.id === selectedLink;
-      return [
-        {
-          id: link.id,
-          source,
-          target,
-          ...sides(source, target),
-          type: "link" as const,
-          selected,
-          zIndex: 1,
-          data: { activity: linkActivity(linkedWork, link.id), projects: !link.a.worktree_path && !link.b.worktree_path, onStop: stopNegotiation },
-          style: { stroke: selected ? "var(--color-accent)" : "var(--color-ink-3)", strokeWidth: selected ? 2 : 1.5 },
-        },
-      ];
-    });
-    const groups = focusLink ? [focusLink] : (visible?.projectGroups ?? []);
-    const memberships = groups
-      .filter((group) => !group.canvasLinkId)
-      .flatMap((group) => {
-        const members = group.projectIds.map(projectNodeId).filter((id) => nodeById.has(id));
-        const [source, ...targets] = members;
-        if (!source) return [];
-        return targets.map((target) => ({
-          id: `membership:${group.id}:${target}`,
-          source,
-          target,
-          type: "membership",
-          ...sides(source, target),
-          selectable: false,
-          deletable: false,
-          data: { name: group.name, linkId: group.id },
-          style: { stroke: "var(--color-accent)", strokeWidth: 1.5, strokeDasharray: "5 4" },
-        }));
-      });
-    return [...canvasEdges, ...memberships];
-  }, [visible?.links, visible?.projectGroups, focusLink, selectedLink, linkedWork, stopNegotiation, nodeById]);
+  const edges = useMemo(
+    () => [
+      ...linkEdges(visible, focusLink, selectedLink, linkedWork, stopNegotiation, nodeById),
+      ...windowEdges(nodes, nodeById, windows.records, windows.bendLine),
+    ],
+    [visible, focusLink, selectedLink, linkedWork, stopNegotiation, nodes, nodeById, windows.records, windows.bendLine],
+  );
   const connect = useCallback(
     async (connection: Connection) => {
-      const a = nodeById.get(connection.source)?.data.endpoint;
-      const b = nodeById.get(connection.target)?.data.endpoint;
+      const a = endpointOf(nodeById.get(connection.source));
+      const b = endpointOf(nodeById.get(connection.target));
       if (!a || !b) return;
       try {
         const links = await window.milagre.addLink(a, b);
@@ -668,7 +515,7 @@ export function CanvasView({
         setError(cause instanceof Error ? cause.message : String(cause));
       }
     },
-    [nodeById],
+    [nodeById, snapshot],
   );
   const remove = async () => {
     if (!selectedLink) return;
@@ -706,6 +553,11 @@ export function CanvasView({
     }
   };
   const savePosition = async (_event: unknown, node: CanvasNode) => {
+    dragged.current.set(node.id, node.position);
+    if (node.data.kind === "window") {
+      windows.moveWindow(node.data.chatKey, node.position);
+      return;
+    }
     try {
       if (node.data.kind === "project") await window.milagre.setProjectPosition(node.data.endpoint.project_id, node.position);
       else if (node.data.endpoint.worktree_path)
@@ -769,6 +621,11 @@ export function CanvasView({
                 Remove Link
               </Button>
             )}
+            {windows.open.length > 0 && (
+              <Button variant="ghost" data-canvas-close-all onClick={windows.closeAll}>
+                {windows.open.length === 1 ? "Close" : `Close all ${windows.open.length}`}
+              </Button>
+            )}
             <FilterBar filter={filter} counts={counts} onChange={setFilter} />
           </div>
         }
@@ -776,42 +633,45 @@ export function CanvasView({
       <InlineError variant="floating" className="absolute inset-x-5 top-14 z-30">
         {error}
       </InlineError>
-      <div className="milagre-canvas-surface min-h-0 flex-1">
+      <div ref={surface} className="milagre-canvas-surface min-h-0 flex-1">
         {snapshot ? (
-          <ReactFlow
-            className="milagre-canvas-flow"
-            data-connecting={connecting || undefined}
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            onNodesChange={onNodesChange}
-            onConnect={(connection) => void connect(connection)}
-            onConnectStart={() => setConnecting(true)}
-            onConnectEnd={() => setConnecting(false)}
-            isValidConnection={(connection) => connection.source !== connection.target}
-            connectionMode={ConnectionMode.Loose}
-            onNodeDragStop={(event, node) => void savePosition(event, node)}
-            onEdgeClick={(_event, edge) => {
-              if (edge.type === "link") setSelectedLink(edge.id);
-            }}
-            onPaneClick={() => setSelectedLink(null)}
-            fitView
-            fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
-            nodesConnectable
-            edgesReconnectable={false}
-            deleteKeyCode={null}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Panel position="bottom-left" style={{ margin: "0 0 20px 24px" }}>
-              <ZoomControls />
-            </Panel>
-            {!nodes.length && (
-              <Panel position="top-center" className="!top-1/3">
-                <EmptyState title="No active Chats">Chats the sidebar shows appear here.</EmptyState>
+          <CanvasChatContext.Provider value={windows.chatContext}>
+            <ReactFlow
+              onInit={setFlow}
+              className="milagre-canvas-flow"
+              data-connecting={connecting || undefined}
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              onNodesChange={onNodesChange}
+              onConnect={(connection) => void connect(connection)}
+              onConnectStart={() => setConnecting(true)}
+              onConnectEnd={() => setConnecting(false)}
+              isValidConnection={(connection) => connection.source !== connection.target}
+              connectionMode={ConnectionMode.Loose}
+              onNodeDragStop={(event, node) => void savePosition(event, node)}
+              onEdgeClick={(_event, edge) => {
+                if (edge.type === "link") setSelectedLink(edge.id);
+              }}
+              onPaneClick={() => setSelectedLink(null)}
+              fitView
+              fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
+              nodesConnectable
+              edgesReconnectable={false}
+              deleteKeyCode={null}
+              proOptions={{ hideAttribution: true }}
+            >
+              <Panel position="bottom-left" style={{ margin: "0 0 20px 24px" }}>
+                <ZoomControls />
               </Panel>
-            )}
-          </ReactFlow>
+              {!nodes.length && (
+                <Panel position="top-center" className="!top-1/3">
+                  <EmptyState title="No active Chats">Chats the sidebar shows appear here.</EmptyState>
+                </Panel>
+              )}
+            </ReactFlow>
+          </CanvasChatContext.Provider>
         ) : (
           <div className="flex h-full items-center justify-center text-13 text-ink-3">Loading Projects…</div>
         )}

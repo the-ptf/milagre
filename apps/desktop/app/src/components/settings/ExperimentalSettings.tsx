@@ -11,6 +11,7 @@ import { updateSettings, useSettings } from "../../lib/settings";
 import { Group, Row } from "./SettingsGroup";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import { WORKSPACE_TABS_DESCRIPTION, WORKSPACE_TABS_LABEL } from "@milagre/shared/workspace-tabs";
+import { CANVAS_CHATS_HINT, CANVAS_CHATS_LABEL } from "@milagre/shared/canvas";
 import { computerNoun } from "../../lib/shortcut-hints";
 
 function RemoteDelegationSettings() {
@@ -106,6 +107,9 @@ export function ExperimentalSettings({ title, models, onOpenKeybindings }: { tit
         </Row>
         <Row label={WORKSPACE_TABS_LABEL} description={WORKSPACE_TABS_DESCRIPTION}>
           <SettingCheckbox label={WORKSPACE_TABS_LABEL} checked={settings.workspaceTabs} onChange={(workspaceTabs) => updateSettings({ workspaceTabs })} />
+        </Row>
+        <Row label={CANVAS_CHATS_LABEL} description={CANVAS_CHATS_HINT}>
+          <SettingCheckbox label={CANVAS_CHATS_LABEL} checked={settings.canvasChats} onChange={(canvasChats) => updateSettings({ canvasChats })} />
         </Row>
         <Row label="Review agent" description={REVIEW_AGENT_DESCRIPTION}>
           <SettingCheckbox label="Review agent" checked={reviewAgent.enabled} disabled={!reviewAgent.ready || reviewAgent.saving} onChange={reviewAgent.save} />

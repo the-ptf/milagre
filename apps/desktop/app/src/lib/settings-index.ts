@@ -14,6 +14,7 @@ import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import { WORKSPACE_TABS_DESCRIPTION, WORKSPACE_TABS_LABEL } from "@milagre/shared/workspace-tabs";
 import { ORCHESTRATOR_DESCRIPTION } from "./orchestrator-copy.ts";
+import { CANVAS_CHATS_HINT, CANVAS_CHATS_LABEL } from "@milagre/shared/canvas";
 import type { SettingsSearchEntry } from "@milagre/shared/settings-search";
 import type { SettingsSection } from "../components/Settings";
 import { computerNoun } from "./shortcut-hints.ts";
@@ -740,6 +741,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Beta",
     description: WORKSPACE_TABS_DESCRIPTION,
     keywords: "tabs top bar subchats strip",
+  },
+  {
+    page: "experimental",
+    title: CANVAS_CHATS_LABEL,
+    group: "Beta",
+    description: CANVAS_CHATS_HINT,
+    keywords: "canvas window beside card approve reply",
   },
   {
     page: "experimental",
