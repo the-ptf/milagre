@@ -267,10 +267,7 @@ export default function ModelSheet() {
           </View>
         )}
         <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: hasSettings ? -8 : 0, marginRight: -8 }}>
-          <PermissionChip
-            mode={permissionMode}
-            onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId: params.chatId, ...(busy ? { busy: "1" } : {}) } })}
-          />
+          <PermissionChip mode={permissionMode} onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId: params.chatId } })} />
         </View>
       </View>
       {fatality > 0 && <UltracodeFatality key={fatality} onDone={() => setFatality(0)} />}
