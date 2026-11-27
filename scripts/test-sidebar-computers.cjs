@@ -192,6 +192,7 @@ async function browserChecks() {
     const openPopover = async () => {
       await evaluate(`document.querySelector('[data-filters]').click()`);
       await waitFor(`!!document.querySelector('[data-filters-panel] [data-sub="computers"]')`);
+      await waitFor(`document.querySelector('[data-filters-panel]').getAnimations().every((a) => a.playState === "finished")`);
       await evaluate(`document.querySelector('[data-filters-panel] [data-sub="computers"]').click()`);
       await waitFor(`!!document.querySelector('[data-filters-sub="computers"]')`);
       await waitFor(`document.querySelector('[data-filters-sub="computers"]').getAnimations().every((a) => a.playState === "finished")`);

@@ -48,6 +48,12 @@ const MAIN_WIDTH = 232;
 const PANEL = "fixed z-50 flex flex-col overflow-hidden rounded-card bg-surface shadow-raised";
 const rowsOf = (panel: HTMLElement | null) => [...(panel?.querySelectorAll<HTMLElement>("[data-menu-row]:not(:disabled)") ?? [])];
 
+function panelPosition(rect: DOMRect, collapsed: boolean): { top?: number; bottom?: number; left: number } {
+  if (collapsed) return { bottom: window.innerHeight - rect.bottom, left: rect.right + 8 };
+  if (rect.top < window.innerHeight / 2) return { top: rect.bottom + 6, left: rect.left };
+  return { bottom: window.innerHeight - rect.top + 6, left: rect.left };
+}
+
 export function FiltersButton({
   projects,
   computerMenu,
@@ -77,7 +83,7 @@ export function FiltersButton({
   const panelRef = useRef<HTMLDivElement>(null);
   const subRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState({ bottom: 0, left: 0 });
+  const [position, setPosition] = useState<{ top?: number; bottom?: number; left: number }>({ bottom: 0, left: 0 });
   const [sub, setSub] = useState<{ which: Sub; top: number; bottom: number; focus: boolean } | null>(null);
   const [subHeight, setSubHeight] = useState(0);
   const [query, setQuery] = useState("");
@@ -96,9 +102,7 @@ export function FiltersButton({
   const place = () => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return false;
-    setPosition(
-      collapsed ? { bottom: window.innerHeight - rect.bottom, left: rect.right + 8 } : { bottom: window.innerHeight - rect.top + 6, left: rect.left },
-    );
+    setPosition(panelPosition(rect, collapsed));
     return true;
   };
   const clearSearch = () => setQuery("");
@@ -229,10 +233,11 @@ export function FiltersButton({
               className={`${PANEL} p-1.5`}
               style={{
                 width: MAIN_WIDTH,
+                top: position.top,
                 bottom: position.bottom,
                 left: position.left,
                 animation: "pop-in var(--duration-base) var(--ease-enter) backwards",
-                transformOrigin: "bottom left",
+                transformOrigin: position.top === undefined ? "bottom left" : "top left",
               }}
             >
               <div className="flex flex-col gap-px">

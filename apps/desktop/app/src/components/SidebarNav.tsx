@@ -24,7 +24,6 @@ import {
   Cancel01Icon,
   Copy01Icon,
   Delete02Icon,
-  FolderAddIcon,
   Link04Icon,
   PencilEdit02Icon,
   TimeScheduleIcon,
@@ -38,6 +37,8 @@ import { IconButton } from "./primitives/Button";
 import { Icon } from "./primitives/Icon";
 import { ProjectAvatar } from "./primitives/ProjectAvatar";
 import { FiltersButton, type PickerProject } from "./sidebar/FiltersMenu";
+import { AddProjectButton, SidebarSearchResults, SidebarSearchRow } from "./sidebar/SidebarSearchRow";
+import { sidebarNeedle } from "../lib/sidebar-search";
 import { useShortcutHints } from "../lib/shortcut-hints";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { projectMenu } from "./sidebar/project-menu";
@@ -48,7 +49,7 @@ import { type ChatRowActions, type RowComputer, type SidebarRecent } from "./sid
 import { useComputers, useHiddenComputers, isDimmed } from "../lib/computers";
 import { computerSections, mergeScopes, useComputerScopes, withoutLocal } from "../lib/computer-scopes";
 import { LOCAL_COMPUTER, computerOfKey, unqualifyKey } from "@milagre/shared/chat-scopes";
-import { ALL_CHATS_LABEL, CHATS_GROUP_KEY, CHATS_GROUP_LABEL, type ProjectKind } from "@milagre/shared/chats-home";
+import { CHATS_GROUP_KEY, CHATS_GROUP_LABEL, type ProjectKind } from "@milagre/shared/chats-home";
 import { useChatsGroup } from "../lib/project-copies";
 import type { ArchiveMode, ArchivePlan } from "@/lib/archive";
 import { groupByOrigin } from "@milagre/shared/project-origin";
@@ -86,7 +87,7 @@ import { useScopeRowHandles } from "./sidebar/use-scope-row-handles";
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, useSidebarCollapse } from "./sidebar/use-sidebar-collapse";
 import { sidebarModes, splitGroupRows } from "../lib/sidebar-modes";
 import { ScopeMenuItem, ScopeHeader, ScopeBody } from "./sidebar/ScopeHeader";
-import { ScopeBadge, FlatScope, NO_BADGE, CHATS_BADGE, FlatChatList, ChatList } from "./sidebar/ChatLists";
+import { ScopeBadge, FlatScope, NO_BADGE, CHATS_BADGE, FlatChatList, ChatList, PinnedArea } from "./sidebar/ChatLists";
 import { dragScopeHeader } from "./sidebar/scope-drag";
 import { foldTabRows, frontChat, isRowOf, reopenFromDone, wakeFromSnoozed, withoutSetAside } from "./sidebar/chat-row-actions";
 
@@ -341,6 +342,8 @@ export default memo(function SidebarNav({
     onJumpChatsChange?.(jumpIds);
   }, [jumpIds, onJumpChatsChange]);
   const [resizing, setResizing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const needle = sidebarNeedle(searchQuery);
   const [demoActiveTitle, setDemoActiveTitle] = useState<string | null>(null);
   const [namedLinks, setNamedLinks] = useState(() => lastLists.links);
   const [registeredProjects, setRegisteredProjects] = useState(() => lastLists.registered);
@@ -907,20 +910,6 @@ export default memo(function SidebarNav({
           />
         ) : null,
       )}
-      <div data-one-list-header className="sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2">
-        <span className="text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">{ALL_CHATS_LABEL}</span>
-        <Tooltip label="New chat" shortcut={keys.newChat} align="end">
-          <IconButton
-            size={32}
-            label="New chat"
-            icon={Add01Icon}
-            onClick={() => {
-              if (activeTitle === undefined) setDemoActiveTitle(null);
-              onNewChat?.();
-            }}
-          />
-        </Tooltip>
-      </div>
       <FlatChatList chats={flatChats} scopes={flatScopes} />
       {groups
         .filter(({ scope, state, current }) => !state && !current && failedScopes.has(scope.key))
@@ -938,6 +927,31 @@ export default memo(function SidebarNav({
         </p>
       )}
     </>
+  );
+
+  const newChat = () => {
+    if (activeTitle === undefined) setDemoActiveTitle(null);
+    onNewChat?.();
+  };
+  const newCurrentScopeChat = () => {
+    if (activeTitle === undefined) setDemoActiveTitle(null);
+    (onNewCurrentScopeChat ?? onNewChat)?.();
+  };
+  const addProject = <AddProjectButton collapsed={collapsed} onClick={() => onOpenProject?.()} />;
+  const filters = (
+    <FiltersButton
+      projects={pickerProjects}
+      computerMenu={onAddComputer && onOpenComputerSettings ? { onAddComputer, onOpenSettings: onOpenComputerSettings } : null}
+      computers={multi ? computerSections(thisMac, computers) : null}
+      imageOf={scopeImage}
+      currentImage={selectedLink ? undefined : workspace.image}
+      onShowProject={showProject}
+      show={chatRowShow}
+      offerComputer={multi}
+      onShowField={(field, on) => updateSettings({ chatRowShow: { ...chatRowShow, [field]: on } })}
+      collapsed={collapsed}
+      className={FILTERS_BUTTON}
+    />
   );
 
   const mergedSection = (section: (typeof sections)[number]) => {
@@ -975,11 +989,7 @@ export default memo(function SidebarNav({
           onDragStart={canDragScope(scope.key) ? (event) => startScopeDrag(event, scope.key) : undefined}
           dragging={draggingScope === scope.key}
           onNewChat={() => {
-            if (current) {
-              if (activeTitle === undefined) setDemoActiveTitle(null);
-              (onNewCurrentScopeChat ?? onNewChat)?.();
-              return;
-            }
+            if (current) return newCurrentScopeChat();
             const [first, ...others] = copies.map((item): ScopeCopy => ({ key: item.scope.key, computerId: item.scope.computerId }));
             const picked = preferredCopy(scope.origin, [first!, ...others]);
             rememberProjectComputer({ origin: scope.origin, computerId: picked.computerId });
@@ -1104,14 +1114,7 @@ export default memo(function SidebarNav({
           attention={!current && attentionPaths.includes(scope.key)}
           computer={list.show.computer ? list.computer : undefined}
           onToggle={() => toggleScope(scope.key)}
-          onNewChat={
-            current
-              ? () => {
-                  if (activeTitle === undefined) setDemoActiveTitle(null);
-                  (onNewCurrentScopeChat ?? onNewChat)?.();
-                }
-              : () => onNewChatInScope?.(scope.key)
-          }
+          onNewChat={current ? newCurrentScopeChat : () => onNewChatInScope?.(scope.key)}
           menu={scopeMenu(scope)}
         />
         <ScopeBody open={open}>{scopeChatsBody(section, true)}</ScopeBody>
@@ -1196,6 +1199,14 @@ export default memo(function SidebarNav({
       >
         <div className="flex min-h-0 w-full shrink-0 flex-col">
           {orchestrator}
+          <SidebarSearchRow
+            collapsed={collapsed}
+            query={searchQuery}
+            onQuery={setSearchQuery}
+            filters={filters}
+            addProject={addProject}
+            onNewChat={() => (oneList ? newChat() : newCurrentScopeChat())}
+          />
           <ScrollArea
             ref={scrollRef}
             onScroll={(event) => {
@@ -1204,21 +1215,18 @@ export default memo(function SidebarNav({
             className="sidebar-scroll flex-1 overflow-x-hidden pt-2"
           >
             <SidebarLinksProvider scopes={linkScopes} projects={registeredProjects} onAskChat={onAskChat}>
-              {showAll ? (
+              {showAll && needle ? (
+                <SidebarSearchResults needle={needle} homes={homeGroups} groups={groups} order={chatOrder} scopes={flatScopes} />
+              ) : showAll ? (
                 <>
-                  <div data-all-pinned={anyPinned || undefined} className={anyPinned ? "mb-2" : ""}>
-                    {anyPinned && (
-                      <p className="sidebar-copy mx-2 mb-1 flex h-8 items-center pl-2 text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">
-                        Pinned
-                      </p>
-                    )}
+                  <PinnedArea anyPinned={anyPinned} label={!oneList}>
                     {homeGroups.map(({ key }) => (
                       <div key={key} ref={pinSlotRef(key)} data-pinned-scope={key} />
                     ))}
                     {groups.map((group) => (
                       <div key={group.scope.key} ref={pinSlotRef(group.scope.key)} data-pinned-scope={group.scope.key} />
                     ))}
-                  </div>
+                  </PinnedArea>
                   {chatsPinned}
                   {!oneList && chatsGroup}
                   {oneList
@@ -1265,14 +1273,7 @@ export default memo(function SidebarNav({
                               onToggle={() => toggleScope(scope.key)}
                               onDragStart={canDragScope(scope.key) ? (event) => startScopeDrag(event, scope.key) : undefined}
                               dragging={draggingScope === scope.key}
-                              onNewChat={
-                                current
-                                  ? () => {
-                                      if (activeTitle === undefined) setDemoActiveTitle(null);
-                                      (onNewCurrentScopeChat ?? onNewChat)?.();
-                                    }
-                                  : () => onNewChatInScope?.(scope.key)
-                              }
+                              onNewChat={current ? newCurrentScopeChat : () => onNewChatInScope?.(scope.key)}
                               menu={scopeMenu(scope)}
                             />
                             <ScopeBody open={open}>
@@ -1292,10 +1293,7 @@ export default memo(function SidebarNav({
                         <button
                           type="button"
                           aria-label="New chat"
-                          onClick={() => {
-                            if (activeTitle === undefined) setDemoActiveTitle(null);
-                            onNewChat?.();
-                          }}
+                          onClick={newChat}
                           className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
                         >
                           <Icon icon={Add01Icon} size={16} />
@@ -1322,15 +1320,7 @@ export default memo(function SidebarNav({
                     <div className={`sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2 ${collapsed ? "hidden" : ""}`}>
                       <span className="text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
                       <Tooltip label="New chat" shortcut={keys.newChat} align="end">
-                        <IconButton
-                          size={32}
-                          label="New chat"
-                          icon={Add01Icon}
-                          onClick={() => {
-                            if (activeTitle === undefined) setDemoActiveTitle(null);
-                            onNewChat?.();
-                          }}
-                        />
+                        <IconButton size={32} label="New chat" icon={Add01Icon} onClick={newChat} />
                       </Tooltip>
                     </div>
                   }
@@ -1351,22 +1341,12 @@ export default memo(function SidebarNav({
             className={`flex py-1.5 ${usage ? "mt-0.5" : "mt-3"} ${collapsed ? "mx-auto w-8 flex-col-reverse items-center gap-1" : "mx-2 w-[calc(100%-16px)] items-center justify-between"}`}
           >
             <div className={collapsed ? "flex flex-col-reverse items-center gap-1" : "flex items-center gap-1"}>
-              <Tooltip label="Add Project" shortcut={keys.addProject}>
-                <IconButton size={32} label="Add Project" icon={FolderAddIcon} onClick={() => onOpenProject?.()} />
-              </Tooltip>
-              <FiltersButton
-                projects={pickerProjects}
-                computerMenu={onAddComputer && onOpenComputerSettings ? { onAddComputer, onOpenSettings: onOpenComputerSettings } : null}
-                computers={multi ? computerSections(thisMac, computers) : null}
-                imageOf={scopeImage}
-                currentImage={selectedLink ? undefined : workspace.image}
-                onShowProject={showProject}
-                show={chatRowShow}
-                offerComputer={multi}
-                onShowField={(field, on) => updateSettings({ chatRowShow: { ...chatRowShow, [field]: on } })}
-                collapsed={collapsed}
-                className={FILTERS_BUTTON}
-              />
+              {collapsed && (
+                <>
+                  {addProject}
+                  {filters}
+                </>
+              )}
               {usageButton}
             </div>
             <Tooltip label="Settings" shortcut={keys.settings} align={collapsed ? "start" : "end"}>
