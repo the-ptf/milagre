@@ -28,6 +28,7 @@ const SLOW_METHODS = Object.freeze({
   "connectors:check": 45000,
   "connectors:tools": 45000,
   "connectors:call": 130000,
+  "email:connect": 45000,
   "mcp:accounts": 45000,
   "mcp:check": 45000,
   "mcp:save": 45000,

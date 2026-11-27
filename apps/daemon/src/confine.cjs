@@ -161,6 +161,7 @@ const PATHS = Object.freeze({
   "connectors:movable": denied,
   "connectors:moved": none,
   "connectors:dismiss-moved": denied,
+  "email:disconnect": denied,
   "limits:auto-switch:read": none,
   "limits:auto-switch:save": denied,
   "limits:resume-at-reset:read": none,

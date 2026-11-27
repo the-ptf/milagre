@@ -30,6 +30,7 @@ import { Segmented } from "../primitives/Segmented";
 import { ConnectorSheet } from "./ConnectorSheet";
 import { ConnectorEditSheet } from "./ConnectorEditSheet";
 import { ConnectorTile } from "./ConnectorTile";
+import { EmailMailboxes } from "./EmailMailboxes";
 import { LinearSettings } from "./LinearSettings";
 import { useConnectors, type ConnectorsState } from "./useConnectors";
 import type { MilagreBridge } from "../../electron";
@@ -37,7 +38,8 @@ import type { MilagreBridge } from "../../electron";
 const card = "divide-y divide-line overflow-hidden rounded-card border border-line bg-surface";
 const LINEAR_ICON = CONNECTOR_PRESETS.find((preset) => preset.id === "linear")?.iconPath;
 const iconOf = (connector: ConnectorSummary) => (connector.kind === "linear" ? LINEAR_ICON : connectorPreset(connector)?.iconPath);
-const toolPrefix = (connector: ConnectorSummary) => (connector.kind === "linear" ? "linear_" : `${connector.id}__`);
+const toolPrefix = (connector: ConnectorSummary) => (connector.kind === "linear" ? "linear_" : connector.kind === "email" ? "email_" : `${connector.id}__`);
+const builtIn = (connector: ConnectorSummary) => connector.kind === "linear" || connector.kind === "email";
 
 function RowAction({ connector, state, onEdit, remote }: { connector: ConnectorSummary; state: ConnectorsState; onEdit: () => void; remote?: string }) {
   if (remote && (connector.state === "needs-sign-in" || connector.state === "needs-app"))
@@ -102,6 +104,7 @@ function ConnectorRow({
   open,
   onToggle,
   onEdit,
+  onAddMailbox,
   remote,
 }: {
   connector: ConnectorSummary;
@@ -109,6 +112,7 @@ function ConnectorRow({
   open: boolean;
   onToggle: () => void;
   onEdit: () => void;
+  onAddMailbox?: () => void;
   /** Another computer's name: its connectors are routed and removed from here, but added, edited and signed in to there. */
   remote?: string;
 }) {
@@ -125,7 +129,12 @@ function ConnectorRow({
     <div data-connector-row={connector.id} data-state={connector.state} data-open={open}>
       <div className="flex min-h-15 items-center gap-3 px-4 py-3">
         <button type="button" aria-expanded={open} onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-          <ConnectorTile iconPath={iconOf(connector)} command={connector.kind === "command"} warn={connector.state === "needs-sign-in"} />
+          <ConnectorTile
+            iconPath={iconOf(connector)}
+            command={connector.kind === "command"}
+            mail={connector.kind === "email"}
+            warn={connector.state === "needs-sign-in"}
+          />
           <span className="grid min-w-0 flex-1 gap-0.5">
             <span className="truncate text-13 font-semibold text-ink">{connector.name}</span>
             <span className={`truncate text-12 ${failed ? "text-red-ink" : "text-ink-3"}`}>{subtitle}</span>
@@ -149,6 +158,7 @@ function ConnectorRow({
                 <LinearSettings />
               </div>
             ))}
+          {connector.kind === "email" && <EmailMailboxes connector={connector} state={state} remote={remote} onAdd={onAddMailbox} />}
           {confirming ? (
             <div data-connector-remove-question className="mt-1 flex min-h-11 items-center gap-2">
               <span className="min-w-0 flex-1 text-12 text-ink">Remove {connector.name}? Chats lose its tools and Milagre signs out of it.</span>
@@ -179,7 +189,7 @@ function ConnectorRow({
                   Sign out
                 </Button>
               )}
-              {connector.kind !== "linear" && !remote && (
+              {!builtIn(connector) && !remote && (
                 <Button variant="secondary" data-connector-edit={connector.id} onClick={onEdit}>
                   Edit
                 </Button>
@@ -222,14 +232,14 @@ function MoveSection({ state }: { state: ConnectorsState }) {
 
 function ConnectorsList({ title, tabs }: { title: string; tabs: ReactNode }) {
   const state = useConnectors();
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<"any" | "email" | null>(null);
   const [editing, setEditing] = useState<ConnectorSummary | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   return (
     <div data-connectors-page>
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-22 font-semibold tracking-[-0.02em] text-ink">{title}</h1>
-        <Button data-connector-add onClick={() => setAdding(true)}>
+        <Button data-connector-add onClick={() => setAdding("any")}>
           <Icon icon={PlusSignIcon} size={14} />
           Add connector
         </Button>
@@ -258,19 +268,28 @@ function ConnectorsList({ title, tabs }: { title: string; tabs: ReactNode }) {
                 open={open === connector.id}
                 onToggle={() => setOpen(open === connector.id ? null : connector.id)}
                 onEdit={() => setEditing(connector)}
+                onAddMailbox={() => setAdding("email")}
               />
             ))}
           </div>
         ) : (
           state.connectors && (
             <EmptyState title="No connectors yet" className="px-6 py-6">
-              Add Slack, Linear, Notion or any MCP server with an address. You sign in once and every Chat can use it.
+              Add your email, Slack, Linear, Notion or any MCP server with an address. You sign in once and every Chat can use it.
             </EmptyState>
           )
         )}
         <MoveSection state={state} />
       </div>
-      {adding && <ConnectorSheet onAdd={state.add} onLinear={state.connectLinear} onClose={() => setAdding(false)} />}
+      {adding && (
+        <ConnectorSheet
+          onAdd={state.add}
+          onLinear={state.connectLinear}
+          onEmail={state.connectEmail}
+          email={adding === "email"}
+          onClose={() => setAdding(null)}
+        />
+      )}
       {editing && (
         <ConnectorEditSheet connector={editing} onSave={(patch, signIn) => state.update(editing.id, patch, signIn)} onClose={() => setEditing(null)} />
       )}

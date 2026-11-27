@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
 import { Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import { useFocusEffect } from "expo-router";
-import { CommandLineIcon, Globe02Icon } from "@hugeicons/core-free-icons";
+import { router, useFocusEffect } from "expo-router";
+import { CommandLineIcon, Globe02Icon, Mail01Icon } from "@hugeicons/core-free-icons";
 import {
   CONNECTORS_HINT,
   CONNECTORS_TITLE,
@@ -19,6 +19,7 @@ import {
   type ConnectorSummary,
 } from "@milagre/shared/connectors";
 import type { McpAccount } from "@milagre/shared/mcp";
+import { EMAIL_CONFIGURE_HINT, emailSetupPrompt } from "@milagre/shared/email";
 import { confirm } from "./confirm-store";
 import { LinearSection } from "./linear-section";
 import { Icon } from "./icons";
@@ -38,7 +39,7 @@ function Tile({ connector }: { connector: ConnectorSummary }) {
           <Path d={iconPath} fill={colors.ink} />
         </Svg>
       ) : (
-        <Icon icon={connector.kind === "command" ? CommandLineIcon : Globe02Icon} tone="ink2" size={20} />
+        <Icon icon={connector.kind === "email" ? Mail01Icon : connector.kind === "command" ? CommandLineIcon : Globe02Icon} tone="ink2" size={20} />
       )}
     </View>
   );
@@ -80,6 +81,23 @@ export function ConnectorsSection() {
     setError("");
     void client.call(method, args).then(load, (cause: unknown) => setError(messageOf(cause)));
   };
+  /** Configure for me: a Chat without a Project on the computer, with the email setup prompt ready to send. */
+  const setUpEmail = async () => {
+    if (!client) return;
+    setError("");
+    try {
+      const home = await client.chatsHome();
+      if (!home) throw new Error("This computer can't start a Chat without a Project. Update Milagre on it.");
+      const projectPath = home.exists ? home.path : (await client.ensureChatsHome()).path;
+      router.dismissAll();
+      router.replace({ pathname: "/chat", params: { projectPath, hostId: client.url, prefill: emailSetupPrompt("") } });
+    } catch (cause) {
+      setError(messageOf(cause));
+    }
+  };
+  const forget = async (mailbox: string) => {
+    if (await confirm(`Forget ${mailbox}?`, "Agents can no longer read its sign-in codes.", "Forget")) act("email:disconnect", [mailbox]);
+  };
   const remove = async (connector: ConnectorSummary) => {
     if (await confirm(`Remove ${connector.name}?`, "Chats lose its tools and Milagre signs out of it.", "Remove")) act("connectors:remove", [connector.id]);
   };
@@ -119,6 +137,9 @@ export function ConnectorsSection() {
       ) : connectors ? (
         <Text style={styles.muted}>No connectors on {hostName || "this computer"} yet.</Text>
       ) : null}
+      <Group inset={0}>
+        <ListRow title="Set up email" subtitle={EMAIL_CONFIGURE_HINT} subtitleLines={3} onPress={() => void setUpEmail()} />
+      </Group>
       {selected ? (
         <>
           {connectorAccessGroups(selected).map((group) => (
@@ -141,6 +162,20 @@ export function ConnectorsSection() {
             </Group>
           ))}
           {selected.kind === "linear" ? <LinearSection /> : null}
+          {selected.kind === "email" ? (
+            <Group title="Mailboxes" inset={0}>
+              {(selected.mailboxes ?? []).map((mailbox) => (
+                <ListRow
+                  key={mailbox.address}
+                  title={mailbox.address}
+                  subtitle={`${mailbox.host}:${mailbox.port}`}
+                  value="Forget"
+                  chevron={false}
+                  onPress={() => void forget(mailbox.address)}
+                />
+              ))}
+            </Group>
+          ) : null}
           <Group inset={0}>
             {selected.kind === "url" && selected.state !== "needs-sign-in" && selected.state !== "needs-app" ? (
               <ListRow title="Sign out" chevron={false} onPress={() => act("connectors:sign-out", [selected.id])} />

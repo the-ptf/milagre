@@ -25,7 +25,7 @@ import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider } from "
 import type { LocalMcpApi } from "@milagre/shared/local-mcp";
 import type { LinearIssue, LinearIssuesResult, LinearStatus } from "@milagre/shared/linear";
 import type { GithubIssuesResult } from "@milagre/shared/github-issue";
-import type { ConnectorInput, ConnectorMovable, ConnectorSummary, ConnectorTool, ConnectorUpdate } from "@milagre/shared/connectors";
+import type { ConnectorInput, ConnectorMovable, ConnectorSummary, ConnectorTool, ConnectorUpdate, EmailConnectInput } from "@milagre/shared/connectors";
 import type {
   BackgroundTaskOutput,
   ProjectAccountScope,
@@ -558,6 +558,10 @@ export type MilagreBridge = {
     move: (name: string) => Promise<ConnectorSummary>;
     moved: () => Promise<string[]>;
     dismissMoved: () => Promise<void>;
+    /** Signs in to a mailbox over IMAP with an app password and saves it on this computer for the built-in Email connector. */
+    connectEmail: (input: EmailConnectInput) => Promise<ConnectorSummary | null>;
+    /** Forgets one mailbox. */
+    disconnectEmail: (mailbox: string) => Promise<ConnectorSummary | null>;
     onChanged: (callback: (event: { connectors: ConnectorSummary[] }) => void) => () => void;
   };
   localMcp: LocalMcpApi;

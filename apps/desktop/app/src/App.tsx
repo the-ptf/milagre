@@ -1251,7 +1251,7 @@ function App() {
     pendingNotificationChat.current = chatId;
     void switchProject(chatId.slice(0, separator));
   });
-  useEffect(() => onOpenRequests(window.milagre.onOpenChat, openChatByKey, (id) => void editLink(id)), []);
+  useEffect(() => onOpenRequests(window.milagre.onOpenChat, openChatByKey, (id) => void editLink(id), newChatWithoutProject), []);
 
   useEffect(
     () =>
@@ -1966,11 +1966,11 @@ function App() {
     const { copy, failures, stopped } = await openFirstCopy(keys, open, (key, error) => namedOpenFailure(key, error, computerName));
     if (!stopped && failures.length) setNotice(copyOpenNotice(failures, copy && computerName(computerOfKey(copy))));
   }
-  const newChatWithoutProject = useEvent(async () => {
+  const newChatWithoutProject = useEvent(async (draftText: string = "") => {
     const bridge = bridgeFor(LOCAL_COMPUTER);
     try {
       const home = await bridge.chatsHome();
-      startNewChatIn(home.exists ? home.path : (await bridge.ensureChatsHome()).path);
+      startNewChatIn(home.exists ? home.path : (await bridge.ensureChatsHome()).path, draftText);
     } catch (error) {
       setNotice(`Could not start a Chat without a Project: ${ipcErrorMessage(error)}`);
     }

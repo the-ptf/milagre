@@ -2,14 +2,27 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
-import { connectorPresetInput, searchConnectorPresets, type ConnectorInput, type ConnectorPreset, type ConnectorSummary } from "@milagre/shared/connectors";
+import {
+  EMAIL_PRESET,
+  connectorPresetInput,
+  searchConnectorPresets,
+  type ConnectorInput,
+  type ConnectorPreset,
+  type ConnectorSummary,
+  type EmailConnectInput,
+} from "@milagre/shared/connectors";
+import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Segmented } from "../primitives/Segmented";
 import { ConnectorTile } from "./ConnectorTile";
+import { EMPTY_EMAIL, EmailFields, emailInput, type EmailDraft } from "./EmailFields";
+import { emailSetupPrompt } from "@milagre/shared/email";
+import { requestDraftChat } from "../../lib/draft-chat-request";
 
 import { CommandFields, Secret, UrlExtras, field, footerButton, headersOf, label, type Pair } from "./ConnectorFields";
 
-const authLabel = (preset: ConnectorPreset) => (preset.auth === "token" ? "Token" : preset.auth === "app" ? "Your app" : "Sign in");
+const authLabel = (preset: ConnectorPreset) =>
+  preset.auth === "token" ? "Token" : preset.auth === "app" ? "Your app" : preset.auth === "email" ? "App password" : "Sign in";
 
 function Catalog({ onChoose, onCustom }: { onChoose: (preset: ConnectorPreset) => void; onCustom: () => void }) {
   const [search, setSearch] = useState("");
@@ -34,7 +47,7 @@ function Catalog({ onChoose, onCustom }: { onChoose: (preset: ConnectorPreset) =
             onClick={() => onChoose(preset)}
             className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-hover active:bg-hover-2"
           >
-            <ConnectorTile iconPath={preset.iconPath} />
+            <ConnectorTile iconPath={preset.iconPath} mail={preset.auth === "email"} />
             <span className="min-w-0 flex-1">
               <span className="block text-13 font-semibold text-ink">{preset.name}</span>
               <span className="block text-12 text-ink-2">{preset.description}</span>
@@ -78,19 +91,82 @@ function LinearChoice({ onMcp }: { onMcp: () => void }) {
   );
 }
 
+/** The token or OAuth app fields a preset signs in with. */
+function PresetAuth({
+  preset,
+  token,
+  onToken,
+  clientId,
+  onClientId,
+  clientSecret,
+  onClientSecret,
+}: {
+  preset: ConnectorPreset;
+  token: string;
+  onToken: (value: string) => void;
+  clientId: string;
+  onClientId: (value: string) => void;
+  clientSecret: string;
+  onClientSecret: (value: string) => void;
+}) {
+  return (
+    <>
+      {preset.auth === "token" && (
+        <>
+          <Secret name="Personal access token" value={token} onChange={onToken} />
+          {preset.tokenUrl && (
+            <a href={preset.tokenUrl} target="_blank" rel="noreferrer" className="inline-block text-12 text-ink underline">
+              Create a token on {preset.name}
+            </a>
+          )}
+        </>
+      )}
+      {preset.auth === "app" && (
+        <section data-connector-app className="space-y-3 rounded-card border border-line p-4">
+          <p className="text-13 text-ink-2">{preset.appSteps}</p>
+          {preset.appUrl && (
+            <a href={preset.appUrl} target="_blank" rel="noreferrer" data-connector-create-app className="inline-block text-13 font-medium text-ink underline">
+              Create a {preset.name} app
+            </a>
+          )}
+          <label className={label}>
+            Client ID
+            <input
+              aria-label="Client ID"
+              autoComplete="off"
+              spellCheck={false}
+              className={field}
+              value={clientId}
+              onChange={(event) => onClientId(event.target.value)}
+            />
+          </label>
+          <Secret name="Client Secret" value={clientSecret} onChange={onClientSecret} />
+        </section>
+      )}
+    </>
+  );
+}
+
 export function ConnectorSheet({
   onAdd,
   onLinear,
+  onEmail,
+  email = false,
   onClose,
 }: {
   onAdd: (input: ConnectorInput) => Promise<ConnectorSummary>;
   /** Milagre's own Linear sign-in, which the Linear preset uses instead of Linear's MCP server. */
   onLinear: () => Promise<void>;
+  /** Milagre's own Email connector: checks the mailbox's sign-in, then saves it. */
+  onEmail: (input: EmailConnectInput) => Promise<unknown>;
+  /** Opens straight on the Email form, from the Email row's Add mailbox. */
+  email?: boolean;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [step, setStep] = useState<"choose" | "preset" | "custom">("choose");
-  const [preset, setPreset] = useState<ConnectorPreset | null>(null);
+  const [step, setStep] = useState<"choose" | "preset" | "custom">(email ? "preset" : "choose");
+  const [preset, setPreset] = useState<ConnectorPreset | null>(email ? EMAIL_PRESET : null);
+  const [mailbox, setMailbox] = useState<EmailDraft>(EMPTY_EMAIL);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [kind, setKind] = useState<"url" | "command">("url");
@@ -118,19 +194,22 @@ export function ConnectorSheet({
     setClientId("");
     setClientSecret("");
     setPairs([{ key: "", value: "" }]);
+    setMailbox(EMPTY_EMAIL);
     setError("");
   };
   const builtInLinear = preset?.id === "linear";
+  const builtInEmail = preset?.auth === "email";
   const submit = async () => {
     if (step === "choose" || busy) return;
-    if (builtInLinear) {
+    if (builtInLinear || builtInEmail) {
       setBusy(true);
       setError("");
       try {
-        await onLinear();
+        if (builtInEmail) await onEmail(emailInput(mailbox));
+        else await onLinear();
         onClose();
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(ipcErrorMessage(cause));
       } finally {
         setBusy(false);
       }
@@ -150,7 +229,7 @@ export function ConnectorSheet({
               ...(clientSecret ? { clientSecret } : {}),
             };
     } catch (cause) {
-      return setError(cause instanceof Error ? cause.message : String(cause));
+      return setError(ipcErrorMessage(cause));
     }
     setBusy(true);
     setError("");
@@ -158,12 +237,12 @@ export function ConnectorSheet({
       await onAdd(input);
       onClose();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(ipcErrorMessage(cause));
     } finally {
       setBusy(false);
     }
   };
-  const title = step === "choose" ? "Add connector" : preset ? `Add ${preset.name}` : "Custom connector";
+  const title = step === "choose" ? "Add connector" : builtInEmail ? "Add mailbox" : preset ? `Add ${preset.name}` : "Custom connector";
   return createPortal(
     <dialog
       ref={dialog}
@@ -204,7 +283,20 @@ export function ConnectorSheet({
                 All services
               </button>
               {preset && <p className="text-13 text-ink-2">{preset.description}</p>}
-              {!builtInLinear && (
+              {builtInEmail && (
+                <EmailFields
+                  onConfigure={() => {
+                    requestDraftChat(emailSetupPrompt(mailbox.address));
+                    onClose();
+                  }}
+                  draft={mailbox}
+                  onChange={(next) => {
+                    setError("");
+                    setMailbox(next);
+                  }}
+                />
+              )}
+              {!builtInLinear && !builtInEmail && (
                 <label className={label}>
                   Name
                   <input autoFocus aria-label="Name" className={field} value={name} onChange={(event) => set(setName)(event.target.value)} />
@@ -236,43 +328,16 @@ export function ConnectorSheet({
               {!preset && kind === "command" && (
                 <CommandFields command={command} args={args} pairs={pairs} onCommand={set(setCommand)} onArgs={set(setArgs)} onPairs={setPairs} />
               )}
-              {preset?.auth === "token" && (
-                <>
-                  <Secret name="Personal access token" value={token} onChange={set(setToken)} />
-                  {preset.tokenUrl && (
-                    <a href={preset.tokenUrl} target="_blank" rel="noreferrer" className="inline-block text-12 text-ink underline">
-                      Create a token on {preset.name}
-                    </a>
-                  )}
-                </>
-              )}
-              {preset?.auth === "app" && (
-                <section data-connector-app className="space-y-3 rounded-card border border-line p-4">
-                  <p className="text-13 text-ink-2">{preset.appSteps}</p>
-                  {preset.appUrl && (
-                    <a
-                      href={preset.appUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      data-connector-create-app
-                      className="inline-block text-13 font-medium text-ink underline"
-                    >
-                      Create a {preset.name} app
-                    </a>
-                  )}
-                  <label className={label}>
-                    Client ID
-                    <input
-                      aria-label="Client ID"
-                      autoComplete="off"
-                      spellCheck={false}
-                      className={field}
-                      value={clientId}
-                      onChange={(event) => set(setClientId)(event.target.value)}
-                    />
-                  </label>
-                  <Secret name="Client Secret" value={clientSecret} onChange={set(setClientSecret)} />
-                </section>
+              {preset && (
+                <PresetAuth
+                  preset={preset}
+                  token={token}
+                  onToken={set(setToken)}
+                  clientId={clientId}
+                  onClientId={set(setClientId)}
+                  clientSecret={clientSecret}
+                  onClientSecret={set(setClientSecret)}
+                />
               )}
               {builtInLinear ? (
                 <LinearChoice
@@ -313,12 +378,16 @@ export function ConnectorSheet({
                 </button>
                 <button type="submit" data-connector-submit className={`${footerButton} bg-ink font-semibold text-surface hover:opacity-90`} disabled={busy}>
                   {busy
-                    ? "Adding…"
-                    : builtInLinear
-                      ? "Sign in to Linear"
-                      : preset?.auth === "token" || (!preset && kind === "command")
-                        ? "Add connector"
-                        : "Add and sign in"}
+                    ? builtInEmail
+                      ? "Checking…"
+                      : "Adding…"
+                    : builtInEmail
+                      ? "Add mailbox"
+                      : builtInLinear
+                        ? "Sign in to Linear"
+                        : preset?.auth === "token" || (!preset && kind === "command")
+                          ? "Add connector"
+                          : "Add and sign in"}
                 </button>
               </div>
             </>

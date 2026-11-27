@@ -28,11 +28,22 @@ Milagre's own Linear sign-in shows as a built-in Connector (id `linear`, reserve
 
 The expanded row also holds the settings for issue starts, Worktree issue links and Move issues to In Progress. Those features and Routines use the host's GraphQL sign-in. Add workspace and Sign out go through `linear:connect` and `linear:disconnect`. The Linear preset starts Milagre's own sign-in and links to the separate Linear MCP preset (`mcp.linear.app`).
 
+## Email
+
+Milagre's own Email connector (id `email`, reserved) lets agents read sign-in codes and links without a mail MCP whose session can lapse mid-task. It shows while at least one mailbox is connected, with each mailbox as its own Available to group, like a Linear workspace.
+
+- A mailbox is an address, an app password and an IMAP server (`email:connect`). Gmail and Google Workspace don't offer a read-only mail scope without Google's paid security review, so Milagre signs in over IMAP instead of OAuth. The server defaults to the provider's (`guessImapHost` in `packages/shared/src/email.mjs`), else `imap.<domain>`, port 993 with TLS. Milagre signs in once before saving; a refused sign-in says to use an app password and nothing is saved.
+- Each mailbox lives in `<dataDir>/email/mailboxes/<hash>.json`, owner-only, with its password. Lists and summaries carry the address, host and port, never the password.
+- Agents get one tool, `email_recent`: the newest messages (default 3, at most 10) received in the last `withinMinutes` (default 10, at most 1440), optionally filtered by sender and subject, from the inbox and the `\Junk` folder of the mailboxes the Account may read. `waitSeconds` (at most 120) polls every 10 seconds for a message that hasn't arrived. Folders open with EXAMINE and bodies are fetched with `BODY.PEEK`, so nothing is marked read. Bodies are plain text (HTML converted, links kept), cut at 4,000 characters and fenced in `<untrusted-data>`.
+- `imapflow` and `mailparser` load on the first read, not at host start.
+- **Configure for me** (in Add mailbox on desktop, Set up email in the phone's Connectors) opens a Chat without a Project with `emailSetupPrompt` ready to send. Its agent opens the provider's app password page in the user's signed-in browser (computer use when on, else the Browser panel), creates an app password named Milagre, asks for it with `request_secret` and calls `email_connect`. `email_connect` is offered to every Chat; it takes the address and the `request_secret` file, never a password, refuses any file outside `<dataDir>/chat-secrets` (so an agent can't send another file to a mail server) and deletes the file once the mailbox is saved. It follows the Chat's permission mode.
+- `email:disconnect` forgets one mailbox; Remove on the row (`connectors:remove email`) forgets all of them. Adding a mailbox carries a password, so it runs only on the computer, like `connectors:add`; the phone and paired desktops list mailboxes, change Available to and forget them.
+
 ## Settings
 
 Settings › Connectors (the `mcp` section) is one page with a **Connectors | MCP servers** switch, on desktop and phone.
 
-- **Connectors** lists each Connector with its state, tool count and reach ("All accounts", "2 of 3 accounts"). A row opens **Available to**, one checkbox per provider Account, plus Sign in again, Sign out, Edit and Remove (Linear shows its own settings instead; a command connector has Edit and Remove). Edit changes the name, the OAuth app, headers, or a command's arguments and environment; secrets show masked and stay as they are unless retyped. The address can't change: add a new connector. Add connector offers the presets in `CONNECTOR_PRESETS` (`packages/shared/src/connectors.ts`), an address with optional headers or an OAuth app's client ID and secret, or a command with arguments and environment.
+- **Connectors** lists each Connector with its state, tool count and reach ("All accounts", "2 of 3 accounts"). A row opens **Available to**, one checkbox per provider Account, plus Sign in again, Sign out, Edit and Remove (Linear shows its own settings instead; a command connector has Edit and Remove). Edit changes the name, the OAuth app, headers, or a command's arguments and environment; secrets show masked and stay as they are unless retyped. The address can't change: add a new connector. Add connector offers the presets in `CONNECTOR_PRESETS` (`packages/shared/src/connectors.ts`), Email first, an address with optional headers or an OAuth app's client ID and secret, or a command with arguments and environment.
 - **MCP servers** is read-only: the servers each Account's own config, Projects, plugins and claude.ai load, with their per-Account checkboxes and sign-in. New servers go in Connectors. The daemon keeps `mcp:save`, `mcp:saveUrl` and `mcp:remove` for the CLI and older apps.
 - The phone shows the same switch. It lists Connectors, changes Available to, signs out and removes; adding and signing in say to use the computer, because the browser returns to its loopback callback.
 
@@ -41,9 +52,11 @@ Settings › Connectors (the `mcp` section) is one page with a **Connectors | MC
 | Operation                                                                    | Desktop on this computer, CLI | Phone, paired desktop        |
 | ---------------------------------------------------------------------------- | ----------------------------- | ---------------------------- |
 | `connectors:add`, `connectors:update` (can carry a client secret)            | yes                           | no                           |
+| `email:connect` (carries an app password)                                    | yes                           | no                           |
 | `connectors:sign-in`, `connectors:cancel-sign-in` (browser on this computer) | yes                           | no                           |
 | `connectors:call` (runs a tool directly)                                     | yes                           | no                           |
 | `connectors:list`, `check`, `tools`, `access`, `sign-out`, `remove`          | yes                           | yes; a demo phone only lists |
+| `email:disconnect`                                                           | yes                           | yes; a demo phone only lists |
 
 A paired computer's Settings page on another desktop lists its Connectors in the same rows, through that computer's bridge: Available to (with that computer's Accounts), Sign out and Remove work from there; Add, Edit and sign-in say to use that computer, and Linear's own settings stay on it. An older computer without Connectors shows a line asking to update it.
 

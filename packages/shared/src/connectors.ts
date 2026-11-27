@@ -10,15 +10,17 @@ type ConnectorAccessGroup = { id?: string; name: string; off: string[] };
 export type ConnectorSummary = {
   id: string;
   name: string;
-  /** `command` runs on the computer, one process shared by every Chat; `linear` is Milagre's own Linear sign-in. */
-  kind?: "url" | "command" | "linear";
+  /** `command` runs on the computer, one process shared by every Chat; `linear` is Milagre's own Linear sign-in; `email` its own mailboxes. */
+  kind?: "url" | "command" | "linear" | "email";
   url: string;
   command?: string;
   args?: string[];
   /** Names of the environment variables a command connector starts with; their values never leave the computer. */
   env?: string[];
-  /** Linear workspaces signed in, for the built-in Linear connector. */
+  /** Linear workspaces signed in, or mailbox addresses for the built-in Email connector. */
   workspaces?: string[];
+  /** The built-in Email connector's mailboxes and the IMAP server each signs in to. */
+  mailboxes?: { address: string; host: string; port: number }[];
   workspaceAccess?: (ConnectorAccessGroup & { id: string })[];
   /** A command connector's process is running now. */
   running?: boolean;
@@ -54,6 +56,9 @@ export type ConnectorUpdate = {
   args?: string[];
   env?: Record<string, string>;
 };
+/** A mailbox for the built-in Email connector. Host and port default to the provider's IMAP server; username to the address. */
+export type EmailConnectInput = { address: string; password: string; host?: string; port?: number; username?: string };
+
 /** An Everywhere MCP server with an address, which can become a connector. */
 export type ConnectorMovable = { name: string; url: string };
 
@@ -73,7 +78,8 @@ export const CONNECTOR_ON_COMPUTER = "Add connectors and sign in from Milagre on
 export const CONNECTOR_SECRET_MASK = MCP_SECRET_MASK;
 
 /** A catalog service as a connector. `app`: the server has no dynamic registration, so the user makes an app and pastes its client ID and secret. */
-export type ConnectorPreset = Omit<McpCatalogEntry, "auth"> & { auth: McpCatalogEntry["auth"] | "app"; appUrl?: string; appSteps?: string };
+/** `email`: Milagre's own Email connector, which signs in to a mailbox over IMAP with an app password instead of adding an MCP server. */
+export type ConnectorPreset = Omit<McpCatalogEntry, "auth"> & { auth: McpCatalogEntry["auth"] | "app" | "email"; appUrl?: string; appSteps?: string };
 
 const SLACK_SCOPES = [
   "search:read.public",
@@ -129,7 +135,17 @@ export const SLACK_PRESET: ConnectorPreset = {
     "M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z",
 };
 
-export const CONNECTOR_PRESETS: readonly ConnectorPreset[] = [SLACK_PRESET, ...MCP_CATALOG];
+export const EMAIL_PRESET: ConnectorPreset = {
+  id: "email",
+  name: "Email",
+  description: "Sign-in codes and links from your inbox, read-only.",
+  url: "imap://",
+  auth: "email",
+  docsUrl: "https://milagre.dev/docs",
+  iconPath: "",
+};
+
+export const CONNECTOR_PRESETS: readonly ConnectorPreset[] = [EMAIL_PRESET, SLACK_PRESET, ...MCP_CATALOG];
 
 export function searchConnectorPresets(query: string): readonly ConnectorPreset[] {
   const words = query.trim().toLowerCase().split(/\s+/);
@@ -169,6 +185,7 @@ export function connectorAccessGroups(connector: ConnectorSummary): readonly Con
 export function connectorSubtitle(connector: ConnectorSummary): string {
   if (connector.kind === "command") return [connector.command, ...(connector.args ?? [])].join(" ");
   if (connector.kind === "linear") return `Built in · ${connector.workspaces?.length ? connector.workspaces.join(", ") : "Linear"}`;
+  if (connector.kind === "email") return `Built in · ${connector.workspaces?.length ? connector.workspaces.join(", ") : "No mailboxes"}`;
   try {
     return new URL(connector.url).host;
   } catch {
@@ -192,7 +209,7 @@ export function connectorStateLine(connector: ConnectorSummary): string {
 
 /** "All accounts", "2 of 3 accounts" or "No accounts", for the accounts listed. */
 export function connectorReach(
-  connector: Pick<ConnectorSummary, "off" | "workspaceAccess">,
+  connector: Pick<ConnectorSummary, "off" | "workspaceAccess" | "kind">,
   accounts: readonly { provider: McpProvider; accountId: string }[],
 ): string {
   if (
@@ -200,7 +217,7 @@ export function connectorReach(
       accounts.some(({ provider, accountId }) => connectorAllows(connector, provider, accountId) && !connectorAllows(workspace, provider, accountId)),
     )
   )
-    return "By workspace";
+    return connector.kind === "email" ? "By mailbox" : "By workspace";
   const on = accounts.filter((account) => connectorAllows(connector, account.provider, account.accountId)).length;
   if (!accounts.length || on === accounts.length) return "All accounts";
   return on ? `${on} of ${accounts.length} accounts` : "No accounts";
