@@ -7,7 +7,7 @@ import { PillButton } from "./primitives/pill-button";
 import { TranscriptDivider } from "./primitives/transcript-divider";
 
 /** Where a sent message was edited, as on desktop: "Edited · removed 3 messages · undid 3 files", with Redo for the files. */
-export function MessageEditDivider({ context, onPreview }: { context: MessageEditContext; onPreview?: (recoveryId: string, action: "Undo" | "Redo") => void }) {
+function MessageEditDivider({ context, onPreview }: { context: MessageEditContext; onPreview?: (recoveryId: string, action: "Undo" | "Redo") => void }) {
   const recoveryId = context.recoveryId;
   return (
     <TranscriptDivider
