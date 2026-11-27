@@ -7,6 +7,7 @@ const git = createGit({ analysisOnly: true }).read;
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const entryAt = (files, name) => (files && Object.hasOwn(files, name) ? files[name] : null);
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+const sameRoots = (item, roots) => JSON.stringify(item.before.map((s) => s.identity.root)) === JSON.stringify([...new Set(roots)]);
 const summary = (item) => ({
   id: item.id,
   createdAt: item.createdAt,
@@ -135,20 +136,34 @@ function createCheckpoints({
       throw new Error("Wait for running tasks to finish before restoring");
     await assertIdle(roots);
   }
-  async function impact(item) {
-    await idle(item);
+  // Several tasks undone together (editing an earlier message) restore each file to before the first task that changed it,
+  // and treat it as edited afterwards when it no longer matches the end of the last task that changed it.
+  async function impact(items) {
+    await idle(items[0]);
     const files = [],
-      states = [];
-    let excluded = item.excluded;
-    for (const [index, before] of item.before.entries()) {
+      states = [],
+      targets = new Map();
+    let excluded = Math.max(...items.map((item) => item.excluded));
+    for (const [index, before] of items[0].before.entries()) {
       const root = before.identity.root;
       if (!same(before.identity, await identity(root))) throw new Error("Checkpoint Worktree identity changed");
-      const after = item.after?.[index];
-      const names = [...new Set([...Object.keys(before.files), ...Object.keys(after?.files ?? {}), ...(!after ? await namesFor(root) : [])])].toSorted();
-      const candidates = names.filter(
-        (name) =>
-          !before.blocked.includes(name) && !after?.blocked.includes(name) && (!after || !same(entryAt(before.files, name), entryAt(after.files, name))),
-      );
+      const open = items.some((item) => !item.after?.[index]);
+      const names = [
+        ...new Set([
+          ...items.flatMap((item) => [...Object.keys(item.before[index].files), ...Object.keys(item.after?.[index]?.files ?? {})]),
+          ...(open ? await namesFor(root) : []),
+        ]),
+      ].toSorted();
+      const changers = new Map();
+      for (const name of names) {
+        const touched = items.filter((item) => {
+          const start = item.before[index],
+            end = item.after?.[index];
+          return !start.blocked.includes(name) && !end?.blocked.includes(name) && (!end || !same(entryAt(start.files, name), entryAt(end.files, name)));
+        });
+        if (touched.length) changers.set(name, touched);
+      }
+      const candidates = [...changers.keys()];
       const current = await fileOperation({ op: "inspect", root, identity: before.identity, names: candidates, budget });
       states.push({ identity: before.identity, patterns: current.patterns });
       for (const name of candidates) {
@@ -157,7 +172,9 @@ function createCheckpoints({
           states.push({ index, name, blocked: true });
           continue;
         }
-        const original = entryAt(before.files, name),
+        const touched = changers.get(name),
+          last = touched.at(-1).after?.[index];
+        const original = entryAt(touched[0].before[index].files, name),
           now = entryAt(current.files, name);
         if (same(original, now)) continue;
         const key = `${index}:${name}`;
@@ -166,12 +183,32 @@ function createCheckpoints({
           path: name,
           worktree: root,
           action: original ? (now ? "replace" : "create") : "delete",
-          conflict: !after || !same(now, entryAt(after.files, name)),
+          conflict: !last || !same(now, entryAt(last.files, name)),
         });
+        targets.set(key, original);
         states.push({ key, entry: now });
       }
     }
-    return { files, excluded, digest: hash(JSON.stringify(states)) };
+    return { files, excluded, targets, digest: hash(JSON.stringify(states)) };
+  }
+  async function listItems(chatId) {
+    const names = await fs.readdir(directory).catch((error) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    const items = [];
+    for (const id of names.filter((name) => /^[0-9a-f-]{36}$/.test(name))) {
+      const item = JSON.parse(await fs.readFile(manifestPath(id), "utf8"));
+      if (item.chatId === chatId) items.push(item);
+    }
+    return items.toSorted((a, b) => b.createdAt - a.createdAt);
+  }
+  function remember(chatId, ids, digest) {
+    for (const [token, p] of previews) if (Date.now() - p.at > 10 * 60 * 1000 || p.chatId === chatId) previews.delete(token);
+    if (previews.size >= 100) previews.delete(previews.keys().next().value);
+    const token = randomUUID();
+    previews.set(token, { ids, chatId, digest, at: Date.now() });
+    return token;
   }
   return {
     begin: (request) =>
@@ -226,37 +263,43 @@ function createCheckpoints({
           running.delete(chatId);
         }
       }),
-    list: (chatId) =>
-      serial(async () => {
-        const names = await fs.readdir(directory).catch((error) => {
-          if (error.code === "ENOENT") return [];
-          throw error;
-        });
-        const items = [];
-        for (const id of names.filter((name) => /^[0-9a-f-]{36}$/.test(name))) {
-          const item = JSON.parse(await fs.readFile(manifestPath(id), "utf8"));
-          if (item.chatId === chatId) items.push(summary(item));
-        }
-        return items.toSorted((a, b) => b.createdAt - a.createdAt);
-      }),
+    list: (chatId) => serial(async () => (await listItems(chatId)).map(summary)),
     preview: (chatId, id) =>
       serial(async () => {
         const item = await load(chatId, id),
-          result = await impact(item);
-        for (const [token, p] of previews) if (Date.now() - p.at > 10 * 60 * 1000 || p.chatId === chatId) previews.delete(token);
-        if (previews.size >= 100) previews.delete(previews.keys().next().value);
-        const token = randomUUID();
-        previews.set(token, { id, chatId, digest: result.digest, at: Date.now() });
-        return { ...summary(item), token, files: result.files, excluded: result.excluded };
+          result = await impact([item]);
+        return { ...summary(item), token: remember(chatId, [id], result.digest), files: result.files, excluded: result.excluded };
       }),
+    // Every task started at or after a message, undone together: what editing that message would also undo.
+    rewind: (chatId, messageId, roots) =>
+      serial(async () => {
+        const items = (await listItems(chatId))
+          .filter((item) => item.kind === "task" && item.messageId >= messageId && sameRoots(item, roots))
+          .toSorted((a, b) => a.createdAt - b.createdAt);
+        if (!items.length) return null;
+        const result = await impact(items);
+        return {
+          ...summary(items[0]),
+          tasks: items.length,
+          token: remember(
+            chatId,
+            items.map((item) => item.id),
+            result.digest,
+          ),
+          files: result.files,
+          excluded: result.excluded,
+        };
+      }),
+    running: (chatId) => running.has(chatId),
     restore: (chatId, request = {}) =>
       serial(async () => {
         await assertWritable(chatId);
         if (request.approved !== true) throw new Error("Confirm the restore after reviewing its preview");
         const preview = previews.get(request.token);
         if (!preview || preview.chatId !== chatId || Date.now() - preview.at > 10 * 60 * 1000) throw new Error("Preview again before restoring");
-        const item = await load(chatId, preview.id),
-          current = await impact(item);
+        const items = await Promise.all(preview.ids.map((id) => load(chatId, id))),
+          item = items[0],
+          current = await impact(items);
         if (current.digest !== preview.digest) {
           previews.delete(request.token);
           throw new Error("Files changed. Preview again before restoring");
@@ -292,14 +335,14 @@ function createCheckpoints({
           ...(item.prompt ? { prompt: item.prompt } : {}),
         };
         for (const file of selected) {
-          const index = Number(file.key.slice(0, file.key.indexOf(":"))),
-            original = entryAt(item.before[index].files, file.path);
+          const index = Number(file.key.slice(0, file.key.indexOf(":")));
+          const original = current.targets.get(file.key);
           if (original)
             Object.defineProperty(recovery.after[index].files, file.path, { value: original, enumerable: true, configurable: true, writable: true });
           else delete recovery.after[index].files[file.path];
         }
         await save(recovery);
-        if ((await impact(item)).digest !== preview.digest) throw new Error("Files changed. Preview again before restoring");
+        if ((await impact(items)).digest !== preview.digest) throw new Error("Files changed. Preview again before restoring");
         let restored = 0;
         try {
           for (const [index, before] of item.before.entries()) {
@@ -314,7 +357,7 @@ function createCheckpoints({
               files: group.map((file) => ({
                 path: file.path,
                 expected: entryAt(captured.roots[index].files, file.path),
-                target: entryAt(before.files, file.path),
+                target: current.targets.get(file.key) ?? null,
               })),
             });
             restored += result.restored;

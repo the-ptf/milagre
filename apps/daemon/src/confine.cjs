@@ -222,6 +222,7 @@ const PATHS = Object.freeze({
   "checkpoint:list": ([value]) => [chatProject(value?.chatId)],
   "checkpoint:preview": ([value]) => [chatProject(value?.chatId)],
   "checkpoint:restore": ([value]) => [chatProject(value?.chatId)],
+  "checkpoint:rewind": ([value]) => [chatProject(value?.chatId)],
   "chat:ports": ([chatId]) => [chatProject(chatId)],
   "agent:stop-port": ([chatId]) => [chatProject(chatId)],
   "chat:send": ([request]) => [
@@ -229,6 +230,7 @@ const PATHS = Object.freeze({
     ...(request?.cwd === undefined ? [] : [request.cwd]),
     ...(Array.isArray(request?.files) ? request.files.map(attached) : []),
   ],
+  "chat:edit": ([request]) => [request?.projectPath, ...(Array.isArray(request?.files) ? request.files.map(attached) : [])],
   "chat:resume": ([projectPath]) => [projectPath],
   "chat:limit-switch": ([projectPath]) => [projectPath],
   "chat:limit-resume": ([projectPath]) => [projectPath],
@@ -362,7 +364,7 @@ function createConfinement({ allowedRoot, uploadsDir }) {
     if (method === "push:register") throw failure(403, NOTIFICATIONS_OFF);
     if (method === "push:unregister") return { result: { registered: false } };
     if (method === "push:focus") return { result: null };
-    if (method === "chat:send") args = [sendRequest(args[0])];
+    if (method === "chat:send" || method === "chat:edit") args = [sendRequest(args[0])];
     if (method === "routines:targets") args = [{ within: await realRoot() }];
     for (const item of paths(args)) {
       if (item && typeof item === "object" && "file" in item) await check(item.file, { uploads: true });

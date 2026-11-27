@@ -254,6 +254,10 @@
       "types": "./src/checkpoint-restore.d.mts",
       "default": "./src/checkpoint-restore.mjs"
     },
+    "./message-edit": {
+      "types": "./src/message-edit.d.mts",
+      "default": "./src/message-edit.mjs"
+    },
     "./worktree-link": {
       "types": "./src/worktree-link.d.mts",
       "default": "./src/worktree-link.mjs"

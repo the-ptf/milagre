@@ -419,6 +419,7 @@ function createRuntime(options) {
   let limitSwitch = null;
   let limitResume = null;
   let routines = null;
+  let chatEdits = null;
   let babysitWatch = null;
   let autopilot = null;
   let chatSecrets = null;
@@ -433,7 +434,7 @@ function createRuntime(options) {
       emit("agent:event", { chatId, event, ...(state ? { state: scopeStates.withPersistence(projectOfKey(chatId), state) } : {}), ...(seq ? { seq } : {}) });
       return;
     }
-    for (const watcher of [routines, babysitWatch, autopilot]) watcher?.observe(chatId, event);
+    for (const watcher of [routines, babysitWatch, autopilot, chatEdits]) watcher?.observe(chatId, event);
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type)) {
       void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
       chatSecrets?.cancel(chatId);
@@ -1065,6 +1066,16 @@ function createRuntime(options) {
     routines: () => routines,
     subchatEscalation: () => subchatEscalation,
     validateAccountScope: (...args) => validateAccountScope(...args),
+  });
+  chatEdits = require("./runtime/chat-edit.cjs").registerChatEdit({
+    commands,
+    chats,
+    agents,
+    scopeStates,
+    checkpoints,
+    stopChat,
+    sendAsUser,
+    tell: (chatId, text) => agentNotes.set(chatId, [...(agentNotes.get(chatId) ?? []), text]),
   });
   async function notifyIfWaiting(chatId, event) {
     const projectPath = projectOfKey(chatId);

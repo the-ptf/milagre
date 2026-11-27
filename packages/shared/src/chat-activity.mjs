@@ -98,6 +98,7 @@ export function backgroundBusyMessage(action, count, to = "another agent") {
   const it = one ? "it" : "them";
   const ends = one ? "it finishes" : "they finish";
   if (action === "reload") return `${running}. Reloading would stop ${it}. Ask the agent to stop ${it}, or reload once ${ends}.`;
+  if (action === "edit") return `${running}. Editing a message would stop ${it}. Ask the agent to stop ${it}, or edit once ${ends}.`;
   if (action === "switch") return `${running}. Switching to ${to} would stop ${it}. Ask the agent to stop ${it}, or send again once ${ends}.`;
   return `${running}, and its agent can't move to another folder without stopping ${it}. Ask the agent to stop ${it}, or send again once ${ends}.`;
 }

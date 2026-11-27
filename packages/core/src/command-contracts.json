@@ -227,7 +227,10 @@
           "name": "stopSession",
           "optional": true,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -274,7 +277,10 @@
           "name": "refresh",
           "optional": true,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -285,7 +291,13 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": [
+              "codex",
+              "claude",
+              "antigravity",
+              "kiro",
+              "pi"
+            ]
           }
         },
         {
@@ -303,7 +315,13 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": [
+              "codex",
+              "claude",
+              "antigravity",
+              "kiro",
+              "pi"
+            ]
           }
         },
         {
@@ -321,7 +339,13 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": [
+              "codex",
+              "claude",
+              "antigravity",
+              "kiro",
+              "pi"
+            ]
           }
         },
         {
@@ -339,7 +363,13 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": [
+              "codex",
+              "claude",
+              "antigravity",
+              "kiro",
+              "pi"
+            ]
           }
         },
         {
@@ -357,7 +387,13 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": [
+              "codex",
+              "claude",
+              "antigravity",
+              "kiro",
+              "pi"
+            ]
           }
         },
         {
@@ -375,7 +411,13 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": [
+              "codex",
+              "claude",
+              "antigravity",
+              "kiro",
+              "pi"
+            ]
           }
         },
         {
@@ -491,7 +533,10 @@
           "name": "shown",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -520,7 +565,12 @@
           "name": "column",
           "optional": false,
           "schema": {
-            "enum": ["running", "needs", "review", "done"]
+            "enum": [
+              "running",
+              "needs",
+              "review",
+              "done"
+            ]
           }
         }
       ]
@@ -927,7 +977,13 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": [
+              "codex",
+              "claude",
+              "antigravity",
+              "kiro",
+              "pi"
+            ]
           }
         },
         {
@@ -941,7 +997,10 @@
           "name": "on",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         },
         {
@@ -1760,7 +1819,10 @@
           "name": "value",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -1799,7 +1861,10 @@
           "name": "value",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -1810,7 +1875,10 @@
           "name": "value",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -1824,7 +1892,10 @@
           "name": "value",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -1838,7 +1909,10 @@
           "name": "value",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -1852,7 +1926,10 @@
           "name": "value",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -2096,7 +2173,14 @@
           "name": "action",
           "optional": false,
           "schema": {
-            "enum": ["end", "approve", "reject", "pause", "resume", "retry"]
+            "enum": [
+              "end",
+              "approve",
+              "reject",
+              "pause",
+              "resume",
+              "retry"
+            ]
           }
         },
         {
@@ -2175,7 +2259,13 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": [
+              "codex",
+              "claude",
+              "antigravity",
+              "kiro",
+              "pi"
+            ]
           }
         },
         {
@@ -2193,7 +2283,13 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": [
+              "codex",
+              "claude",
+              "antigravity",
+              "kiro",
+              "pi"
+            ]
           }
         },
         {
@@ -2214,7 +2310,10 @@
           "name": "on",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -2806,7 +2905,10 @@
           "name": "value",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -2870,7 +2972,10 @@
           "name": "hidden",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -3056,7 +3161,10 @@
           "name": "mode",
           "optional": false,
           "schema": {
-            "enum": ["separate", "shared"]
+            "enum": [
+              "separate",
+              "shared"
+            ]
           }
         }
       ]
@@ -3141,7 +3249,10 @@
           "name": "value",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -3155,7 +3266,10 @@
           "name": "value",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -3229,13 +3343,35 @@
         }
       ]
     },
-    "chat:send": {
+    "checkpoint:rewind": {
       "parameters": [
         {
           "name": "request",
           "optional": false,
           "schema": {
             "$ref": "#/$defs/T202"
+          }
+        }
+      ]
+    },
+    "chat:send": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T203"
+          }
+        }
+      ]
+    },
+    "chat:edit": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T204"
           }
         }
       ]
@@ -3343,7 +3479,13 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": [
+              "codex",
+              "claude",
+              "antigravity",
+              "kiro",
+              "pi"
+            ]
           }
         },
         {
@@ -3425,7 +3567,7 @@
           "name": "patch",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T203"
+            "$ref": "#/$defs/T207"
           }
         }
       ]
@@ -3475,7 +3617,10 @@
           "name": "archived",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -3586,7 +3731,7 @@
           "name": "options",
           "optional": true,
           "schema": {
-            "$ref": "#/$defs/T204"
+            "$ref": "#/$defs/T208"
           }
         }
       ]
@@ -3611,7 +3756,7 @@
           "name": "options",
           "optional": true,
           "schema": {
-            "$ref": "#/$defs/T205"
+            "$ref": "#/$defs/T209"
           }
         }
       ]
@@ -3675,7 +3820,10 @@
           "name": "refresh",
           "optional": true,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -3693,7 +3841,13 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": [
+              "codex",
+              "claude",
+              "antigravity",
+              "kiro",
+              "pi"
+            ]
           }
         },
         {
@@ -3743,7 +3897,13 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": [
+              "codex",
+              "claude",
+              "antigravity",
+              "kiro",
+              "pi"
+            ]
           }
         },
         {
@@ -3772,7 +3932,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T206"
+            "$ref": "#/$defs/T210"
           }
         }
       ]
@@ -3783,7 +3943,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T207"
+            "$ref": "#/$defs/T211"
           }
         }
       ]
@@ -3794,7 +3954,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T210"
+            "$ref": "#/$defs/T214"
           }
         }
       ]
@@ -3805,7 +3965,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T211"
+            "$ref": "#/$defs/T215"
           }
         }
       ]
@@ -3857,7 +4017,10 @@
           "name": "channel",
           "optional": false,
           "schema": {
-            "enum": ["stable", "beta"]
+            "enum": [
+              "stable",
+              "beta"
+            ]
           }
         }
       ]
@@ -3871,7 +4034,16 @@
           "name": "icon",
           "optional": false,
           "schema": {
-            "enum": ["default", "dawn", "mono-dark", "mono-light", "sunset", "aurora", "glass", "eight-bit"]
+            "enum": [
+              "default",
+              "dawn",
+              "mono-dark",
+              "mono-light",
+              "sunset",
+              "aurora",
+              "glass",
+              "eight-bit"
+            ]
           }
         }
       ]
@@ -3888,7 +4060,10 @@
           "name": "enabled",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -3899,7 +4074,10 @@
           "name": "enabled",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -3980,7 +4158,10 @@
           "name": "enabled",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -4008,7 +4189,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T212"
+            "$ref": "#/$defs/T216"
           }
         }
       ]
@@ -4019,7 +4200,10 @@
           "name": "on",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -4030,7 +4214,16 @@
           "name": "chime",
           "optional": false,
           "schema": {
-            "enum": ["system", "miracle", "faaah", "bombastic-side-eye", "vine-boom", "metal-pipe", "bruh", "emotional-damage"]
+            "enum": [
+              "system",
+              "miracle",
+              "faaah",
+              "bombastic-side-eye",
+              "vine-boom",
+              "metal-pipe",
+              "bruh",
+              "emotional-damage"
+            ]
           }
         }
       ]
@@ -4046,7 +4239,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/$defs/T214"
+                "$ref": "#/$defs/T218"
               }
             ]
           }
@@ -4070,7 +4263,7 @@
           "name": "state",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T215"
+            "$ref": "#/$defs/T219"
           }
         }
       ]
@@ -4084,7 +4277,10 @@
           "name": "on",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -4115,14 +4311,20 @@
           "name": "on",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         },
         {
           "name": "reducedMotion",
           "optional": true,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -4154,7 +4356,10 @@
           "name": "reducedMotion",
           "optional": true,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -4196,7 +4401,10 @@
           "name": "reducedMotion",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -4210,7 +4418,10 @@
           "name": "cancel",
           "optional": true,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -4238,7 +4449,7 @@
           "name": "notice",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T216"
+            "$ref": "#/$defs/T220"
           }
         }
       ]
@@ -4249,7 +4460,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T217"
+            "$ref": "#/$defs/T221"
           }
         }
       ]
@@ -4307,7 +4518,7 @@
           "name": "options",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T218"
+            "$ref": "#/$defs/T222"
           }
         }
       ]
@@ -4350,7 +4561,10 @@
           "name": "on",
           "optional": false,
           "schema": {
-            "enum": [false, true]
+            "enum": [
+              false,
+              true
+            ]
           }
         }
       ]
@@ -4370,10 +4584,10 @@
           "schema": {
             "anyOf": [
               {
-                "$ref": "#/$defs/T219"
+                "$ref": "#/$defs/T223"
               },
               {
-                "$ref": "#/$defs/T220"
+                "$ref": "#/$defs/T224"
               }
             ]
           }
@@ -4393,7 +4607,7 @@
           "name": "entry",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T222"
+            "$ref": "#/$defs/T226"
           }
         }
       ]
@@ -4469,7 +4683,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T223"
+            "$ref": "#/$defs/T227"
           }
         }
       ]
@@ -4485,7 +4699,7 @@
           "schema": {
             "type": "array",
             "items": {
-              "$ref": "#/$defs/T229"
+              "$ref": "#/$defs/T233"
             }
           }
         }
@@ -4504,7 +4718,7 @@
           "name": "rect",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T230"
+            "$ref": "#/$defs/T234"
           }
         }
       ]
@@ -4677,10 +4891,15 @@
           "type": "string"
         },
         "attachedOnly": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["chatId"],
+      "required": [
+        "chatId"
+      ],
       "additionalProperties": false
     },
     "T2": {
@@ -4693,7 +4912,10 @@
           "type": "string"
         }
       },
-      "required": ["chatId", "deviceId"],
+      "required": [
+        "chatId",
+        "deviceId"
+      ],
       "additionalProperties": false
     },
     "T3": {
@@ -4706,7 +4928,10 @@
           "type": "string"
         }
       },
-      "required": ["chatId", "deviceId"],
+      "required": [
+        "chatId",
+        "deviceId"
+      ],
       "additionalProperties": false
     },
     "T4": {
@@ -4719,7 +4944,10 @@
           "type": "string"
         }
       },
-      "required": ["deviceId", "chatId"],
+      "required": [
+        "deviceId",
+        "chatId"
+      ],
       "additionalProperties": false
     },
     "T5": {
@@ -4732,13 +4960,22 @@
           "type": "number"
         },
         "format": {
-          "enum": ["video/avcc", "image"]
+          "enum": [
+            "video/avcc",
+            "image"
+          ]
         },
         "quality": {
-          "enum": ["full", "reduced"]
+          "enum": [
+            "full",
+            "reduced"
+          ]
         }
       },
-      "required": ["viewerId", "after"],
+      "required": [
+        "viewerId",
+        "after"
+      ],
       "additionalProperties": false
     },
     "T6": {
@@ -4751,7 +4988,10 @@
           "type": "string"
         }
       },
-      "required": ["viewerId", "sdp"],
+      "required": [
+        "viewerId",
+        "sdp"
+      ],
       "additionalProperties": false
     },
     "T7": {
@@ -4761,7 +5001,9 @@
           "type": "string"
         }
       },
-      "required": ["viewerId"],
+      "required": [
+        "viewerId"
+      ],
       "additionalProperties": false
     },
     "T8": {
@@ -4771,10 +5013,16 @@
           "type": "string"
         },
         "takeOver": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["viewerId", "takeOver"],
+      "required": [
+        "viewerId",
+        "takeOver"
+      ],
       "additionalProperties": false
     },
     "T9": {
@@ -4818,7 +5066,12 @@
           ]
         }
       },
-      "required": ["viewerId", "sequence", "generation", "event"],
+      "required": [
+        "viewerId",
+        "sequence",
+        "generation",
+        "event"
+      ],
       "additionalProperties": false
     },
     "T10": {
@@ -4828,7 +5081,11 @@
           "const": "touch"
         },
         "phase": {
-          "enum": ["begin", "move", "end"]
+          "enum": [
+            "begin",
+            "move",
+            "end"
+          ]
         },
         "points": {
           "type": "array",
@@ -4837,7 +5094,11 @@
           }
         }
       },
-      "required": ["kind", "phase", "points"],
+      "required": [
+        "kind",
+        "phase",
+        "points"
+      ],
       "additionalProperties": false
     },
     "T11": {
@@ -4850,7 +5111,10 @@
           "type": "number"
         }
       },
-      "required": ["x", "y"],
+      "required": [
+        "x",
+        "y"
+      ],
       "additionalProperties": false
     },
     "T12": {
@@ -4860,10 +5124,16 @@
           "const": "button"
         },
         "button": {
-          "enum": ["home", "back"]
+          "enum": [
+            "home",
+            "back"
+          ]
         }
       },
-      "required": ["kind", "button"],
+      "required": [
+        "kind",
+        "button"
+      ],
       "additionalProperties": false
     },
     "T13": {
@@ -4873,10 +5143,18 @@
           "const": "rotate"
         },
         "orientation": {
-          "enum": ["portrait", "portrait-upside-down", "landscape-left", "landscape-right"]
+          "enum": [
+            "portrait",
+            "portrait-upside-down",
+            "landscape-left",
+            "landscape-right"
+          ]
         }
       },
-      "required": ["kind", "orientation"],
+      "required": [
+        "kind",
+        "orientation"
+      ],
       "additionalProperties": false
     },
     "T14": {
@@ -4886,10 +5164,19 @@
           "const": "pose"
         },
         "pose": {
-          "enum": ["closed", "open", "book", "laptop", "tent"]
+          "enum": [
+            "closed",
+            "open",
+            "book",
+            "laptop",
+            "tent"
+          ]
         }
       },
-      "required": ["kind", "pose"],
+      "required": [
+        "kind",
+        "pose"
+      ],
       "additionalProperties": false
     },
     "T15": {
@@ -4902,7 +5189,10 @@
           "type": "number"
         }
       },
-      "required": ["kind", "angle"],
+      "required": [
+        "kind",
+        "angle"
+      ],
       "additionalProperties": false
     },
     "T16": {
@@ -4912,7 +5202,10 @@
           "const": "key"
         },
         "phase": {
-          "enum": ["down", "up"]
+          "enum": [
+            "down",
+            "up"
+          ]
         },
         "usage": {
           "type": "number"
@@ -4921,23 +5214,36 @@
           "type": "string"
         },
         "shifted": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["kind", "phase", "usage"],
+      "required": [
+        "kind",
+        "phase",
+        "usage"
+      ],
       "additionalProperties": false
     },
     "T17": {
       "type": "object",
       "properties": {
         "kind": {
-          "enum": ["text", "paste"]
+          "enum": [
+            "text",
+            "paste"
+          ]
         },
         "text": {
           "type": "string"
         }
       },
-      "required": ["kind", "text"],
+      "required": [
+        "kind",
+        "text"
+      ],
       "additionalProperties": false
     },
     "T18": {
@@ -4947,10 +5253,15 @@
           "const": "copy"
         },
         "press": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "additionalProperties": false
     },
     "T19": {
@@ -4960,7 +5271,9 @@
           "type": "string"
         }
       },
-      "required": ["viewerId"],
+      "required": [
+        "viewerId"
+      ],
       "additionalProperties": false
     },
     "T20": {
@@ -4970,7 +5283,9 @@
           "type": "string"
         }
       },
-      "required": ["viewerId"],
+      "required": [
+        "viewerId"
+      ],
       "additionalProperties": false
     },
     "T21": {
@@ -4992,7 +5307,13 @@
           "type": "string"
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": [
+            "codex",
+            "claude",
+            "antigravity",
+            "kiro",
+            "pi"
+          ]
         },
         "model": {
           "type": "string"
@@ -5001,14 +5322,20 @@
           "type": "string"
         }
       },
-      "required": ["chatId", "prompt"],
+      "required": [
+        "chatId",
+        "prompt"
+      ],
       "additionalProperties": false
     },
     "T23": {
       "type": "object",
       "properties": {
         "clear": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
       "additionalProperties": false
@@ -5017,7 +5344,10 @@
       "type": "object",
       "properties": {
         "enabled": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "intervalMinutes": {
           "type": "number"
@@ -5025,17 +5355,34 @@
         "wake": {
           "type": "array",
           "items": {
-            "enum": ["comments", "checks", "conflicts", "behind"]
+            "enum": [
+              "comments",
+              "checks",
+              "conflicts",
+              "behind"
+            ]
           }
         },
         "level": {
-          "enum": [1, 2, 3, 4, 5]
+          "enum": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
         },
         "resolveThreads": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "stopWhenGreen": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "stopAfterDays": {
           "$ref": "#/$defs/T25",
@@ -5045,7 +5392,10 @@
           "$ref": "#/$defs/T26"
         },
         "ownRule": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "ownRuleText": {
           "type": "string"
@@ -5060,26 +5410,38 @@
       "type": "object",
       "properties": {
         "on": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "days": {
           "type": "number"
         }
       },
-      "required": ["on", "days"],
+      "required": [
+        "on",
+        "days"
+      ],
       "additionalProperties": false
     },
     "T26": {
       "type": "object",
       "properties": {
         "on": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "times": {
           "type": "number"
         }
       },
-      "required": ["on", "times"],
+      "required": [
+        "on",
+        "times"
+      ],
       "additionalProperties": false
     },
     "T27": {
@@ -5096,16 +5458,26 @@
       "type": "object",
       "properties": {
         "enabled": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "autopilot": {
-          "enum": ["answer", "ask", "off"]
+          "enum": [
+            "answer",
+            "ask",
+            "off"
+          ]
         },
         "vetoSeconds": {
           "type": "number"
         },
         "useOtherComputers": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "computerPreferences": {
           "$ref": "#/$defs/T29"
@@ -5114,10 +5486,16 @@
           "$ref": "#/$defs/T30"
         },
         "whenUnsure": {
-          "enum": ["ask", "guess"]
+          "enum": [
+            "ask",
+            "guess"
+          ]
         },
         "account": {
-          "enum": ["least-used", "project"]
+          "enum": [
+            "least-used",
+            "project"
+          ]
         },
         "roles": {
           "type": "array",
@@ -5129,13 +5507,23 @@
           "$ref": "#/$defs/T32"
         },
         "hideTaskChats": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "notify": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "outcome": {
-          "enum": ["pull-request", "merged", "reply"]
+          "enum": [
+            "pull-request",
+            "merged",
+            "reply"
+          ]
         },
         "mascotColor": {
           "type": "string"
@@ -5144,10 +5532,16 @@
           "type": "string"
         },
         "boardHidden": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "tourDone": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
       "additionalProperties": false
@@ -5156,20 +5550,35 @@
       "type": "object",
       "properties": {},
       "additionalProperties": {
-        "enum": ["prefer", "normal", "less", "manual", "never"]
+        "enum": [
+          "prefer",
+          "normal",
+          "less",
+          "manual",
+          "never"
+        ]
       }
     },
     "T30": {
       "type": "object",
       "properties": {
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": [
+            "codex",
+            "claude",
+            "antigravity",
+            "kiro",
+            "pi"
+          ]
         },
         "model": {
           "type": "string"
         }
       },
-      "required": ["provider", "model"],
+      "required": [
+        "provider",
+        "model"
+      ],
       "additionalProperties": false
     },
     "T31": {
@@ -5237,7 +5646,15 @@
           ]
         }
       },
-      "required": ["id", "name", "description", "provider", "model", "effort", "instructions"],
+      "required": [
+        "id",
+        "name",
+        "description",
+        "provider",
+        "model",
+        "effort",
+        "instructions"
+      ],
       "additionalProperties": false
     },
     "T32": {
@@ -5251,7 +5668,10 @@
       "type": "object",
       "properties": {
         "included": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "hints": {
           "anyOf": [
@@ -5264,14 +5684,21 @@
           ]
         }
       },
-      "required": ["included", "hints"],
+      "required": [
+        "included",
+        "hints"
+      ],
       "additionalProperties": false
     },
     "T34": {
       "type": "object",
       "properties": {
         "permissionMode": {
-          "enum": ["full", "ask", "auto"]
+          "enum": [
+            "full",
+            "ask",
+            "auto"
+          ]
         },
         "images": {
           "type": "array",
@@ -5295,7 +5722,11 @@
           "type": "string"
         }
       },
-      "required": ["id", "name", "dataUrl"],
+      "required": [
+        "id",
+        "name",
+        "dataUrl"
+      ],
       "additionalProperties": false
     },
     "T36": {
@@ -5320,26 +5751,47 @@
           "type": "string"
         },
         "group": {
-          "enum": ["projects", "work", "tools", "other"]
+          "enum": [
+            "projects",
+            "work",
+            "tools",
+            "other"
+          ]
         },
         "source": {
           "type": "string"
         },
         "enabled": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "createdAt": {
           "type": "number"
         }
       },
-      "required": ["id", "text", "group", "source", "enabled", "createdAt"],
+      "required": [
+        "id",
+        "text",
+        "group",
+        "source",
+        "enabled",
+        "createdAt"
+      ],
       "additionalProperties": false
     },
     "T38": {
       "type": "object",
       "properties": {
         "kind": {
-          "enum": ["artifacts", "workspace", "design", "selection", "designs"]
+          "enum": [
+            "artifacts",
+            "workspace",
+            "design",
+            "selection",
+            "designs"
+          ]
         },
         "designId": {
           "type": "string"
@@ -5363,7 +5815,9 @@
           "type": "string"
         }
       },
-      "required": ["id"],
+      "required": [
+        "id"
+      ],
       "additionalProperties": false
     },
     "T40": {
@@ -5373,7 +5827,13 @@
           "type": "string"
         },
         "kind": {
-          "enum": ["artifacts", "workspace", "design", "selection", "designs"]
+          "enum": [
+            "artifacts",
+            "workspace",
+            "design",
+            "selection",
+            "designs"
+          ]
         },
         "designId": {
           "type": "string"
@@ -5385,7 +5845,9 @@
           }
         }
       },
-      "required": ["chatId"],
+      "required": [
+        "chatId"
+      ],
       "additionalProperties": false
     },
     "T41": {
@@ -5401,7 +5863,13 @@
           "const": true
         },
         "kind": {
-          "enum": ["artifacts", "workspace", "design", "selection", "designs"]
+          "enum": [
+            "artifacts",
+            "workspace",
+            "design",
+            "selection",
+            "designs"
+          ]
         },
         "designId": {
           "type": "string"
@@ -5413,7 +5881,10 @@
           }
         }
       },
-      "required": ["chatId", "acknowledgePublic"],
+      "required": [
+        "chatId",
+        "acknowledgePublic"
+      ],
       "additionalProperties": false
     },
     "T42": {
@@ -5426,7 +5897,13 @@
           "type": "string"
         },
         "kind": {
-          "enum": ["artifacts", "workspace", "design", "selection", "designs"]
+          "enum": [
+            "artifacts",
+            "workspace",
+            "design",
+            "selection",
+            "designs"
+          ]
         },
         "designId": {
           "type": "string"
@@ -5438,7 +5915,10 @@
           }
         }
       },
-      "required": ["chatId", "id"],
+      "required": [
+        "chatId",
+        "id"
+      ],
       "additionalProperties": false
     },
     "T43": {
@@ -5451,10 +5931,17 @@
           "type": "string"
         },
         "paused": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["chatId", "id", "paused"],
+      "required": [
+        "chatId",
+        "id",
+        "paused"
+      ],
       "additionalProperties": false
     },
     "T44": {
@@ -5473,7 +5960,10 @@
           "$ref": "#/$defs/T45"
         }
       },
-      "required": ["chatId", "id"],
+      "required": [
+        "chatId",
+        "id"
+      ],
       "additionalProperties": false
     },
     "T45": {
@@ -5486,7 +5976,9 @@
           }
         }
       },
-      "required": ["have"],
+      "required": [
+        "have"
+      ],
       "additionalProperties": false
     },
     "T46": {
@@ -5505,7 +5997,10 @@
           "$ref": "#/$defs/T45"
         }
       },
-      "required": ["projectPath", "id"],
+      "required": [
+        "projectPath",
+        "id"
+      ],
       "additionalProperties": false
     },
     "T47": {
@@ -5524,7 +6019,10 @@
           "type": "number"
         }
       },
-      "required": ["chatId", "name"],
+      "required": [
+        "chatId",
+        "name"
+      ],
       "additionalProperties": false
     },
     "T48": {
@@ -5534,10 +6032,15 @@
           "type": "string"
         },
         "format": {
-          "enum": ["design", "html"]
+          "enum": [
+            "design",
+            "html"
+          ]
         }
       },
-      "required": ["chatId"],
+      "required": [
+        "chatId"
+      ],
       "additionalProperties": false
     },
     "T49": {
@@ -5550,7 +6053,10 @@
           "type": "string"
         }
       },
-      "required": ["chatId", "id"],
+      "required": [
+        "chatId",
+        "id"
+      ],
       "additionalProperties": false
     },
     "T50": {
@@ -5563,7 +6069,10 @@
           "type": "string"
         }
       },
-      "required": ["projectPath", "id"],
+      "required": [
+        "projectPath",
+        "id"
+      ],
       "additionalProperties": false
     },
     "T51": {
@@ -5579,7 +6088,10 @@
           }
         }
       },
-      "required": ["chatId", "comments"],
+      "required": [
+        "chatId",
+        "comments"
+      ],
       "additionalProperties": false
     },
     "T52": {
@@ -5621,7 +6133,10 @@
           "description": "The images attached to it: their numbers among the message's images, from 1."
         }
       },
-      "required": ["design", "text"],
+      "required": [
+        "design",
+        "text"
+      ],
       "additionalProperties": false
     },
     "T53": {
@@ -5637,11 +6152,17 @@
           "type": "string"
         },
         "format": {
-          "enum": ["design", "html"],
+          "enum": [
+            "design",
+            "html"
+          ],
           "description": "Older transcript entries have no format; resolve them through the host's catalog."
         },
         "inline": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "An immutable HTML reply displayed in the transcript, independent of the live Artifact page."
         },
         "height": {
@@ -5652,7 +6173,11 @@
           "description": "The part of the app a design belongs to; the canvas lays out one row per group."
         }
       },
-      "required": ["id", "version", "title"],
+      "required": [
+        "id",
+        "version",
+        "title"
+      ],
       "additionalProperties": false
     },
     "T54": {
@@ -5665,7 +6190,10 @@
           "type": "string"
         }
       },
-      "required": ["id", "title"],
+      "required": [
+        "id",
+        "title"
+      ],
       "additionalProperties": false
     },
     "T55": {
@@ -5675,7 +6203,9 @@
           "type": "string"
         }
       },
-      "required": ["chatId"],
+      "required": [
+        "chatId"
+      ],
       "additionalProperties": false
     },
     "T56": {
@@ -5685,7 +6215,9 @@
           "type": "string"
         }
       },
-      "required": ["chatId"],
+      "required": [
+        "chatId"
+      ],
       "additionalProperties": false
     },
     "T57": {
@@ -5695,7 +6227,9 @@
           "type": "string"
         }
       },
-      "required": ["projectPath"],
+      "required": [
+        "projectPath"
+      ],
       "additionalProperties": false
     },
     "T58": {
@@ -5714,7 +6248,11 @@
           "type": "string"
         }
       },
-      "required": ["chatId", "designId", "page"],
+      "required": [
+        "chatId",
+        "designId",
+        "page"
+      ],
       "additionalProperties": false
     },
     "T59": {
@@ -5733,7 +6271,10 @@
           "type": "string"
         }
       },
-      "required": ["chatId", "id"],
+      "required": [
+        "chatId",
+        "id"
+      ],
       "additionalProperties": false
     },
     "T60": {
@@ -5752,7 +6293,10 @@
           "type": "string"
         }
       },
-      "required": ["projectPath", "id"],
+      "required": [
+        "projectPath",
+        "id"
+      ],
       "additionalProperties": false
     },
     "T61": {
@@ -5768,7 +6312,11 @@
           "type": "string"
         }
       },
-      "required": ["chatId", "page", "name"],
+      "required": [
+        "chatId",
+        "page",
+        "name"
+      ],
       "additionalProperties": false
     },
     "T62": {
@@ -5784,7 +6332,11 @@
           "type": "string"
         }
       },
-      "required": ["projectPath", "page", "name"],
+      "required": [
+        "projectPath",
+        "page",
+        "name"
+      ],
       "additionalProperties": false
     },
     "T63": {
@@ -5818,7 +6370,9 @@
           "$ref": "#/$defs/T64"
         }
       },
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "additionalProperties": false
     },
     "T64": {
@@ -5868,7 +6422,10 @@
           "type": "string"
         }
       },
-      "required": ["root", "path"],
+      "required": [
+        "root",
+        "path"
+      ],
       "additionalProperties": false
     },
     "T67": {
@@ -5878,13 +6435,18 @@
           "type": "string"
         },
         "fresh": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "workspace": {
           "type": "string"
         }
       },
-      "required": ["fresh"],
+      "required": [
+        "fresh"
+      ],
       "additionalProperties": false
     },
     "T68": {
@@ -5897,20 +6459,32 @@
           "type": "string"
         },
         "fresh": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["projectPath", "fresh"],
+      "required": [
+        "projectPath",
+        "fresh"
+      ],
       "additionalProperties": false
     },
     "T69": {
       "type": "object",
       "properties": {
         "enabled": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "cursor": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "Draw Milagre's agent cursor and the current step on the screen while an agent acts."
         }
       },
@@ -5926,14 +6500,19 @@
           "type": "number"
         }
       },
-      "required": ["chatId"],
+      "required": [
+        "chatId"
+      ],
       "additionalProperties": false
     },
     "T71": {
       "type": "object",
       "properties": {
         "enabled": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "gatewayUrl": {
           "type": "string",
@@ -5970,13 +6549,19 @@
           "type": "string"
         },
         "platform": {
-          "enum": ["ios", "android"]
+          "enum": [
+            "ios",
+            "android"
+          ]
         },
         "model": {
           "type": "string"
         }
       },
-      "required": ["chatId", "platform"],
+      "required": [
+        "chatId",
+        "platform"
+      ],
       "additionalProperties": false
     },
     "T74": {
@@ -5986,7 +6571,9 @@
           "type": "string"
         }
       },
-      "required": ["deviceId"],
+      "required": [
+        "deviceId"
+      ],
       "additionalProperties": false
     },
     "T75": {
@@ -6002,7 +6589,10 @@
           }
         }
       },
-      "required": ["chatId", "comments"],
+      "required": [
+        "chatId",
+        "comments"
+      ],
       "additionalProperties": false
     },
     "T76": {
@@ -6024,7 +6614,12 @@
           "type": "string"
         }
       },
-      "required": ["url", "title", "element", "text"],
+      "required": [
+        "url",
+        "title",
+        "element",
+        "text"
+      ],
       "additionalProperties": false
     },
     "T77": {
@@ -6081,7 +6676,13 @@
           "description": "Where on it the user clicked, as fractions of its box: the comment's pin goes there."
         }
       },
-      "required": ["selector", "tag", "label", "box", "viewport"],
+      "required": [
+        "selector",
+        "tag",
+        "label",
+        "box",
+        "viewport"
+      ],
       "additionalProperties": false
     },
     "T78": {
@@ -6100,7 +6701,12 @@
           "type": "number"
         }
       },
-      "required": ["x", "y", "width", "height"],
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
       "additionalProperties": false
     },
     "T79": {
@@ -6113,7 +6719,10 @@
           "type": "number"
         }
       },
-      "required": ["width", "height"],
+      "required": [
+        "width",
+        "height"
+      ],
       "additionalProperties": false
     },
     "T80": {
@@ -6126,7 +6735,10 @@
           "type": "number"
         }
       },
-      "required": ["x", "y"],
+      "required": [
+        "x",
+        "y"
+      ],
       "additionalProperties": false
     },
     "T81": {
@@ -6136,7 +6748,9 @@
           "type": "string"
         }
       },
-      "required": ["chatId"],
+      "required": [
+        "chatId"
+      ],
       "additionalProperties": false
     },
     "T82": {
@@ -6158,7 +6772,13 @@
           "type": "string"
         }
       },
-      "required": ["chatId", "targetId", "x", "y", "text"],
+      "required": [
+        "chatId",
+        "targetId",
+        "x",
+        "y",
+        "text"
+      ],
       "additionalProperties": false
     },
     "T83": {
@@ -6168,7 +6788,9 @@
           "type": "string"
         }
       },
-      "required": ["chatId"],
+      "required": [
+        "chatId"
+      ],
       "additionalProperties": false
     },
     "T84": {
@@ -6181,7 +6803,10 @@
           "type": "string"
         }
       },
-      "required": ["chatId", "browserId"],
+      "required": [
+        "chatId",
+        "browserId"
+      ],
       "additionalProperties": false
     },
     "T85": {
@@ -6194,7 +6819,10 @@
           "type": "string"
         }
       },
-      "required": ["chatId", "browserId"],
+      "required": [
+        "chatId",
+        "browserId"
+      ],
       "additionalProperties": false
     },
     "T86": {
@@ -6207,7 +6835,10 @@
           "type": "string"
         }
       },
-      "required": ["chatId", "targetId"],
+      "required": [
+        "chatId",
+        "targetId"
+      ],
       "additionalProperties": false
     },
     "T87": {
@@ -6220,7 +6851,10 @@
           "type": "number"
         }
       },
-      "required": ["viewerId", "after"],
+      "required": [
+        "viewerId",
+        "after"
+      ],
       "additionalProperties": false
     },
     "T88": {
@@ -6230,7 +6864,9 @@
           "type": "string"
         }
       },
-      "required": ["viewerId"],
+      "required": [
+        "viewerId"
+      ],
       "additionalProperties": false
     },
     "T89": {
@@ -6240,10 +6876,16 @@
           "type": "string"
         },
         "takeOver": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["viewerId", "takeOver"],
+      "required": [
+        "viewerId",
+        "takeOver"
+      ],
       "additionalProperties": false
     },
     "T90": {
@@ -6281,7 +6923,12 @@
           ]
         }
       },
-      "required": ["viewerId", "sequence", "generation", "event"],
+      "required": [
+        "viewerId",
+        "sequence",
+        "generation",
+        "event"
+      ],
       "additionalProperties": false
     },
     "T91": {
@@ -6291,7 +6938,11 @@
           "const": "mouse"
         },
         "phase": {
-          "enum": ["move", "down", "up"]
+          "enum": [
+            "move",
+            "down",
+            "up"
+          ]
         },
         "x": {
           "type": "number"
@@ -6300,7 +6951,12 @@
           "type": "number"
         },
         "button": {
-          "enum": ["left", "middle", "right", "none"]
+          "enum": [
+            "left",
+            "middle",
+            "right",
+            "none"
+          ]
         },
         "clickCount": {
           "type": "number"
@@ -6309,7 +6965,12 @@
           "type": "number"
         }
       },
-      "required": ["kind", "phase", "x", "y"],
+      "required": [
+        "kind",
+        "phase",
+        "x",
+        "y"
+      ],
       "additionalProperties": false
     },
     "T92": {
@@ -6334,7 +6995,13 @@
           "type": "number"
         }
       },
-      "required": ["kind", "x", "y", "deltaX", "deltaY"],
+      "required": [
+        "kind",
+        "x",
+        "y",
+        "deltaX",
+        "deltaY"
+      ],
       "additionalProperties": false
     },
     "T93": {
@@ -6344,7 +7011,10 @@
           "const": "key"
         },
         "phase": {
-          "enum": ["down", "up"]
+          "enum": [
+            "down",
+            "up"
+          ]
         },
         "key": {
           "type": "string"
@@ -6364,11 +7034,24 @@
         "commands": {
           "type": "array",
           "items": {
-            "enum": ["paste", "copy", "selectAll", "cut", "undo", "redo"]
+            "enum": [
+              "paste",
+              "copy",
+              "selectAll",
+              "cut",
+              "undo",
+              "redo"
+            ]
           }
         }
       },
-      "required": ["kind", "phase", "key", "code", "keyCode"],
+      "required": [
+        "kind",
+        "phase",
+        "key",
+        "code",
+        "keyCode"
+      ],
       "additionalProperties": false
     },
     "T94": {
@@ -6381,7 +7064,10 @@
           "type": "string"
         }
       },
-      "required": ["kind", "text"],
+      "required": [
+        "kind",
+        "text"
+      ],
       "additionalProperties": false
     },
     "T95": {
@@ -6391,10 +7077,17 @@
           "const": "navigate"
         },
         "action": {
-          "enum": ["back", "forward", "reload"]
+          "enum": [
+            "back",
+            "forward",
+            "reload"
+          ]
         }
       },
-      "required": ["kind", "action"],
+      "required": [
+        "kind",
+        "action"
+      ],
       "additionalProperties": false
     },
     "T96": {
@@ -6410,7 +7103,11 @@
           "type": "number"
         }
       },
-      "required": ["kind", "width", "height"],
+      "required": [
+        "kind",
+        "width",
+        "height"
+      ],
       "additionalProperties": false
     },
     "T97": {
@@ -6420,7 +7117,9 @@
           "type": "string"
         }
       },
-      "required": ["viewerId"],
+      "required": [
+        "viewerId"
+      ],
       "additionalProperties": false
     },
     "T98": {
@@ -6437,7 +7136,9 @@
           ]
         }
       },
-      "required": ["shell"],
+      "required": [
+        "shell"
+      ],
       "additionalProperties": false
     },
     "T99": {
@@ -6447,7 +7148,9 @@
           "type": "string"
         }
       },
-      "required": ["chatId"],
+      "required": [
+        "chatId"
+      ],
       "additionalProperties": false
     },
     "T100": {
@@ -6466,7 +7169,9 @@
           "type": "number"
         }
       },
-      "required": ["chatId"],
+      "required": [
+        "chatId"
+      ],
       "additionalProperties": false
     },
     "T101": {
@@ -6482,7 +7187,10 @@
           "type": "number"
         }
       },
-      "required": ["terminalId", "after"],
+      "required": [
+        "terminalId",
+        "after"
+      ],
       "additionalProperties": false
     },
     "T102": {
@@ -6495,7 +7203,10 @@
           "type": "string"
         }
       },
-      "required": ["terminalId", "data"],
+      "required": [
+        "terminalId",
+        "data"
+      ],
       "additionalProperties": false
     },
     "T103": {
@@ -6511,7 +7222,11 @@
           "type": "number"
         }
       },
-      "required": ["terminalId", "cols", "rows"],
+      "required": [
+        "terminalId",
+        "cols",
+        "rows"
+      ],
       "additionalProperties": false
     },
     "T104": {
@@ -6521,7 +7236,9 @@
           "type": "string"
         }
       },
-      "required": ["terminalId"],
+      "required": [
+        "terminalId"
+      ],
       "additionalProperties": false
     },
     "T105": {
@@ -6537,10 +7254,14 @@
           }
         },
         "inline": {
-          "enum": [true]
+          "enum": [
+            true
+          ]
         },
         "code": {
-          "enum": [true]
+          "enum": [
+            true
+          ]
         }
       },
       "additionalProperties": false
@@ -6561,7 +7282,12 @@
           "type": "string"
         }
       },
-      "required": ["name", "hash", "size", "type"],
+      "required": [
+        "name",
+        "hash",
+        "size",
+        "type"
+      ],
       "additionalProperties": false
     },
     "T107": {
@@ -6580,7 +7306,9 @@
           "type": "number"
         }
       },
-      "required": ["cwd"],
+      "required": [
+        "cwd"
+      ],
       "additionalProperties": false
     },
     "T108": {
@@ -6609,7 +7337,10 @@
           "type": "number"
         }
       },
-      "required": ["cwd", "text"],
+      "required": [
+        "cwd",
+        "text"
+      ],
       "additionalProperties": false
     },
     "T109": {
@@ -6625,7 +7356,10 @@
           "type": "string"
         }
       },
-      "required": ["projectPath", "file"],
+      "required": [
+        "projectPath",
+        "file"
+      ],
       "additionalProperties": false
     },
     "T110": {
@@ -6638,7 +7372,10 @@
           "type": "string"
         },
         "useProjectBase": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "A configured Project base wins over a remembered or fallback client selection."
         },
         "prompt": {
@@ -6657,7 +7394,10 @@
           "description": "A GitHub issue to name the branch after; the host reads it with its own `gh`."
         }
       },
-      "required": ["projectPath", "prompt"],
+      "required": [
+        "projectPath",
+        "prompt"
+      ],
       "additionalProperties": false
     },
     "T111": {
@@ -6670,7 +7410,10 @@
           "type": "number"
         }
       },
-      "required": ["repo", "number"],
+      "required": [
+        "repo",
+        "number"
+      ],
       "additionalProperties": false
     },
     "T112": {
@@ -6689,7 +7432,11 @@
           "type": "string"
         }
       },
-      "required": ["projectPath", "worktreeId", "key"],
+      "required": [
+        "projectPath",
+        "worktreeId",
+        "key"
+      ],
       "additionalProperties": false
     },
     "T113": {
@@ -6702,14 +7449,20 @@
           "type": "number"
         }
       },
-      "required": ["projectPath", "worktreeId"],
+      "required": [
+        "projectPath",
+        "worktreeId"
+      ],
       "additionalProperties": false
     },
     "T114": {
       "type": "object",
       "properties": {
         "force": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "base": {
           "type": "string"
@@ -6724,7 +7477,13 @@
           "$ref": "#/$defs/T115"
         }
       },
-      "required": ["force", "base", "projectPath", "chatId", "seen"],
+      "required": [
+        "force",
+        "base",
+        "projectPath",
+        "chatId",
+        "seen"
+      ],
       "additionalProperties": false
     },
     "T115": {
@@ -6750,10 +7509,19 @@
           "type": "string"
         },
         "removable": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["uncommitted", "unpushed", "branch", "head", "removable"],
+      "required": [
+        "uncommitted",
+        "unpushed",
+        "branch",
+        "head",
+        "removable"
+      ],
       "additionalProperties": false
     },
     "T116": {
@@ -6766,13 +7534,19 @@
           "type": "string"
         },
         "dashesOnly": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "baseBranch": {
           "type": "string"
         },
         "trackBase": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "instructions": {
           "type": "string"
@@ -6784,10 +7558,15 @@
       "type": "object",
       "properties": {
         "window": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["window"],
+      "required": [
+        "window"
+      ],
       "additionalProperties": false
     },
     "T118": {
@@ -6797,14 +7576,19 @@
           "type": "string"
         }
       },
-      "required": ["workspace"],
+      "required": [
+        "workspace"
+      ],
       "additionalProperties": false
     },
     "T119": {
       "type": "object",
       "properties": {
         "fresh": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
       "additionalProperties": false
@@ -6822,7 +7606,10 @@
           "$ref": "#/$defs/T115"
         },
         "force": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "activity": {
           "$ref": "#/$defs/T121"
@@ -6834,7 +7621,15 @@
           "type": "number"
         }
       },
-      "required": ["projectPath", "path", "seen", "force", "activity", "idleBefore", "lastAt"],
+      "required": [
+        "projectPath",
+        "path",
+        "seen",
+        "force",
+        "activity",
+        "idleBefore",
+        "lastAt"
+      ],
       "additionalProperties": false
     },
     "T121": {
@@ -6850,7 +7645,10 @@
           }
         }
       },
-      "required": ["worktreeId", "chats"],
+      "required": [
+        "worktreeId",
+        "chats"
+      ],
       "additionalProperties": false
     },
     "T122": {
@@ -6883,7 +7681,12 @@
           "type": "number"
         }
       },
-      "required": ["id", "lastAt", "lastId", "count"],
+      "required": [
+        "id",
+        "lastAt",
+        "lastId",
+        "count"
+      ],
       "additionalProperties": false
     },
     "T123": {
@@ -6902,7 +7705,10 @@
           }
         }
       },
-      "required": ["projects", "threads"],
+      "required": [
+        "projects",
+        "threads"
+      ],
       "additionalProperties": false
     },
     "T124": {
@@ -6915,7 +7721,9 @@
           "type": "string"
         }
       },
-      "required": ["key"],
+      "required": [
+        "key"
+      ],
       "additionalProperties": false
     },
     "T125": {
@@ -6928,10 +7736,16 @@
           "type": "number"
         },
         "autoCompact": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "followUps": {
-          "enum": ["now", "queue"],
+          "enum": [
+            "now",
+            "queue"
+          ],
           "description": "A message sent while a turn runs: steer it, or wait for the turn to end."
         }
       },
@@ -6941,7 +7755,10 @@
       "type": "object",
       "properties": {
         "enabled": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "name": {
           "type": "string"
@@ -7099,7 +7916,9 @@
           "description": "A flow's draft steps, saved as they are edited; null drops the draft."
         },
         "publishFlow": {
-          "enum": [true],
+          "enum": [
+            true
+          ],
           "description": "Makes the draft the steps new Runs use (the next revision)."
         }
       },
@@ -7109,7 +7928,13 @@
       "type": "object",
       "properties": {
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": [
+            "codex",
+            "claude",
+            "antigravity",
+            "kiro",
+            "pi"
+          ]
         },
         "model": {
           "type": "string"
@@ -7118,7 +7943,10 @@
           "type": "string"
         }
       },
-      "required": ["provider", "model"],
+      "required": [
+        "provider",
+        "model"
+      ],
       "additionalProperties": false
     },
     "T128": {
@@ -7134,7 +7962,11 @@
           "type": "string"
         }
       },
-      "required": ["kind", "cron", "timezone"],
+      "required": [
+        "kind",
+        "cron",
+        "timezone"
+      ],
       "additionalProperties": false
     },
     "T129": {
@@ -7147,7 +7979,12 @@
           "type": "string"
         },
         "event": {
-          "enum": ["assigned", "label-added", "state", "comment"]
+          "enum": [
+            "assigned",
+            "label-added",
+            "state",
+            "comment"
+          ]
         },
         "team": {
           "type": "string"
@@ -7159,7 +7996,11 @@
           "type": "string"
         }
       },
-      "required": ["kind", "workspace", "event"],
+      "required": [
+        "kind",
+        "workspace",
+        "event"
+      ],
       "additionalProperties": false
     },
     "T130": {
@@ -7172,10 +8013,17 @@
           "type": "string"
         },
         "signed": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["kind", "hookId", "signed"],
+      "required": [
+        "kind",
+        "hookId",
+        "signed"
+      ],
       "additionalProperties": false
     },
     "T131": {
@@ -7188,7 +8036,10 @@
           "type": "string"
         }
       },
-      "required": ["kind", "chatId"],
+      "required": [
+        "kind",
+        "chatId"
+      ],
       "additionalProperties": false
     },
     "T132": {
@@ -7201,10 +8052,17 @@
           "type": "string"
         },
         "workspace": {
-          "enum": ["project", "worktree"]
+          "enum": [
+            "project",
+            "worktree"
+          ]
         }
       },
-      "required": ["kind", "projectPath", "workspace"],
+      "required": [
+        "kind",
+        "projectPath",
+        "workspace"
+      ],
       "additionalProperties": false
     },
     "T133": {
@@ -7223,7 +8081,13 @@
           "type": "string"
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": [
+            "codex",
+            "claude",
+            "antigravity",
+            "kiro",
+            "pi"
+          ]
         },
         "model": {
           "type": "string"
@@ -7232,10 +8096,17 @@
           "type": "string"
         },
         "permissionMode": {
-          "enum": ["full", "ask", "auto"]
+          "enum": [
+            "full",
+            "ask",
+            "auto"
+          ]
         },
         "chat": {
-          "enum": ["run", "own"]
+          "enum": [
+            "run",
+            "own"
+          ]
         },
         "output": {
           "type": "array",
@@ -7247,10 +8118,22 @@
           "type": "number"
         },
         "onInvalid": {
-          "enum": ["ask-once", "stop"]
+          "enum": [
+            "ask-once",
+            "stop"
+          ]
         }
       },
-      "required": ["id", "name", "kind", "prompt", "chat", "output", "retries", "onInvalid"],
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "prompt",
+        "chat",
+        "output",
+        "retries",
+        "onInvalid"
+      ],
       "additionalProperties": false
     },
     "T134": {
@@ -7260,7 +8143,13 @@
           "type": "string"
         },
         "type": {
-          "enum": ["number", "text", "choice", "yes-no", "link"]
+          "enum": [
+            "number",
+            "text",
+            "choice",
+            "yes-no",
+            "link"
+          ]
         },
         "choices": {
           "type": "array",
@@ -7272,7 +8161,10 @@
           "type": "string"
         }
       },
-      "required": ["name", "type"],
+      "required": [
+        "name",
+        "type"
+      ],
       "additionalProperties": false
     },
     "T135": {
@@ -7292,7 +8184,12 @@
           "description": "`<stepId>.<field>` or `trigger.<path>`."
         },
         "test": {
-          "enum": ["is", "is-not", "contains", "is-set"]
+          "enum": [
+            "is",
+            "is-not",
+            "contains",
+            "is-set"
+          ]
         },
         "value": {
           "type": "string"
@@ -7348,7 +8245,15 @@
           }
         }
       },
-      "required": ["id", "name", "kind", "field", "test", "yes", "otherwise"],
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "field",
+        "test",
+        "yes",
+        "otherwise"
+      ],
       "additionalProperties": false
     },
     "T136": {
@@ -7370,7 +8275,13 @@
           "type": "number"
         }
       },
-      "required": ["id", "name", "kind", "message", "expiresInHours"],
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "message",
+        "expiresInHours"
+      ],
       "additionalProperties": false
     },
     "T137": {
@@ -7403,7 +8314,13 @@
           "description": "For a Linear state or a review: how long to wait before the step fails."
         }
       },
-      "required": ["id", "name", "kind", "until", "timeoutHours"],
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "until",
+        "timeoutHours"
+      ],
       "additionalProperties": false
     },
     "T138": {
@@ -7416,7 +8333,10 @@
           "type": "number"
         }
       },
-      "required": ["kind", "minutes"],
+      "required": [
+        "kind",
+        "minutes"
+      ],
       "additionalProperties": false
     },
     "T139": {
@@ -7429,7 +8349,10 @@
           "type": "string"
         }
       },
-      "required": ["kind", "state"],
+      "required": [
+        "kind",
+        "state"
+      ],
       "additionalProperties": false
     },
     "T140": {
@@ -7439,7 +8362,9 @@
           "const": "pr-review"
         }
       },
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "additionalProperties": false
     },
     "T141": {
@@ -7464,13 +8389,27 @@
           "type": "string"
         },
         "draft": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "askFirst": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["id", "name", "kind", "title", "body", "draft", "askFirst"],
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "title",
+        "body",
+        "draft",
+        "askFirst"
+      ],
       "additionalProperties": false
     },
     "T142": {
@@ -7489,7 +8428,12 @@
           "type": "string"
         }
       },
-      "required": ["id", "name", "kind", "body"],
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "body"
+      ],
       "additionalProperties": false
     },
     "T143": {
@@ -7537,7 +8481,13 @@
           ]
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": [
+            "codex",
+            "claude",
+            "antigravity",
+            "kiro",
+            "pi"
+          ]
         },
         "model": {
           "type": "string"
@@ -7567,7 +8517,12 @@
           "description": "A flow: its steps, published at revision 1, or with `publish: false` kept as a draft (the Routine stays off)."
         }
       },
-      "required": ["name", "prompt", "trigger", "target"],
+      "required": [
+        "name",
+        "prompt",
+        "trigger",
+        "target"
+      ],
       "additionalProperties": false
     },
     "T145": {
@@ -7599,10 +8554,15 @@
           }
         },
         "publish": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["steps"],
+      "required": [
+        "steps"
+      ],
       "additionalProperties": false
     },
     "T146": {
@@ -7621,13 +8581,22 @@
       "type": "object",
       "properties": {
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": [
+            "codex",
+            "claude",
+            "antigravity",
+            "kiro",
+            "pi"
+          ]
         },
         "accountId": {
           "type": "string"
         }
       },
-      "required": ["provider", "accountId"],
+      "required": [
+        "provider",
+        "accountId"
+      ],
       "additionalProperties": false
     },
     "T148": {
@@ -7643,7 +8612,10 @@
           "type": "string"
         }
       },
-      "required": ["label", "grants"],
+      "required": [
+        "label",
+        "grants"
+      ],
       "additionalProperties": false
     },
     "T149": {
@@ -7687,11 +8659,17 @@
         "capabilities": {
           "type": "array",
           "items": {
-            "enum": ["read", "create"]
+            "enum": [
+              "read",
+              "create"
+            ]
           }
         }
       },
-      "required": ["projectPaths", "capabilities"],
+      "required": [
+        "projectPaths",
+        "capabilities"
+      ],
       "additionalProperties": false
     },
     "T151": {
@@ -7713,11 +8691,17 @@
         "capabilities": {
           "type": "array",
           "items": {
-            "enum": ["read", "create"]
+            "enum": [
+              "read",
+              "create"
+            ]
           }
         }
       },
-      "required": ["projectPaths", "capabilities"],
+      "required": [
+        "projectPaths",
+        "capabilities"
+      ],
       "additionalProperties": false
     },
     "T152": {
@@ -7739,11 +8723,18 @@
         "capabilities": {
           "type": "array",
           "items": {
-            "enum": ["read", "create", "start"]
+            "enum": [
+              "read",
+              "create",
+              "start"
+            ]
           }
         }
       },
-      "required": ["projectPaths", "capabilities"],
+      "required": [
+        "projectPaths",
+        "capabilities"
+      ],
       "additionalProperties": false
     },
     "T153": {
@@ -7768,11 +8759,18 @@
         "capabilities": {
           "type": "array",
           "items": {
-            "enum": ["read", "write"]
+            "enum": [
+              "read",
+              "write"
+            ]
           }
         }
       },
-      "required": ["chatId", "designIds", "capabilities"],
+      "required": [
+        "chatId",
+        "designIds",
+        "capabilities"
+      ],
       "additionalProperties": false
     },
     "T154": {
@@ -7798,7 +8796,10 @@
           }
         }
       },
-      "required": ["ids", "capabilities"],
+      "required": [
+        "ids",
+        "capabilities"
+      ],
       "additionalProperties": false
     },
     "T155": {
@@ -7811,7 +8812,9 @@
           "type": "string"
         }
       },
-      "required": ["cwd"],
+      "required": [
+        "cwd"
+      ],
       "additionalProperties": false
     },
     "T156": {
@@ -7833,7 +8836,9 @@
           "type": "number"
         }
       },
-      "required": ["cwd"],
+      "required": [
+        "cwd"
+      ],
       "additionalProperties": false
     },
     "T157": {
@@ -7856,10 +8861,16 @@
           ]
         },
         "mode": {
-          "enum": ["uncommitted", "committed"]
+          "enum": [
+            "uncommitted",
+            "committed"
+          ]
         }
       },
-      "required": ["cwd", "mode"],
+      "required": [
+        "cwd",
+        "mode"
+      ],
       "additionalProperties": false
     },
     "T158": {
@@ -7882,7 +8893,10 @@
           ]
         },
         "mode": {
-          "enum": ["uncommitted", "committed"]
+          "enum": [
+            "uncommitted",
+            "committed"
+          ]
         },
         "path": {
           "type": "string"
@@ -7891,10 +8905,17 @@
           "type": "string"
         },
         "untracked": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["cwd", "mode", "path"],
+      "required": [
+        "cwd",
+        "mode",
+        "path"
+      ],
       "additionalProperties": false
     },
     "T159": {
@@ -7907,13 +8928,22 @@
           "type": "string"
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": [
+            "codex",
+            "claude",
+            "antigravity",
+            "kiro",
+            "pi"
+          ]
         },
         "chat": {
           "$ref": "#/$defs/T160"
         }
       },
-      "required": ["cwd", "chat"],
+      "required": [
+        "cwd",
+        "chat"
+      ],
       "additionalProperties": false
     },
     "T160": {
@@ -7938,7 +8968,12 @@
           }
         }
       },
-      "required": ["chatTitle", "firstMessage", "recentMessages", "testCommands"],
+      "required": [
+        "chatTitle",
+        "firstMessage",
+        "recentMessages",
+        "testCommands"
+      ],
       "additionalProperties": false
     },
     "T161": {
@@ -7948,10 +8983,16 @@
           "type": "string"
         },
         "status": {
-          "enum": ["done", "failed"]
+          "enum": [
+            "done",
+            "failed"
+          ]
         }
       },
-      "required": ["command", "status"],
+      "required": [
+        "command",
+        "status"
+      ],
       "additionalProperties": false
     },
     "T162": {
@@ -7964,7 +9005,10 @@
           "type": "string"
         }
       },
-      "required": ["cwd", "message"],
+      "required": [
+        "cwd",
+        "message"
+      ],
       "additionalProperties": false
     },
     "T163": {
@@ -7974,7 +9018,9 @@
           "type": "string"
         }
       },
-      "required": ["cwd"],
+      "required": [
+        "cwd"
+      ],
       "additionalProperties": false
     },
     "T164": {
@@ -7993,7 +9039,11 @@
           "type": "string"
         }
       },
-      "required": ["cwd", "title", "body"],
+      "required": [
+        "cwd",
+        "title",
+        "body"
+      ],
       "additionalProperties": false
     },
     "T165": {
@@ -8006,7 +9056,10 @@
           "type": "number"
         }
       },
-      "required": ["cwd", "number"],
+      "required": [
+        "cwd",
+        "number"
+      ],
       "additionalProperties": false
     },
     "T166": {
@@ -8022,7 +9075,11 @@
           "type": "string"
         }
       },
-      "required": ["cwd", "base", "head"],
+      "required": [
+        "cwd",
+        "base",
+        "head"
+      ],
       "additionalProperties": false
     },
     "T167": {
@@ -8044,7 +9101,12 @@
           "type": "string"
         }
       },
-      "required": ["cwd", "base", "head", "path"],
+      "required": [
+        "cwd",
+        "base",
+        "head",
+        "path"
+      ],
       "additionalProperties": false
     },
     "T168": {
@@ -8066,13 +9128,22 @@
           "type": "number"
         },
         "side": {
-          "enum": ["LEFT", "RIGHT"]
+          "enum": [
+            "LEFT",
+            "RIGHT"
+          ]
         },
         "body": {
           "type": "string"
         }
       },
-      "required": ["cwd", "number", "path", "line", "body"],
+      "required": [
+        "cwd",
+        "number",
+        "path",
+        "line",
+        "body"
+      ],
       "additionalProperties": false
     },
     "T169": {
@@ -8091,7 +9162,12 @@
           "type": "string"
         }
       },
-      "required": ["cwd", "number", "threadId", "body"],
+      "required": [
+        "cwd",
+        "number",
+        "threadId",
+        "body"
+      ],
       "additionalProperties": false
     },
     "T170": {
@@ -8104,7 +9180,10 @@
           "type": "string"
         }
       },
-      "required": ["cwd", "commentId"],
+      "required": [
+        "cwd",
+        "commentId"
+      ],
       "additionalProperties": false
     },
     "T171": {
@@ -8117,13 +9196,22 @@
           "type": "number"
         },
         "event": {
-          "enum": ["COMMENT", "APPROVE", "REQUEST_CHANGES"]
+          "enum": [
+            "COMMENT",
+            "APPROVE",
+            "REQUEST_CHANGES"
+          ]
         },
         "body": {
           "type": "string"
         }
       },
-      "required": ["cwd", "number", "event", "body"],
+      "required": [
+        "cwd",
+        "number",
+        "event",
+        "body"
+      ],
       "additionalProperties": false
     },
     "T172": {
@@ -8136,10 +9224,17 @@
           "type": "string"
         },
         "resolved": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["cwd", "threadId", "resolved"],
+      "required": [
+        "cwd",
+        "threadId",
+        "resolved"
+      ],
       "additionalProperties": false
     },
     "T173": {
@@ -8152,19 +9247,36 @@
           "type": "number"
         },
         "method": {
-          "enum": ["squash", "merge", "rebase"]
+          "enum": [
+            "squash",
+            "merge",
+            "rebase"
+          ]
         },
         "auto": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "admin": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "disableAuto": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["cwd", "number", "method"],
+      "required": [
+        "cwd",
+        "number",
+        "method"
+      ],
       "additionalProperties": false
     },
     "T174": {
@@ -8177,10 +9289,16 @@
           "type": "number"
         },
         "draft": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["cwd", "number"],
+      "required": [
+        "cwd",
+        "number"
+      ],
       "additionalProperties": false
     },
     "T175": {
@@ -8193,7 +9311,10 @@
           "type": "string"
         }
       },
-      "required": ["cwd", "url"],
+      "required": [
+        "cwd",
+        "url"
+      ],
       "additionalProperties": false
     },
     "T176": {
@@ -8203,7 +9324,9 @@
           "type": "string"
         }
       },
-      "required": ["cwd"],
+      "required": [
+        "cwd"
+      ],
       "additionalProperties": false
     },
     "T177": {
@@ -8228,7 +9351,12 @@
           }
         }
       },
-      "required": ["cwd", "number", "add", "remove"],
+      "required": [
+        "cwd",
+        "number",
+        "add",
+        "remove"
+      ],
       "additionalProperties": false
     },
     "T178": {
@@ -8238,7 +9366,9 @@
           "type": "string"
         }
       },
-      "required": ["cwd"],
+      "required": [
+        "cwd"
+      ],
       "additionalProperties": false
     },
     "T179": {
@@ -8263,7 +9393,12 @@
           }
         }
       },
-      "required": ["cwd", "number", "add", "remove"],
+      "required": [
+        "cwd",
+        "number",
+        "add",
+        "remove"
+      ],
       "additionalProperties": false
     },
     "T180": {
@@ -8288,17 +9423,24 @@
           }
         }
       },
-      "required": ["root"],
+      "required": [
+        "root"
+      ],
       "additionalProperties": false
     },
     "T181": {
       "type": "object",
       "properties": {
         "takeNotice": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["takeNotice"],
+      "required": [
+        "takeNotice"
+      ],
       "additionalProperties": false
     },
     "T182": {
@@ -8320,14 +9462,20 @@
           "type": "string"
         }
       },
-      "required": ["scope", "path"],
+      "required": [
+        "scope",
+        "path"
+      ],
       "additionalProperties": false
     },
     "T184": {
       "type": "object",
       "properties": {
         "state": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
       "additionalProperties": false
@@ -8345,13 +9493,19 @@
           }
         },
         "hidden": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "designSystemProjectId": {
           "type": "string"
         }
       },
-      "required": ["name", "projectIds"],
+      "required": [
+        "name",
+        "projectIds"
+      ],
       "additionalProperties": false
     },
     "T186": {
@@ -8370,13 +9524,20 @@
           }
         },
         "hidden": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "designSystemProjectId": {
           "type": "string"
         }
       },
-      "required": ["id", "name", "projectIds"],
+      "required": [
+        "id",
+        "name",
+        "projectIds"
+      ],
       "additionalProperties": false
     },
     "T187": {
@@ -8387,16 +9548,29 @@
           "description": "What the agent is sent: the body with the attached files listed."
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": [
+            "codex",
+            "claude",
+            "antigravity",
+            "kiro",
+            "pi"
+          ]
         },
         "model": {
           "type": "string"
         },
         "permissionMode": {
-          "enum": ["full", "ask", "auto"]
+          "enum": [
+            "full",
+            "ask",
+            "auto"
+          ]
         },
         "delivery": {
-          "enum": ["now", "queue"],
+          "enum": [
+            "now",
+            "queue"
+          ],
           "description": "While busy: wait for the current turn, or steer it (stop and send when steering isn't supported). Omitted preserves legacy/provider behavior."
         },
         "clientMessageId": {
@@ -8434,18 +9608,30 @@
           "type": "string"
         },
         "ultracode": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "fastMode": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "Claude only: faster Opus output at premium usage rates."
         },
         "replies": {
-          "enum": ["normal", "concise"],
+          "enum": [
+            "normal",
+            "concise"
+          ],
           "description": "How long Claude's replies run; Claude only, Codex ignores it."
         },
         "tldrEnabled": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "Apply bundled TLDR writing rules to both providers. Defaults to true."
         },
         "prAction": {
@@ -8461,11 +9647,18 @@
           "description": "The first message of a Chat started from a GitHub issue. The host reads it with its own `gh` and writes the body, prompt and context itself."
         },
         "compact": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "Compact the Chat's context now (Claude only). Milagre writes the body, prompt and context itself, ignoring the ones sent."
         },
         "sentFrom": {
-          "enum": ["phone", "tablet", "computer"],
+          "enum": [
+            "phone",
+            "tablet",
+            "computer"
+          ],
           "description": "Where the user typed it, when not in the Chat's own computer's window. The agent is told (packages/core/src/sent-from.cjs)."
         },
         "linkId": {
@@ -8475,7 +9668,18 @@
           "type": "string"
         }
       },
-      "required": ["prompt", "provider", "model", "permissionMode", "sessionId", "body", "images", "files", "linkId", "operationId"],
+      "required": [
+        "prompt",
+        "provider",
+        "model",
+        "permissionMode",
+        "sessionId",
+        "body",
+        "images",
+        "files",
+        "linkId",
+        "operationId"
+      ],
       "additionalProperties": false
     },
     "T188": {
@@ -8499,14 +9703,22 @@
           "description": "Original file attachment when path points at the durable image copy."
         }
       },
-      "required": ["id", "name"],
+      "required": [
+        "id",
+        "name"
+      ],
       "additionalProperties": false
     },
     "T189": {
       "type": "object",
       "properties": {
         "action": {
-          "enum": ["conflicts", "behind", "changes-requested", "checks-failed"]
+          "enum": [
+            "conflicts",
+            "behind",
+            "changes-requested",
+            "checks-failed"
+          ]
         },
         "pr": {
           "type": "number"
@@ -8515,7 +9727,11 @@
           "type": "string"
         }
       },
-      "required": ["action", "pr", "url"],
+      "required": [
+        "action",
+        "pr",
+        "url"
+      ],
       "additionalProperties": false
     },
     "T190": {
@@ -8531,7 +9747,9 @@
           "type": "string"
         }
       },
-      "required": ["key"],
+      "required": [
+        "key"
+      ],
       "additionalProperties": false
     },
     "T191": {
@@ -8547,7 +9765,10 @@
           "type": "string"
         }
       },
-      "required": ["repo", "number"],
+      "required": [
+        "repo",
+        "number"
+      ],
       "additionalProperties": false
     },
     "T192": {
@@ -8560,7 +9781,10 @@
           "type": "number"
         }
       },
-      "required": ["x", "y"],
+      "required": [
+        "x",
+        "y"
+      ],
       "additionalProperties": false
     },
     "T193": {
@@ -8573,7 +9797,9 @@
           "type": "string"
         }
       },
-      "required": ["project_id"],
+      "required": [
+        "project_id"
+      ],
       "additionalProperties": false
     },
     "T194": {
@@ -8595,10 +9821,18 @@
           "$ref": "#/$defs/T196"
         },
         "chatModeTransition": {
-          "enum": ["separate", "shared"]
+          "enum": [
+            "separate",
+            "shared"
+          ]
         }
       },
-      "required": ["id", "a", "b", "created_at"],
+      "required": [
+        "id",
+        "a",
+        "b",
+        "created_at"
+      ],
       "additionalProperties": false
     },
     "T195": {
@@ -8611,7 +9845,9 @@
           "type": "string"
         }
       },
-      "required": ["project_id"],
+      "required": [
+        "project_id"
+      ],
       "additionalProperties": false
     },
     "T196": {
@@ -8624,7 +9860,10 @@
           "type": "number"
         }
       },
-      "required": ["linkId", "sessionId"],
+      "required": [
+        "linkId",
+        "sessionId"
+      ],
       "additionalProperties": false
     },
     "T197": {
@@ -8637,7 +9876,10 @@
           "type": "number"
         }
       },
-      "required": ["x", "y"],
+      "required": [
+        "x",
+        "y"
+      ],
       "additionalProperties": false
     },
     "T198": {
@@ -8647,7 +9889,9 @@
           "type": "string"
         }
       },
-      "required": ["chatId"],
+      "required": [
+        "chatId"
+      ],
       "additionalProperties": false
     },
     "T199": {
@@ -8660,7 +9904,10 @@
           "type": "string"
         }
       },
-      "required": ["chatId", "id"],
+      "required": [
+        "chatId",
+        "id"
+      ],
       "additionalProperties": false
     },
     "T200": {
@@ -8676,27 +9923,57 @@
           "$ref": "#/$defs/T201"
         },
         "approved": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         }
       },
-      "required": ["chatId", "token", "decisions", "approved"],
+      "required": [
+        "chatId",
+        "token",
+        "decisions",
+        "approved"
+      ],
       "additionalProperties": false
     },
     "T201": {
       "type": "object",
       "properties": {},
       "additionalProperties": {
-        "enum": ["keep", "restore"]
+        "enum": [
+          "keep",
+          "restore"
+        ]
       }
     },
     "T202": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string"
+        },
+        "messageId": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "chatId",
+        "messageId"
+      ],
+      "additionalProperties": false
+    },
+    "T203": {
       "type": "object",
       "properties": {
         "projectPath": {
           "type": "string"
         },
         "delivery": {
-          "enum": ["now", "queue"],
+          "enum": [
+            "now",
+            "queue"
+          ],
           "description": "While busy: wait for the current turn, or steer it (stop and send when steering isn't supported). Omitted preserves legacy/provider behavior."
         },
         "clientMessageId": {
@@ -8738,30 +10015,52 @@
           "description": "What the agent is sent: the body with the attached files listed."
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": [
+            "codex",
+            "claude",
+            "antigravity",
+            "kiro",
+            "pi"
+          ]
         },
         "model": {
           "type": "string"
         },
         "permissionMode": {
-          "enum": ["full", "ask", "auto"]
+          "enum": [
+            "full",
+            "ask",
+            "auto"
+          ]
         },
         "effort": {
           "type": "string"
         },
         "ultracode": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "fastMode": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "Claude only: faster Opus output at premium usage rates."
         },
         "replies": {
-          "enum": ["normal", "concise"],
+          "enum": [
+            "normal",
+            "concise"
+          ],
           "description": "How long Claude's replies run; Claude only, Codex ignores it."
         },
         "tldrEnabled": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "Apply bundled TLDR writing rules to both providers. Defaults to true."
         },
         "prAction": {
@@ -8777,18 +10076,185 @@
           "description": "The first message of a Chat started from a GitHub issue. The host reads it with its own `gh` and writes the body, prompt and context itself."
         },
         "compact": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "Compact the Chat's context now (Claude only). Milagre writes the body, prompt and context itself, ignoring the ones sent."
         },
         "sentFrom": {
-          "enum": ["phone", "tablet", "computer"],
+          "enum": [
+            "phone",
+            "tablet",
+            "computer"
+          ],
           "description": "Where the user typed it, when not in the Chat's own computer's window. The agent is told (packages/core/src/sent-from.cjs)."
         }
       },
-      "required": ["projectPath", "sessionId", "worktreeId", "body", "images", "files", "prompt", "provider", "model", "permissionMode"],
+      "required": [
+        "projectPath",
+        "sessionId",
+        "worktreeId",
+        "body",
+        "images",
+        "files",
+        "prompt",
+        "provider",
+        "model",
+        "permissionMode"
+      ],
       "additionalProperties": false
     },
-    "T203": {
+    "T204": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "number"
+        },
+        "messageId": {
+          "type": "number"
+        },
+        "undoFiles": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/T205"
+            }
+          ],
+          "description": "Also put back the files the removed turns changed. Files without a decision are undone, except ones edited after those turns, which are kept."
+        },
+        "keepAttachments": {
+          "enum": [
+            false,
+            true
+          ],
+          "description": "Keep the edited message's own images and files instead of sending new ones (agents through MCP)."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "What the agent is sent: the body with the attached files listed."
+        },
+        "provider": {
+          "enum": [
+            "codex",
+            "claude",
+            "antigravity",
+            "kiro",
+            "pi"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "permissionMode": {
+          "enum": [
+            "full",
+            "ask",
+            "auto"
+          ]
+        },
+        "projectPath": {
+          "type": "string"
+        },
+        "worktreeId": {
+          "type": "number"
+        },
+        "clientMessageId": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string",
+          "description": "The message as the chat shows it."
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/T188"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Paths of the files attached to the message."
+        },
+        "effort": {
+          "type": "string"
+        },
+        "ultracode": {
+          "enum": [
+            false,
+            true
+          ]
+        },
+        "fastMode": {
+          "enum": [
+            false,
+            true
+          ],
+          "description": "Claude only: faster Opus output at premium usage rates."
+        },
+        "replies": {
+          "enum": [
+            "normal",
+            "concise"
+          ],
+          "description": "How long Claude's replies run; Claude only, Codex ignores it."
+        },
+        "tldrEnabled": {
+          "enum": [
+            false,
+            true
+          ],
+          "description": "Apply bundled TLDR writing rules to both providers. Defaults to true."
+        },
+        "sentFrom": {
+          "enum": [
+            "phone",
+            "tablet",
+            "computer"
+          ],
+          "description": "Where the user typed it, when not in the Chat's own computer's window. The agent is told (packages/core/src/sent-from.cjs)."
+        }
+      },
+      "required": [
+        "sessionId",
+        "messageId",
+        "prompt",
+        "provider",
+        "model",
+        "permissionMode",
+        "projectPath",
+        "worktreeId",
+        "body",
+        "images",
+        "files"
+      ],
+      "additionalProperties": false
+    },
+    "T205": {
+      "type": "object",
+      "properties": {
+        "decisions": {
+          "$ref": "#/$defs/T206"
+        }
+      },
+      "additionalProperties": false
+    },
+    "T206": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {
+        "enum": [
+          "keep",
+          "restore"
+        ]
+      }
+    },
+    "T207": {
       "type": "object",
       "properties": {
         "title": {
@@ -8796,15 +10262,24 @@
           "description": "A name the user gave the chat."
         },
         "unread": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "A turn ended while the chat wasn't open, or the user marked it unread."
         },
         "archived": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "Hidden from the chat list."
         },
         "pinned": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "Shown in the chat list's Pinned section, above the rest, in `pin_order`."
         },
         "pin_order": {
@@ -8812,7 +10287,10 @@
           "description": "Where a pinned chat sits among the pinned ones, lowest first. Kept when unpinned; only read while pinned."
         },
         "done": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "Marks the chat Done (the host stamps `done_at` with its own clock) or reopens it."
         },
         "snoozed_until": {
@@ -8827,13 +10305,15 @@
           "description": "Snoozes the Chat until this time (ms), or wakes it (false). The host clears it on Done, archive, a sent message,\na question, approval or failed turn, and once the time passes (snooze.mjs)."
         },
         "kept": {
-          "enum": [true],
+          "enum": [
+            true
+          ],
           "description": "The user took the Chat over: a hidden Run Chat stays in the lists from then on. Pins are this device's own\n(chat-pins.ts) and never reach the host, so pinning one says so with this instead. Nothing is saved for it."
         }
       },
       "additionalProperties": false
     },
-    "T204": {
+    "T208": {
       "type": "object",
       "properties": {
         "before": {
@@ -8848,7 +10328,7 @@
       },
       "additionalProperties": false
     },
-    "T205": {
+    "T209": {
       "type": "object",
       "properties": {
         "limit": {
@@ -8857,7 +10337,7 @@
       },
       "additionalProperties": false
     },
-    "T206": {
+    "T210": {
       "type": "object",
       "properties": {
         "chatId": {
@@ -8867,13 +10347,21 @@
           "type": "string"
         },
         "decision": {
-          "enum": ["allow", "allow-for-chat", "deny"]
+          "enum": [
+            "allow",
+            "allow-for-chat",
+            "deny"
+          ]
         }
       },
-      "required": ["chatId", "requestId", "decision"],
+      "required": [
+        "chatId",
+        "requestId",
+        "decision"
+      ],
       "additionalProperties": false
     },
-    "T207": {
+    "T211": {
       "type": "object",
       "properties": {
         "chatId": {
@@ -8888,7 +10376,7 @@
               "type": "null"
             },
             {
-              "$ref": "#/$defs/T208"
+              "$ref": "#/$defs/T212"
             }
           ]
         },
@@ -8896,16 +10384,20 @@
           "type": "string"
         },
         "images": {
-          "$ref": "#/$defs/T209"
+          "$ref": "#/$defs/T213"
         },
         "suggestionId": {
           "type": "string"
         }
       },
-      "required": ["chatId", "requestId", "answers"],
+      "required": [
+        "chatId",
+        "requestId",
+        "answers"
+      ],
       "additionalProperties": false
     },
-    "T208": {
+    "T212": {
       "type": "object",
       "properties": {},
       "additionalProperties": {
@@ -8915,7 +10407,7 @@
         }
       }
     },
-    "T209": {
+    "T213": {
       "type": "object",
       "properties": {},
       "additionalProperties": {
@@ -8925,7 +10417,7 @@
         }
       }
     },
-    "T210": {
+    "T214": {
       "type": "object",
       "properties": {
         "chatId": {
@@ -8935,41 +10427,58 @@
           "type": "string"
         }
       },
-      "required": ["chatId", "id"],
+      "required": [
+        "chatId",
+        "id"
+      ],
       "additionalProperties": false
     },
-    "T211": {
+    "T215": {
       "type": "object",
       "properties": {
         "chatId": {
           "type": "string"
         },
         "mode": {
-          "enum": ["full", "ask", "auto"]
+          "enum": [
+            "full",
+            "ask",
+            "auto"
+          ]
         }
       },
-      "required": ["chatId", "mode"],
+      "required": [
+        "chatId",
+        "mode"
+      ],
       "additionalProperties": false
     },
-    "T212": {
+    "T216": {
       "type": "object",
       "properties": {
         "range": {
-          "enum": ["24h", "7d", "30d", "90d"]
+          "enum": [
+            "24h",
+            "7d",
+            "30d",
+            "90d"
+          ]
         },
         "timeZone": {
           "type": "string",
           "description": "IANA time zone the days are cut in; the host's own when absent or unknown."
         },
         "days": {
-          "$ref": "#/$defs/T213",
+          "$ref": "#/$defs/T217",
           "description": "Days picked on the calendar (\"2026-10-16\"), both included; they replace `range`. One day reads by the hour."
         }
       },
-      "required": ["range"],
+      "required": [
+        "range"
+      ],
       "additionalProperties": false
     },
-    "T213": {
+    "T217": {
       "type": "object",
       "properties": {
         "from": {
@@ -8979,10 +10488,13 @@
           "type": "string"
         }
       },
-      "required": ["from", "to"],
+      "required": [
+        "from",
+        "to"
+      ],
       "additionalProperties": false
     },
-    "T214": {
+    "T218": {
       "type": "object",
       "properties": {
         "days": {
@@ -9001,10 +10513,15 @@
           "type": "string"
         }
       },
-      "required": ["days", "start", "end", "timeZone"],
+      "required": [
+        "days",
+        "start",
+        "end",
+        "timeZone"
+      ],
       "additionalProperties": false
     },
-    "T215": {
+    "T219": {
       "type": "object",
       "properties": {
         "projectPath": {
@@ -9027,10 +10544,16 @@
           }
         },
         "notifyOnCompletion": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "showDockBadge": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "hidden": {
           "type": "array",
@@ -9040,10 +10563,16 @@
           "description": "Projects hidden from this Mac's sidebar (this Mac's paths, `${computerId}|/path` for paired ones): they stay quiet."
         }
       },
-      "required": ["projectPath", "activeChatId", "unread", "notifyOnCompletion", "showDockBadge"],
+      "required": [
+        "projectPath",
+        "activeChatId",
+        "unread",
+        "notifyOnCompletion",
+        "showDockBadge"
+      ],
       "additionalProperties": false
     },
-    "T216": {
+    "T220": {
       "type": "object",
       "properties": {
         "chatId": {
@@ -9053,10 +10582,13 @@
           "type": "string"
         }
       },
-      "required": ["chatId", "title"],
+      "required": [
+        "chatId",
+        "title"
+      ],
       "additionalProperties": false
     },
-    "T217": {
+    "T221": {
       "type": "object",
       "properties": {
         "projectPath": {
@@ -9081,10 +10613,12 @@
           "type": "number"
         }
       },
-      "required": ["projectPath"],
+      "required": [
+        "projectPath"
+      ],
       "additionalProperties": false
     },
-    "T218": {
+    "T222": {
       "type": "object",
       "properties": {
         "name": {
@@ -9093,7 +10627,7 @@
       },
       "additionalProperties": false
     },
-    "T219": {
+    "T223": {
       "type": "object",
       "properties": {
         "kind": {
@@ -9104,10 +10638,14 @@
         },
         "state": {}
       },
-      "required": ["kind", "scope", "state"],
+      "required": [
+        "kind",
+        "scope",
+        "state"
+      ],
       "additionalProperties": false
     },
-    "T220": {
+    "T224": {
       "type": "object",
       "properties": {
         "kind": {
@@ -9120,13 +10658,18 @@
           "type": "number"
         },
         "window": {
-          "$ref": "#/$defs/T221"
+          "$ref": "#/$defs/T225"
         }
       },
-      "required": ["kind", "scope", "chatId", "window"],
+      "required": [
+        "kind",
+        "scope",
+        "chatId",
+        "window"
+      ],
       "additionalProperties": false
     },
-    "T221": {
+    "T225": {
       "type": "object",
       "properties": {
         "messages": {
@@ -9134,16 +10677,23 @@
           "items": {}
         },
         "hasMore": {
-          "enum": [false, true]
+          "enum": [
+            false,
+            true
+          ]
         },
         "total": {
           "type": "number"
         }
       },
-      "required": ["messages", "hasMore", "total"],
+      "required": [
+        "messages",
+        "hasMore",
+        "total"
+      ],
       "additionalProperties": false
     },
-    "T222": {
+    "T226": {
       "type": "object",
       "properties": {
         "kind": {
@@ -9156,14 +10706,18 @@
           "type": "number"
         }
       },
-      "required": ["kind", "scope", "chatId"],
+      "required": [
+        "kind",
+        "scope",
+        "chatId"
+      ],
       "additionalProperties": false
     },
-    "T223": {
+    "T227": {
       "type": "object",
       "properties": {
         "audio": {
-          "$ref": "#/$defs/T224"
+          "$ref": "#/$defs/T228"
         },
         "language": {
           "type": "string"
@@ -9175,10 +10729,15 @@
           "type": "string"
         }
       },
-      "required": ["audio", "language", "prompt", "model"],
+      "required": [
+        "audio",
+        "language",
+        "prompt",
+        "model"
+      ],
       "additionalProperties": false
     },
-    "T224": {
+    "T228": {
       "type": "object",
       "properties": {
         "byteLength": {
@@ -9186,7 +10745,7 @@
           "description": "Read-only. The length of the ArrayBuffer (in bytes)."
         },
         "slice": {
-          "$ref": "#/$defs/T225",
+          "$ref": "#/$defs/T229",
           "description": "Returns a section of an ArrayBuffer."
         },
         "maxByteLength": {
@@ -9194,50 +10753,65 @@
           "description": "If this ArrayBuffer is resizable, returns the maximum byte length given during construction; returns the byte length if not.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/maxByteLength)"
         },
         "resizable": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "Returns true if this ArrayBuffer can be resized.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/resizable)"
         },
         "resize": {
-          "$ref": "#/$defs/T226",
+          "$ref": "#/$defs/T230",
           "description": "Resizes the ArrayBuffer to the specified size (in bytes).\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/resize)"
         },
         "detached": {
-          "enum": [false, true],
+          "enum": [
+            false,
+            true
+          ],
           "description": "Returns a boolean indicating whether or not this buffer has been detached (transferred).\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/detached)"
         },
         "transfer": {
-          "$ref": "#/$defs/T227",
+          "$ref": "#/$defs/T231",
           "description": "Creates a new ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transfer)"
         },
         "transferToFixedLength": {
-          "$ref": "#/$defs/T228",
+          "$ref": "#/$defs/T232",
           "description": "Creates a new non-resizable ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transferToFixedLength)"
         }
       },
-      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength"],
-      "additionalProperties": false
-    },
-    "T225": {
-      "type": "object",
-      "properties": {},
-      "additionalProperties": false
-    },
-    "T226": {
-      "type": "object",
-      "properties": {},
-      "additionalProperties": false
-    },
-    "T227": {
-      "type": "object",
-      "properties": {},
-      "additionalProperties": false
-    },
-    "T228": {
-      "type": "object",
-      "properties": {},
+      "required": [
+        "byteLength",
+        "slice",
+        "maxByteLength",
+        "resizable",
+        "resize",
+        "detached",
+        "transfer",
+        "transferToFixedLength"
+      ],
       "additionalProperties": false
     },
     "T229": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "T230": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "T231": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "T232": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "T233": {
       "type": "object",
       "properties": {
         "contentsId": {
@@ -9247,10 +10821,13 @@
           "type": "string"
         }
       },
-      "required": ["contentsId", "chatKey"],
+      "required": [
+        "contentsId",
+        "chatKey"
+      ],
       "additionalProperties": false
     },
-    "T230": {
+    "T234": {
       "type": "object",
       "properties": {
         "x": {
@@ -9266,7 +10843,12 @@
           "type": "number"
         }
       },
-      "required": ["x", "y", "width", "height"],
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
       "additionalProperties": false
     }
   }

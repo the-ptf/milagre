@@ -2996,3 +2996,71 @@ test("a `gh pr merge` of the checked-out branch keeps the branch its folder had 
   const saved = (await states.get(ALPHA)).messages.at(-1).steps.find((step) => step.id === "merge");
   assert.equal(saved.branch, "fix/login");
 });
+
+test("editing an earlier message removes it and everything after, marks the edit and rewinds the provider's session", async (t) => {
+  const { rewindPlan } = require("./message-edit.cjs");
+  t.mock.method(FakeSession.prototype, "startTurn", async function (turn) {
+    this.turns.push(turn);
+    return { turnId: `t${this.turns.length}`, promptId: `p${this.turns.length}` };
+  });
+  const h = harness();
+  t.after(() => h.manager.closeAll());
+  const first = await h.host.send(message(ALPHA, "add a Retry button"));
+  await first.started;
+  const chatId = `${ALPHA}#${first.sessionId}`;
+  await h.host.receive(chatId, { type: "session-started", nativeId: "native-1" });
+  await h.host.receive(chatId, { type: "text-delta", messageId: "a", text: "Added Retry." });
+  await h.host.receive(chatId, { type: "turn-completed" });
+  const second = await h.host.send(message(ALPHA, "show the error too", { sessionId: first.sessionId }));
+  await second.started;
+  await h.host.receive(chatId, { type: "text-delta", messageId: "b", text: "Shown." });
+  await h.host.receive(chatId, { type: "turn-completed" });
+
+  let state = await h.states.get(ALPHA);
+  const edited = state.messages.find((item) => item.body === "add a Retry button");
+  assert.deepEqual(edited.native, { provider: "claude", prompt: "p1" });
+  const plan = rewindPlan(state.sessions[first.sessionId], state.messages, edited.id);
+  assert.deepEqual(plan, { claude: { prompt: "p1" } });
+  const context = { kind: "message-edit", edited: edited.id, removed: 3 };
+  const sent = await h.host.send(
+    message(ALPHA, "add a Retry button to the sheet and the chip", { sessionId: first.sessionId, edit: { messageId: edited.id, rewind: plan, context } }),
+  );
+  await sent.started;
+
+  state = await h.states.get(ALPHA);
+  assert.deepEqual(chatMessages(state, first.sessionId).slice(0, 2), [
+    { role: "assistant", body: "Edited · removed 3 messages" },
+    { role: "user", body: "add a Retry button to the sheet and the chip" },
+  ]);
+  assert.equal(
+    state.messages.some((item) => item.body === "show the error too" || item.body === "add a Retry button"),
+    false,
+  );
+  assert.equal(h.created.length, 2);
+  assert.equal(h.created[0].closed, true);
+  assert.equal(h.created[1].options.resumeId, "native-1");
+  assert.deepEqual(h.created[1].turns[0].rewind, { prompt: "p1" });
+
+  await assert.rejects(
+    h.host.send(message(ALPHA, "again", { sessionId: first.sessionId, edit: { messageId: edited.id, rewind: plan, context } })),
+    /no longer in the chat|can't be edited|busy/,
+  );
+});
+
+test("a rewind plan falls back to a new session when the provider can't rewind to the message", () => {
+  const { rewindPlan } = require("./message-edit.cjs");
+  const session = { id: 1, provider: "codex", native_session_id: "thread-1" };
+  const user = (id, native) => ({ id, session_id: 1, role: "user", body: `m${id}`, context: null, ...(native ? { native } : {}) });
+  const reply = (id) => ({ id, session_id: 1, role: "assistant", body: "ok", context: null });
+  assert.deepEqual(rewindPlan(session, [user(1, { provider: "codex", turn: "turn-1" }), reply(2), user(3, { provider: "codex", turn: "turn-2" })], 3), {
+    codex: { beforeTurnId: "turn-2" },
+  });
+  assert.deepEqual(rewindPlan(session, [user(1, { provider: "codex", turn: "turn-1" }), user(2, { provider: "codex", turn: "turn-1", steered: true })], 2), {
+    fresh: true,
+  });
+  assert.deepEqual(rewindPlan(session, [user(1)], 1), { fresh: true });
+  assert.deepEqual(rewindPlan({ ...session, provider: "kiro" }, [user(1, { provider: "kiro" })], 1), { fresh: true });
+  assert.deepEqual(rewindPlan({ ...session, provider: "claude" }, [user(1, { provider: "claude", prompt: "p1" })], 1), {
+    claude: { prompt: "p1", dropsTurn: true },
+  });
+});

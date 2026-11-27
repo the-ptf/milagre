@@ -60,7 +60,19 @@ function registerCheckpoints(commands, { directory, states, busy, ready, note = 
       }
       return result;
     });
+  const rewind = async (chatId, messageId) => {
+    await ready();
+    if (!Number.isSafeInteger(messageId)) throw new Error("Choose a message of this Chat");
+    return store.rewind(chatId, messageId, await rootsFor(chatId));
+  };
+  commands.handle("checkpoint:rewind", (_context, request = {}) => rewind(request.chatId, request.messageId));
   return {
+    rewind,
+    restore: async (chatId, request) => {
+      await assertWritable(chatId);
+      return store.restore(chatId, request);
+    },
+    capturing: (chatId) => preparing.has(chatId) || store.running(chatId),
     begin: async (request) => {
       preparing.add(request.chatId);
       try {

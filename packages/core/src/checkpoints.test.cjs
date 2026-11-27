@@ -434,3 +434,40 @@ test("a later capture reads again every file whose stamp moved", async (t) => {
   assert.notEqual(after["same-size.txt"].hash, before["same-size.txt"].hash);
   assert.notEqual(after["fresh.txt"].hash, before["fresh.txt"].hash);
 });
+test("rewinding to a message undoes every later task, each file to before the first task that changed it", async (t) => {
+  const f = await fixture(t);
+  await f.store.begin({ chatId: f.chatId, roots: [f.root], messageId: 3 });
+  await f.write("kept.txt", "earlier task\n");
+  await f.store.finish(f.chatId);
+  await f.store.begin({ chatId: f.chatId, roots: [f.root], messageId: 7 });
+  await f.write("a.txt", "first edit\n");
+  await f.write("b.txt", "made by the edited task\n");
+  await f.store.finish(f.chatId);
+  await f.write("c.txt", "another Chat wrote this between tasks\n");
+  await f.store.begin({ chatId: f.chatId, roots: [f.root], messageId: 9 });
+  await f.write("a.txt", "second edit\n");
+  await f.store.finish(f.chatId);
+  await f.write("b.txt", "edited after the tasks\n");
+
+  assert.equal(await f.store.rewind(f.chatId, 12, [f.root]), null);
+  const preview = await f.store.rewind(f.chatId, 7, [f.root]);
+  assert.equal(preview.tasks, 2);
+  assert.equal(preview.messageId, 7);
+  assert.deepEqual(
+    preview.files.map(({ path: name, action, conflict }) => [name, action, conflict]),
+    [
+      ["a.txt", "replace", false],
+      ["b.txt", "delete", true],
+    ],
+  );
+  const result = await f.store.restore(f.chatId, { token: preview.token, decisions: { "0:a.txt": "restore", "0:b.txt": "keep" }, approved: true });
+  assert.equal(result.restored, 1);
+  assert.equal(result.kept, 1);
+  assert.equal(await f.read("a.txt"), "committed\n");
+  assert.equal(await f.read("b.txt"), "edited after the tasks\n");
+  assert.equal(await f.read("c.txt"), "another Chat wrote this between tasks\n");
+  assert.equal(await f.read("kept.txt"), "earlier task\n");
+  const redo = await f.store.preview(f.chatId, result.recoveryId);
+  await f.store.restore(f.chatId, { token: redo.token, decisions: decisions(redo), approved: true });
+  assert.equal(await f.read("a.txt"), "second edit\n");
+});

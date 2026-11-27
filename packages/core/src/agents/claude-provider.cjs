@@ -21,6 +21,7 @@ const {
   missingCliMessage,
 } = require("./events.cjs");
 const { claudeLoggedOut } = require("./status.cjs");
+const { claudeRewindPoint, REWIND_REJECTED } = require("./claude-rewind.cjs");
 const { PendingPermissions, WorkspaceAccess, claudeAccessRequest, claudeRequest, claudeResult, isUngatedMilagreTool } = require("./permissions.cjs");
 const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = require("./questions.cjs");
 const { mcpContent, runTool } = require("../linked-tools.cjs");
@@ -230,12 +231,12 @@ class ClaudeSession {
     }
   }
 
-  async beginTurn({ prompt, images = [], model, permissionMode, effort, ultracode = false, fastMode = false, replies, canStart }) {
+  async beginTurn({ prompt, images = [], model, permissionMode, effort, ultracode = false, fastMode = false, replies, canStart, rewind }) {
     const turnId = randomUUID();
     Object.assign(this.state, { turnId, hasText: false, suggestionTurnId: null, localCommandError: null });
     this.permissions.setMode(permissionMode);
     try {
-      if (!this.query) await this.start(model, this.nativeMode(permissionMode), effort, ultracode, fastMode);
+      if (!this.query) await this.start(model, this.nativeMode(permissionMode), effort, ultracode, fastMode, rewind);
       if (!this.closed) {
         if (model !== this.model) {
           await this.query.setModel(model);
@@ -259,7 +260,7 @@ class ClaudeSession {
         await this.applyReplyStyle(replies);
       }
     } catch (error) {
-      this.finishTurn({ type: "turn-failed", message: error.message });
+      this.finishTurn({ type: "turn-failed", message: error.message, ...(error.rewindFailed ? { rewindFailed: true } : {}) });
       return { turnId: null, steered: false };
     }
     // close() or interrupt() may have landed while the SDK was loading or the query starting.
@@ -276,9 +277,10 @@ class ClaudeSession {
       this.finishTurn({ type: "turn-cancelled" });
       return { turnId: null, steered: false, cancelled: true };
     }
-    this.inbox.push(userMessage(prompt, images));
+    const message = userMessage(prompt, images);
+    this.inbox.push(message);
     this.emit({ type: "turn-started", turnId });
-    return { turnId, steered: false };
+    return { turnId, steered: false, promptId: message.uuid };
   }
 
   // Claude Code's mode for Milagre's. A wake's turn runs in the strictest one that still reads: `permissions` keeps the
@@ -314,8 +316,9 @@ class ClaudeSession {
     this.steeredTurn = true;
     if (request.guard) this.guard = request.guard;
     if (request.permissionMode) await this.setPermissionMode(request.permissionMode);
-    this.inbox.push(userMessage(request.prompt, request.images));
-    return { turnId: this.state.turnId, steered: true };
+    const message = userMessage(request.prompt, request.images);
+    this.inbox.push(message);
+    return { turnId: this.state.turnId, steered: true, promptId: message.uuid };
   }
 
   beginImplicitTurn() {
@@ -331,8 +334,10 @@ class ClaudeSession {
     this.emit({ type: "turn-started", turnId, ...(this.lastTurnId ? { continues: this.lastTurnId } : {}) });
   }
 
-  async start(model, mode, effort, ultracode = false, fastMode = false) {
+  async start(model, mode, effort, ultracode = false, fastMode = false, rewind = null) {
     const sdk = await this.loadSdk();
+    if (this.closed) return;
+    const at = rewind && this.resumeId ? await this.rewindPoint(rewind) : null;
     if (this.closed) return;
     this.stderr = "";
     this.child = null;
@@ -403,7 +408,16 @@ class ClaudeSession {
         ...(this.ephemeral ? { persistSession: false } : {}),
         ...(this.analysisOnly ? advisorPolicy("claude", this.linked?.tools ?? []) : {}),
         ...(this.executionAdvisor ? { disallowedTools: ["AskUserQuestion", "Agent", "Task"] } : {}),
-        ...(this.resumeId ? { resume: this.resumeId, ...(this.forkSession ? { forkSession: true } : {}) } : {}),
+        ...(this.resumeId
+          ? {
+              resume: this.resumeId,
+              ...(at
+                ? { resumeSessionAt: at, forkSession: true, ...(rewind.dropsTurn ? { resumeDropsTurn: rewind.prompt } : {}) }
+                : this.forkSession
+                  ? { forkSession: true }
+                  : {}),
+            }
+          : {}),
         // Own the process so close() can stop Claude Code and everything it started.
         spawnClaudeCodeProcess: ({ command, args, cwd, env, signal }) => {
           const child = spawnCommand(command, args, { cwd, env, signal, stdio: ["pipe", "pipe", "pipe"], detached: true, windowsHide: true }, this.spawnImpl);
@@ -419,6 +433,18 @@ class ClaudeSession {
     void this.readMessages(this.query);
     for (const name of this.mcpOff) await this.query.toggleMcpServer?.(name, false)?.catch(() => {});
     await this.query.setMaxThinkingTokens?.(null, "summarized").catch(() => {});
+  }
+
+  // Editing an earlier message resumes a fork of the session that ends just before that message's prompt.
+  async rewindPoint(rewind) {
+    const at = await claudeRewindPoint({
+      sessionId: this.resumeId,
+      prompt: rewind.prompt,
+      env: { ...(this.env ?? process.env), CLAUDE_CONFIG_DIR: this.env?.CLAUDE_CONFIG_DIR || this.defaultConfigDir },
+    }).catch(() => null);
+    if (!at) throw Object.assign(new Error("Claude Code's session doesn't reach the edited message."), { rewindFailed: true });
+    this.state.sessionId = null;
+    return at;
   }
 
   // A babysit Run: Claude Code runs PreToolUse hooks before its permission rules, and a hook's "deny" holds even in
@@ -548,6 +574,10 @@ class ClaudeSession {
           if (!isTerminal(event)) this.emit(event);
           else if (this.cancelRequested) this.finishTurn({ type: "turn-cancelled" });
           else if (event.type === "turn-failed" && this.resumeGone(`${event.message}\n${message.errors ?? ""}\n${message.result ?? ""}`)) this.resumeFailed();
+          else if (event.type === "turn-failed" && `${event.message}\n${message.errors ?? ""}\n${message.result ?? ""}`.includes(REWIND_REJECTED)) {
+            this.finishTurn({ ...event, rewindFailed: true });
+            void this.close();
+          }
           else {
             // A logged-out Claude Code keeps answering "not logged in" until it is restarted, so the session
             const ended = event.login && !(await this.loggedOut(this.command, this.env ?? process.env)) ? { ...event, message: AUTH_RETRY_MESSAGE } : event;
@@ -577,6 +607,8 @@ class ClaudeSession {
     if (!this.turnActive) return;
     if (this.cancelRequested) this.finishTurn({ type: "turn-cancelled" });
     else if (this.resumeGone(error?.message ?? "")) this.resumeFailed();
+    else if (`${error?.message ?? ""}\n${this.stderr}`.includes(REWIND_REJECTED))
+      this.finishTurn({ type: "turn-failed", message: error?.message || REWIND_REJECTED, rewindFailed: true });
     else this.finishTurn(failedWith(crashMessage("claude", error?.message || this.stderr)));
   }
 

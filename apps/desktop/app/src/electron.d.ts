@@ -82,6 +82,7 @@ import type {
   EditorInfo,
   AgentEvent,
   ChatSendRequest,
+  ChatEditRequest,
   CoordinatorState,
   LinkedWork,
   OpenProject,
@@ -766,6 +767,7 @@ export type MilagreBridge = {
   checkpoints: CheckpointApi;
   sendStatus: (owner: string, id: string) => Promise<{ sessionId: number } | null>;
   sendMessage: (request: ChatSendRequest) => Promise<{ sessionId: number }>;
+  editMessage: (request: ChatEditRequest) => Promise<{ sessionId: number }>;
   /** Continues a chat a quit stopped mid-turn, on its saved options. Resolves false when it has nothing to continue. */
   resumeChat: (projectPath: string, sessionId: number) => Promise<boolean>;
   /** Stops a running turn and ends the chat's agent process; the next message resumes its session in a new one. */

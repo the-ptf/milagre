@@ -143,6 +143,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       }
       if (params.threadId === "missing") return send({ id, error: { code: -32600, message: "no rollout found for thread id missing" } });
       return send({ id, result: { thread: { id: params.threadId }, model: params.model } });
+    case "thread/revert":
+      if (params.beforeTurnId === "missing") return send({ id, error: { code: -32600, message: "turn missing not found" } });
+      return send({ id, result: { thread: { id: params.threadId, turns: [] } } });
     case "thread/unarchive":
       return send({ id, error: { code: -32600, message: "thread is not archived" } });
     case "turn/start": {

@@ -62,6 +62,7 @@ class SessionManager {
           ? { canStart: () => request.canStart() && (request.expectedAccountId === undefined || entry.accountId === request.expectedAccountId) }
           : {}),
         ...(request.guard ? { guard: request.guard } : {}),
+        ...(request.rewind?.[entry.provider] ? { rewind: request.rewind[entry.provider] } : {}),
       });
       if (result?.cancelled && !entry.session.turnActive) this.scheduleIdleClose(request.chatId);
       return result;
@@ -84,6 +85,8 @@ class SessionManager {
 
   async currentEntry(request) {
     const { chatId, provider, cwd } = request;
+    // An edited message runs in a fresh process that resumes the rewound session, never in the one that saw the removed turns.
+    if (request.rewind && this.sessions.has(chatId)) await this.closeEntry(chatId, this.sessions.get(chatId));
     const existing = this.sessions.get(chatId);
     const tldrEnabled = request.tldrEnabled !== false;
     const accountId = request.accountId ?? "default";
