@@ -1,7 +1,9 @@
 const { queueStatus } = require("@milagre/shared/queued-messages");
+const { lastUserModel } = require("@milagre/shared/agent-runs");
+const { canEditMessage, messagesAfter } = require("@milagre/shared/message-edit");
 const { z } = require("zod");
 
-function createChatBranchTools({ host, chatInput, read, act, mutate }) {
+function createChatBranchTools({ host, chatInput, read, act, mutate, caller }) {
   return [
     mutate(
       "chat_fork",
@@ -22,6 +24,13 @@ function createChatBranchTools({ host, chatInput, read, act, mutate }) {
       },
       (args) => host.sideQuestion(args, "ask"),
     ),
+    act(
+      "chat_edit",
+      "Edit one of the user's own typed messages in another Chat (messageId from chat_read) and run that Chat again from it, as Edit message does: a running turn stops, every message after it is removed, the agent's session rewinds to just before it, and undoFiles (default true) puts back the files the removed turns changed, keeping ones edited since. Its images and files stay. Unless this Chat runs in Full permission, the user approves first: wait for the result, don't end the turn or move on.",
+      "start",
+      { ...chatInput, messageId: z.number().int().positive(), prompt: z.string().trim().min(1).max(100000), undoFiles: z.boolean().default(true) },
+      (args) => host.editMessage(args, caller),
+    ),
     read("chat_btw_read", "Read the latest ephemeral side question's answer and status.", chatInput, (args) => host.sideQuestion(args, "read")),
     act(
       "chat_btw_stop",
@@ -33,8 +42,45 @@ function createChatBranchTools({ host, chatInput, read, act, mutate }) {
   ];
 }
 
-function createChatBranchHost({ chat, invoke }) {
+function createChatBranchHost({ chat, invoke, assertNotWaiting, callerMode, confirm, chats, scopeStates }) {
   return {
+    async editMessage({ projectPath, chatId, messageId, prompt, undoFiles = true }, caller) {
+      const { state, session } = await chat(projectPath, chatId);
+      if (caller === chatId) throw Error("A Chat can't edit its own messages.");
+      assertNotWaiting(state, caller, chatId, "edit");
+      const messages = (await scopeStates.chatMessages(projectPath, [session.id])).filter((message) => message.session_id === session.id);
+      const message = messages.find((item) => item.id === messageId);
+      if (!canEditMessage(message)) throw Error("Only the user's own typed messages can be edited. chat_read lists their ids.");
+      const removed = messagesAfter(messages, messageId);
+      if (caller && (await callerMode(caller)) !== "full")
+        await confirm(caller, {
+          title: `Edit a message in "${session.title || session.generatedTitle || "Chat"}"?`,
+          description: `${removed ? `The ${removed} ${removed === 1 ? "message" : "messages"} after it are removed${undoFiles ? " and the files they changed go back" : ""}, then` : "Then"} the Chat runs again from the edited message.`,
+          detail: prompt,
+        });
+      const latest = chats.turnSettings(chatId) ?? {};
+      const model = latest.model || message.model || lastUserModel({ ...state, messages }, session.id);
+      if (!model) throw Error("Choose a model for this Chat before editing it");
+      const result = await invoke("chat:edit", [
+        {
+          ...latest,
+          projectPath,
+          sessionId: session.id,
+          worktreeId: session.worktree_id,
+          messageId,
+          body: prompt,
+          prompt,
+          images: [],
+          files: [],
+          keepAttachments: true,
+          provider: session.provider ?? latest.provider ?? "claude",
+          model,
+          permissionMode: latest.permissionMode ?? session.permissionMode ?? "ask",
+          undoFiles: undoFiles ? {} : null,
+        },
+      ]);
+      return { chatId: `${projectPath}#${result.sessionId}`, removed };
+    },
     async forkChat({ projectPath, chatId, messageId }, operationId, assertActive) {
       const { session } = await chat(projectPath, chatId);
       assertActive();

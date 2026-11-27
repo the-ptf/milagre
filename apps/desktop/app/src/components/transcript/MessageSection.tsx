@@ -19,7 +19,7 @@ import { parseDesignFeedback } from "@milagre/shared/artifact";
 import type { LimitResume, ImageAttachment } from "../../model";
 import { reportMarker } from "@milagre/shared/subchat-states";
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
-import { GitForkIcon, Undo02Icon } from "@hugeicons/core-free-icons";
+import { GitForkIcon, PencilEdit02Icon, Undo02Icon } from "@hugeicons/core-free-icons";
 import type { RoutineRunContext } from "@milagre/shared/model";
 import type { AgentCliStatus, ChatMessage as AppChatMessage, ChatStep, ModelOption, ModelProvider } from "../../model";
 import { Attachments } from "../Attachments";
@@ -56,6 +56,8 @@ import { RoutineRunDivider } from "../RoutineRunDivider";
 import { CompactionDivider } from "../CompactionDivider";
 import { CheckpointRestoreDivider } from "../CheckpointRestoreDivider";
 import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
+import { canEditMessage, isMessageEdit } from "@milagre/shared/message-edit";
+import { MessageEditDivider } from "../MessageEditDivider";
 import { isValidation } from "@milagre/shared/validation";
 import { ValidationCard } from "./ValidationCard";
 import { type UndoIntent } from "../checkpoints/UndoPanel";
@@ -291,8 +293,13 @@ type MessageSectionProps = {
   undoDisabled?: boolean;
   onUndo?: (checkpointId: string) => void;
   onFork?: (messageId: number) => void;
+  onEdit?: (messageId: number) => void;
   onSettle?: (snoozeUntil?: number) => void;
   highlighted?: boolean;
+  /** Editing this message: the next send replaces it. */
+  editing?: boolean;
+  /** After the message being edited: removed when the edit is sent. */
+  dimmed?: boolean;
   onCheckpointPreview?: (recoveryId: string, action: UndoIntent) => void;
   validationChat?: string | null;
   onRecommendationSelect: (option: string) => void;
@@ -312,6 +319,14 @@ type MessageSectionProps = {
 };
 
 function messageDivider(
+  message: AppChatMessage,
+  options: Pick<MessageSectionProps, "models" | "merged" | "onCheckpointPreview" | "onOpenChat" | "dimmed" | "validationChat" | "onRecommendationSelect">,
+) {
+  const divider = dividerFor(message, options);
+  return divider && options.dimmed ? <div className="opacity-40">{divider}</div> : divider;
+}
+
+function dividerFor(
   message: AppChatMessage,
   {
     models,
@@ -350,6 +365,7 @@ function messageDivider(
   if (isOrchestratorAnswer(message)) return <OrchestratorAnswerLine summaries={message.context.summaries ?? [message.context.summary]} />;
   if (isRoutineRun(message)) return <RoutineRunDivider context={message.context} merged={merged} />;
   if (isCheckpointRestore(message)) return <CheckpointRestoreDivider context={message.context} onPreview={onCheckpointPreview} />;
+  if (isMessageEdit(message)) return <MessageEditDivider context={message.context} onPreview={onCheckpointPreview} />;
   if (isValidation(message))
     return <ValidationCard context={message.context} chatId={validationChat} onAskToFix={validationChat ? onRecommendationSelect : undefined} />;
   return null;
@@ -400,7 +416,7 @@ function userCards(message: AppChatMessage, isUser: boolean, linked: Linked) {
 
 type UserCards = ReturnType<typeof userCards>;
 
-function bodyClass(cards: UserCards, isUser: boolean, highlighted: boolean) {
+function bodyClass(cards: UserCards, isUser: boolean, highlighted: boolean, editing: boolean) {
   const shape = cards.advisor
     ? "w-full rounded-window"
     : cards.bubble
@@ -410,7 +426,7 @@ function bodyClass(cards: UserCards, isUser: boolean, highlighted: boolean) {
         : isUser
           ? "relative rounded-card border border-line px-3 py-2"
           : "";
-  return `min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.6] text-ink ${shape} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`;
+  return `min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.6] text-ink ${shape} ${highlighted || editing ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`;
 }
 
 function BubbleActions({
@@ -421,6 +437,7 @@ function BubbleActions({
   undoDisabled,
   onUndo,
   onFork,
+  onEdit,
 }: {
   message: AppChatMessage;
   copyUser: boolean;
@@ -429,9 +446,23 @@ function BubbleActions({
   undoDisabled: boolean;
   onUndo?: (checkpointId: string) => void;
   onFork?: (messageId: number) => void;
+  onEdit?: () => void;
 }) {
   return (
     <div className="absolute top-[3px] right-full mr-1.5 flex opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+      {onEdit && (
+        <Tooltip label="Edit message" align="end">
+          <button
+            type="button"
+            data-edit-message={message.id}
+            aria-label="Edit message"
+            onClick={onEdit}
+            className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
+          >
+            <Icon icon={PencilEdit02Icon} size={14} />
+          </button>
+        </Tooltip>
+      )}
       {undoId && onUndo && (
         <Tooltip
           label={undoDisabled ? "Wait for the task to finish" : "Undo changes"}
@@ -642,13 +673,16 @@ export const MessageSection = memo(function MessageSection({
   undoDisabled = false,
   onUndo,
   onFork,
+  onEdit,
   onSettle,
   highlighted = false,
+  editing = false,
+  dimmed = false,
   onCheckpointPreview,
   validationChat,
 }: MessageSectionProps) {
   const mentions = usePromptMentions(message, isUser);
-  const divider = messageDivider(message, { models, merged, onCheckpointPreview, onOpenChat, validationChat, onRecommendationSelect });
+  const divider = messageDivider(message, { models, merged, onCheckpointPreview, onOpenChat, validationChat, onRecommendationSelect, dimmed });
   if (divider) return divider;
   const linked = linkedContext(message);
   const linkedArticle = linkedLineArticle(message, isUser, linked, { exchange, onOpenChat });
@@ -657,6 +691,7 @@ export const MessageSection = memo(function MessageSection({
   const { advisor, bubble, pageFeedback, feedback } = cards;
   const copyUser = (bubble || (isUser && linked)) && !advisor && Boolean(message.body.trim()) && !onlyImageMentions(message.body, message.images?.length ?? 0);
   const forkThis = forkAction(onFork, message.id, streaming);
+  const editThis = editAction(onEdit, message, bubble, streaming);
   return (
     <article
       id={`message-${message.id}`}
@@ -665,7 +700,8 @@ export const MessageSection = memo(function MessageSection({
       data-provider={!isUser && message.model ? providerForId(message.model) : undefined}
       data-linked={linked?.kind}
       data-streaming={streaming || undefined}
-      className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-slow ${bubble ? bubbleGutter(copyUser, undoId, onUndo, forkThis) : cards.card ? "items-end pl-12" : ""}`}
+      {...editState(editing, dimmed)}
+      className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-slow ${articleLayout(cards, dimmed, [copyUser, undoId && onUndo, forkThis, editThis])}`}
       style={animate ? { animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" } : undefined}
     >
       {linked && (
@@ -678,8 +714,8 @@ export const MessageSection = memo(function MessageSection({
           )}
         </div>
       )}
-      <div data-user-bubble={bubble || undefined} className={bodyClass(cards, isUser, highlighted)}>
-        {bubble && bubbleActionsAvailable(copyUser, undoId, onUndo, forkThis) && (
+      <div data-user-bubble={bubble || undefined} className={bodyClass(cards, isUser, highlighted, editing)}>
+        {bubbleActionsShown(cards, editing, [copyUser, undoId && onUndo, forkThis, editThis]) && (
           <BubbleActions
             message={message}
             copyUser={Boolean(copyUser)}
@@ -688,6 +724,7 @@ export const MessageSection = memo(function MessageSection({
             undoDisabled={undoDisabled}
             onUndo={onUndo}
             onFork={onFork}
+            onEdit={editThis}
           />
         )}
         <Attachments
@@ -735,11 +772,19 @@ export const MessageSection = memo(function MessageSection({
 function forkAction(onFork: MessageSectionProps["onFork"], id: number, streaming: boolean) {
   return onFork && !streaming && id > 0 ? () => onFork(id) : undefined;
 }
-function bubbleActionsAvailable(copy: unknown, undoId: unknown, undo: unknown, fork: unknown) {
-  return Boolean(copy || (undoId && undo) || fork);
+function editAction(onEdit: MessageSectionProps["onEdit"], message: AppChatMessage, bubble: boolean, streaming: boolean) {
+  return bubble && onEdit && !streaming && canEditMessage(message) ? () => onEdit(message.id) : undefined;
+}
+function editState(editing: boolean, dimmed: boolean) {
+  return { "data-editing": editing || undefined, "data-dimmed": dimmed || undefined };
+}
+function bubbleActionsShown(cards: UserCards, editing: boolean, actions: unknown[]) {
+  return cards.bubble && !editing && actions.some(Boolean);
 }
 
-function bubbleGutter(copy: unknown, undoId: unknown, undo: unknown, fork: unknown) {
-  const count = Number(Boolean(copy)) + Number(Boolean(undoId && undo)) + Number(Boolean(fork));
-  return count >= 3 ? "items-end pl-24" : count >= 2 ? "items-end pl-18" : "items-end pl-12";
+// The bubble's gutter leaves room for its hover actions: Edit, Undo changes, Fork and Copy.
+function articleLayout(cards: UserCards, dimmed: boolean, actions: unknown[]) {
+  const count = actions.filter(Boolean).length;
+  const gutter = count >= 4 ? "pl-30" : count >= 3 ? "pl-24" : count >= 2 ? "pl-18" : "pl-12";
+  return `${dimmed ? "opacity-40" : ""} ${cards.bubble ? `items-end ${gutter}` : cards.card ? "items-end pl-12" : ""}`;
 }

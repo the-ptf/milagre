@@ -52,6 +52,8 @@ import { composerQuote, quotedMessage, quoteSource, type ComposerQuote } from "@
 import type { QuoteFrom } from "../message-actions";
 import { useReachableHost } from "../routes-native";
 import { sameSession, useComposer, useMainSession, usePendingChats, useRunShape, useSession } from "../session";
+import { useChatEdit } from "../use-chat-edit";
+import { checkpointLine } from "../message-edit-divider";
 import { ChatComposerDock } from "../chat-composer-dock";
 import { useTaskEffort } from "../use-orchestrator";
 import { ChatsTrayLabel, IssueButton, NewChatTray } from "../new-chat-tray";
@@ -96,8 +98,6 @@ import { WorktreeLinkDivider } from "../worktree-link-divider";
 import { AccountSwitchDivider, LimitResetDivider } from "../account-switch-divider";
 import { ChatReloadDivider } from "../chat-reload-divider";
 import { BabysitStoppedDivider } from "../babysit-stopped-divider";
-import { CheckpointRestoreDivider } from "../checkpoint-restore-divider";
-import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
 import { ValidationCard, isValidation } from "../validation-card";
 import { useCheckpoints } from "@milagre/shared/use-checkpoints";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
@@ -547,6 +547,7 @@ function ChatPane({
   });
   const remote = lean && (!pending || pendingCanonicalId !== null) ? Math.max(0, historyPage.total - historyPage.messages.length) : 0;
   const history = chatHistory(messages);
+  const edit = useChatEdit(session, params.id, messages, liveRun, pending);
   const { liveSteps, onLiveSteps } = useLiveSteps();
   const chosen = useMemo(() => chosenDesign(history.userBodies), [history.userBodies]);
   const designChoice = chosen ? `${chosen.id}:${chosen.version}` : undefined;
@@ -913,6 +914,7 @@ function ChatPane({
   const ultracodeOn = model.ultracode && !!preferences.ultracode;
   const worktreeId = chat?.worktree_id ?? Number(params.worktreeId);
   const worktree = project.state.worktrees[worktreeId];
+  const previewRecovery = (id: string, intent: UndoIntent) => void (setUndoIntent(intent), undo.inspect(id));
   function openPr(number = pr?.number, page?: "threads", memberCwd?: string) {
     if (!number || !worktree) return false;
     const cwd = project.link ? (memberCwd ?? prChoices.find((choice) => choice.number === number)?.cwd) : undefined;
@@ -1838,6 +1840,7 @@ function ChatPane({
     <ChatComposerDock
       settle={settle}
       btw={<BtwDock btw={btw} chatId={chatId} setQuotes={composer.setQuotes} focus={() => setComposerFocusRequest((value) => value + 1)} />}
+      editing={edit.card}
       column={column}
       padding={dockPadding}
       onRoom={attachPanelRooms}
@@ -1926,11 +1929,11 @@ function ChatPane({
         ultracodeOn,
         picking,
         busy,
-        sendBlocked,
         running: Boolean(run),
         offline,
         actionBusy,
         sendLabel: busy ? "Sending…" : offline ? "Queue message" : run ? (queuesFollowUp ? "Queue message" : "Send now") : "Send message",
+        ...edit.composer(sendBlocked),
         chats: mentionChats,
         computers: mentionComputers,
         currentId: chat?.id,
@@ -1949,7 +1952,7 @@ function ChatPane({
         commands: chat && !chat.readOnlyReason ? CHAT_COMMANDS : STORAGE_COMMANDS,
         placeholder: composerPlaceholder({ offline, computerName, running: Boolean(run), queuesFollowUp, chatsHome: chatsHomeOpen && !params.id }),
         focusRequest: composerFocusRequest,
-        onSend: () => void send(),
+        onSend: () => void (edit.editing ? edit.send({ projectPath: project.path, worktreeId, model, preferences }) : send()),
         onSendStay: () => void send(undefined, true, undefined, undefined, true),
         onStop: () => void action(() => client.call("agent:interrupt", [chatId]), true),
         onFocus: () => {
@@ -2122,6 +2125,7 @@ function ChatPane({
                           <View
                             key={message.clientMessageId ?? message.id}
                             nativeID={`chat-message-${message.id}`}
+                            style={edit.dimmed(message)}
                             onLayout={({ nativeEvent: { layout } }) => {
                               messagePositions.current.set(message.id, layout.y);
                               const anchor = historyAnchor.current;
@@ -2140,6 +2144,7 @@ function ChatPane({
                           >
                             {renderSubchatNote(message) ??
                               renderLinkedLine(message, exchange) ??
+                              checkpointLine(message, run || chat?.readOnlyReason ? undefined : previewRecovery) ??
                               (isHandoff(message) ? (
                                 <HandoffDivider context={message.context} models={handoffModels} onOpen={openBrief} />
                               ) : isWorktreeLinked(message) ? (
@@ -2163,18 +2168,6 @@ function ChatPane({
                                   call={client?.call.bind(client)}
                                   onAskToFix={(text) => void send(text, false)}
                                 />
-                              ) : isCheckpointRestore(message) ? (
-                                <CheckpointRestoreDivider
-                                  context={message.context}
-                                  onPreview={
-                                    run || chat?.readOnlyReason
-                                      ? undefined
-                                      : (recoveryId, intent) => {
-                                          setUndoIntent(intent);
-                                          void undo.inspect(recoveryId);
-                                        }
-                                  }
-                                />
                               ) : (
                                 <>
                                   {issueRunDivider(message, merged)}
@@ -2196,7 +2189,7 @@ function ChatPane({
                                         : undefined
                                     }
                                     onActivity={openActivity}
-                                    highlighted={message.id === undoHighlight}
+                                    {...edit.row(message, message.id === undoHighlight, chat, offline)}
                                     onOpenChat={onOpenFamilyChat}
                                   />
                                 </>

@@ -24,6 +24,7 @@ import { promptAccessibilityLabel } from "./prompt-label";
 import { useSkillNames } from "./use-skill-names";
 import { Markdown } from "./markdown";
 import { MessageActions, messageActionProps, selectableMessageText } from "./message-actions";
+import { canEditMessage } from "@milagre/shared/message-edit";
 import { SentQuote } from "./quote-chips";
 import { Icon } from "./icons";
 import { isOrchestratorAnswer } from "@milagre/shared/orchestrator";
@@ -345,6 +346,7 @@ type ChatReplyProps = {
   message?: ChatMessage;
   onOpenChat?: (chatKey: string) => void;
   onFork?: (messageId: number) => void;
+  onEdit?: (messageId: number) => void;
   highlighted?: boolean;
   run?: AgentRun;
   onActivity: (message: string, stepId?: string) => void;
@@ -376,6 +378,7 @@ export const ChatReply = memo(function ChatReply({
   highlighted = false,
   onOpenChat,
   onFork,
+  onEdit,
 }: ChatReplyProps) {
   const { colors, textPx } = useTheme();
   const styles = useStyles();
@@ -395,6 +398,7 @@ export const ChatReply = memo(function ChatReply({
   const limit = !run && message?.role === "assistant" ? usageLimitOf(message) : null;
   const advisor = typeof message?.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
   const linked = linkedContext(message);
+  const editThis = editAction(onEdit, message, run, [feedback, pageComments]);
   if (typeof message?.context === "object" && message.context?.kind === "chat-fork") {
     const context = message.context;
     return <TranscriptDivider icon={GitForkIcon} label={`Forked from ${context.title}`} onPress={() => onOpenChat?.(context.from)} />;
@@ -468,7 +472,7 @@ export const ChatReply = memo(function ChatReply({
         ) : (
           !!text &&
           !onlyImageMentions(text, userImages) && (
-            <MessageActions text={userText} from="user">
+            <MessageActions text={userText} from="user" onEdit={editThis}>
               {(openActions, swap) => (
                 <View
                   style={{
@@ -490,7 +494,7 @@ export const ChatReply = memo(function ChatReply({
                         selectable={selectableMessageText}
                         accessibilityLabel={promptAccessibilityLabel(parts, (id) => chats.find((chat) => chat.id === id)?.title ?? "Chat")}
                         style={{ color: colors.ink, fontSize: textPx, lineHeight }}
-                        {...messageActionProps(openActions)}
+                        {...messageActionProps(openActions, editThis)}
                       >
                         {parts.map((part, index) =>
                           part.kind === "skill" ? (
@@ -522,7 +526,7 @@ export const ChatReply = memo(function ChatReply({
             </MessageActions>
           )
         )}
-        <MessageToolbar text={userText} message={message} onFork={onFork} align="end" />
+        <MessageToolbar text={userText} message={message} onFork={onFork} onEdit={editThis} align="end" />
       </SendLaunch>
     );
   }
@@ -603,6 +607,11 @@ export const ChatReply = memo(function ChatReply({
 });
 
 /** A Chat's reply row: the reply, or the one-line Pebble note autopilot leaves when it answers for the owner. */
+// The user's own typed message, shown as a bubble (not a design feedback or page comments card), once its turn is saved.
+function editAction(onEdit: ChatReplyProps["onEdit"], message: ChatMessage | undefined, run: AgentRun | undefined, cards: unknown[]) {
+  return onEdit && message && !run && canEditMessage(message) && !cards.some(Boolean) ? () => onEdit(message.id) : undefined;
+}
+
 export const ChatRow = memo(function ChatRow(props: ComponentProps<typeof ChatReply>) {
   const { message } = props;
   return message && isOrchestratorAnswer(message) ? (

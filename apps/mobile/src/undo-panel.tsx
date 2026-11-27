@@ -194,7 +194,7 @@ export function UndoPanel({
   );
 }
 
-function FileRow({
+export function FileRow({
   file,
   readOnly = false,
   intent,

@@ -430,6 +430,7 @@ async function browserChecks() {
     );
     assert.ok(await evaluate('document.querySelector("[data-new-chat-heading]").textContent.includes("Start building in")'), "The new Chat names its Project");
     assert.ok(await evaluate('!document.querySelector("[aria-label=Conversation]")'), "The search waits in the composer, unsent");
+    await waitFor('document.activeElement.matches("[data-prompt-editor]")');
     await screenshot("palette-started-chat.png");
     await evaluate("window.hideWebsite = true");
     await evaluate('document.querySelector("[data-new-chat-project]").click()');

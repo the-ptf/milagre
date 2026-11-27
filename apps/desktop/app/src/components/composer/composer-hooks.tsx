@@ -140,10 +140,12 @@ export function useUndoFlow({ runtimeChat, isSending, readOnlyHistory, offlineNa
       ),
     [checkpointItems],
   );
-  const openUndo = useEvent(() => {
-    if (readOnlyHistory) return;
+  const viewCheckpoints = useEvent(() => {
     setUndoIntent("Undo");
     void review.open();
+  });
+  const openUndo = useEvent(() => {
+    if (!readOnlyHistory) viewCheckpoints();
   });
   const undoTask = useEvent((id: string) => {
     if (readOnlyHistory) return;
@@ -195,5 +197,15 @@ export function useUndoFlow({ runtimeChat, isSending, readOnlyHistory, offlineNa
     window.addEventListener("keydown", onEscape);
     return () => window.removeEventListener("keydown", onEscape);
   }, [runtimeChat, offlineName, onEscape]);
-  return { review, undoIntent, setUndoIntent, highlightId, setHighlightId, undoable, openUndo, undoTask, previewRecovery };
+  return {
+    review,
+    undoIntent,
+    onViewCheckpoints: readOnlyHistory && runtimeChat ? viewCheckpoints : undefined,
+    highlightId,
+    setHighlightId,
+    undoable,
+    openUndo,
+    undoTask,
+    previewRecovery,
+  };
 }

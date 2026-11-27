@@ -44,7 +44,7 @@ export function chatActivity(
 ): ChatActivity;
 export function backgroundLabel(count: number): string;
 export function plainTaskOutput(text: string | undefined): string;
-export function backgroundBusyMessage(action: "switch" | "reload" | "move", count: number, to?: string): string;
+export function backgroundBusyMessage(action: "switch" | "reload" | "edit" | "move", count: number, to?: string): string;
 export function notificationPreview(previous: string | undefined, text: string, startsMessage?: boolean): string;
 export function holdsAnnouncement(task: Pick<BackgroundTask, "kind"> | undefined): boolean;
 

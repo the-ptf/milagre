@@ -12,6 +12,18 @@ const validate = markdown.validateLink.bind(markdown);
 markdown.validateLink = (value) => /^file:/i.test(value) || validate(value);
 const mimeTypes = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif" };
 
+async function queuedImages(images = []) {
+  const read = await Promise.all(
+    images.map(async (image) => {
+      const mime = mimeTypes[path.extname(image.path ?? "").toLowerCase()];
+      if (!mime) return image.dataUrl ? image : null;
+      const bytes = await fs.readFile(image.path).catch(() => null);
+      return bytes ? { id: image.id, name: image.name, dataUrl: `data:${mime};base64,${bytes.toString("base64")}` } : null;
+    }),
+  );
+  return read.filter(Boolean);
+}
+
 function localPath(source, cwd) {
   try {
     if (/^file:/i.test(source)) return fileURLToPath(source);
@@ -134,4 +146,4 @@ class ChatImages {
     return null;
   }
 }
-module.exports = { ChatImages, imagePaths };
+module.exports = { queuedImages, ChatImages, imagePaths };

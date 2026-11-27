@@ -24,6 +24,8 @@ import { DiffBar } from "./changes/ChangesChrome";
 import { DiffToolbar, useDiffPreferences } from "./changes/DiffPrefs";
 import { useDiffComments } from "./changes/useDiffComments";
 import { formatCommentsMessage } from "../lib/diff-comments";
+import { useFindInChat } from "../app/useFindInChat";
+import { composerBlock } from "../lib/composer-block";
 import { messageCommands, messageCommandsFrom, messageSearchSource } from "../lib/message-commands";
 import { prefetchChatMessages, useChatMessages } from "../lib/chat-messages";
 import { beginChatSwitch } from "../lib/chat-switch-timing";
@@ -39,7 +41,7 @@ import { chatsNeedingAttention } from "@milagre/shared/attention";
 import { useHiddenProjects } from "../lib/hidden-projects";
 import { getSettings, useSettings } from "../lib/settings";
 import { useChatPins } from "../lib/chat-pins";
-import { projectOfKey } from "@milagre/shared/agent-runs";
+import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import { DotBackground } from "./DotBackground";
@@ -241,10 +243,10 @@ export function LinkWorkspace({
   const fastMode = Boolean(preferences.capability?.fastMode) && composerPrefs.fastMode;
   const imageDraft = usePastedImages(`${owner}:${sessionId ?? "new"}`, owner, queueForComputer(owner));
   const [error, setError] = useState<string | null>(null);
-  const [findOpen, setFindOpen] = useState(false);
-  const [findSignal, setFindSignal] = useState(0);
-  const [findSeed, setFindSeed] = useState<string | undefined>();
-  const pendingFind = useRef<{ sessionId: number; term: string } | null>(null);
+  const block = composerBlock(session, {
+    runPane: false,
+    restore: (id) => void bridge.patchChat(owner, id, { archived: false }).catch((error) => setError(ipcErrorMessage(error))),
+  });
   const [memberId, setMemberId] = useState<string>("");
   const [gitMemberId, setGitMemberId] = useState("");
   const [gitDialog, setGitDialog] = useState<{ sessionId: number; member: WorktreeBinding } | null>(null);
@@ -336,6 +338,34 @@ export function LinkWorkspace({
     const model = preferences.modelForChat(chatId, session?.provider, messages);
     if (model.id !== preferences.selectedModel.id) preferences.showModel(model);
   }, [chatId, session?.provider, messages, preferences.models]);
+  function selectChat(id: number | null) {
+    if (id !== sessionId) onPickChat?.();
+    if (id !== null && Number.isSafeInteger(id) && id > 0 && id !== sessionId) {
+      if (lean) prefetchChatMessages(owner, id);
+      beginChatSwitch(chatKeyForScope(scope, id));
+    }
+    latest.current.selection++;
+    drafts.newSelection(scope);
+    setCanvasOpen(false);
+    setSessionId(id);
+    if (id === null) setDraftId((id) => id + 1);
+    imageDraft.clear();
+    setError(null);
+    setMemberId("");
+    changes.closeDiff();
+  }
+  function pick(id: number | null) {
+    selectChat(id);
+    setFindOpen(false);
+  }
+  const { findOpen, setFindOpen, findSignal, findSeed, openFind, openMessage } = useFindInChat({
+    canOpen: !canvasOpen,
+    shownSessionId: sessionId ?? undefined,
+    shownProjectPath: owner,
+    messageCount: messages.length,
+    openChat: selectChat,
+    openChatKey: (key) => onCanvasChat(projectOfKey(key), sessionIdFromKey(key)),
+  });
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
       if (event.defaultPrevented || event.isComposing || appShortcutsBlocked()) return;
@@ -356,7 +386,6 @@ export function LinkWorkspace({
         event.preventDefault();
         if (onNewChat) onNewChat();
         else {
-          // oxlint-disable-next-line react/immutability -- pick is a function declaration, called from the key handler later
           pick(null);
           document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
         }
@@ -371,9 +400,7 @@ export function LinkWorkspace({
       }
       if (command === "chat.find") {
         event.preventDefault();
-        setFindSeed(undefined);
-        setFindOpen(true);
-        setFindSignal((value) => value + 1);
+        openFind();
       }
       if (event.key !== "Escape") return;
       if (findOpen) {
@@ -393,23 +420,6 @@ export function LinkWorkspace({
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
   }, [chatId, run, findOpen, session, changes.toggle, canvasOpen, terminalChatId, onNewChat]);
-  function pick(id: number | null) {
-    if (id !== sessionId) onPickChat?.();
-    if (id !== null && Number.isSafeInteger(id) && id > 0 && id !== sessionId) {
-      if (lean) prefetchChatMessages(owner, id);
-      beginChatSwitch(chatKeyForScope(scope, id));
-    }
-    latest.current.selection++;
-    drafts.newSelection(scope);
-    setCanvasOpen(false);
-    setSessionId(id);
-    if (id === null) setDraftId((id) => id + 1);
-    imageDraft.clear();
-    setError(null);
-    setMemberId("");
-    changes.closeDiff();
-    setFindOpen(false);
-  }
   useEffect(() => {
     const settings = getSettings();
     void window.milagre
@@ -556,23 +566,6 @@ export function LinkWorkspace({
     } finally {
       sendsInFlight.current.delete(sendKey);
     }
-  }
-  useEffect(() => {
-    const pending = pendingFind.current;
-    if (!pending || sessionId !== pending.sessionId || !messages.length) return;
-    pendingFind.current = null;
-    setFindSeed(pending.term);
-    setFindOpen(true);
-    setFindSignal((value) => value + 1);
-  }, [sessionId, messages.length]);
-  function openMessage(id: number, term: string) {
-    pendingFind.current = { sessionId: id, term };
-    if (id === sessionId) {
-      setFindSeed(term);
-      setFindOpen(true);
-      setFindSignal((value) => value + 1);
-      pendingFind.current = null;
-    } else pick(id);
   }
   const recents = scopeChats(owner, state, chatOrder, runMarks, { pins }).filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))));
   const recentTitles = new Map(recents.map((row) => [Number(row.id), row.label]));
@@ -776,8 +769,9 @@ export function LinkWorkspace({
                         onStop={chatId && run ? () => void agents.interrupt(chatId) : undefined}
                         isSending={Boolean(run && !approval && !question) || (pendingHere && !run)}
                         readOnlyHistory={!!session?.readOnlyReason}
-                        sendBlocked={preparing || !!session?.readOnlyReason}
-                        composerNote={session?.readOnlyReason}
+                        sendBlocked={preparing || block.blocked}
+                        composerNote={block.note}
+                        onRestoreChat={block.restore}
                         offlineName={offline ? computerNameOf(computerOfKey(owner)) : null}
                         offlineTray={
                           offlineTray.shown ? (

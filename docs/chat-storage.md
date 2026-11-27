@@ -95,6 +95,8 @@ Captured: tracked and non-ignored untracked files. Excluded: links, Git and Mila
 
 Users add exclusions in `.milagre/checkpoint-ignore` per Worktree: one relative glob per line, `#` comments, exclusion only (no negation), `path/**` for directories. Name checks can't catch every secret, so this file is the way to keep one out.
 
+Editing a sent message replaces it and removes later messages from the shared transcript. Optional file undo combines the removed tasks' checkpoints. Each file returns to its state before the first removed task that changed it. The host checks the file preview again on Send so a later edit requires a new choice. Redo recovers files only.
+
 Checkpoints are local recovery data with no retention limit yet, not a backup.
 
 ## Validation

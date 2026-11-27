@@ -15,7 +15,10 @@ import type { LinearIssueContext } from "./linear.ts";
 import type { ValidationContext } from "./validation.mjs";
 import type { CheckpointRestoreContext } from "./checkpoint-restore.mjs";
 
-export type { CheckpointRestoreContext, GithubIssueContext, LinearIssueContext, ValidationContext };
+import type { HandoffContext } from "./handoff.mjs";
+import type { MessageEditContext } from "./message-edit.mjs";
+export type { ChatEditRequest, MessageEditContext } from "./message-edit.mjs";
+export type { HandoffContext, CheckpointRestoreContext, GithubIssueContext, LinearIssueContext, ValidationContext };
 
 export type SessionStatus = "Created" | "Running" | "Stopped";
 export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro" | "pi";
@@ -343,6 +346,8 @@ export interface ChatMessage {
   detailFile?: string;
   operationId?: string;
   answered?: AnsweredQuestion[];
+  /** The host's handle on this message in the provider's own session, so editing it can rewind there. */
+  native?: { provider: ModelProvider; prompt?: string; turn?: string; steered?: boolean };
 }
 
 /** One question the user answered, as their message keeps it. A typed answer to a secret question is masked. */
@@ -351,15 +356,6 @@ export interface AnsweredQuestion {
   question: string;
   answers: string[];
 }
-
-export type HandoffContext = {
-  kind: "handoff";
-  from: { provider: ModelProvider; model?: string };
-  to: { provider: ModelProvider; model?: string };
-  status: "preparing" | "done" | "failed";
-  brief?: string;
-  transcriptPath?: string;
-};
 
 /**
  * A manual or automatic compaction, shown as a divider like a handoff. A manual request keeps `/compact` as its body;
@@ -722,6 +718,7 @@ export type BabysitStoppedContext = {
 
 export type ChatContext =
   | { kind: "chat-fork"; from: string; title: string; messageId?: number }
+  | MessageEditContext
   | AdvisorResultContext
   | WorktreeLinkedContext
   | LinkedContext
