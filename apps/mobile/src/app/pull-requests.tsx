@@ -1,3 +1,4 @@
+import { useReviewAgent } from "../review-agent";
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Linking, Platform, RefreshControl, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
@@ -39,13 +40,13 @@ const EMPTY_TEXT = {
   all: "No pull requests in your Projects' repositories",
 };
 
-function open(row: PullRequestRow) {
+function open(row: PullRequestRow, reviewHost?: string) {
   const project = row.projects.find((entry) => entry.computerId === row.computerId) ?? row.projects[0];
   if (!project) {
     void Linking.openURL(row.url).catch(() => {});
     return;
   }
-  openPullRequest({ host: project.computerId, cwd: project.cwd, number: String(row.number), projectName: project.name, projectPath: project.path });
+  openPullRequest({ reviewHost, host: project.computerId, cwd: project.cwd, number: String(row.number), projectName: project.name, projectPath: project.path });
 }
 
 export default function PullRequestsScreen() {
@@ -58,7 +59,8 @@ export default function PullRequestsScreen() {
   const [error, setError] = useState("");
   const [sending, setSending] = useState<ReadonlySet<string>>(() => new Set());
   const [toast, setToast] = useState<{ id: string } | null>(null);
-  const data = usePullRequests(settings.filters.state);
+  const { enabled: report } = useReviewAgent(session.client);
+  const data = usePullRequests(settings.filters.state, !!report);
   const now = useActivityClock(true);
   const bottomInset = useSearchBottomInset();
   const orchestrator = useOrchestrator(session.client);
@@ -90,7 +92,7 @@ export default function PullRequestsScreen() {
     setError("");
     setSending((current) => new Set(current).add(row.url));
     try {
-      const task = await store.send(reviewPrompt(row));
+      const task = await store.send(reviewPrompt(row, { report: !!report }));
       if (Platform.OS === "ios") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       if (task?.id) setToast({ id: task.id });
     } catch (failure) {
@@ -171,7 +173,8 @@ export default function PullRequestsScreen() {
                         }
                       : null
                   }
-                  onOpen={() => open(row)}
+                  findings={row.state === "OPEN" ? data.counts?.get(row.url) : undefined}
+                  onOpen={() => open(row, data.counts?.get(row.url)?.source)}
                 />
               ))}
             </Group>

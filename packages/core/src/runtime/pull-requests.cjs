@@ -1,6 +1,7 @@
 const { createPullRequestReader, listOpenPullRequests, readPullRequests } = require("../pull-request.cjs");
 const { createPullRequestWatch } = require("../pull-request-watch.cjs");
 const { createPullRequestList } = require("../pull-request-list.cjs");
+const { registerPrReviews } = require("../pr-reviews.cjs");
 
 /** The recent Projects the sidebar shows, with their `origin` remotes: the repositories the Pull requests page lists. */
 async function pullRequestProjects(commands) {
@@ -10,7 +11,7 @@ async function pullRequestProjects(commands) {
 
 const chatTitleOf = (session) => session.title || session.generatedTitle || session.summary?.titleLine || "Chat";
 
-function registerPullRequests({ commands, options, states, emit, environmentReady }) {
+function registerPullRequests({ commands, options, states, emit, environmentReady }, services) {
   const injectedPullRequests = Boolean(options.readPullRequest || options.readPullRequests);
   const readPullRequest = options.readPullRequest ?? createPullRequestReader();
   const pullRequestWatch = injectedPullRequests
@@ -105,6 +106,44 @@ function registerPullRequests({ commands, options, states, emit, environmentRead
     await environmentReady;
     return pullRequestList.checksOf({ repo: request?.repo, number: request?.number });
   });
+  const reviews = registerPrReviews({
+    commands,
+    dataDir: options.dataDir,
+    emit,
+    sendFix: async (review, body, clientMessageId) => {
+      const { projectOfKey, sessionIdFromKey, lastUserModel } = require("@milagre/shared/agent-runs");
+      const author = chatsByUrl()
+        .get(review.url)
+        ?.find((chat) => `${chat.projectPath}#${chat.chatId}` !== review.chatId);
+      const projectPath = author?.projectPath ?? (review.chatId && projectOfKey(review.chatId));
+      const sessionId = author?.chatId ?? (review.chatId && sessionIdFromKey(review.chatId));
+      if (!projectPath || !sessionId) throw new Error("No Chat is available for this pull request.");
+      const state = await states.load(projectPath, [sessionId]);
+      const session = state.sessions[sessionId];
+      if (!session || session.archived || session.formerWorktree || session.readOnlyReason) throw new Error("This Chat is unavailable.");
+      const saved = services().chats.turnSettings(`${projectPath}#${sessionId}`) ?? {};
+      await commands.get("chat:send")(
+        {},
+        {
+          projectPath,
+          sessionId,
+          worktreeId: session.worktree_id,
+          provider: session.provider ?? saved.provider,
+          model: lastUserModel(state, sessionId) || saved.model,
+          permissionMode: session.permissionMode ?? saved.permissionMode ?? "ask",
+          effort: saved.effort,
+          delivery: "queue",
+          body,
+          prompt: body,
+          files: [],
+          images: [],
+          clientMessageId,
+        },
+      );
+    },
+    babysit: () => async (url, findings) => Boolean(services().routines?.reviewFindings?.(url, findings)),
+  });
+  commands.handle("pr-reviews:report", (_event, report, chatId) => reviews.report(report, typeof chatId === "string" ? chatId : null));
   return {
     watching: Boolean(pullRequestWatch),
     poke: (folder) => pullRequestWatch?.poke(folder),

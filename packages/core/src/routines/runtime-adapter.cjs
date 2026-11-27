@@ -12,6 +12,7 @@ const { createRoutineStore } = require("./store.cjs");
 const { createGitActions } = require("../git-actions.cjs");
 const { readPullRequestState } = require("../pull-request.cjs");
 const { createRoutineScheduler, linearPrompt, schedulePrompt } = require("./scheduler.cjs");
+const { babysitReviewFindings } = require("./review-findings.cjs");
 const { createRoutineTools } = require("./tools.cjs");
 const { routineTargets } = require("./targets.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
@@ -741,10 +742,7 @@ function createRoutines({
       prPoller.start();
     },
     tick: () => scheduler.tick(),
-    idle: async () => {
-      await scheduler.idle();
-      await sweepsIdle();
-    },
+    idle: () => scheduler.idle().then(sweepsIdle),
     stop() {
       scheduler.stop();
       poller.stop();
@@ -770,6 +768,7 @@ function createRoutines({
       await keepTarget(routine);
       return routine;
     },
+    reviewFindings: (url, findings) => babysitReviewFindings({ store, scheduler, now }, url, findings),
     async create(input) {
       if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");
       const target = await checkTarget(input.target);

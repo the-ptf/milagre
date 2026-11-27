@@ -84,6 +84,7 @@ function createLocalMcpWiring({
     },
   });
   localMcpHost.pullRequests = (request) => handlers.get("pull-requests:list")(null, request);
+  localMcpHost.reviewReport = (report, chatId) => handlers.get("pr-reviews:report")(null, report, chatId);
   Object.assign(
     localMcpHost,
     require("../orchestrator/mcp.cjs").orchestratorMcpMethods({
