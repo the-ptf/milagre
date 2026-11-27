@@ -8,7 +8,7 @@ export const PHONE_TERMINALS = "terminals";
 /** A Link's Chats share one tab set: phone snapshots give each Link Chat a Worktree of its own, so tabs key the Link instead. */
 export const LINK_TABS = "link";
 /** A Chat in the Project folder keeps a tab set of its own, as it keeps a row of its own in the Chat list. */
-export type ChatTabs = `chat:${number}`;
+type ChatTabs = `chat:${number}`;
 export type TabScope = number | typeof LINK_TABS | ChatTabs;
 const chatTabs = (chatId: number): ChatTabs => `chat:${chatId}`;
 const ownerOf = (scope: TabScope) => (typeof scope === "string" && scope !== LINK_TABS ? Number(scope.slice("chat:".length)) : undefined);

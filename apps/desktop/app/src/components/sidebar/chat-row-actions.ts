@@ -92,7 +92,7 @@ export const isRowOf = (row: Pick<SidebarRecent, "id" | "tabChats">, chatId: str
   row.id === chatId || (chatId !== null && !!row.tabChats?.includes(chatId));
 
 /** A row's Chat and the Chats folded into it, for actions that cover the whole Worktree. */
-export const rowChats = (row: Pick<SidebarRecent, "id" | "tabChats"> | undefined, id: string) => [id, ...(row?.tabChats ?? [])];
+const rowChats = (row: Pick<SidebarRecent, "id" | "tabChats"> | undefined, id: string) => [id, ...(row?.tabChats ?? [])];
 
 /** The Chat a folded row opens: the one whose tab (or page) was in front when its Worktree was last shown, else its own. */
 export function frontChat(row: Pick<SidebarRecent, "id" | "tabSet" | "tabChats">): string {
