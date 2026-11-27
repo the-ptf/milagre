@@ -48,6 +48,7 @@ const LOCAL_ONLY = new Set([
   "connectors:cancel-sign-in",
   "connectors:call",
   "connectors:move",
+  "email:connect",
 ]);
 const LOCAL_ONLY_PREFIXES = [
   "app:",
@@ -234,6 +235,8 @@ function connectorsBridge(invoke, listen) {
     move: (name) => invoke("connectors:move", name),
     moved: () => invoke("connectors:moved"),
     dismissMoved: () => invoke("connectors:dismiss-moved"),
+    connectEmail: (input) => invoke("email:connect", input),
+    disconnectEmail: (mailbox) => invoke("email:disconnect", mailbox),
     onChanged: (callback) => listen("connectors:changed", callback),
   };
 }

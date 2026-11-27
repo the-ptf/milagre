@@ -15,6 +15,7 @@ const DENIED = new Set([
   "connectors:cancel-sign-in",
   "connectors:call",
   "connectors:move",
+  "email:connect",
 ]);
 
 const peerPolicy = Object.freeze({

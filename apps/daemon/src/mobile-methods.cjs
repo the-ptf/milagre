@@ -44,6 +44,7 @@ const METHODS = new Set([
   "connectors:movable",
   "connectors:moved",
   "connectors:dismiss-moved",
+  "email:disconnect",
   "limits:auto-switch:read",
   "limits:auto-switch:save",
   "limits:resume-at-reset:read",

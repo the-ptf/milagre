@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ConnectorInput, ConnectorMovable, ConnectorSummary, ConnectorUpdate } from "@milagre/shared/connectors";
+import type { ConnectorInput, ConnectorMovable, ConnectorSummary, ConnectorUpdate, EmailConnectInput } from "@milagre/shared/connectors";
 import type { McpAccount, McpProvider } from "@milagre/shared/mcp";
 import type { MilagreBridge } from "../../electron";
 
@@ -90,6 +90,12 @@ export function useConnectors(bridge: MilagreBridge = window.milagre) {
       await bridge.connectLinear({ window: true });
       await refresh();
     },
+    /** Checks a mailbox's sign-in and saves it for the Email connector. Rejects so the sheet can show the problem. */
+    connectEmail: async (input: EmailConnectInput) => {
+      setError("");
+      await bridge.connectors.connectEmail(input);
+    },
+    disconnectEmail: (mailbox: string) => run(() => bridge.connectors.disconnectEmail(mailbox)),
     /** Saves an edit; a new app (Client ID) signs in right after. Rejects so the sheet can show the problem. */
     update: async (id: string, patch: ConnectorUpdate, signInAfter: boolean) => {
       setError("");

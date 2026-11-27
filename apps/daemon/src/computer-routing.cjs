@@ -25,6 +25,7 @@ const LOCAL_ONLY = Object.freeze([
   "connectors:cancel-sign-in",
   "connectors:call",
   "connectors:move",
+  "email:connect",
 ]);
 const LOCAL_ONLY_PREFIXES = Object.freeze([
   "app:",

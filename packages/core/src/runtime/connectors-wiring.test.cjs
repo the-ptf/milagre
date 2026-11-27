@@ -119,7 +119,11 @@ test("Linear workspace access scopes tool listing, lookups and calls from a runn
   const codex = { provider: "codex", accountId: "a" };
   const claude = { provider: "claude", accountId: "a" };
   const access = handlers.get("connectors:access");
-  assert.deepEqual(wired.tools(codex), []);
+  const linearTools = (context) => wired.tools(context).filter((tool) => tool.name.startsWith("linear_"));
+  assert.deepEqual(
+    wired.tools(codex).map((tool) => tool.name),
+    ["email_connect"],
+  );
   await access(null, "linear", "codex", "a", true, "beta");
   await access(null, "linear", "claude", "a", false, "beta");
   assert.throws(() => access(null, "linear", "codex", "a", true, "missing"), /no longer connected/);
@@ -147,7 +151,7 @@ test("Linear workspace access scopes tool listing, lookups and calls from a runn
     .run({ query: "work" });
   assert.deepEqual(queried.splice(0), ["acme"]);
   await access(null, "linear", "codex", "a", false, "beta");
-  assert.deepEqual(wired.tools(codex), []);
+  assert.deepEqual(linearTools(codex), []);
   await assert.rejects(run("search", { query: "work" }), /doesn't have access to any/);
   assert.deepEqual(queried, []);
   assert.ok(events.some(([channel, payload]) => channel === "connectors:changed" && payload.connectors[0].off.includes("codex:a")));

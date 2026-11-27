@@ -27,7 +27,7 @@ function createConnectors({
   version = "0.0.0",
   timeoutMs,
   idleMs,
-  reserved = ["linear"],
+  reserved = ["linear", "email"],
   changed = () => {},
 }) {
   const store = createConnectorStore({ dataDir });

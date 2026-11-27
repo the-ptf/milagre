@@ -3,6 +3,7 @@ import type { SettingsSection } from "../components/Settings";
 import type { GitChatContext } from "../lib/git-dialog";
 import type { RecentProject } from "../lib/project-list";
 import { useEvent } from "../lib/stable";
+import { onDraftChatRequest } from "../lib/draft-chat-request";
 import { OPEN_STORAGE } from "../lib/storage-open";
 import type { ModelProvider } from "../model";
 
@@ -53,6 +54,7 @@ export function useAppDialogs(place: string) {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState<false | "commands" | "messages">(false);
   const recentProjects = useRecentProjects(commandPaletteOpen !== false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  useEffect(() => onDraftChatRequest(() => setSettingsOpen(false)), []);
   const settingsOpenRef = useRef(settingsOpen);
   settingsOpenRef.current = settingsOpen;
   const shownPlace = useRef(place);

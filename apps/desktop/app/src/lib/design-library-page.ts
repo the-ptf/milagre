@@ -1,3 +1,4 @@
+import { onDraftChatRequest } from "./draft-chat-request";
 import { unqualifyKey } from "@milagre/shared/chat-scopes";
 
 const OPEN = "milagre:design-library";
@@ -31,6 +32,7 @@ export function onOpenRequests(
   native: (listener: (chatId: string) => void) => () => void,
   openChat: (chatId: string) => void,
   editLink: (linkId: string) => void,
+  startDraft?: (text: string) => unknown,
 ) {
   const requested = (event: Event) => {
     const detail = (event as CustomEvent<DesignsRequest>).detail;
@@ -38,9 +40,11 @@ export function onOpenRequests(
     else editLink(detail.linkId);
   };
   const stop = native(openChat);
+  const stopDrafts = startDraft ? onDraftChatRequest(startDraft) : () => {};
   window.addEventListener(REQUEST, requested);
   return () => {
     stop();
+    stopDrafts();
     window.removeEventListener(REQUEST, requested);
   };
 }

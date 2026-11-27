@@ -142,6 +142,10 @@
       "types": "./src/untrusted-text.d.mts",
       "default": "./src/untrusted-text.mjs"
     },
+    "./email": {
+      "types": "./src/email.d.mts",
+      "default": "./src/email.mjs"
+    },
     "./prompt-skills": {
       "types": "./src/prompt-skills.d.mts",
       "default": "./src/prompt-skills.mjs"
