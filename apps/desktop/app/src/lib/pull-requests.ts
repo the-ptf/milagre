@@ -17,7 +17,7 @@ import { bridgeFor } from "./computer-bridge.ts";
 import { computersSnapshot, subscribeComputers } from "./computers-store.ts";
 import { preferenceStorage as localStorage } from "./preference-storage.ts";
 
-export const PULL_REQUESTS_POLL_MS = 60_000;
+const PULL_REQUESTS_POLL_MS = 60_000;
 
 type ComputerPullRequests = { list: PullRequestList | null; error: string | null; reading: boolean; unsupported: boolean };
 export type PullRequestsSnapshot = {
@@ -178,7 +178,7 @@ export function usePullRequests(): PullRequestsSnapshot {
 export type PullRequestPrefs = { sort: PullRequestSort; filters: PullRequestFilters; computer: string };
 
 const PREFS_KEY = "milagre.pullRequests";
-export const PULL_REQUEST_PREFS_DEFAULTS: PullRequestPrefs = { sort: "updated", filters: { ...PULL_REQUEST_FILTER_DEFAULTS }, computer: "all" };
+const PULL_REQUEST_PREFS_DEFAULTS: PullRequestPrefs = { sort: "updated", filters: { ...PULL_REQUEST_FILTER_DEFAULTS }, computer: "all" };
 
 function oneOf<T extends string>(value: unknown, choices: readonly { id: T }[], fallback: T): T {
   return choices.some((choice) => choice.id === value) ? (value as T) : fallback;

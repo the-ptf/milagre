@@ -1,6 +1,6 @@
 import { mergePullRequestLists, type PullRequestList, type PullRequestListState, type PullRequestRow } from "@milagre/shared/pull-request-list";
 
-export type PullRequestsClient = { call: <T>(method: string, args: unknown[]) => Promise<T> };
+type PullRequestsClient = { call: <T>(method: string, args: unknown[]) => Promise<T> };
 /** A computer to read, in the order the list prefers its copy of a PR: the connected computer first. */
 export type PullRequestsHost = { hostId: string; client: PullRequestsClient | null; online: boolean };
 
@@ -94,5 +94,3 @@ export function createPullRequestsStore() {
     },
   };
 }
-
-export type PullRequestsStore = ReturnType<typeof createPullRequestsStore>;

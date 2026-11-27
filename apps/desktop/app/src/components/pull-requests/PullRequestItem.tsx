@@ -25,7 +25,7 @@ const BADGE_TONE = {
 
 export type ReviewForMe = { color: string; reviewing: boolean; busyLabel: string; onReview: (from: HTMLElement) => void };
 
-export function ReviewForMeButton({ review }: { review: ReviewForMe }) {
+function ReviewForMeButton({ review }: { review: ReviewForMe }) {
   if (review.reviewing)
     return (
       <span

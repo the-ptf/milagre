@@ -5,7 +5,7 @@ import { IconButton } from "../primitives/Button";
 import Tooltip from "../primitives/Tooltip";
 
 /** The sidebar footer's Pull requests button: pressed while the page is open. */
-export function PullRequestsButton({ active, onOpen }: { active: boolean; onOpen: () => void }) {
+function PullRequestsButton({ active, onOpen }: { active: boolean; onOpen: () => void }) {
   const shortcut = useShortcutLabel("pull-requests.open");
   return (
     <Tooltip label="Pull requests" shortcut={shortcut}>

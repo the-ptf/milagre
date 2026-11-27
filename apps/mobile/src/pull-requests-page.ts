@@ -10,7 +10,7 @@ import {
 } from "@milagre/shared/pull-request-list";
 
 export type PullRequestsSettings = { filters: PullRequestFilters; sort: PullRequestSort };
-export type FilterChoice = { id: string; title: string; checked: boolean };
+type FilterChoice = { id: string; title: string; checked: boolean };
 export type FilterGroup = { id: string; title: string; value: string; choices: FilterChoice[] };
 
 export const PULL_REQUESTS_DEFAULTS: PullRequestsSettings = { filters: { ...PULL_REQUEST_FILTER_DEFAULTS }, sort: "updated" };

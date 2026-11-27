@@ -20,7 +20,7 @@ const CLOSE_DELAY_MS = 150;
 const CARD_WIDTH = 320;
 
 type Look = { icon: IconSvgElement; className: string };
-export const CHECKS_LOOK: Record<PullRequestChecksState, Look> = {
+const CHECKS_LOOK: Record<PullRequestChecksState, Look> = {
   pass: { icon: CheckmarkCircle02Icon, className: "text-green-ink" },
   fail: { icon: CancelCircleIcon, className: "text-red-ink" },
   running: { icon: Loading03Icon, className: "text-orange-ink" },
@@ -35,7 +35,7 @@ const CHECK_LOOK: Record<PullRequestListCheck["state"], Look> = {
 };
 
 /** How long a check ran, as `48s` or `2m 30s`; "running" while it runs, empty when GitHub gave no times. */
-export function checkDuration(check: Pick<PullRequestListCheck, "state" | "startedAt" | "completedAt">): string {
+function checkDuration(check: Pick<PullRequestListCheck, "state" | "startedAt" | "completedAt">): string {
   if (check.state === "running") return "running";
   const seconds = Math.round((Date.parse(check.completedAt ?? "") - Date.parse(check.startedAt ?? "")) / 1000);
   if (!Number.isFinite(seconds) || seconds < 0) return "";

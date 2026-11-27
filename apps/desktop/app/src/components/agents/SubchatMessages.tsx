@@ -22,7 +22,7 @@ export interface SubchatActions {
 
 let actions: SubchatActions | null = null;
 
-export function provideSubchatActions(next: SubchatActions) {
+function provideSubchatActions(next: SubchatActions) {
   actions = next;
   return () => {
     if (actions === next) actions = null;
