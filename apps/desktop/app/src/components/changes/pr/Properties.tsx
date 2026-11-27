@@ -67,16 +67,18 @@ function useLazyList<T>(load: (() => Promise<T[]>) | undefined) {
 
 const matches = (text: string, query: string) => text.toLowerCase().includes(query.toLowerCase().trim());
 
-function Property({
+/** A row of the PR Summary's properties: a 14px glyph (or any `mark` that size), the label, the value, an action. */
+export function Property({
   glyph,
+  mark,
   label,
   action,
   children,
   ...rest
-}: { glyph: IconSvgElement; label: string; action?: ReactNode; children: ReactNode } & Record<`data-${string}`, string>) {
+}: { glyph?: IconSvgElement; mark?: ReactNode; label: string; action?: ReactNode; children: ReactNode } & Record<`data-${string}`, string>) {
   return (
     <div {...rest} className="flex min-h-8 items-start gap-2">
-      <span className="flex h-8 shrink-0 items-center text-ink-3">{icon(glyph, 14)}</span>
+      <span className="flex h-8 shrink-0 items-center text-ink-3">{mark ?? (glyph && icon(glyph, 14))}</span>
       <span className="flex h-8 w-19 shrink-0 items-center text-12 text-ink-2">{label}</span>
       <div className="flex min-h-8 min-w-0 flex-1 flex-wrap items-center gap-1.5 py-1">{children}</div>
       {action && <span className="flex h-8 shrink-0 items-center">{action}</span>}

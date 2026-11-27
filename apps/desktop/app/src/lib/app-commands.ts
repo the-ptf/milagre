@@ -25,6 +25,7 @@ type AppCommandActions = {
   openProject: () => Run;
   openCanvas: () => void;
   openRoutines: () => void;
+  openPullRequests: () => void;
   openOrchestrator: () => void;
   openUsage: () => void;
   openStorage: () => void;
@@ -137,6 +138,15 @@ function actionCommands(ctx: AppCommandContext): Command[] {
       icon: "routines",
       keywords: "heartbeats triggers schedule linear webhook automations",
       run: actions.openRoutines,
+    },
+    {
+      id: "pull-requests",
+      label: "Pull requests",
+      group: "Actions",
+      icon: "pullRequest",
+      keybinding: "pull-requests.open" as const,
+      keywords: "prs github review checks merge open",
+      run: actions.openPullRequests,
     },
     ...(orchestratorEnabled()
       ? [
@@ -369,7 +379,7 @@ function projectCommands(ctx: AppCommandContext): Command[] {
 export function buildCommands(ctx: AppCommandContext): Command[] {
   const { actions, selectedSession } = ctx;
   const commands = actionCommands(ctx);
-  if (ctx.view === "routines" || ctx.settingsOpen)
+  if (ctx.view === "routines" || ctx.view === "pull-requests" || ctx.settingsOpen)
     commands.push({
       id: "back-to-chat",
       label: UI_COPY.backToChat,
