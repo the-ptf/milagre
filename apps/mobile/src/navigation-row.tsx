@@ -1,4 +1,4 @@
-import { lineHeight, space, type } from "./design-tokens";
+import { lineHeight, radius, space, type } from "./design-tokens";
 import { SettledCount } from "./settle-flight";
 import { ChatSwipeRow } from "./chat-swipe-row";
 import { retentionOf } from "./done-retention";
@@ -26,7 +26,8 @@ import { type MobilePendingChat } from "./session";
 import { chatsGroupNeedsAttention } from "./chats-group";
 import { useLinks } from "./use-links";
 import { Icon } from "./icons";
-import { DISABLED_OPACITY, EmptyState, IconButton, PullDown } from "./ui";
+import { Chip, DISABLED_OPACITY, EmptyState, IconButton, PullDown } from "./ui";
+import { MESSAGE_SEARCH_COPY } from "@milagre/shared/message-search-view";
 import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "./project-icon";
 import { useBesideChat } from "./split-chats";
 import { useArchiveActivity } from "./archive-progress";
@@ -93,6 +94,8 @@ export type RowView = {
   snoozeMinutes: number;
   background: string;
   actions: RowActions;
+  /** Search's "Include archived" filter. */
+  toggleSearchArchived: () => void;
 };
 export type RowProps<Kind extends Row["kind"]> = { item: Extract<Row, { kind: Kind }>; view: RowView; copy: ProjectCopy | undefined };
 // A Project header's cell stays above the Chat rows for good: changing the stacking during a drag re-orders native views and cancels the touch.
@@ -207,6 +210,12 @@ export const NavigationRow = memo(function NavigationRow({ item, view, copy }: {
         </View>
       </Pressable>
     );
+  if (item.kind === "searchFilters")
+    return (
+      <View style={{ flexDirection: "row", paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 }}>
+        <Chip label={MESSAGE_SEARCH_COPY.archived} selected={item.archived} multiple onPress={view.toggleSearchArchived} />
+      </View>
+    );
   const offline = item.reach === "offline";
   if (item.kind === "projectHit")
     return (
@@ -240,8 +249,8 @@ export const NavigationRow = memo(function NavigationRow({ item, view, copy }: {
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${item.snippet}, in ${item.title}, ${item.project}`}
-        onPress={() => void enter(item.hostId, item.path, item.chat.id)}
+        accessibilityLabel={`${item.snippet}, in ${item.title}${item.archived ? `, ${MESSAGE_SEARCH_COPY.archivedBadge}` : ""}, ${item.project}`}
+        onPress={() => void enter(item.hostId, item.path, item.chatId)}
         style={({ pressed }) => [s.chat, { backgroundColor: pressed ? colors.hover : "transparent" }]}
       >
         <View style={[s.chatBody, { flex: 1 }]}>
@@ -251,9 +260,16 @@ export const NavigationRow = memo(function NavigationRow({ item, view, copy }: {
               <Text style={{ fontWeight: "600" }}>{item.snippet.slice(start, end)}</Text>
               {item.snippet.slice(end)}
             </Text>
-            <Text numberOfLines={1} style={s.detail}>
-              {[item.title, item.project, item.many ? item.hostName : ""].filter(Boolean).join(" · ")}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+              {item.archived && (
+                <Text style={[s.detail, { paddingHorizontal: space.xs + 2, borderRadius: radius.full, overflow: "hidden", backgroundColor: colors.field }]}>
+                  {MESSAGE_SEARCH_COPY.archivedBadge}
+                </Text>
+              )}
+              <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
+                {[item.title, item.project, item.many ? item.hostName : "", item.ago ?? ""].filter(Boolean).join(" · ")}
+              </Text>
+            </View>
           </View>
         </View>
       </Pressable>

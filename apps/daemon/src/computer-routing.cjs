@@ -81,6 +81,7 @@ const withoutHidden = (value) => {
 const withPath = (id, item) => field(id, item, "path", key);
 const withRemotePath = (id, item) => withoutHidden(withPath(id, item));
 const withChat = (id, item) => field(id, item, "chatId", key);
+const withProjectPath = (id, item) => field(id, item, "projectPath", key);
 const withLink = (id, item) => withoutHidden(field(id, item, "id", linkId));
 /** @param {string} id @param {any} state */
 const withFlowStep = (id, state) =>
@@ -163,6 +164,13 @@ const RESULTS = {
   "simulator:attach": withChat,
   "simulator:detach": withChat,
   "chat:runs": (id, result) => field(id, result, "runs", keyed),
+  "chats:search": (id, result) =>
+    field(
+      id,
+      field(id, result, "matches", (id, list) => each(id, list, withProjectPath)),
+      "failed",
+      (id, list) => each(id, list, withProjectPath),
+    ),
   "chat:inbox": (id, result) => {
     const item = (id, value) => field(id, field(id, value, "key", key), "projectPath", key);
     return { agents: each(id, result.agents, item), items: each(id, result.items, item) };

@@ -3,7 +3,7 @@ import { NO_BRANCHES, NO_WORKTREES, NewChatHeader } from "../NewChatHeader";
 import { Button } from "../primitives/Button";
 
 /** Under the composer: View checkpoints for a Chat that only keeps its history, and the composer's note. */
-export function ComposerFooter({ onViewCheckpoints, note }: { onViewCheckpoints?: () => void; note?: string }) {
+export function ComposerFooter({ onViewCheckpoints, note, onRestore }: { onViewCheckpoints?: () => void; note?: string; onRestore?: () => void }) {
   return (
     <>
       {onViewCheckpoints && (
@@ -15,6 +15,11 @@ export function ComposerFooter({ onViewCheckpoints, note }: { onViewCheckpoints?
         <p data-composer-note className="mt-1.5 px-2 text-12 text-ink-3">
           {note}
         </p>
+      )}
+      {note && onRestore && (
+        <Button variant="ghost" onClick={onRestore} className="self-start">
+          Restore Chat
+        </Button>
       )}
     </>
   );

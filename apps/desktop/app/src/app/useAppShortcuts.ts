@@ -28,7 +28,7 @@ export type AppShortcutContext = {
   openAlone: (key: string) => void;
   openFind: () => void;
   setFindOpen: (open: boolean) => void;
-  openCommandPalette: () => void;
+  openCommandPalette: (mode?: "commands" | "messages") => void;
   startNewChat: () => unknown;
   openProject: () => unknown;
   setNotice: (notice: string | null) => void;
@@ -85,9 +85,9 @@ function runChatShortcut(ctx: AppShortcutContext, command: string, event: Keyboa
     if (!ctx.findRef.current.canOpen) return;
     event.preventDefault();
     ctx.openFind();
-  } else if (command === "commandPalette.toggle") {
+  } else if (command === "commandPalette.toggle" || command === "messages.search") {
     event.preventDefault();
-    ctx.openCommandPalette();
+    ctx.openCommandPalette(command === "messages.search" ? "messages" : "commands");
   } else if (command === "chat.new") {
     event.preventDefault();
     ctx.startNewChat();
@@ -115,7 +115,7 @@ function handleShortcut(ctx: AppShortcutContext, event: KeyboardEvent) {
     toggleTheme();
     return;
   }
-  if (ctx.settingsOpenRef.current && command !== "commandPalette.toggle") ctx.setSettingsOpen(false);
+  if (ctx.settingsOpenRef.current && command !== "commandPalette.toggle" && command !== "messages.search") ctx.setSettingsOpen(false);
   if (inLink) return;
   if (command === "grid.focusPrevious" || command === "grid.focusNext") {
     focusGridNeighbour(ctx, command === "grid.focusPrevious" ? -1 : 1, event);

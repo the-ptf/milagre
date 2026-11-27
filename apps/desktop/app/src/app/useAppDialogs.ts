@@ -50,8 +50,8 @@ function useStorageComputer() {
  * leaves Settings.
  */
 export function useAppDialogs(place: string) {
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const recentProjects = useRecentProjects(commandPaletteOpen);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState<false | "commands" | "messages">(false);
+  const recentProjects = useRecentProjects(commandPaletteOpen !== false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsOpenRef = useRef(settingsOpen);
   settingsOpenRef.current = settingsOpen;
@@ -86,7 +86,7 @@ export function useAppDialogs(place: string) {
     setSettingsComputer(id);
     setSettingsSection("computer");
   };
-  const openCommandPalette = useEvent(() => setCommandPaletteOpen(true));
+  const openCommandPalette = useEvent((mode?: unknown) => setCommandPaletteOpen(mode === "messages" ? "messages" : "commands"));
   const openAddComputer = useEvent(() => setAddComputerOpen(true));
   return {
     commandPaletteOpen,

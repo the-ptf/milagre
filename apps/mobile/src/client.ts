@@ -3,6 +3,7 @@ import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import type { ChatMessage, CoordinatorState, NamedProjectLink, OpenLink } from "@milagre/shared/model";
 import { isLinkScopeKey, scopeKey } from "@milagre/shared/chat-scopes";
 import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
+import type { ChatSearchResult } from "@milagre/shared/message-search";
 import { applyStatePatch } from "@milagre/shared/state-patch";
 import type { StatePatch } from "@milagre/shared/state-patch";
 import { phoneSnapshot } from "./chat-scope.ts";
@@ -157,6 +158,11 @@ function relayLive(path: string, { onSignal, onStatus }: LiveOptions, through: P
       handle = null;
     },
   };
+}
+
+/** A route an older computer doesn't have (chat lists, search across Projects) fails with code "unsupported". */
+function unsupportedOn404(error: unknown): never {
+  throw (error as { status?: number })?.status === 404 ? Object.assign(error as Error, { code: "unsupported" as const }) : error;
 }
 
 export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, timeoutMs = 30000, runtime?: RelayRuntime) {
@@ -423,13 +429,13 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       ),
     searchChats: (projectPath: string, query: string) =>
       request<ChatSearchMatch[]>(`/search?projectPath=${encodeURIComponent(projectPath)}&q=${encodeURIComponent(query)}`),
+    searchAllChats: (query: string, archived: boolean) =>
+      request<ChatSearchResult>(`/search-all?q=${encodeURIComponent(query)}${archived ? "&archived=1" : ""}`).catch(unsupportedOn404),
     message: (projectPath: string, id: number) => request<ChatMessage>(`/message?projectPath=${encodeURIComponent(projectPath)}&id=${id}`),
     snapshot: async (projectPath: string) => phoneSnapshot(await readSnapshot(projectPath)),
     preview: (projectPath: string) => request<ProjectPreview | Snapshot>("/snapshot?projectPath=" + encodeURIComponent(projectPath) + "&view=chats"),
     chatLists: (paths: string[]) =>
-      request<Record<string, ProjectPreview | { error: string }>>("/chat-lists?paths=" + encodeURIComponent(JSON.stringify(paths))).catch((error: unknown) => {
-        throw (error as { status?: number })?.status === 404 ? Object.assign(error as Error, { code: "unsupported" as const }) : error;
-      }),
+      request<Record<string, ProjectPreview | { error: string }>>("/chat-lists?paths=" + encodeURIComponent(JSON.stringify(paths))).catch(unsupportedOn404),
     runs: (projectPath: string, chats?: readonly number[]) =>
       request<RunsReply>(
         "/runs?projectPath=" +

@@ -302,8 +302,9 @@ export function HardwareShortcuts() {
       }
       const index = chatShortcutIndex(command);
       const newChat = command === "chat.new" || command === "worktree.new";
-      if (!newChat && command !== "commandPalette.toggle" && index === null) return;
-      requestNavigation(newChat ? { kind: "new" } : command === "commandPalette.toggle" ? { kind: "search" } : { kind: "chat", index: index ?? 0 });
+      const search = command === "commandPalette.toggle" || command === "messages.search";
+      if (!newChat && !search && index === null) return;
+      requestNavigation(newChat ? { kind: "new" } : search ? { kind: "search" } : { kind: "chat", index: index ?? 0 });
       if (split.dockable) {
         if (!split.pinned) split.toggle();
       } else if (panels.attached && panels.open !== "left") panels.show("left");

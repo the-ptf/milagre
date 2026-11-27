@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { chatMarkTone, chatPullRequests } from "@milagre/shared/chats";
 import { unreadRunRoutines } from "@milagre/shared/routines";
 import type { AgentSession } from "@milagre/shared/model";
-import type { ChatSearchMatch, Client, Snapshot } from "./client";
+import type { Client, Snapshot } from "./client";
 import { ALL_CHATS_LABEL } from "@milagre/shared/chats-home";
 import { useComposer, useListSnapshot, usePendingChats, useSession, type MobilePendingChat, type Session } from "./session";
 import { savedChatPins } from "./hosts-native";
@@ -46,6 +46,7 @@ import { chatFamily } from "@milagre/shared/subchats";
 import { sameDeps, buildHost, type Destination, type Row, type HostBuild, type Show } from "./navigation-build";
 import { computeRows, searchRows } from "./navigation-rows";
 import { ROW_FIELDS, useNavigationActions } from "./navigation-actions";
+import { usePhoneMessageSearch } from "./host-search";
 import { useProjectReorder } from "./navigation-reorder";
 import { useS } from "./navigation-styles";
 import { HeaderButton, HeaderGlass } from "./navigation-chrome";
@@ -312,37 +313,7 @@ const NavigationBody = memo(function NavigationBody({
     () => computeRows({ builds, chatList, needle, show, manyHosts, folds, chatsFolded, doneOpen, snoozedOpen, subchatFolds }),
     [builds, chatList, needle, show, manyHosts, folds, chatsFolded, doneOpen, snoozedOpen, subchatFolds],
   );
-  const [hostMatches, setHostMatches] = useState<{
-    query: string;
-    matches: Record<string, ChatSearchMatch[]>;
-  }>({ query: "", matches: {} });
-  const hostSearchKey = useMemo(
-    () =>
-      needle
-        ? searchable
-            .filter((item) => item.messages === null)
-            .map((item) => `${item.hostId}\t${item.path}`)
-            .join("\n")
-        : "",
-    [needle, searchable],
-  );
-  useEffect(() => {
-    if (!needle || !hostSearchKey) return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      void Promise.all(
-        hostSearchKey.split("\n").map(async (key) => {
-          const [hostId = "", path = ""] = key.split("\t");
-          const client = hostId === session.client?.url ? session.client : allComputers.clientFor(hostId);
-          return [key, client ? await client.searchChats(path, needle).catch(() => []) : []] as const;
-        }),
-      ).then((found) => !cancelled && setHostMatches({ query: needle, matches: Object.fromEntries(found) }));
-    }, 150);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [needle, hostSearchKey, session.client]);
+  const { hostMatches, hostHits, searchHosts, searchArchived, toggleSearchArchived } = usePhoneMessageSearch({ needle, builds, searchable, clientOf });
   const listRows = useMemo(
     () =>
       needle
@@ -352,13 +323,16 @@ const NavigationBody = memo(function NavigationBody({
             query: searchQuery,
             searchable,
             hostMatches,
+            hostHits,
+            hosts: searchHosts,
+            archived: searchArchived,
             projectHits,
             manyHosts,
             connected: Boolean(session.client),
             ipad: Platform.OS === "ios" && Platform.isPad,
           })
         : rows,
-    [rows, needle, searchQuery, session.client, searchable, hostMatches, projectHits, manyHosts],
+    [rows, needle, searchQuery, session.client, searchable, hostMatches, hostHits, searchHosts, searchArchived, projectHits, manyHosts],
   );
 
   const unreadRuns = useMemo(() => {
@@ -489,8 +463,10 @@ const NavigationBody = memo(function NavigationBody({
       snoozeMinutes,
       background,
       actions,
+      toggleSearchArchived,
     }),
     [
+      toggleSearchArchived,
       doneHours,
       snoozeMinutes,
       background,

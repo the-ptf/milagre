@@ -664,6 +664,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@milagre/shared/orchestrator" && !(id in modules)) return require("@milagre/shared/orchestrator");
       if (id === "@milagre/shared/provider-capabilities" && !(id in modules)) return require("@milagre/shared/provider-capabilities");
       if (id === "@milagre/shared/providers" && !(id in modules)) return require("@milagre/shared/providers");
+      // Message search across a computer's Projects: one host request per computer while the sidebar search has text.
+      if (base === "host-search" && !(id in modules)) return load("host-search.ts", modules, "", cache);
+      // Message search's copy and row details are plain logic shared with the desktop.
+      if (id === "@milagre/shared/message-search-view" && !(id in modules)) return require("@milagre/shared/message-search-view");
       // The local-model speed line under the composer renders nothing without a Pi turn.
       if (base === "pi-stats" && !(id in modules)) return { PiStats: () => null };
       if (base === "orchestrator-answer-line" && !(id in modules)) return { OrchestratorAnswerLine: () => null };
@@ -6234,6 +6238,10 @@ test("a drawer search over Projects held without messages asks the host, which f
       client: {
         url: "mac",
         call: async () => {},
+        // A computer older than chats:search answers its route with 404.
+        searchAllChats: async () => {
+          throw Object.assign(new Error("Unknown endpoint"), { code: "unsupported" });
+        },
         searchChats: async (path, query) => {
           asked.push([path, query]);
           return [{ message: { id: 7, session_id: 3 }, score: 9, snippet: "Deploy the relay with wrangler", highlight: [21, 29], term: "wrangler" }];
@@ -6244,11 +6252,61 @@ test("a drawer search over Projects held without messages asks the host, which f
   const search = () => find(nav.render(), (node) => node.type === "ChatListControls");
   search().props.onQuery("wranglr");
   nav.render();
-  // The host is asked after a short pause while typing.
+  // The host is asked after a short pause while typing; once it says it has no chats:search, each Project is asked.
   await new Promise((resolve) => setTimeout(resolve, 200));
+  await settleAll();
+  nav.render();
   await settleAll();
   assert.deepEqual(asked, [["/last", "wranglr"]]);
   assert.match(nav.row("message").props.accessibilityLabel, /^Deploy the relay with wrangler, in /);
+  assert.equal(
+    nav.rows().props.data.some((item) => item.kind === "searchFilters"),
+    false,
+    "an old computer can't search archived Chats, so the filter hides",
+  );
+});
+
+test("a drawer search asks each computer once for every Project on it, archived Chats on request", async () => {
+  const asked = [];
+  const hit = (archived) => ({
+    projectPath: "/elsewhere",
+    projectName: "elsewhere",
+    chat: { id: 9, title: "Pages deploy", archived },
+    message: { id: 40, session_id: 9 },
+    score: 6,
+    snippet: "Pages deploy with wrangler",
+    highlight: [17, 25],
+    term: "wrangler",
+  });
+  const nav = navigationHost(deferred().promise, {
+    effects: true,
+    session: {
+      snapshot: null,
+      client: {
+        url: "mac",
+        call: async () => {},
+        searchChats: async () => assert.fail("a computer that answers chats:search is not asked per Project"),
+        searchAllChats: async (query, archived) => {
+          asked.push([query, archived]);
+          return { matches: archived ? [hit(true)] : [], failed: [], searched: 2 };
+        },
+      },
+    },
+  });
+  find(nav.render(), (node) => node.type === "ChatListControls").props.onQuery("wrangler");
+  nav.render();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await settleAll();
+  const filters = nav.row("searchFilters");
+  find(filters, (node) => node.type === "Chip").props.onPress();
+  nav.render();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await settleAll();
+  assert.deepEqual(asked, [
+    ["wrangler", false],
+    ["wrangler", true],
+  ]);
+  assert.match(nav.row("message").props.accessibilityLabel, /^Pages deploy with wrangler, in Pages deploy, Archived, elsewhere$/);
 });
 
 test("the chooser keeps empty Projects available with the flat Chat list preference", () => {
@@ -18629,7 +18687,7 @@ test("a search that finds nothing offers a new Chat with the search as its draft
   find(nav.render(), (node) => node.type === "ChatListControls").props.onQuery("dark canvas");
   same(
     nav.rows().props.data.map((item) => item.kind),
-    ["start"],
+    ["searchFilters", "start"],
   );
   const empty = find(nav.row("start"), (node) => node.type === "EmptyState");
   assert.equal(empty.props.title, "No Chat matches “dark canvas”");

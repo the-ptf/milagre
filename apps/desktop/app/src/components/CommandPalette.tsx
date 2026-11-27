@@ -39,6 +39,9 @@ import { Icon } from "./primitives/Icon";
 import { EmptyState } from "./primitives/EmptyState";
 import { MenuLabel } from "./primitives/Popover";
 import { DURATION, EASE_OUT } from "../lib/ease";
+import { MESSAGE_SEARCH_COPY } from "@milagre/shared/message-search-view";
+import { MessageFilterBar, useMessageMode } from "./MessageSearchBar";
+import type { MessageSearchSource } from "../lib/message-commands";
 
 /** `--duration-fast` and `--ease-enter` from styles.css, for the Web Animations API. */
 const DURATION_FAST = DURATION.fast * 1000;
@@ -89,10 +92,14 @@ function Label({ command }: { command: Command }) {
   );
 }
 
+const ENTER_MESSAGES = "search-messages";
+
 export function CommandPalette({
   commands: providedCommands,
   searchMessages,
   searchMessagesAsync,
+  messageSearch,
+  initialMode = "commands",
   onStartChat,
   onClose,
   onError,
@@ -100,19 +107,14 @@ export function CommandPalette({
   commands: Command[];
   searchMessages?: (query: string) => Command[];
   searchMessagesAsync?: (query: string) => Promise<Command[]>;
+  /** Explicit message search (⌘⇧K, or the palette's own row): this scope or every Project, archived Chats on request. */
+  messageSearch?: MessageSearchSource;
+  initialMode?: "commands" | "messages";
   onStartChat?: (query: string) => void;
   onClose: () => void;
   onError: (message: string) => void;
 }) {
-  const [dictationCommands] = useState<Command[]>(() => {
-    const target = composerDictationActions();
-    const items: Command[] = [];
-    if (target?.insertLast && lastDictation())
-      items.push({ id: "insert-last-dictation", group: UI_COPY.currentChat, icon: "copy", label: "Insert last dictation", run: target.insertLast });
-    if (target?.vocabulary)
-      items.push({ id: "dictation-vocabulary", group: UI_COPY.currentChat, icon: "settings", label: "Project dictation vocabulary", run: target.vocabulary });
-    return items;
-  });
+  const [dictationCommands] = useState(dictationCommandsNow);
   const commands = [...providedCommands, ...dictationCommands];
   const [query, setQuery] = useState("");
   const showHints = useShortcutHints();
@@ -125,45 +127,21 @@ export function CommandPalette({
   // Read once per opening, so a command run from this palette doesn't reshuffle the list under the pointer.
   const [recentIds] = useState(recentCommandIds);
   const typed = query.trim().length > 0;
-  const matches = typed ? filterCommands(commands, query) : [...recentCommands(commands, recentIds), ...filterCommands(commands, query)];
-  const commandMatches = matches.filter((command) => !command.searchOnly);
-  const [found, setFound] = useState<{ query: string; commands: Command[] }>({ query: "", commands: [] });
-  const searchHost = !commandMatches.length && !searchMessages && searchMessagesAsync && query.trim().length >= 2;
-  useEffect(() => {
-    if (!searchHost) return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      searchMessagesAsync(query).then(
-        (commands) => !cancelled && setFound({ query, commands }),
-        () => !cancelled && setFound({ query, commands: [] }),
-      );
-    }, 120);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [searchHost, query, searchMessagesAsync]);
-  const messages = commandMatches.length || !typed ? [] : searchMessages ? searchMessages(query) : searchHost && found.query === query ? found.commands : [];
-  const searched = [...matches, ...messages];
-  const searching = !commandMatches.length && !searchMessages && searchHost && found.query !== query;
-  const matchesToShow: Command[] =
-    searched.length || searching || !onStartChat || !query.trim()
-      ? searched
-      : [
-          {
-            id: "start-chat-with-search",
-            label: "Start a new Chat with your search",
-            group: "New Chat",
-            icon: "newChat",
-            run: () => onStartChat(query.trim()),
-          },
-        ];
-  const groups = new Map<string, Command[]>();
-  for (const command of matchesToShow) {
-    const group = groups.get(command.group);
-    if (group) group.push(command);
-    else groups.set(command.group, [command]);
-  }
+  const messageMode = useMessageMode(messageSearch, initialMode, query);
+  const inMessages = messageMode.mode === "messages";
+  const matches = inMessages ? [] : typed ? filterCommands(commands, query) : [...recentCommands(commands, recentIds), ...filterCommands(commands, query)];
+  const fallback = useFallbackMessages({
+    query,
+    on: !inMessages && !matches.some((command) => !command.searchOnly) && typed,
+    searchMessages,
+    searchMessagesAsync,
+  });
+  const groups = groupRows(
+    inMessages
+      ? messageMode.results
+      : commandRows({ query, searched: [...matches, ...fallback.messages], searching: fallback.searching, onStartChat, messageSearch: Boolean(messageSearch) }),
+  );
+  const searching = fallback.searching;
   const results = Array.from(groups.values()).flat();
   const selected = results.find((command) => command.id === selectedId) ?? results[0];
   const selectedIndex = selected ? results.indexOf(selected) : -1;
@@ -192,7 +170,17 @@ export function CommandPalette({
     dialog.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }, [selected?.id, query]);
 
+  function switchMode(next: "commands" | "messages") {
+    messageMode.setMode(next);
+    setSelectedId(null);
+    input.current?.focus();
+  }
+
   function close(command?: Command) {
+    if (command?.id === ENTER_MESSAGES) {
+      switchMode("messages");
+      return;
+    }
     if (executing.current) return;
     executing.current = true;
     const element = dialog.current!;
@@ -245,7 +233,13 @@ export function CommandPalette({
         }
         if (event.nativeEvent.isComposing) return;
         const pressed = shortcutCommand(event);
-        if (event.key === "Escape" || pressed === "commandPalette.toggle") {
+        if (pressed === "messages.search" && messageSearch) {
+          event.preventDefault();
+          switchMode(inMessages ? "commands" : "messages");
+        } else if (event.key === "Backspace" && inMessages && !query && event.target === input.current) {
+          event.preventDefault();
+          switchMode("commands");
+        } else if (event.key === "Escape" || pressed === "commandPalette.toggle") {
           event.preventDefault();
           event.stopPropagation();
           close();
@@ -269,11 +263,11 @@ export function CommandPalette({
       }}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-3">
-        <Icon icon={Search01Icon} size={18} className="shrink-0 text-ink-3" />
+        <Icon icon={inMessages ? BubbleChatSearchIcon : Search01Icon} size={18} className="shrink-0 text-ink-3" />
         <input
           ref={input}
           role="combobox"
-          aria-label="Search commands, Chats, Projects and messages"
+          aria-label={inMessages ? "Search messages" : "Search commands, Chats, Projects and messages"}
           aria-autocomplete="list"
           aria-expanded="true"
           aria-controls={listId}
@@ -283,11 +277,12 @@ export function CommandPalette({
             setQuery(event.target.value);
             setSelectedId(null);
           }}
-          placeholder="Search commands, Chats and Projects…"
+          placeholder={inMessages ? MESSAGE_SEARCH_COPY.placeholder : "Search commands, Chats and Projects…"}
           className="min-w-0 flex-1 bg-transparent text-15 text-ink outline-none placeholder:text-ink-3"
         />
         {showHints && <ShortcutKeys shortcut="esc" />}
       </div>
+      {inMessages && messageSearch && <MessageFilterBar hereLabel={messageSearch.hereLabel} filters={messageMode.filters} onChange={messageMode.setFilters} />}
       <ScrollArea id={listId} role="listbox" aria-label="Commands" className="pt-1.5 pr-0 pb-2 pl-1.5 [--scroll-fade-size:16px]">
         {Array.from(groups, ([group, items]) => (
           <div key={group} role="group" aria-label={group} className="pb-1.5 last:pb-0">
@@ -310,8 +305,11 @@ export function CommandPalette({
                   <Icon icon={icons[command.icon]} size={16} />
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate">
-                    <Label command={command} />
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">
+                      <Label command={command} />
+                    </span>
+                    {command.badge && <span className="shrink-0 rounded-full bg-field px-1.5 text-11 font-medium text-ink-3">{command.badge}</span>}
                   </span>
                   {command.hint && command.id === selected?.id && <span className="truncate text-12 font-normal text-ink-3">{command.hint}</span>}
                 </span>
@@ -321,7 +319,11 @@ export function CommandPalette({
             ))}
           </div>
         ))}
-        {!results.length && !searching && <EmptyState size="compact" title={`No results for “${query}”`} />}
+        {inMessages ? (
+          <MessageStates query={query} mode={messageMode} hasResults={results.length > 0} />
+        ) : (
+          !results.length && !searching && <EmptyState size="compact" title={`No results for “${query}”`} />
+        )}
       </ScrollArea>
       <div className={`flex shrink-0 gap-4 border-t border-line px-4 py-2 text-11 text-ink-3 ${showHints ? "" : "invisible"}`}>
         <span className="inline-flex items-center gap-1.5">{showHints ? <ShortcutKeys shortcut="↑↓" plain /> : "↑ ↓"}Navigate</span>
@@ -331,4 +333,104 @@ export function CommandPalette({
     </dialog>,
     document.body,
   );
+}
+
+function MessageStates({ query, mode, hasResults }: { query: string; mode: ReturnType<typeof useMessageMode>; hasResults: boolean }) {
+  if (mode.tooShort) return <EmptyState size="compact" title={MESSAGE_SEARCH_COPY.tooShort} />;
+  if (mode.error) return <EmptyState size="compact" title={`Couldn't search: ${mode.error}`} />;
+  return (
+    <>
+      {!hasResults && !mode.searching && <EmptyState size="compact" title={MESSAGE_SEARCH_COPY.none(query.trim())} />}
+      {mode.failed.length > 0 && (
+        <ul role="status" className="px-2.5 pt-1 text-12 text-ink-3">
+          {mode.failed.map((line) => (
+            <li key={line} className="truncate" title={line}>
+              {line}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function dictationCommandsNow(): Command[] {
+  const target = composerDictationActions();
+  const items: Command[] = [];
+  if (target?.insertLast && lastDictation())
+    items.push({ id: "insert-last-dictation", group: UI_COPY.currentChat, icon: "copy", label: "Insert last dictation", run: target.insertLast });
+  if (target?.vocabulary)
+    items.push({ id: "dictation-vocabulary", group: UI_COPY.currentChat, icon: "settings", label: "Project dictation vocabulary", run: target.vocabulary });
+  return items;
+}
+
+/** Messages under the commands when none match: searched here from a whole state, or by the host for a lean one. */
+function useFallbackMessages({
+  query,
+  on,
+  searchMessages,
+  searchMessagesAsync,
+}: {
+  query: string;
+  on: boolean;
+  searchMessages?: (query: string) => Command[];
+  searchMessagesAsync?: (query: string) => Promise<Command[]>;
+}) {
+  const [found, setFound] = useState<{ query: string; commands: Command[] }>({ query: "", commands: [] });
+  const searchHost = on && !searchMessages && searchMessagesAsync && query.trim().length >= 2;
+  useEffect(() => {
+    if (!searchHost) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      searchMessagesAsync(query).then(
+        (commands) => !cancelled && setFound({ query, commands }),
+        () => !cancelled && setFound({ query, commands: [] }),
+      );
+    }, 120);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchHost, query, searchMessagesAsync]);
+  if (!on) return { messages: [], searching: false };
+  if (searchMessages) return { messages: searchMessages(query), searching: false };
+  return { messages: searchHost && found.query === query ? found.commands : [], searching: Boolean(searchHost) && found.query !== query };
+}
+
+/** Command mode's rows: the matches, a new Chat with the search when nothing matched, and the way into message search last. */
+function commandRows({
+  query,
+  searched,
+  searching,
+  onStartChat,
+  messageSearch,
+}: {
+  query: string;
+  searched: Command[];
+  searching: boolean;
+  onStartChat?: (query: string) => void;
+  messageSearch: boolean;
+}): Command[] {
+  const enter: Command[] = messageSearch
+    ? [{ id: ENTER_MESSAGES, label: MESSAGE_SEARCH_COPY.enter(query), group: "Messages", icon: "message", keybinding: "messages.search", run: () => {} }]
+    : [];
+  if (searched.length || searching || !onStartChat || !query.trim()) return [...searched, ...enter];
+  const start: Command = {
+    id: "start-chat-with-search",
+    label: "Start a new Chat with your search",
+    group: "New Chat",
+    icon: "newChat",
+    run: () => onStartChat(query.trim()),
+  };
+  return [start, ...enter];
+}
+
+function groupRows(rows: Command[]) {
+  const groups = new Map<string, Command[]>();
+  for (const command of rows) {
+    const group = groups.get(command.group);
+    if (group) group.push(command);
+    else groups.set(command.group, [command]);
+  }
+  return groups;
 }

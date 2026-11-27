@@ -1293,6 +1293,11 @@ test("a Chat the host unloaded reads back whole, and no client hears its message
   const [match] = await lean.call("chat:search", [project, "needle"]);
   assert.equal(match.message.session_id, session.id);
   assert.equal((await lean.call("chat:message", [project, match.message.id])).body, "A needle in here");
+  const across = await lean.call("chats:search", ["needle"]);
+  assert.deepEqual(
+    across.matches.map((found) => [found.projectPath, found.chat.id, found.message.id]),
+    [[project, session.id, match.message.id]],
+  );
   assert.deepEqual(ids(), [], "searching and reading one message load nothing");
   const page = await lean.call("chat:messages", [project, session.id, { turns: 5 }]);
   assert.deepEqual(

@@ -156,6 +156,17 @@ function createMobileRoutes({
       reply(200, { result: await client.call("chat:search", [owner, target.searchParams.get("q") ?? "", { limit: 200 }]) });
       return;
     },
+    "/search-all": async ({ target, reply }) => {
+      const scope = target.searchParams.get("projectPath") || undefined;
+      if (scope !== undefined) {
+        await confine?.check(scope);
+        if (!validScope(scope)) throw failure(400, "Choose a valid Project or Link");
+      }
+      const options = { scope, archived: target.searchParams.get("archived") === "1", limit: 100 };
+      const found = await client.call("chats:search", [target.searchParams.get("q") ?? "", options]);
+      reply(200, { result: confine ? await confine.filterResult("chats:search", found) : found });
+      return;
+    },
     "/runs": async ({ target, reply }) => {
       const projectPath = target.searchParams.get("projectPath");
       if (!validScope(projectPath)) throw failure(400, "Choose a valid Project or Link");

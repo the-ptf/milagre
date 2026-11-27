@@ -16,7 +16,7 @@ const NO_CHECKPOINTS = {};
 
 type Options = Pick<
   ChatComposerProps,
-  "messages" | "projectPath" | "store" | "imageDraft" | "selectedModel" | "capability" | "effort" | "permissionMode" | "ultracode" | "fastMode"
+  "session" | "messages" | "projectPath" | "store" | "imageDraft" | "selectedModel" | "capability" | "effort" | "permissionMode" | "ultracode" | "fastMode"
 > & {
   runtimeChat: string | null;
   worktreeId?: number;
@@ -33,7 +33,7 @@ type Options = Pick<
  */
 export function useComposerEdit(options: Options) {
   const { messages, projectPath, store, imageDraft, runtimeChat, running } = options;
-  const blocked = Boolean(options.readOnly || options.offlineName);
+  const blocked = Boolean(options.readOnly || options.session?.archived || options.offlineName);
   const api = runtimeChat ? (bridgeForKey(runtimeChat).checkpoints ?? NO_CHECKPOINTS) : NO_CHECKPOINTS;
   const flow = useMessageEdit(api, runtimeChat ?? "", !running);
   const aside = useRef<{ text: string; quotes: readonly ComposerQuote[] } | null>(null);
@@ -62,7 +62,7 @@ export function useComposerEdit(options: Options) {
     const edit = flow.request();
     const body = store.get().trim();
     const { images, files } = imageDraft;
-    if (!edit || !runtimeChat || sending || flow.unresolved || imageDraft.loading || (!body && !images.length && !files.length)) return;
+    if (blocked || !edit || !runtimeChat || sending || flow.unresolved || imageDraft.loading || (!body && !images.length && !files.length)) return;
     setSending(true);
     setError("");
     try {

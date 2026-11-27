@@ -62,6 +62,8 @@ function Fixture() {
   const [sending, setSending] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
   window.setReadOnly = setReadOnly;
+  const [archived, setArchived] = useState(false);
+  window.setArchived = setArchived;
   const [notes, setNotes] = useState([]);
   const [extra, setExtra] = useState([]);
   const [stream, setStream] = useState("");
@@ -87,9 +89,10 @@ function Fixture() {
     {btw && <BtwOverlay state={btw} onDismiss={() => setBtw(null)} onStop={noop} onBringBack={noop} />}
     <ChatComposer messages={messages} agentChatId="/Projects/storefront#1" messageScope="/Projects/storefront"
       imageDraft={{ images: [], files: [], localFiles: new Map(), removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/Projects/storefront" store={draftStore} onSend={() => { window.sent = draft; }} isSending={sending} streamingText={stream} sendBlocked={readOnly} readOnlyHistory={readOnly}
+      projectPath="/Projects/storefront" store={draftStore} onSend={() => { window.sent = draft; }} isSending={sending} streamingText={stream} sendBlocked={readOnly || archived} readOnlyHistory={readOnly}
+      composerNote={archived ? "This Chat is archived." : undefined} onRestoreChat={archived ? () => setArchived(false) : undefined}
       onOpenDiff={(file, root) => window.calls.diffs.push([file, root])}
-      session={{ id: 1, readOnlyReason: readOnly ? "Worktree removed" : undefined }} onSettle={(id, until) => window.calls.done.push(until ? [id, "snooze"] : id)}
+      session={{ id: 1, archived, readOnlyReason: readOnly ? "Worktree removed" : undefined }} onSettle={(id, until) => window.calls.done.push(until ? [id, "snooze"] : id)}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={false} onFastModeChange={noop} permissionMode="ask" onPermissionModeChange={noop}
@@ -526,6 +529,12 @@ async function browserChecks() {
     await wait('!document.querySelector("[data-message-edit-card]")');
     assert.equal(await evaluate("window.sent"), undefined, "an edit never goes out as a new message");
     await wait('document.querySelector("[data-prompt-editor]").textContent.trim() === ""');
+
+    await evaluate("window.setArchived(true)");
+    await wait('document.querySelector("[data-composer-note]")?.textContent.includes("archived")');
+    assert.equal(await evaluate('document.querySelectorAll("[data-edit-message]").length'), 0, "archived messages have no edit action");
+    await evaluate('[...document.querySelectorAll("button")].find(button => button.textContent.trim() === "Restore Chat").click()');
+    await wait('!!document.querySelector("[data-edit-message]")');
 
     // While a turn runs, Esc Esc stays with Stop and the undo buttons wait.
     await evaluate("window.setSending(true)");

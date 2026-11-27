@@ -163,6 +163,7 @@ export function ChatComposer({
   onStartFromIssue,
   newChatError,
   composerNote,
+  onRestoreChat,
   noGit,
   starters,
   findOpen = false,
@@ -209,7 +210,7 @@ export function ChatComposer({
   const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat ?? draftKey);
   const browserChat = !isNewChat ? runtimeChat : null;
   const browserShown = browserChat && !offScreen ? browserChat : null;
-  const { review, undoIntent, setUndoIntent, highlightId, setHighlightId, undoable, openUndo, undoTask, previewRecovery } = useUndoFlow({
+  const { review, undoIntent, onViewCheckpoints, highlightId, setHighlightId, undoable, openUndo, undoTask, previewRecovery } = useUndoFlow({
     runtimeChat,
     isSending,
     readOnlyHistory,
@@ -263,6 +264,7 @@ export function ChatComposer({
     worktreeId: selectedWorktreeId,
     running: isSending,
     readOnly: readOnlyHistory,
+    session,
     offlineName,
     onOpenFile: onOpenDiff,
     focus: focusPrompt,
@@ -650,10 +652,7 @@ export function ChatComposer({
               <InlineError size={12} className="mt-2 px-1">
                 {newChatError}
               </InlineError>
-              <ComposerFooter
-                onViewCheckpoints={readOnlyHistory && runtimeChat ? () => void (setUndoIntent("Undo"), review.open()) : undefined}
-                note={composerNote}
-              />
+              <ComposerFooter onViewCheckpoints={onViewCheckpoints} note={composerNote} onRestore={onRestoreChat} />
             </div>
           </div>
           {projectNewChat && !offScreen && (

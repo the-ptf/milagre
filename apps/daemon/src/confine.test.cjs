@@ -109,6 +109,9 @@ test("a confined inbox excludes Chats and requests from other Projects in HTTP a
     assert.equal(snapshot.items[0].projectPath, f.demo);
     assert.equal(JSON.stringify(snapshot).includes(f.outside), false);
   }
+  const found = (await (await f.request("/search-all?q=question")).json()).result;
+  assert.deepEqual([...new Set(found.matches.map((match) => match.projectPath))], [f.demo]);
+  assert.equal(JSON.stringify(found).includes(f.outside), false);
 });
 
 // Every command the phone may call that names a path, with that path pointing at `target`.

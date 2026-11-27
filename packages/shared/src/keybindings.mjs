@@ -8,6 +8,7 @@ const MAX_WHEN_LENGTH = 256;
  */
 export const KEYBINDING_COMMANDS = Object.freeze([
   { id: "commandPalette.toggle", title: "Search commands, Chats and Projects", group: "General", defaults: ["mod+k"], mobile: true },
+  { id: "messages.search", title: "Search messages in every Project", group: "General", defaults: ["mod+shift+k"], mobile: true },
   { id: "chat.new", title: "New Chat", group: "General", defaults: ["mod+n"], mobile: true },
   { id: "worktree.new", title: "New Chat in a new worktree, from anywhere", group: "General", defaults: ["mod+shift+n"], forward: true, mobile: true },
   { id: "project.add", title: "Add Project", group: "General", defaults: ["mod+o"] },

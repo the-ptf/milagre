@@ -25,6 +25,7 @@ import { ChooseProjectScreen, HostNotices, QuitErrorDialog, StartupErrorScreen }
 import { WorkspaceSlots } from "./app/WorkspaceSlots";
 import { ProjectChangesPanel } from "./app/ProjectChangesPanel";
 import { ProjectPalette } from "./app/ProjectPalette";
+import { composerBlock } from "./lib/composer-block";
 import { LinkProjectDialog } from "./components/LinkProjectDialog";
 import { onOpenRequests } from "./lib/design-library-page";
 import { DeleteLinkDialog, linkDeletesInFlight } from "./components/DeleteLinkDialog";
@@ -155,10 +156,10 @@ import { useChatTerminals } from "./lib/terminal-store";
 import { useProvideSubchatActions } from "./components/agents/SubchatMessages";
 import { useStepApprovalScope } from "./components/agents/step-approval";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
-import { canOpenRunChat, chatBranchLabel, RUN_WORKTREE_REMOVED_NOTE, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
+import { canOpenRunChat, chatBranchLabel, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
 import { OrchestratorPage, OrchestratorSidebarRow } from "./components/orchestrator";
-import { RUN_CHAT_REPLY_NOTE, RunChatHeader } from "./components/routines/RunChatHeader";
+import { RunChatHeader } from "./components/routines/RunChatHeader";
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
 import { remoteDelegationsFrom } from "./lib/remote-delegation";
 import { ChatComposer } from "./components/ChatComposer";
@@ -1830,8 +1831,10 @@ function App() {
   const { findOpen, setFindOpen, findSignal, findSeed, findRef, openFind, openMessage } = useFindInChat({
     canOpen: view === "chat" && chatCount > 0,
     shownSessionId: view === "chat" ? selectedSession?.id : undefined,
+    shownProjectPath: project?.path,
     messageCount: messages.length,
     openChat: (sessionId) => openChat(sessionId),
+    openChatKey,
   });
   useAppShortcuts(
     {
@@ -2412,6 +2415,7 @@ function App() {
     });
 
   const projectBridge = bridgeForKey(project.path);
+  const composerBlocked = composerBlock(selectedSession, { runPane: runPaneOpen, restore: (id) => patchChat(id, { archived: false }, openProjectPath()) });
   const approvalProps: ChatApprovalProps = {
     chatId: chatKey(project.path, selectedSession?.id ?? 0),
     run,
@@ -2666,7 +2670,7 @@ function App() {
                         }
                         isSending={isSending}
                         readOnlyHistory={!!selectedSession?.readOnlyReason}
-                        sendBlocked={preparingHere || Boolean(selectedSession?.formerWorktree || selectedSession?.readOnlyReason)}
+                        sendBlocked={preparingHere || composerBlocked.blocked}
                         offlineName={offlineName}
                         offlineTray={
                           offlineTray.shown && project ? (
@@ -2785,14 +2789,8 @@ function App() {
                           saveChatPreferences(localStorage, project.path, { baseBranch: branch });
                         }}
                         newChatError={newChatError}
-                        composerNote={
-                          selectedSession?.readOnlyReason ??
-                          (selectedSession?.formerWorktree
-                            ? RUN_WORKTREE_REMOVED_NOTE
-                            : runPaneOpen && selectedSession?.routine?.hidden
-                              ? RUN_CHAT_REPLY_NOTE
-                              : undefined)
-                        }
+                        onRestoreChat={composerBlocked.restore}
+                        composerNote={composerBlocked.note}
                         findOpen={findOpen}
                         findSignal={findSignal}
                         findSeed={findSeed}
@@ -2853,6 +2851,8 @@ function App() {
               messages={lean ? null : (sidebarState?.messages ?? NO_MESSAGES)}
               searchChats={lean ? (query) => bridgeForKey(project.path).searchChats(project.path, query) : null}
               openMessage={openMessage}
+              scope={project.path}
+              initialMode={commandPaletteOpen}
               onStartChat={(query) => startNewChatOnThisMac(query)}
               onClose={() => setCommandPaletteOpen(false)}
               onError={setNotice}

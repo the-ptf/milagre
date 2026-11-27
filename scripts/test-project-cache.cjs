@@ -98,6 +98,7 @@ export const ErrorNotice = ({message}) => <span>{message}</span>;
 export const Field = ({value, onChangeText, label}) => <input aria-label={label} value={value} onChange={e => onChangeText(e.target.value)} />;
 export const IconButton = ({label, onPress}) => <button aria-label={label} onClick={onPress} />;
 export const CircleButton = IconButton;
+export const Chip = ({label, selected, onPress}) => <button role="checkbox" aria-checked={!!selected} onClick={onPress}>{label}</button>;
 export const EmptyState = ({title, action}) => <div>{title}{action && <button onClick={action.onPress}>{action.title}</button>}</div>;
 export const PageScroll = ({children}) => <div>{children}</div>;
 export const PullDown = ({children, label, onPress}) => <div role="button" aria-label={label} onClick={onPress}>{children}</div>;

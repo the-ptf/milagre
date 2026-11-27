@@ -18,7 +18,7 @@ import { type SubchatMarks } from "./subchat-rows";
 import { foldTabRows, type FoldedTabs } from "./workspace-tabs-kinds";
 
 export type Destination = (href: Href, secondary?: boolean | "sheet") => void;
-type HostTag = { hostId: string; hostName: string; reach: Reach };
+export type HostTag = { hostId: string; hostName: string; reach: Reach };
 export type Row = { key: string; path: string } & (
   | ({
       kind: "project";
@@ -77,13 +77,17 @@ export type Row = { key: string; path: string } & (
       HostTag)
   | ({
       kind: "message";
-      chat: AgentSession;
+      chatId: number;
       title: string;
       project: string;
       many: boolean;
       snippet: string;
       highlight: [number, number];
+      archived?: boolean;
+      /** How long ago its Chat was active ("3d"), when the host said. */
+      ago?: string;
     } & HostTag)
+  | { kind: "searchFilters"; archived: boolean }
   | ({
       kind: "notice";
       message: string;

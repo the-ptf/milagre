@@ -3,6 +3,12 @@ const { importTools } = require("./local-mcp-import.cjs");
 const { orchestratorTools } = require("./orchestrator/mcp.cjs");
 const { pullRequestTools } = require("./pull-request-list.cjs");
 const projectInput = { projectPath: z.string().min(1).max(8192) };
+const searchInput = {
+  ...projectInput,
+  query: z.string().trim().min(1).max(500),
+  limit: z.number().int().min(1).max(100).default(20),
+  archived: z.boolean().default(false),
+};
 const requestId = z.string().min(1).max(128);
 const permissionMode = z.enum(["ask", "auto", "full"]);
 const callerOf = (connectionId) => (connectionId.startsWith("agent:") ? connectionId.slice(6) : undefined);
@@ -206,8 +212,8 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
         ),
         read(
           "chat_search",
-          "Search the messages of a Project's Chats that aren't archived, best match first.",
-          { ...projectInput, query: z.string().trim().min(1).max(500), limit: z.number().int().min(1).max(100).default(20) },
+          "Search the messages of a Project's Chats, best match first. Archived Chats are left out unless archived is true; each result says whether its Chat is archived.",
+          searchInput,
           (args) => host.searchChats(args),
         ),
         mutate(

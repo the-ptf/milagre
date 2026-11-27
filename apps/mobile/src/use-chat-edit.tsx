@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard } from "react-native";
 import { composerQuote, quotedMessage, splitQuotes, type ComposerQuote } from "@milagre/shared/prompt-parts";
-import type { ChatMessage } from "@milagre/shared/model";
+import type { AgentSession, ChatMessage } from "@milagre/shared/model";
 import type { CheckpointRewind } from "@milagre/shared/checkpoints";
 import { useMessageEdit } from "@milagre/shared/use-message-edit";
 import { attachmentPrompt, prepareAttachments } from "./attachments";
@@ -122,8 +122,8 @@ export function useChatEdit(
         : { running: false, sendBlocked: Boolean(blocked || sending || flow.unresolved), sendLabel: "Send edited message" },
     send,
     cancel,
-    row: (message: ChatMessage, highlighted: boolean, chat: { readOnlyReason?: string } | null | undefined, offline: boolean) => ({
-      onEdit: chat?.readOnlyReason || offline ? undefined : start,
+    row: (message: ChatMessage, highlighted: boolean, chat: Pick<AgentSession, "readOnlyReason" | "archived"> | null | undefined, offline: boolean) => ({
+      onEdit: chat?.readOnlyReason || chat?.archived || offline ? undefined : start,
       highlighted: highlighted || message.id === editingId,
     }),
     dimmed: (message: ChatMessage) => (after.has(message.id) ? DIMMED : undefined),

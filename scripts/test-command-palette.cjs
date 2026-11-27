@@ -38,6 +38,14 @@ window.milagre = new Proxy({
   patchChat: async () => { throw new Error("Chat could not be saved: disk full"); },
   // The check raises a question in the open chat by sending the events the main process would.
   getRuns: async () => ({ seq: 0, runs: {} }),
+  // chats:search as the host answers it: a hit here, one in an archived Chat of another Project, one Project unreadable.
+  searchAllChats: async (query, options) => {
+    window.calls.push(['search', query, options]);
+    const here = { projectPath: '/fixture', projectName: 'Milagre', chat: { id: 2, title: 'Relay deploy', archived: false, lastAt: Date.now() - 2 * 3600000 }, message: { id: 2, session_id: 2 }, score: 8, snippet: 'The relay deploys with wrangler from apps/relay, then /health answers.', highlight: [21, 29], term: 'wrangler' };
+    const archived = { projectPath: '/other', projectName: 'Website', chat: { id: 7, title: 'Old deploy notes', archived: true, lastAt: Date.now() - 9 * 86400000 }, message: { id: 40, session_id: 7 }, score: 6, snippet: 'Pages deploy with wrangler pages publish.', highlight: [18, 26], term: 'wrangler' };
+    const matches = options?.scope ? [here] : options?.archived ? [here, archived] : [here];
+    return { matches, failed: options?.scope ? [] : [{ projectPath: '/gone', projectName: 'Gone', error: "Its messages file (.milagre/chats.db) is missing." }], searched: 2 };
+  },
   // Held until the check settles it, as a busy host would.
   answerQuestion: (chatId, requestId) => new Promise(resolve => { window.calls.push(['answer', requestId]); window.settleAnswer = resolve; }),
   onAgentEvent: handler => { (window.agentHandlers ??= []).push(handler); return () => {}; },
@@ -203,16 +211,27 @@ async function browserChecks() {
     await waitFor('document.querySelectorAll("dialog kbd.shadow-btn").length === 0');
     await waitFor('document.querySelector("dialog").textContent.includes("Website")');
     await key("ArrowUp");
-    assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Website")'), "Arrow navigation wraps");
+    assert.ok(
+      await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Search messages")'),
+      "Arrow navigation wraps to the last row",
+    );
     await key("ArrowDown");
     assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Commit and open PR")'));
     await key("Tab");
     assert.equal(await evaluate('document.activeElement.getAttribute("role")'), "combobox");
     await search("missing-command-xyz");
     assert.deepEqual(
-      await evaluate('[...document.querySelectorAll("dialog [role=option]")].map((option) => option.textContent.trim())'),
-      ["Start a new Chat with your search"],
-      "An unmatched search offers only the new-chat row",
+      await evaluate(`[...document.querySelectorAll("dialog [role=option]")].map((option) => {
+        const row = option.cloneNode(true);
+        const shortcut = row.querySelector("kbd");
+        shortcut?.remove();
+        return [row.textContent.trim(), shortcut?.getAttribute("aria-label") ?? null];
+      })`),
+      [
+        ["Start a new Chat with your search", null],
+        ["Search messages for “missing-command-xyz”", mac ? "Shift + Command + K" : "Control + Shift + K"],
+      ],
+      "An unmatched search offers a new Chat with it, or a message search",
     );
     await screenshot("palette-start-chat-dark.png");
     await search("FINDER");
@@ -286,7 +305,34 @@ async function browserChecks() {
     await screenshot("message-opened-dark.png");
     await key("Escape");
     await waitFor('!document.querySelector("[data-find-bar]")');
+    await key("k", { ...modifier, shiftKey: true });
+    await waitFor('document.querySelector("dialog input")?.placeholder === "Search messages…"');
+    assert.ok(
+      await evaluate('!!document.querySelector("dialog [role=radiogroup][aria-label=\\"Where to search\\"]")'),
+      "⌘⇧K opens the palette in message mode with its filters",
+    );
+    await search("wrangler");
+    await waitFor('document.querySelectorAll("dialog [role=option]").length === 1');
+    assert.ok(await evaluate('document.querySelector("dialog").textContent.includes("Couldn\'t search Gone")'), "An unreadable Project is named, not hidden");
+    await evaluate('[...document.querySelectorAll("dialog label")].find((label) => label.textContent.includes("Include archived")).click()');
+    await waitFor('document.querySelectorAll("dialog [role=option]").length === 2');
+    const archivedRow = await evaluate('[...document.querySelectorAll("dialog [role=option]")][1].textContent');
+    assert.ok(
+      archivedRow.includes("Archived") && archivedRow.includes("Old deploy notes · Website · 1w"),
+      `An archived Chat's message is marked and names its Project: ${archivedRow}`,
+    );
+    await screenshot("palette-message-mode-dark.png");
+    await evaluate('[...document.querySelectorAll("dialog [role=radio]")].find((chip) => chip.textContent === "This Project").click()');
+    await waitFor('window.calls.some((call) => call[0] === "search" && call[2]?.scope === "/fixture" && call[2]?.archived === true)');
+    await waitFor('document.querySelectorAll("dialog [role=option]").length === 1');
+    await evaluate('document.querySelector("dialog input").focus()');
+    await search("");
+    await key("Backspace");
+    await waitFor('document.querySelector("dialog input")?.placeholder === "Search commands, Chats and Projects…"');
+    await key("Escape");
+    await waitFor('!document.querySelector("dialog")');
     await open();
+    assert.equal(await evaluate('document.querySelector("dialog input").placeholder'), "Search commands, Chats and Projects…", "⌘K opens on commands again");
     await search("");
     await screenshot("palette-dark.png");
     for (const [width, height] of [
@@ -384,6 +430,7 @@ async function browserChecks() {
     );
     assert.ok(await evaluate('document.querySelector("[data-new-chat-heading]").textContent.includes("Start building in")'), "The new Chat names its Project");
     assert.ok(await evaluate('!document.querySelector("[aria-label=Conversation]")'), "The search waits in the composer, unsent");
+    await waitFor('document.activeElement.matches("[data-prompt-editor]")');
     await screenshot("palette-started-chat.png");
     await evaluate("window.hideWebsite = true");
     await evaluate('document.querySelector("[data-new-chat-project]").click()');
