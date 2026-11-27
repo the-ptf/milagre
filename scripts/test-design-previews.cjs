@@ -17,8 +17,16 @@ const document = (version) => ({ schemaVersion: 1, width: 1440, height: 900, bac
 ] });
 window.milagre = {
   readDesignsEnabled: async () => ({ enabled: true }), onDesignsEnabledChanged: () => () => {},
-  artifacts: { get: async ({id, version = 1, chatId}) => ({ id, version, latest: 2, title: id, format: id === "page" ? "html" : "design", width: 1440, height: 900,
-    html: id === "page" ? "<h1>HTML artifact</h1>" : designHtml(document(version)), document: chatId === "other#1" ? { ...document(version), background: "#334455", nodes: [{ ...document(version).nodes[0], text: "Other Chat" }] } : document(version) }) }
+  artifacts: { get: async ({id, version = 1, chatId, fonts}) => {
+    // The host splits the fonts off a layer design's page; the reader asked for them once.
+    const font = '@font-face{font-family:"Fixture Face";src:local("Helvetica")}';
+    const split = fonts && id !== "page";
+    if (split && !fonts.have.includes("fixture")) window.fontSends = (window.fontSends ?? 0) + 1;
+    const page = designHtml(document(version));
+    return ({ id, version, latest: 2, title: id, format: id === "page" ? "html" : "design", width: 1440, height: 900,
+    html: id === "page" ? "<h1>HTML artifact</h1>" : split ? page : page.replace("</head>", "<style>" + font + "</style></head>"),
+    ...(split ? { fontKey: "fixture", ...(fonts.have.includes("fixture") ? {} : { fontCss: font }) } : {}),
+    document: chatId === "other#1" ? { ...document(version), background: "#334455", nodes: [{ ...document(version).nodes[0], text: "Other Chat" }] } : document(version) }) } }
 };
 const noop = () => {};
 function Fixture() {
@@ -97,9 +105,15 @@ async function check() {
     await evaluate("window.setAllowLive(false); window.canvas.current.zoomTo(.3)");
     await delay(200);
     assert.equal(await evaluate("document.querySelectorAll('[data-design-body] iframe').length"), 0, "full frames wait for panel entry");
+    assert.equal(await evaluate("window.fontSends"), 1, "designs opened together receive their shared fonts once");
+    assert.equal(await evaluate("document.body.innerHTML.includes('Fixture Face')"), false, "zoomed out, no page holds its fonts");
     await evaluate("window.setAllowLive(true)");
     await waitFor("document.querySelectorAll('[data-design-body] iframe').length > 0");
     await waitFor("[...document.querySelectorAll('[data-design-body] iframe')].every(f => getComputedStyle(f.parentElement).opacity === '1')");
+    assert.ok(
+      await evaluate("[...document.querySelectorAll('[data-design-body] iframe')].every(f => f.srcdoc.includes('Fixture Face'))"),
+      "a live frame draws its page with the fonts put back",
+    );
     await evaluate("window.canvas.current.zoomTo(.235)");
     await delay(200);
     assert.ok(await evaluate("document.querySelectorAll('[data-design-body] iframe').length > 0"), "live mode persists in the hysteresis band");

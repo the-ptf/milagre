@@ -283,7 +283,12 @@ async function browserChecks() {
     // The frame steps back through its versions, naming who saved each.
     await evaluate(`${frame("home")}.querySelector("[aria-label='Previous version of Home']").click()`);
     await waitFor(`/v1 of 2.*Edited in Onboarding · Claude/.test(${frame("home")}.textContent)`);
-    assert.deepEqual(await evaluate('window.calls.findLast(([kind]) => kind === "get")[1]'), { projectPath: "/repo", id: "library:home", version: 1 });
+    assert.deepEqual(await evaluate('window.calls.findLast(([kind]) => kind === "get")[1]'), {
+      projectPath: "/repo",
+      id: "library:home",
+      version: 1,
+      fonts: { have: [] },
+    });
     await screenshot("page");
     // Zoomed in, the canvas pans only by its own transform: focus moving to a frame's menu can't scroll it aside.
     for (let step = 0; step < 4; step++) await click('[data-slot=library-board] [aria-label="Zoom in"]');
