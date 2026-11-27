@@ -315,7 +315,12 @@ type MessageSectionProps = {
   onOpenAccounts?: () => void;
 };
 
-function messageDivider(
+function messageDivider(message: AppChatMessage, options: Pick<MessageSectionProps, "models" | "merged" | "onCheckpointPreview" | "onOpenChat" | "dimmed">) {
+  const divider = dividerFor(message, options);
+  return divider && options.dimmed ? <div className="opacity-40">{divider}</div> : divider;
+}
+
+function dividerFor(
   message: AppChatMessage,
   { models, merged, onCheckpointPreview, onOpenChat }: Pick<MessageSectionProps, "models" | "merged" | "onCheckpointPreview" | "onOpenChat">,
 ): ReactNode {
@@ -661,8 +666,8 @@ export const MessageSection = memo(function MessageSection({
   onCheckpointPreview,
 }: MessageSectionProps) {
   const mentions = usePromptMentions(message, isUser);
-  const divider = messageDivider(message, { models, merged, onCheckpointPreview, onOpenChat });
-  if (divider) return dimmed ? <div className="opacity-40">{divider}</div> : divider;
+  const divider = messageDivider(message, { models, merged, onCheckpointPreview, onOpenChat, dimmed });
+  if (divider) return divider;
   const linked = linkedContext(message);
   const linkedArticle = linkedLineArticle(message, isUser, linked, { exchange, onOpenChat });
   if (linkedArticle) return linkedArticle;
