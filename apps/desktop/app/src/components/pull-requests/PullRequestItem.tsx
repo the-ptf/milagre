@@ -1,3 +1,4 @@
+import { findingsLabel, type ReviewCounts } from "@milagre/shared/pr-review";
 import type { IconSvgElement } from "@hugeicons/react";
 import { BubbleChatIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon } from "@hugeicons/core-free-icons";
 import { pullRequestReviewBadge, type PullRequestRow } from "@milagre/shared/pull-request-list";
@@ -57,6 +58,7 @@ export type ItemComputer = { name: string; offline: boolean } | null;
 /** One PR in the list: state, title and number, where it lives, then checks, review and size. */
 export function PullRequestItem({
   row,
+  findings,
   selected,
   narrow,
   computer,
@@ -66,6 +68,7 @@ export function PullRequestItem({
   onOpenChat,
 }: {
   row: PullRequestRow;
+  findings?: ReviewCounts;
   selected: boolean;
   narrow: boolean;
   computer: ItemComputer;
@@ -111,6 +114,7 @@ export function PullRequestItem({
               <span className="truncate">{row.author.login}</span>
             </>
           )}
+          {Boolean(findings?.open) && <span className={findings?.high ? "text-red-ink" : "text-ink-2"}>{findingsLabel(findings!.open)}</span>}
           {chat && (
             <>
               <span aria-hidden>·</span>

@@ -31,6 +31,22 @@ module.exports = {
   "mcp:remove": [p("name"), p("target", mcpTarget)],
   "project:open": [p("folder"), p("options", object({ takeNotice: b }, []), true)],
   "chat:ports": [p("chatId")],
+  "pr-reviews:report": [
+    p(
+      "report",
+      object(
+        {
+          url: s,
+          summary: s,
+          findings: array(
+            object({ path: s, line: n, severity: { enum: ["high", "medium", "low"] }, title: s, body: s, suggestion: s }, ["path", "severity", "title"]),
+          ),
+        },
+        ["url", "findings"],
+      ),
+    ),
+    p("chatId", nullable(s), true),
+  ],
   "browser:open-page": request({ chatId: s, url: s }),
   "browser:page-url": request({ url: s }),
   "browser:release-page-url": request({ id: s }),

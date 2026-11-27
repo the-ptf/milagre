@@ -23,6 +23,7 @@ import {
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { canMergeNow, checksProgress, mergeStatus, type MergeMethod, type PullRequestDetail } from "@milagre/shared/pull-request-review";
+import { ReviewFindings } from "./review-findings";
 import type { Client } from "./client";
 import { Icon, type IconData, type Tone } from "./icons";
 import { PrMarkdown } from "./pr-markdown";
@@ -42,6 +43,7 @@ import { MERGE_METHODS, agoLabel, askPrefill, middleTruncate, notInPrLine, repoO
 const NO_CHOICES: PrChoice[] = [];
 
 export type PrOverviewProps = {
+  reviewClient?: Client | null;
   client: Client;
   cwd: string;
   number: number;
@@ -56,7 +58,20 @@ export type PrOverviewProps = {
 };
 
 /** The PR sheet's first page, and the iPad panel's PR tab: what the PR is, its checks, people, labels and comments. */
-export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClose, choices = NO_CHOICES, onPick, onChanges, project }: PrOverviewProps) {
+export function PrOverview({
+  client,
+  reviewClient = client,
+  cwd,
+  number,
+  chatKey,
+  onOpen,
+  onChat,
+  onClose,
+  choices = NO_CHOICES,
+  onPick,
+  onChanges,
+  project,
+}: PrOverviewProps) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { pr, error, loading, refresh } = usePrDetail(client, cwd, number);
@@ -81,34 +96,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
   if (counted !== null && counted !== localCount) setLocalCount(counted);
   const close = onClose ? <RoundButton label="Close" icon={Cancel01Icon} onPress={onClose} /> : null;
 
-  if (!pr)
-    return (
-      <View style={{ flex: 1 }}>
-        {close && <View style={{ flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 }}>{close}</View>}
-        {oldMac ? (
-          <View style={{ padding: 20, gap: space.lg }}>
-            <Text style={[styles.label, { fontSize: type.callout, lineHeight: lineHeight.callout }]}>
-              Update Milagre on this computer to review PR #{number} here.
-            </Text>
-            <Text style={styles.muted}>{"This computer's Milagre is older than the PR panel."}</Text>
-            {branchPr?.number === number && branchPr.url && (
-              <View style={{ flexDirection: "row" }}>
-                <PillButton title="Open on GitHub" icon={LinkSquare02Icon} secondary onPress={() => void Linking.openURL(branchPr.url).catch(() => {})} />
-              </View>
-            )}
-          </View>
-        ) : error ? (
-          <View style={{ padding: 20 }}>
-            <ErrorNotice message={error} retry={refresh} retryTitle="Try again" />
-          </View>
-        ) : (
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
-            {loading && <ActivityIndicator color={colors.ink3} />}
-            <Text style={styles.muted}>Reading PR #{number}…</Text>
-          </View>
-        )}
-      </View>
-    );
+  if (!pr) return <PrLoading close={close} number={number} oldMac={oldMac} branchPr={branchPr} error={error} loading={loading} refresh={refresh} />;
 
   const status = mergeStatus(pr);
   const now = canMergeNow(pr);
@@ -379,6 +367,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
                 )}
               </PropertyRow>
             </View>
+            {isOpen && reviewClient && <ReviewFindings client={reviewClient} pr={pr} />}
             {!!description && (
               <Section title="Description" open={open.description} onToggle={() => toggle("description")}>
                 <View style={{ paddingHorizontal: 4 }}>
@@ -548,6 +537,54 @@ function PropertyRow({
       <View style={{ flex: 1 }}>{children}</View>
       {onPress && <Icon icon={add} tone="ink3" size={16} />}
     </Pressable>
+  );
+}
+
+function PrLoading({
+  close,
+  number,
+  oldMac,
+  branchPr,
+  error,
+  loading,
+  refresh,
+}: {
+  close: React.ReactNode;
+  number: number;
+  oldMac: boolean;
+  branchPr: { number: number; url: string } | null;
+  error: string;
+  loading: boolean;
+  refresh: () => void;
+}) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  return (
+    <View style={{ flex: 1 }}>
+      {close && <View style={{ flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 }}>{close}</View>}
+      {oldMac ? (
+        <View style={{ padding: 20, gap: space.lg }}>
+          <Text style={[styles.label, { fontSize: type.callout, lineHeight: lineHeight.callout }]}>
+            Update Milagre on this computer to review PR #{number} here.
+          </Text>
+          <Text style={styles.muted}>{"This computer's Milagre is older than the PR panel."}</Text>
+          {branchPr?.number === number && branchPr.url && (
+            <View style={{ flexDirection: "row" }}>
+              <PillButton title="Open on GitHub" icon={LinkSquare02Icon} secondary onPress={() => void Linking.openURL(branchPr.url).catch(() => {})} />
+            </View>
+          )}
+        </View>
+      ) : error ? (
+        <View style={{ padding: 20 }}>
+          <ErrorNotice message={error} retry={refresh} retryTitle="Try again" />
+        </View>
+      ) : (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
+          {loading && <ActivityIndicator color={colors.ink3} />}
+          <Text style={styles.muted}>Reading PR #{number}…</Text>
+        </View>
+      )}
+    </View>
   );
 }
 

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { latestReviewSources, type ReviewCounts, type ReviewCountMap } from "@milagre/shared/pr-review";
+import { useState, useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useFocusEffect } from "expo-router";
 import type { PullRequestListState } from "@milagre/shared/pull-request-list";
 import { allComputers, useComputerViews } from "./all-computers";
@@ -12,7 +13,7 @@ const EVERY = 60 * 1000;
  * Every computer's open (or merged, closed, all) PRs as one list, the connected computer's copy first. Read when the
  * page shows and every minute while it does; `refresh` asks the computers to skip their cache.
  */
-export function usePullRequests(state: PullRequestListState) {
+export function usePullRequests(state: PullRequestListState, reviews = false) {
   const session = useSession();
   const views = useComputerViews();
   const current = session.client?.url;
@@ -31,13 +32,33 @@ export function usePullRequests(state: PullRequestListState) {
     }));
   }, [computers, current, session.client]);
   const ids = computers.map((computer) => computer.hostId).join("\n");
-  const read = useCallback((force: boolean) => store.read(hosts.current, state, force), [state]);
+  const [counts, setCounts] = useState(new Map<string, ReviewCounts & { source: string }>());
+  const generation = useRef(0);
+  const read = useCallback(
+    async (force: boolean) => {
+      const run = ++generation.current;
+      const refreshCounts = async () => {
+        if (!reviews) return;
+        const entries = await Promise.all(
+          hosts.current
+            .filter((h) => h.online && h.client)
+            .map(async (h) => [h.hostId, await h.client!.call<ReviewCountMap>("pr-reviews:counts", []).catch(() => null)] as const),
+        );
+        if (run === generation.current) setCounts(latestReviewSources(entries));
+      };
+      await Promise.all([store.read(hosts.current, state, force), refreshCounts()]);
+    },
+    [state, reviews],
+  );
   useFocusEffect(
     useCallback(() => {
       if (!ids) return;
       void read(false);
       const timer = setInterval(() => void read(false), EVERY);
-      return () => clearInterval(timer);
+      return () => {
+        clearInterval(timer);
+        generation.current++;
+      };
     }, [read, ids]),
   );
   const version = useSyncExternalStore(store.subscribe, store.version);
@@ -47,5 +68,5 @@ export function usePullRequests(state: PullRequestListState) {
     [version, ids, state],
   );
   const names = useMemo(() => new Map(computers.map((computer) => [computer.hostId, computer.name])), [computers]);
-  return { ...view, names, computers: computers.length, refresh: () => read(true) };
+  return { ...view, counts: reviews ? counts : null, names, computers: computers.length, refresh: () => read(true) };
 }

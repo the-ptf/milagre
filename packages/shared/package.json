@@ -118,6 +118,10 @@
       "types": "./src/pull-request-list.d.mts",
       "default": "./src/pull-request-list.mjs"
     },
+    "./pr-review": {
+      "types": "./src/pr-review.d.mts",
+      "default": "./src/pr-review.mjs"
+    },
     "./issue-start": {
       "types": "./src/issue-start.d.mts",
       "default": "./src/issue-start.mjs"

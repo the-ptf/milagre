@@ -1,3 +1,4 @@
+import { findingsLabel, type ReviewCounts } from "@milagre/shared/pr-review";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import {
   CancelCircleIcon,
@@ -37,12 +38,14 @@ export type ReviewForMe = { color: string; reviewing: boolean; onPress: () => vo
 /** One PR on the Pull requests page: title, where it is and who opened it, then checks, review and the Chat that opened it. */
 export function PullRequestRowView({
   row,
+  findings,
   now,
   computer,
   review,
   onOpen,
 }: {
   row: PullRequestRow;
+  findings?: ReviewCounts;
   now: number;
   computer: string;
   review: ReviewForMe;
@@ -64,6 +67,7 @@ export function PullRequestRowView({
     row.offline ? `${computer}, offline` : "",
     checks && checksLabel ? `Checks ${checks.word}, ${checksLabel}` : "",
     review ? (review.reviewing ? "Orchestrator reviewing" : "") : badge.label,
+    findings?.open ? findingsLabel(findings.open) : "",
     chat ? `Chat ${chat.title}` : "",
     when ? `Updated ${when === "now" ? "just now" : `${when} ago`}` : "",
   ]
@@ -101,6 +105,7 @@ export function PullRequestRowView({
             </View>
           ) : null}
           {review ? <ReviewButton {...review} /> : <Tag label={badge.label} tone={badge.tone} square style={{ flexShrink: 0 }} />}
+          {findings?.open ? <Text style={[styles.caption, { color: findings.high ? colors.redInk : colors.ink2 }]}>{findingsLabel(findings.open)}</Text> : null}
           {chat ? (
             <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space.xs }}>
               <Icon icon={Message01Icon} tone="ink3" size={12} />
@@ -116,7 +121,7 @@ export function PullRequestRowView({
   );
 }
 
-function ReviewButton({ color, reviewing, onPress }: { color: string; reviewing: boolean; onPress: () => void }) {
+export function ReviewButton({ color, reviewing, onPress }: { color: string; reviewing: boolean; onPress: () => void }) {
   const { colors } = useTheme();
   const shape = {
     flexDirection: "row",

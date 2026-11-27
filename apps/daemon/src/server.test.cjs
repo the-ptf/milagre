@@ -377,8 +377,8 @@ test("a response over the frame limit fails with a clear error for a client that
   const refused = await rawRequest(socket, { v: 1, id: 1, method: "project:snapshot", args: [project] });
   assert.equal(refused.error.code, "FRAME_TOO_LARGE");
   assert.match(refused.error.message, /over the local daemon's .* frame limit/);
-  const status = await rawRequest(socket, { v: 1, id: 2, method: "daemon:status", args: [] });
-  assert.ok(status.result.capabilities.includes("result-pages-v1"), "the connection stays open");
+  const next = await rawRequest(socket, { v: 1, id: 2, method: "chat:runs", args: [] });
+  assert.deepEqual(next.result?.runs, {}, "the connection can still return a response that fits the frame");
 });
 
 test("pages of a response are read in order, by the connection that asked, before they expire", async (t) => {

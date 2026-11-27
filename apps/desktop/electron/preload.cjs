@@ -241,7 +241,7 @@ function revealBridges(invoke) {
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (...args: any[]) => void) => () => void} listen
- * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readPullRequest" | "readPullRequests" | "readPullRequestSnapshot" | "listOpenPullRequests" | "listPullRequests" | "readPullRequestChecks" | "onPullRequestsChanged">}
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readPullRequest" | "readPullRequests" | "readPullRequestSnapshot" | "listOpenPullRequests" | "listPullRequests" | "readPullRequestChecks" | "onPullRequestsChanged" | "readPrReview" | "readPrReviewCounts" | "fixPrReviewFinding" | "setPrReviewStatus" | "readPrReviewSettings" | "savePrReviewSettings" | "onPrReviewsChanged" | "onPrReviewSettings">}
  */
 function pullRequestBridges(invoke, listen) {
   return {
@@ -252,6 +252,14 @@ function pullRequestBridges(invoke, listen) {
     listPullRequests: (request) => invoke("pull-requests:list", request),
     readPullRequestChecks: (request) => invoke("pull-requests:checks", request),
     onPullRequestsChanged: (callback) => listen("pull-requests:changed", callback),
+    readPrReview: (url) => invoke("pr-reviews:read", url),
+    readPrReviewCounts: () => invoke("pr-reviews:counts"),
+    fixPrReviewFinding: (request) => invoke("pr-reviews:fix", request),
+    setPrReviewStatus: (request) => invoke("pr-reviews:set-status", request),
+    readPrReviewSettings: () => invoke("pr-reviews:settings:read"),
+    savePrReviewSettings: (patch) => invoke("pr-reviews:settings:save", patch),
+    onPrReviewsChanged: (callback) => listen("pr-reviews:changed", callback),
+    onPrReviewSettings: (callback) => listen("pr-reviews:settings", callback),
   };
 }
 

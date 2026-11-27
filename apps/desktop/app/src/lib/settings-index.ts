@@ -677,6 +677,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   },
 
   { page: "experimental", title: "Beta" },
+  { page: "experimental", title: "Review agent", keywords: "pull requests findings babysit review for me" },
   {
     page: "experimental",
     title: "Orchestrator",
