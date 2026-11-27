@@ -7,7 +7,7 @@ const { execFileSync } = require("node:child_process");
 const { createRuntime } = require("./runtime.cjs");
 const { createGit } = require("./git/client.cjs");
 const { waitUntil } = require("./agents/test-helpers.cjs");
-const { changedFiles, codeState } = require("./validation-state.cjs");
+const { changedFiles, codeState, createValidationStore } = require("./validation-state.cjs");
 const { createValidations } = require("./validation.cjs");
 
 async function repository(prefix) {
@@ -40,43 +40,31 @@ test("the code state follows every file Git doesn't ignore and names what change
 
 function fakeChats() {
   const notes = [];
-  return {
-    notes,
-    chats: {
-      notes: new Map(),
-      async addNote(chatId, note) {
-        notes.push({ chatId, ...note });
+  const chats = {
+    notes: new Map(),
+    async addNote(chatId, note) {
+      notes.push({ chatId, ...note });
+    },
+    states: {
+      async update(_scope, change) {
+        const state = { messages: notes.map((note) => ({ ...note, session_id: Number(note.chatId.split("#").at(-1)) })) };
+        const updated = change(state);
+        for (const [index, message] of updated.messages.entries()) {
+          if (message !== state.messages[index]) Object.assign(notes[index], { body: message.body, context: message.context });
+        }
+        return { state: updated, changed: updated !== state };
       },
     },
-    update: (chatId, match, change) => {
-      const note = notes.findLast((item) => item.chatId === chatId && match(item));
-      if (!note) return false;
-      Object.assign(note, change(note));
-      return true;
-    },
+    broadcast() {},
   };
+  return { notes, chats };
 }
 
 test("Stop interrupts the running command and leaves the rest not run; a host that stopped mid-run records it interrupted", async (t) => {
   const { dir, project } = await repository("validation-stop-");
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const chatId = `${project}#1`;
-  const { notes, chats, update } = fakeChats();
-  chats.states = {
-    async update(_scope, change) {
-      const state = { messages: notes.map((note, index) => ({ ...note, id: index, session_id: 1 })) };
-      const next = change(state);
-      if (next === state) return { state, changed: false };
-      const changed = next.messages.find((message, index) => message !== state.messages[index]);
-      update(
-        chatId,
-        (item) => item.context.runId === changed.context.runId,
-        () => ({ body: changed.body, context: changed.context }),
-      );
-      return { state: next, changed: true };
-    },
-  };
-  chats.broadcast = () => {};
+  const { notes, chats } = fakeChats();
   const settings = {
     getValidation: async () => ({
       afterTask: true,
@@ -137,6 +125,109 @@ test("Stop interrupts the running command and leaves the rest not run; a host th
     notes[1].context.results.map((result) => result.status),
     ["interrupted", "not-run"],
   );
+});
+
+test("overlapping starts join the same run while settings are loading", async (t) => {
+  const { dir, project } = await repository("validation-join-");
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const chatId = `${project}#1`;
+  const { notes, chats } = fakeChats();
+  const settings = Promise.withResolvers();
+  const contexts = Promise.withResolvers();
+  let requests = 0;
+  let runs = 0;
+  const validations = createValidations({
+    directory: dir,
+    settings: () => ({ getValidation: () => settings.promise }),
+    states: {
+      executionContext: async () => {
+        if (++requests === 2) contexts.resolve();
+        return { cwd: project };
+      },
+    },
+    chats,
+    git: createGit().read,
+    run: async () => {
+      runs++;
+      return { status: "done", exitCode: 0 };
+    },
+  });
+  const first = validations.start(chatId, { trigger: "user" });
+  const second = validations.start(`${project}#2`, { trigger: "agent" });
+  await contexts.promise;
+  settings.resolve({ commands: [{ name: "Check", command: "true", cwd: "" }] });
+  const [owner, joined] = await Promise.all([first, second]);
+  assert.equal(joined.runId, owner.runId);
+  assert.equal(joined.chatId, chatId);
+  assert.equal(joined.done, owner.done);
+  assert.equal((await owner.done).status, "passed");
+  assert.equal(runs, 1);
+  assert.equal(notes.length, 1);
+});
+
+test("a host error interrupts the card, closes its log and leaves later commands not run", async (t) => {
+  const { dir, project } = await repository("validation-error-");
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const chatId = `${project}#1`;
+  const { notes, chats } = fakeChats();
+  const commands = ["First", "Broken", "Never"].map((name) => ({ name, command: name, cwd: "" }));
+  const validations = createValidations({
+    directory: dir,
+    chats,
+    git: createGit().read,
+    states: { executionContext: async () => ({ cwd: project }) },
+    settings: () => ({ getValidation: async () => ({ commands }) }),
+    run: async ({ command, onOutput }) => {
+      onOutput(command);
+      if (command === "Broken") throw new Error("command runner unavailable");
+      return { status: "done", exitCode: 0 };
+    },
+  });
+  const { done, runId } = await validations.start(chatId, { trigger: "user" });
+  const result = await done;
+  assert.equal(result.status, "interrupted");
+  assert.match(result.reason, /command runner unavailable/);
+  assert.deepEqual(
+    result.results.map((item) => item.status),
+    ["passed", "interrupted", "not-run"],
+  );
+  assert.deepEqual(notes[0].context, result);
+  assert.deepEqual(await validations.log(chatId, runId, 1), { text: "Broken" });
+  assert.equal(JSON.parse(await fs.readFile(path.join(dir, "runs", runId, "run.json"))).status, "interrupted");
+
+  const open = fs.open;
+  const failedWrite = Promise.withResolvers();
+  let closed = false;
+  t.mock.method(fs, "open", async (file, ...args) => {
+    if (!file.endsWith("0.log")) return open(file, ...args);
+    return {
+      writeFile: async () => {
+        failedWrite.resolve();
+        throw new Error("disk full");
+      },
+      close: async () => {
+        closed = true;
+      },
+    };
+  });
+  const retry = await validations.start(chatId, { trigger: "user" });
+  await failedWrite.promise;
+  const failedLog = await retry.done;
+  assert.equal(closed, true);
+  assert.equal(failedLog.status, "interrupted");
+  assert.match(failedLog.reason, /disk full/);
+  assert.equal(failedLog.results[0].exitCode, 0);
+  assert.equal(notes.at(-1).context.status, "interrupted");
+});
+
+test("overlapping freshness changes survive on disk after stale and cancelled runs are removed", async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "validation-fresh-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const store = createValidationStore(dir);
+  const add = (runId) => store.updateFresh((list) => [...list, { runId }]);
+  const remove = (runId) => store.updateFresh((list) => list.filter((item) => item.runId !== runId));
+  await Promise.all([add("cancelled"), add("stale"), add("current"), remove("stale"), add("new"), remove("cancelled")]);
+  assert.deepEqual(await createValidationStore(dir).fresh(), [{ runId: "current" }, { runId: "new" }]);
 });
 
 function runtimeFor(t, dir) {

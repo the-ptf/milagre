@@ -94,32 +94,45 @@ function createValidationStore(directory, { kept = 200 } = {}) {
   const runFile = (runId) => path.join(directory, "runs", runId, "run.json");
   const logFile = (runId, index) => path.join(directory, "runs", runId, `${index}.log`);
   const validId = (runId) => typeof runId === "string" && /^[0-9a-f-]{36}$/.test(runId);
-  const readJson = async (file) => JSON.parse(await fs.readFile(file, "utf8").catch(() => "null"));
+  async function readJson(file) {
+    try {
+      return JSON.parse(await fs.readFile(file, "utf8"));
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+  }
+  async function loadFresh() {
+    if (!fresh) {
+      const list = await readJson(freshFile);
+      fresh ??= Array.isArray(list) ? list : [];
+    }
+    return fresh;
+  }
   return {
     logFile,
     validId,
-    async fresh() {
-      if (fresh) return fresh;
-      const parsed = await readJson(freshFile).catch(() => null);
-      fresh = Array.isArray(parsed) ? parsed : [];
-      return fresh;
-    },
-    setFresh(list) {
-      fresh = list;
-      const text = JSON.stringify(list);
-      saving = saving
-        .catch(() => {})
-        .then(async () => {
-          await fs.mkdir(directory, { recursive: true });
-          const temporary = `${freshFile}.${process.pid}.tmp`;
-          await fs.writeFile(temporary, text, { mode: 0o600 });
-          await fs.rename(temporary, freshFile);
-        });
-      return saving;
+    fresh: () => saving.then(loadFresh),
+    updateFresh(change) {
+      const updated = saving.then(async () => {
+        const current = await loadFresh();
+        const list = change(current);
+        if (list === current) return current;
+        await fs.mkdir(directory, { recursive: true });
+        const temporary = `${freshFile}.${process.pid}.tmp`;
+        await fs.writeFile(temporary, JSON.stringify(list), { mode: 0o600 });
+        await fs.rename(temporary, freshFile);
+        fresh = list;
+        return list;
+      });
+      saving = updated.catch(() => {});
+      return updated;
     },
     async writeRun(runId, record) {
       await fs.mkdir(path.dirname(runFile(runId)), { recursive: true, mode: 0o700 });
-      await fs.writeFile(runFile(runId), JSON.stringify(record), { mode: 0o600 });
+      const file = runFile(runId);
+      await fs.writeFile(`${file}.tmp`, JSON.stringify(record), { mode: 0o600 });
+      await fs.rename(`${file}.tmp`, file);
     },
     readRun: (runId) => (validId(runId) ? readJson(runFile(runId)) : Promise.resolve(null)),
     async runIds() {

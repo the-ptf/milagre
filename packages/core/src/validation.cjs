@@ -27,23 +27,37 @@ async function openLog(file) {
   const handle = await fs.open(file, "w", 0o600);
   let size = 0;
   let writes = Promise.resolve();
+  let failure;
   return {
     write(text) {
       if (size >= MAX_LOG) return;
       const chunk = Buffer.from(text).subarray(0, MAX_LOG - size);
       size += chunk.length;
       const full = size >= MAX_LOG ? Buffer.concat([chunk, Buffer.from("\n… log truncated at 2 MB\n")]) : chunk;
-      writes = writes.then(() => handle.write(full));
+      writes = writes
+        .then(() => !failure && handle.writeFile(full))
+        .catch((error) => {
+          failure = error;
+        });
     },
     async close() {
-      await writes.catch(() => {});
+      await writes;
       await handle.close();
+      if (failure) throw failure;
       return size;
     },
   };
 }
 
 const matches = (runId) => (message) => message.context?.kind === "validation" && message.context.runId === runId;
+
+function interrupt(context, reason) {
+  const results = context.results.map((item) => {
+    if (item.status === "running") return { ...item, status: "interrupted", reason };
+    return item.status === "queued" ? { ...item, status: "not-run" } : item;
+  });
+  return { ...context, results, status: "interrupted", reason };
+}
 
 /**
  * Runs a Project's validation commands in a Chat's Worktree and records each result as a note in the Chat
@@ -96,7 +110,7 @@ function createValidations({
   }
 
   async function execute(chatId, cwd, context, commands, signal) {
-    const results = commands.map((command) => ({ ...command, status: "queued" }));
+    const { results } = context;
     const update = () => publish(chatId, { ...context, results: results.map((result) => ({ ...result })) });
     await update();
     for (const [index, command] of commands.entries()) {
@@ -107,16 +121,15 @@ function createValidations({
       results[index] = { ...command, status: "running" };
       await update();
       const log = await openLog(store.logFile(context.runId, index));
-      const outcome = await run({ command: command.command, cwd: command.cwd ? path.join(cwd, command.cwd) : cwd, timeoutMs, signal, onOutput: log.write });
-      results[index] = { ...resultOf(command, outcome, timeoutMs), hasLog: (await log.close()) > 0 };
+
+      try {
+        const outcome = await run({ command: command.command, cwd: path.join(cwd, command.cwd), timeoutMs, signal, onOutput: log.write });
+        results[index] = resultOf(command, outcome, timeoutMs);
+      } finally {
+        results[index].hasLog = (await log.close()) > 0;
+      }
       await update();
     }
-    return results;
-  }
-
-  async function remember(chatId, runId, cwd, before) {
-    const list = (await store.fresh()).filter((item) => !(item.chatId === chatId && item.worktree === cwd));
-    await store.setFresh([...list, { chatId, runId, worktree: cwd, state: before }]);
   }
 
   async function perform(entry, { chatId, cwd, commands, trigger }) {
@@ -130,23 +143,33 @@ function createValidations({
       startedAt: now(),
       worktreePath: cwd,
       ...(before ? { code: codeSummary(before) } : {}),
-      results: [],
+      results: commands.map((command) => ({ ...command, status: "queued" })),
     };
-    await store.writeRun(runId, { chatId, status: "running", startedAt: context.startedAt });
-    const results = await execute(chatId, cwd, context, commands, controller.signal);
-    const stopped = controller.signal.aborted;
-    const final = {
-      ...context,
-      results,
-      status: validationStatus(results, { interrupted: stopped }),
-      endedAt: now(),
-      ...(stopped ? { reason: entry.reason ?? "Stopped" } : {}),
-    };
-    const after = before ? await codeState(git, cwd).catch(() => null) : null;
-    if (before && after && after.digest !== before.digest) final.stale = { at: now(), files: await changedFiles(git, cwd, before, after) };
-    await publish(chatId, final);
+    let final;
+    try {
+      await store.writeRun(runId, { chatId, status: "running", startedAt: context.startedAt });
+      await execute(chatId, cwd, context, commands, controller.signal);
+      const stopped = controller.signal.aborted;
+      final = {
+        ...context,
+        status: validationStatus(context.results, { interrupted: stopped }),
+        endedAt: now(),
+        ...(stopped ? { reason: entry.reason ?? "Stopped" } : {}),
+      };
+      const after = before ? await codeState(git, cwd).catch(() => null) : null;
+      if (before && after && after.digest !== before.digest) final.stale = { at: now(), files: await changedFiles(git, cwd, before, after) };
+      if (before && !final.stale) {
+        await store.updateFresh((list) => [
+          ...list.filter((item) => !(item.chatId === chatId && item.worktree === cwd)),
+          { chatId, runId, worktree: cwd, state: before },
+        ]);
+      }
+      await publish(chatId, final);
+    } catch (error) {
+      final = { ...interrupt(context, `Milagre couldn't complete validation: ${error.message}`), endedAt: now() };
+      await publish(chatId, final);
+    }
     await store.writeRun(runId, { chatId, status: final.status, startedAt: final.startedAt, endedAt: final.endedAt });
-    if (before && !final.stale) await remember(chatId, runId, cwd, before);
     if (trigger !== "agent") tell(chatId, validationAgentNote(final));
     return final;
   }
@@ -154,16 +177,20 @@ function createValidations({
   /** Starts a run, or joins the one already running in that Worktree. `done` resolves with the final record. */
   async function start(chatId, { trigger }) {
     const { projectPath, cwd } = await worktreeOf(chatId);
-    const existing = active.get(cwd);
-    if (existing) return { runId: existing.runId, chatId: existing.chatId, done: existing.done };
-    const commands = await commandsFor(projectPath);
-    const entry = { runId: randomUUID(), chatId, controller: new AbortController() };
-    active.set(cwd, entry);
-    entry.done = perform(entry, { chatId, cwd, commands, trigger }).finally(() => {
-      active.delete(cwd);
-      void store.prune(new Set([...active.values()].map((item) => item.runId))).catch(() => {});
-    });
-    return { runId: entry.runId, chatId, done: entry.done };
+    let entry = active.get(cwd);
+    if (!entry) {
+      entry = { runId: randomUUID(), chatId, controller: new AbortController(), commands: commandsFor(projectPath) };
+      active.set(cwd, entry);
+      entry.done = entry.commands
+        .then((commands) => perform(entry, { chatId, cwd, commands, trigger }))
+        .finally(() => {
+          active.delete(cwd);
+          void store.prune(new Set([...active.values()].map((item) => item.runId))).catch(() => {});
+        });
+      void entry.done.catch((error) => console.warn("Milagre couldn't finish validation:", error.message));
+    }
+    await entry.commands;
+    return { runId: entry.runId, chatId: entry.chatId, done: entry.done };
   }
 
   async function stop(chatId, runId, reason = "Stopped") {
@@ -177,8 +204,7 @@ function createValidations({
 
   async function cancelChat(chatId, reason = "The Chat was closed") {
     await Promise.all([...active.values()].filter((entry) => entry.chatId === chatId).map((entry) => stop(chatId, entry.runId, reason)));
-    const list = await store.fresh();
-    if (list.some((item) => item.chatId === chatId)) await store.setFresh(list.filter((item) => item.chatId !== chatId));
+    await store.updateFresh((list) => (list.some((item) => item.chatId === chatId) ? list.filter((item) => item.chatId !== chatId) : list));
   }
 
   /** Marks this Worktree's recorded runs out of date when its code changed since they ran. */
@@ -192,9 +218,12 @@ function createValidations({
     const changed = current ? watched.filter((item) => item.state.digest !== current.digest) : [];
     for (const item of changed) {
       const stale = { at: now(), files: await changedFiles(git, worktreePath, item.state, current) };
-      await updateNote(item.chatId, matches(item.runId), (message) => ({ context: { ...message.context, stale } })).catch(() => false);
+      await updateNote(item.chatId, matches(item.runId), (message) => ({ context: { ...message.context, stale } }));
     }
-    if (changed.length) await store.setFresh((await store.fresh()).filter((item) => !changed.includes(item)));
+    if (changed.length) {
+      const staleIds = new Set(changed.map((item) => item.runId));
+      await store.updateFresh((list) => list.filter((item) => !staleIds.has(item.runId)));
+    }
     return changed.length;
   }
 
@@ -214,16 +243,17 @@ function createValidations({
   async function recover() {
     for (const runId of await store.runIds()) {
       const record = await store.readRun(runId);
-      if (record?.status !== "running") continue;
+      if (record?.status !== "running" || [...active.values()].some((entry) => entry.runId === runId)) continue;
+      let status = "interrupted";
       await updateNote(record.chatId, matches(runId), (message) => {
-        const results = (message.context.results ?? []).map((result) => {
-          if (result.status === "running") return { ...result, status: "interrupted", reason: HOST_STOPPED };
-          return result.status === "queued" ? { ...result, status: "not-run" } : result;
-        });
-        const context = { ...message.context, results, status: "interrupted", reason: HOST_STOPPED };
+        if (message.context.status !== "running") {
+          status = message.context.status;
+          return {};
+        }
+        const context = interrupt(message.context, HOST_STOPPED);
         return { body: validationText(context), context };
-      }).catch(() => false);
-      await store.writeRun(runId, { ...record, status: "interrupted" });
+      });
+      await store.writeRun(runId, { ...record, status });
     }
   }
 
