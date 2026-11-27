@@ -5,7 +5,6 @@ const { dbFile, isMarker, readChatBodies } = require("./chat-db.cjs");
 const { stateFile } = require("./project-store.cjs");
 
 const IDLE_MS = 60_000;
-const PER_PROJECT = 200;
 const MAX_LIMIT = 500;
 
 const searchable = (message) => ({ id: message.id, session_id: message.session_id, role: message.role, body: message.body ?? "" });
@@ -79,22 +78,26 @@ function createChatSearch({ scopeStates, knownProjects, nameOf, readUnopened = r
     return { sessions: entry.sessions, worktrees: entry.worktrees, messages: entry[slot] };
   }
 
-  function matchesOf(projectPath, projectName, scope, query, perChat) {
+  function rank(a, b) {
+    return b.match.score - a.match.score || (b.session.summary?.lastAt ?? 0) - (a.session.summary?.lastAt ?? 0) || b.match.message.id - a.match.message.id;
+  }
+
+  function matchesOf(projectPath, projectName, scope, query, perChat, limit) {
     const counts = new Map();
     const found = [];
-    for (const match of searchMessages(scope.messages, query, PER_PROJECT)) {
+    for (const match of searchMessages(scope.messages, query, scope.messages.length)) {
       const chatId = Number(match.message.session_id);
       const session = scope.sessions[chatId];
       if (!session) continue;
       const count = counts.get(chatId) ?? 0;
       if (perChat && count >= perChat) continue;
       counts.set(chatId, count + 1);
-      found.push({ projectPath, projectName, session, match });
+      found.push({ projectPath, projectName, session, match, scope });
     }
-    return found;
+    return found.length > limit ? found.sort(rank).slice(0, limit) : found;
   }
 
-  function describe({ projectPath, projectName, session, match }, scope) {
+  function describe({ projectPath, projectName, session, match, scope }) {
     const own = session.summary ? [] : scope.messages.filter((message) => message.session_id === session.id);
     const worktree = scope.worktrees[session.worktree_id];
     return {
@@ -133,7 +136,7 @@ function createChatSearch({ scopeStates, knownProjects, nameOf, readUnopened = r
         const read = await readScope(projectPath, archived === true);
         if (read) {
           searched++;
-          for (const item of matchesOf(projectPath, projectName, read, text, perChat)) found.push({ item, read });
+          found.push(...matchesOf(projectPath, projectName, read, text, perChat, bounded));
         }
       } catch (error) {
         if (scope) throw error;
@@ -141,13 +144,7 @@ function createChatSearch({ scopeStates, knownProjects, nameOf, readUnopened = r
       }
       if (!scope) await yieldTurn();
     }
-    found.sort(
-      (a, b) =>
-        b.item.match.score - a.item.match.score ||
-        (b.item.session.summary?.lastAt ?? 0) - (a.item.session.summary?.lastAt ?? 0) ||
-        b.item.match.message.id - a.item.match.message.id,
-    );
-    return { matches: found.slice(0, bounded).map(({ item, read }) => describe(item, read)), failed, searched };
+    return { matches: found.sort(rank).slice(0, bounded).map(describe), failed, searched };
   }
 
   return { search, forget: (projectPath) => held.delete(projectPath) };

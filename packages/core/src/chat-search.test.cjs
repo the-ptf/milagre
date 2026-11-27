@@ -80,6 +80,18 @@ test("a deleted Chat's leftover rows never match, and a Chat gives at most perCh
   );
 });
 
+test("one Chat with hundreds of higher-ranked matches leaves room for another matching Chat", async (t) => {
+  const projectPath = await savedProject(t, { 1: { id: 1, title: "Busy" }, 2: { id: 2, title: "Quiet" } }, [
+    ...Array.from({ length: 201 }, (_, index) => message(index + 1, 1, "needle")),
+    message(202, 2, "needles"),
+  ]);
+  const { matches } = await searchOver([projectPath]).search("needle", { limit: 4, perChat: 3 });
+  assert.deepEqual(
+    matches.map((hit) => hit.message.id),
+    [201, 200, 199, 202],
+  );
+});
+
 test("a Project that can't be read is reported, the others still answer, and a Project without Chats is skipped", async (t) => {
   const good = await savedProject(t, { 1: { id: 1, title: "Fine" } }, [message(1, 1, "needle")]);
   const broken = await savedProject(t, { 1: { id: 1 } }, [message(1, 1, "needle")]);
