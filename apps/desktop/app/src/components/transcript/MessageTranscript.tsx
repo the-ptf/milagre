@@ -10,6 +10,7 @@ import { InlineError } from "../primitives/InlineError";
 import { groupQuietRuns, isRoutineRun, routineRunOf } from "@milagre/shared/routines";
 import { RoutineRunDivider } from "../RoutineRunDivider";
 import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
+import { editMarks, type TranscriptEdit } from "./edit-marks";
 import { isValidation } from "@milagre/shared/validation";
 import { type UndoIntent } from "../checkpoints/UndoPanel";
 import { foldLinkedExchanges } from "@milagre/shared/linked-message";
@@ -83,11 +84,13 @@ export const MessageTranscript = memo(function MessageTranscript({
   undoBlocked = false,
   onUndo,
   onFork,
+  edit,
   onSettle,
   highlightId = null,
   onCheckpointPreview,
   validationChat = null,
 }: {
+  edit?: TranscriptEdit;
   undoable?: Map<number, { id: string; latest: boolean }>;
   undoBlocked?: boolean;
   onUndo?: (checkpointId: string) => void;
@@ -232,15 +235,13 @@ export const MessageTranscript = memo(function MessageTranscript({
   const hiddenNotes = useMemo(() => hiddenSubchatNotes(messages), [messages]);
   const suggestionResults = useMemo(() => suggestionOutcomes(messages), [messages]);
   const transcript = grouped.slice(start).filter((entry) => !entry.hidden);
-  if (streamingMessage) {
-    const pendingIndex = transcript.findIndex((entry) => entry.message.id === pendingMessageId);
-    transcript.splice(pendingIndex < 0 ? transcript.length : pendingIndex, 0, { message: streamingMessage });
-  }
+  insertStreamingMessage(transcript, streamingMessage, pendingMessageId);
 
   const { cut, tailMarker } = useTailFirst(chatId, transcript.length, following);
   const shown = cut ? transcript.slice(-TAIL_FIRST) : transcript;
 
   const openingIds = openingMessages.current.ids;
+  const editProps = editMarks(edit, transcript, Boolean(offlineName));
   const limitMessageId = isSending || offlineName ? undefined : (limitSourceMessageId ?? messages.at(-1)?.id);
   return (
     <>
@@ -296,7 +297,8 @@ export const MessageTranscript = memo(function MessageTranscript({
               onFork={message.id > 0 && message !== streamingMessage ? onFork : undefined}
               onSettle={message === transcript.at(-1)?.message && message.role === "assistant" ? onSettle : undefined}
               highlighted={message.id === highlightId}
-              onCheckpointPreview={isCheckpointRestore(message) && !undoBlocked ? onCheckpointPreview : undefined}
+              {...editProps(message)}
+              onCheckpointPreview={(isCheckpointRestore(message) || editProps.divider(message)) && !undoBlocked ? onCheckpointPreview : undefined}
               validationChat={isValidation(message) ? validationChat : undefined}
             />
           </Fragment>
@@ -305,3 +307,9 @@ export const MessageTranscript = memo(function MessageTranscript({
     </>
   );
 });
+
+function insertStreamingMessage(transcript: { message: AppChatMessage }[], streamingMessage?: AppChatMessage, pendingMessageId?: number | null) {
+  if (!streamingMessage) return;
+  const pendingIndex = transcript.findIndex((entry) => entry.message.id === pendingMessageId);
+  transcript.splice(pendingIndex < 0 ? transcript.length : pendingIndex, 0, { message: streamingMessage });
+}

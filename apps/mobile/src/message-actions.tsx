@@ -1,5 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, StyleSheet, TextInput, View, processColor, useWindowDimensions, type GestureResponderEvent, type ViewProps } from "react-native";
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  View,
+  processColor,
+  useWindowDimensions,
+  type AccessibilityActionEvent,
+  type GestureResponderEvent,
+  type ViewProps,
+} from "react-native";
+import { PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import * as Clipboard from "expo-clipboard";
 import { requireNativeViewManager, requireOptionalNativeModule } from "expo-modules-core";
 import { markdownPlainText } from "./plain-text";
@@ -57,17 +69,22 @@ export function MessageActions({
   text,
   markdown = false,
   from = "assistant",
+  onEdit,
   children,
 }: {
   text: string;
   markdown?: boolean;
   from?: QuoteFrom;
+  /** The user's own typed message: an Edit message pill shows under it while it is selected. */
+  onEdit?: () => void;
   children: (open: ((event?: GestureResponderEvent) => void) | undefined, swap: SelectionSwap) => React.ReactNode;
 }) {
   const [selection, setSelection] = useState<Selection | null>(null);
-  const latest = useRef({ text, markdown, from });
+  // A tap on the pill also ends the native selection, in either order: pressing it in marks the edit to run on close.
+  const editing = useRef(false);
+  const latest = useRef({ text, markdown, from, onEdit });
   useEffect(() => {
-    latest.current = { text, markdown, from };
+    latest.current = { text, markdown, from, onEdit };
   });
   const open = useCallback((event?: GestureResponderEvent) => {
     tap();
@@ -75,7 +92,12 @@ export function MessageActions({
     const touch = event?.nativeEvent;
     setSelection({ text: current, markdown: isMarkdown, from: author, start: touch ? { x: touch.pageX, y: touch.pageY } : undefined });
   }, []);
-  const close = useCallback(() => setSelection(null), []);
+  const close = useCallback(() => {
+    setSelection(null);
+    if (!editing.current) return;
+    editing.current = false;
+    latest.current.onEdit?.();
+  }, []);
   if (Platform.OS !== "ios" || !text.trim()) return children(undefined, (formatted) => formatted);
   const swap: SelectionSwap = (formatted) => (
     <SelectionSlot selection={selection} onClose={close}>
@@ -86,6 +108,16 @@ export function MessageActions({
     <Pressable accessible={false} onLongPress={selection ? undefined : open} delayLongPress={350}>
       {/* oxlint-disable-next-line react/refs -- `open` reads the ref only when pressed, never during render */}
       {children(open, swap)}
+      {selection && onEdit && (
+        <PillButton
+          title="Edit message"
+          icon={PencilEdit02Icon}
+          variant="secondary"
+          style={{ alignSelf: "flex-end", marginTop: 8 }}
+          onPressIn={() => (editing.current = true)}
+          onPress={close}
+        />
+      )}
     </Pressable>
   );
 }
@@ -188,9 +220,13 @@ function PlainSelection({ text, onQuote, onClose }: { text: string; onQuote?: (p
   );
 }
 
-export function messageActionProps(open?: () => void) {
-  if (!open) return {};
-  return { accessibilityActions: [{ name: "longpress", label: "Select text" }], onAccessibilityAction: () => open() };
+export function messageActionProps(open?: () => void, onEdit?: () => void) {
+  const actions = [...(open ? [{ name: "longpress", label: "Select text" }] : []), ...(onEdit ? [{ name: "edit", label: "Edit message" }] : [])];
+  if (!actions.length) return {};
+  return {
+    accessibilityActions: actions,
+    onAccessibilityAction: (event?: AccessibilityActionEvent) => (event?.nativeEvent.actionName === "edit" ? onEdit?.() : open?.()),
+  };
 }
 
 /** Message text is selectable where the system can pick a range in it (Android); on iOS the long press above takes over. */

@@ -236,7 +236,7 @@ function restoreLabel(review: CheckpointReview, intent: UndoIntent) {
   return `${intent} ${count} ${count === 1 ? "file" : "files"}`;
 }
 
-function FileRow({
+export function FileRow({
   file,
   readOnly = false,
   intent,

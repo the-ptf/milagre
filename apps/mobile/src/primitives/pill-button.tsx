@@ -16,6 +16,7 @@ const SIZES = {
 export function PillButton({
   title,
   onPress,
+  onPressIn,
   icon,
   variant,
   secondary = false,
@@ -30,6 +31,7 @@ export function PillButton({
 }: {
   title: string;
   onPress: () => void;
+  onPressIn?: () => void;
   icon?: IconData;
   variant?: "primary" | "secondary" | "tinted" | "plain";
   secondary?: boolean;
@@ -72,6 +74,7 @@ export function PillButton({
       // A small pill still takes a 44pt touch.
       hitSlop={size === "small" ? 6 : undefined}
       disabled={disabled || loading}
+      onPressIn={onPressIn}
       onPress={() => {
         tap();
         onPress();

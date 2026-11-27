@@ -1739,3 +1739,25 @@ test("stopSubagent interrupts only the selected Codex thread", async () => {
   });
   await assert.rejects(session.stopSubagent("unknown"), /not available/i);
 });
+
+test("editing an earlier message reverts the resumed thread before that turn, and a refused revert asks for a new session", async (t) => {
+  const { session, events, requests } = codex(t, { resumeId: "thread-9" });
+  const started = await session.startTurn({ ...TURN, rewind: { beforeTurnId: "turn-4" } });
+  await ended(events);
+  const methods = requests.map((request) => request.method);
+  assert.ok(methods.indexOf("thread/resume") < methods.indexOf("thread/revert"));
+  assert.ok(methods.indexOf("thread/revert") < methods.indexOf("turn/start"));
+  assert.deepEqual(requests.find((request) => request.method === "thread/revert").params, { threadId: "thread-9", beforeTurnId: "turn-4" });
+  assert.equal(started.turnId, "turn-1");
+
+  const refused = codex(t, { resumeId: "thread-9" });
+  await refused.session.startTurn({ ...TURN, rewind: { beforeTurnId: "missing" } });
+  await ended(refused.events);
+  const failure = refused.events.find(isTerminal);
+  assert.equal(failure.type, "turn-failed");
+  assert.equal(failure.rewindFailed, true);
+  assert.equal(
+    refused.requests.some((request) => request.method === "turn/start"),
+    false,
+  );
+});

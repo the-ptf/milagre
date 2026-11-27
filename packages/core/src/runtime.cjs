@@ -30,7 +30,8 @@ const { SubchatEscalation } = require("./agents/subchat-escalation.cjs");
 const { writeTranscript, generateBrief, createHandoverModels } = require("./agents/handover.cjs");
 const { expandSkillPrompt } = require("./skills.cjs");
 const { DEFAULT_WORKTREE_ROOT } = require("./worktrees.cjs");
-const { branchPolicyNote } = require("./branch-policy.cjs");
+const { branchPolicyNotes } = require("./branch-policy.cjs");
+const { registerChatEdit } = require("./runtime/chat-edit.cjs");
 const { removeWorktree, worktreeStatus } = require("./worktree-cleanup.cjs");
 const { WorktreeSetups } = require("./worktree-setup.cjs");
 const { SetupReview } = require("./setup-review.cjs");
@@ -420,6 +421,7 @@ function createRuntime(options) {
   let validation = null;
   let limitResume = null;
   let routines = null;
+  let chatEdits = null;
   let babysitWatch = null;
   let autopilot = null;
   let chatSecrets = null;
@@ -434,7 +436,7 @@ function createRuntime(options) {
       emit("agent:event", { chatId, event, ...(state ? { state: scopeStates.withPersistence(projectOfKey(chatId), state) } : {}), ...(seq ? { seq } : {}) });
       return;
     }
-    for (const watcher of [routines, babysitWatch, autopilot]) watcher?.observe(chatId, event);
+    for (const watcher of [routines, babysitWatch, autopilot, chatEdits]) watcher?.observe(chatId, event);
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type)) {
       void track(() => checkpoints.finish(chatId).then((changed) => validation?.afterTurn(chatId, event, changed)), background).catch((error) =>
         console.warn("Checkpoint end capture failed:", error.message),
@@ -562,15 +564,7 @@ function createRuntime(options) {
       remote,
       thisMac: options.hostNetwork?.().name ?? remoteComputers?.thisMac(),
     }).catch(() => "");
-    const branchNotes = await Promise.all(
-      (request.projectRoots ?? [projectOfKey(request.chatId)]).map(async (projectPath) => {
-        try {
-          return branchPolicyNote(projectPath, (await readProjectGit(projectPath)).effective);
-        } catch (error) {
-          return `Project Git rules for ${projectPath} could not be read: ${error.message}. Fix the configuration before creating or renaming a branch.`;
-        }
-      }),
-    );
+    const branchNotes = await branchPolicyNotes(request.projectRoots ?? [projectOfKey(request.chatId)], readProjectGit);
     const text = [prompt, ...branchNotes, ...setupNotes, ...milagreNotes, context, mentions, computerMentions, reports?.text].filter(Boolean).join("\n\n");
     try {
       if (cancelled()) {
@@ -640,7 +634,7 @@ function createRuntime(options) {
       void linked.queuedRemoved(chatId, entry.context).catch((error) => console.warn("Milagre couldn't follow a Delegation:", error.message));
     },
     states: scopeStates,
-    startTurn: (request) => track(() => startAgentTurn(request), starting),
+    startTurn: (request) => track(() => startAgentTurn(request), starting).then((result) => chatEdits?.started(request, result) ?? result),
     readSubagents: async ({ cwd, agents, projectPath, provider = "codex", nativeSessionId }) => {
       if (provider === "antigravity") {
         const cli = await agentCli("antigravity", projectPath).catch(() => null);
@@ -1080,6 +1074,7 @@ function createRuntime(options) {
     validateAccountScope: (...args) => validateAccountScope(...args),
     validations: () => validation?.validations,
   });
+  chatEdits = registerChatEdit({ commands, chats, agents, checkpoints, stopChat, sendAsUser, agentNotes });
   async function notifyIfWaiting(chatId, event) {
     const projectPath = projectOfKey(chatId);
     if (!options.notifyWaiting || !scopeStates.has(projectPath) || !("requestId" in event)) return;

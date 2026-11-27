@@ -901,7 +901,8 @@ test("steers a running turn", async (t) => {
   const second = await session.startTurn({ ...TURN, prompt: "Also add tests" });
   await ended(events);
   assert.equal(first.steered, false);
-  assert.deepEqual(second, { turnId: first.turnId, steered: true });
+  assert.deepEqual(second, { turnId: first.turnId, steered: true, promptId: second.promptId });
+  assert.notEqual(second.promptId, first.promptId);
   assert.equal(calls.prompts.length, 2);
   assert.ok(events.some((event) => event.type === "text-delta" && event.text === "steered:Also add tests"));
   assert.equal(events.filter(isTerminal).length, 1);
@@ -1101,7 +1102,8 @@ test("a steering message dismisses Claude's open question and reaches Claude", a
   const { session, events } = claude(t, { script: scripts.questionThenSteer });
   const first = await session.startTurn(TURN);
   await questioned(events);
-  assert.deepEqual(await session.startTurn({ ...TURN, prompt: "Green, please" }), { turnId: first.turnId, steered: true });
+  const steered = await session.startTurn({ ...TURN, prompt: "Green, please" });
+  assert.deepEqual(steered, { turnId: first.turnId, steered: true, promptId: steered.promptId });
   await ended(events);
   const [result, steer] = replyText(events).split("|");
   assert.deepEqual(JSON.parse(result), { behavior: "deny", message: DISMISSED_MESSAGE });
@@ -1753,4 +1755,55 @@ test("stopSubagent targets the matching Claude task only", async (t) => {
   assert.deepEqual(calls.stoppedTasks, ["task-b"]);
   await assert.rejects(session.stopSubagent("missing"), /not available/i);
   calls.release();
+});
+
+test("editing an earlier message forks the session at the entry before that prompt, and falls back when it can't", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "claude-rewind-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const sessionId = `rewind-${process.pid}-${Date.now()}`;
+  fs.mkdirSync(path.join(home, "projects", "-repo"), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, "projects", "-repo", `${sessionId}.jsonl`),
+    [
+      { type: "user", uuid: "prompt-1", parentUuid: null },
+      { type: "assistant", uuid: "reply-1", parentUuid: "prompt-1" },
+      { type: "user", uuid: "prompt-2", parentUuid: "reply-1" },
+      { type: "assistant", uuid: "reply-2", parentUuid: "prompt-2" },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join("\n") + "\n",
+  );
+  const forked = async function* () {
+    yield { type: "system", subtype: "init", session_id: "forked-1" };
+    yield success;
+  };
+  const env = { ...process.env, CLAUDE_CONFIG_DIR: home };
+  const { session, events, calls } = claude(t, { script: forked, resumeId: sessionId, env });
+  const started = await session.startTurn({ ...TURN, rewind: { prompt: "prompt-2", dropsTurn: true } });
+  await ended(events);
+  assert.equal(typeof started.promptId, "string");
+  assert.equal(calls.options.resume, sessionId);
+  assert.equal(calls.options.resumeSessionAt, "reply-1");
+  assert.equal(calls.options.forkSession, true);
+  assert.equal(calls.options.resumeDropsTurn, "prompt-2");
+  assert.ok(events.some((event) => event.type === "session-started" && event.nativeId === "forked-1"));
+  assert.equal(session.nativeId, "forked-1");
+
+  const unknown = claude(t, { resumeId: sessionId, env });
+  await unknown.session.startTurn({ ...TURN, rewind: { prompt: "never-sent" } });
+  await ended(unknown.events);
+  assert.equal(unknown.events.find(isTerminal).rewindFailed, true);
+  assert.equal(unknown.calls.options ?? null, null);
+
+  const refused = claude(t, {
+    resumeId: sessionId,
+    env,
+    script: async function* () {
+      yield init;
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["Resume rejected by --resume-drops-turn: a queued message"] };
+    },
+  });
+  await refused.session.startTurn({ ...TURN, rewind: { prompt: "prompt-2", dropsTurn: true } });
+  await ended(refused.events);
+  assert.equal(refused.events.find(isTerminal).rewindFailed, true);
 });

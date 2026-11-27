@@ -52,10 +52,12 @@ import { MessageScroller } from "./agents/message-scroller";
 import { StepDetailsScope } from "./agents/step-details";
 import { useSettings } from "../lib/settings";
 import { LoadingMark } from "./StartupSplash";
+import { useComposerEdit } from "./composer/use-composer-edit";
 import { MessageTranscript } from "./transcript/MessageTranscript";
 import { useComposerLayout, useNewChatSetup, useUndoFlow } from "./composer/composer-hooks";
 import { ReplyProviders, TranscriptContexts, TranscriptSlots } from "./transcript/ChatTranscript";
-import { NO_WORKTREES, NO_BRANCHES, NewChatHeader } from "./NewChatHeader";
+import { NewChatHeader } from "./NewChatHeader";
+import { ComposerFooter, LinkNewChatHeader } from "./composer/ComposerFooter";
 import type { ChatComposerProps } from "./composer/chat-composer-props";
 import { PullRequestLinkContext, openPullRequestOnClick } from "./markdown/LinkMenu";
 import { useTranscriptSession } from "../lib/composer-session";
@@ -246,7 +248,27 @@ export function ChatComposer({
     onUndo: openUndo,
   });
 
+  const editFlow = useComposerEdit({
+    messages,
+    projectPath,
+    store,
+    imageDraft,
+    selectedModel,
+    capability,
+    effort,
+    permissionMode,
+    ultracode,
+    fastMode,
+    runtimeChat,
+    worktreeId: selectedWorktreeId,
+    running: isSending,
+    readOnly: readOnlyHistory,
+    offlineName,
+    onOpenFile: onOpenDiff,
+    focus: focusPrompt,
+  });
   const send = useEvent((delivery?: MessageDelivery, background?: boolean) => {
+    if (editFlow.editing) return void editFlow.send();
     if (sideQuestions.intercept(store.text())) return;
     if (!background) captureLaunch();
     onSend(delivery, background);
@@ -385,6 +407,7 @@ export function ChatComposer({
                               undoBlocked={isSending || Boolean(offlineName)}
                               onUndo={runtimeChat && !readOnlyHistory ? undoTask : undefined}
                               onFork={sideQuestions.fork}
+                              edit={editFlow.transcript}
                               highlightId={highlightId}
                               onCheckpointPreview={runtimeChat && !readOnlyHistory ? previewRecovery : undefined}
                               waitingStepIds={waitingStepIds}
@@ -554,20 +577,7 @@ export function ChatComposer({
                     onComputerChange={changeComputer}
                   />
                 )}
-                {linkNewChat && (
-                  <NewChatHeader
-                    link
-                    worktrees={NO_WORKTREES}
-                    onWorktreeChange={() => {}}
-                    isolation="worktree"
-                    onIsolationChange={() => {}}
-                    branches={NO_BRANCHES}
-                    baseBranch=""
-                    onBaseBranchChange={() => {}}
-                    linearActive={linearActive}
-                    onStartFromIssue={onStartFromIssue}
-                  />
-                )}
+                {linkNewChat && <LinkNewChatHeader linearActive={linearActive} onStartFromIssue={onStartFromIssue} />}
                 {offlineTray}
                 {queue && !isNewChat && (
                   <QueuedMessages
@@ -590,6 +600,7 @@ export function ChatComposer({
                     onClosed={focusPrompt}
                   />
                 )}
+                {!isNewChat && editFlow.card}
                 <div className={`${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
                   <DraftPromptComposer
                     store={store}
@@ -612,8 +623,7 @@ export function ChatComposer({
                       const item = queue?.items.find((item) => Boolean(compactionContext(item)));
                       if (item) queue?.onRemove(item.id);
                     }}
-                    sendBlocked={sendBlocked}
-                    running={isSending}
+                    {...editFlow.composer(sendBlocked)}
                     runningProvider={sessionProvider}
                     suggestion={!approval && !asking && (!activity || activity.activity === "idle") ? suggestion : undefined}
                     models={models}
@@ -640,22 +650,10 @@ export function ChatComposer({
               <InlineError size={12} className="mt-2 px-1">
                 {newChatError}
               </InlineError>
-              {readOnlyHistory && runtimeChat && (
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setUndoIntent("Undo");
-                    void review.open();
-                  }}
-                >
-                  View checkpoints
-                </Button>
-              )}
-              {composerNote && (
-                <p data-composer-note className="mt-1.5 px-2 text-12 text-ink-3">
-                  {composerNote}
-                </p>
-              )}
+              <ComposerFooter
+                onViewCheckpoints={readOnlyHistory && runtimeChat ? () => void (setUndoIntent("Undo"), review.open()) : undefined}
+                note={composerNote}
+              />
             </div>
           </div>
           {projectNewChat && !offScreen && (

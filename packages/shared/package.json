@@ -12,6 +12,7 @@
     "src/*.d.mts",
     "src/checkpoints.ts",
     "src/use-checkpoints.ts",
+    "src/use-message-edit.ts",
     "src/model.ts",
     "src/git-diff.ts",
     "src/pull-request-review.ts",
@@ -163,6 +164,7 @@
     },
     "./checkpoints": "./src/checkpoints.ts",
     "./use-checkpoints": "./src/use-checkpoints.ts",
+    "./use-message-edit": "./src/use-message-edit.ts",
     "./model": "./src/model.ts",
     "./token-usage": "./src/token-usage.ts",
     "./new-chat-glance": "./src/new-chat-glance.ts",
@@ -265,6 +267,10 @@
     "./checkpoint-restore": {
       "types": "./src/checkpoint-restore.d.mts",
       "default": "./src/checkpoint-restore.mjs"
+    },
+    "./message-edit": {
+      "types": "./src/message-edit.d.mts",
+      "default": "./src/message-edit.mjs"
     },
     "./worktree-link": {
       "types": "./src/worktree-link.d.mts",

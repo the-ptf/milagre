@@ -234,7 +234,7 @@ class CodexSession {
     }
   }
 
-  async beginTurn({ prompt, images = [], model, permissionMode, effort, fastMode = false, canStart }) {
+  async beginTurn({ prompt, images = [], model, permissionMode, effort, fastMode = false, canStart, rewind }) {
     this.access.learned();
     this.permissions.setMode(permissionMode);
     const policy = this.analysisOnly ? advisorPolicy("codex", this.linked?.tools ?? []) : this.policyFor(permissionMode);
@@ -244,6 +244,7 @@ class CodexSession {
     try {
       this.starting ??= this.start(model, policy);
       await this.starting;
+      if (rewind?.beforeTurnId) await this.revert(rewind.beforeTurnId);
       if (this.cancelRequested) {
         await this.finishTurn([{ type: "turn-cancelled" }]);
         return { turnId: null, steered: false };
@@ -264,6 +265,9 @@ class CodexSession {
       if (error.resumeFailed) {
         await this.finishTurn([{ type: "session-reset" }, failedWith(RESUME_FAILED_MESSAGE)]);
         await this.close();
+      } else if (error.rewindFailed) {
+        await this.finishTurn([{ type: "turn-failed", message: error.message, rewindFailed: true }]);
+        await this.close();
       } else {
         await this.finishTurn([
           this.cancelRequested
@@ -275,6 +279,16 @@ class CodexSession {
         if (!this.ready) await this.close();
       }
       return { turnId: null, steered: false };
+    }
+  }
+
+  // Editing an earlier message drops its turn and every later one from the thread, as the Codex app does.
+  async revert(beforeTurnId) {
+    if (!this.state.threadId) throw Object.assign(new Error("Codex has no thread to rewind."), { rewindFailed: true });
+    try {
+      await this.rpc.request("thread/revert", { threadId: this.state.threadId, beforeTurnId }, { timeoutMs: 90_000 });
+    } catch (error) {
+      throw Object.assign(new Error(`Codex couldn't rewind the thread: ${error.message}`), { rewindFailed: true });
     }
   }
 

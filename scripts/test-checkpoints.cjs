@@ -26,12 +26,14 @@ const files = [
   { key: "0:src/auth/redirect.ts", path: "src/auth/redirect.ts", worktree, action: "delete", conflict: false },
   { key: "0:src/auth/login.test.ts", path: "src/auth/login.test.ts", worktree, action: "replace", conflict: false },
 ];
-window.calls = { list: 0, preview: [], restore: [], diffs: [], done: [] };
+window.calls = { list: 0, preview: [], restore: [], diffs: [], done: [], rewind: [], edits: [] };
 window.failStale = true;
 window.restored = false;
 window.milagre = {
   listEditors: async () => [],
+  editMessage: async (request) => { window.calls.edits.push(request); return { sessionId: 1 }; },
   checkpoints: {
+    rewind: async (request) => { window.calls.rewind.push(request); return { ...redirect, tasks: 1, revision: "review-1", token: "rewind-1", files }; },
     list: async () => { window.calls.list++; return window.restored ? [{ ...redirect, id: "recovery-1", kind: "recovery", changed: 2, createdAt: at.getTime() + 120000 }, redirect, settings] : [redirect, settings]; },
     preview: async ({ id }) => {
       window.calls.preview.push(id);
@@ -84,7 +86,7 @@ function Fixture() {
   return <div style={{ height: "100%", padding: 12 }}>
     {btw && <BtwOverlay state={btw} onDismiss={() => setBtw(null)} onStop={noop} onBringBack={noop} />}
     <ChatComposer messages={messages} agentChatId="/Projects/storefront#1" messageScope="/Projects/storefront"
-      imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
+      imageDraft={{ images: [], files: [], localFiles: new Map(), removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
       projectPath="/Projects/storefront" store={draftStore} onSend={() => { window.sent = draft; }} isSending={sending} streamingText={stream} sendBlocked={readOnly} readOnlyHistory={readOnly}
       onOpenDiff={(file, root) => window.calls.diffs.push([file, root])}
       session={{ id: 1, readOnlyReason: readOnly ? "Worktree removed" : undefined }} onSettle={(id, until) => window.calls.done.push(until ? [id, "snooze"] : id)}
@@ -117,7 +119,7 @@ async function browserChecks() {
       if (await evaluate(source)) return;
       await delay(25);
     }
-    throw new Error("Timed out: " + source);
+    throw new Error(["Timed out: " + source, ...errors].join("\n"));
   };
   const shot = async (name) => {
     await delay(260);
@@ -469,6 +471,62 @@ async function browserChecks() {
     await key("Escape");
     await wait('!document.querySelector("[data-undo-panel]")');
 
+    // Edit message: the pencil loads the message into the composer, sets the draft aside, outlines the bubble, dims what
+    // follows and says what goes with it. Esc puts the draft back; Send replaces the message through chat:edit.
+    await evaluate(`window.setExtra([{id: 19, session_id: 1, role: "assistant", body: "Validation passed",
+      context: {kind: "validation", runId: "r19", status: "passed", trigger: "user", startedAt: 1, worktreePath: "/Projects/storefront", results: []}}])`);
+    await evaluate('window.setDraft("half-written note")');
+    await evaluate('document.querySelector("[data-edit-message=\\"13\\"]").click()');
+    await wait('!!document.querySelector("[data-message-edit-card]")');
+    assert.match(
+      await evaluate('document.querySelector("[data-message-edit-card]").textContent'),
+      /Editing a message · the 1 message after it will be removed/,
+    );
+    assert.equal(await evaluate('!!document.querySelector("[data-edit-message=\\"11\\"]")'), true, "every typed message offers Edit");
+    assert.equal(
+      await evaluate('!!document.querySelector("#message-12 [data-edit-message], #message-15 [data-edit-message]")'),
+      false,
+      "replies and lines don't",
+    );
+    await wait('document.querySelector("[data-prompt-editor]").textContent.includes("account page")');
+    assert.deepEqual(await ringed(), ["message-13"]);
+    assert.equal(
+      await evaluate('!!document.querySelector("[data-validation-card=passed]")?.closest(".opacity-40")'),
+      true,
+      "later validation evidence stays visible and dimmed while editing",
+    );
+    assert.equal(await evaluate('document.querySelector("#message-14").dataset.dimmed'), "true");
+    assert.equal(await evaluate('document.querySelector("#message-12").dataset.dimmed'), undefined);
+    await wait('document.querySelector("[data-message-edit-card]").textContent.includes("Also undo the changes to 3 files")');
+    assert.deepEqual(await evaluate("window.calls.rewind"), [{ chatId: "/Projects/storefront#1", messageId: 13 }]);
+    assert.match(await evaluate('document.querySelector("[data-message-edit-card]").textContent'), /1 file changed after those turns/);
+    await shot("edit-card");
+    await escape();
+    await wait('!document.querySelector("[data-message-edit-card]")');
+    await wait('document.querySelector("[data-prompt-editor]").textContent.includes("half-written note")');
+    assert.deepEqual(await ringed(), []);
+    await evaluate('document.querySelector("[data-edit-message=\\"13\\"]").click()');
+    await wait('document.querySelector("[data-message-edit-card]")?.textContent.includes("Also undo the changes to 3 files")');
+    await evaluate('window.setDraft("After login, send people to the account page.")');
+    await evaluate('document.querySelector("[data-message-edit-review]").click()');
+    await wait('document.querySelectorAll("[data-message-edit-files] [data-checkpoint-file]").length === 3');
+    await evaluate(
+      '[...document.querySelectorAll("[data-message-edit-files] [data-checkpoint-choice]")].find((b) => b.textContent === "Keep current").click()',
+    );
+    await evaluate('document.querySelector("[aria-label=\\"Send\\"]").click()');
+    await wait("window.calls.edits.length === 1");
+    const edit = await evaluate("window.calls.edits[0]");
+    assert.equal(edit.messageId, 13);
+    assert.equal(edit.body, "After login, send people to the account page.");
+    assert.equal(edit.keepAttachments, true);
+    assert.deepEqual(edit.undoFiles, {
+      revision: "review-1",
+      decisions: { "0:src/auth/login.ts": "keep", "0:src/auth/redirect.ts": "restore", "0:src/auth/login.test.ts": "restore" },
+    });
+    await wait('!document.querySelector("[data-message-edit-card]")');
+    assert.equal(await evaluate("window.sent"), undefined, "an edit never goes out as a new message");
+    await wait('document.querySelector("[data-prompt-editor]").textContent.trim() === ""');
+
     // While a turn runs, Esc Esc stays with Stop and the undo buttons wait.
     await evaluate("window.setSending(true)");
     await wait('document.querySelector("[data-undo-message=\\"13\\"]").disabled');
@@ -493,7 +551,7 @@ async function browserChecks() {
     assert.equal(await evaluate('!!document.querySelector("[data-checkpoint-restore]")'), false, "read-only preview has no restore action");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: raw user/reply/recommendation Copy, Delegation line, success/failure/retry, keyboard visibility, stable hover geometry, code Copy, streaming exclusion; undo button and Esc Esc hint, Esc Esc list, keyboard choice, preview in the composer, conflict choice, stale refusal, restore line Redo, /undo, blocked while running",
+      "PASS: edit message (pencil, card, outline and dimming, Esc restores the draft, file choices, chat:edit), raw user/reply/recommendation Copy, Delegation line, success/failure/retry, keyboard visibility, stable hover geometry, code Copy, streaming exclusion; undo button and Esc Esc hint, Esc Esc list, keyboard choice, preview in the composer, conflict choice, stale refusal, restore line Redo, /undo, blocked while running",
     );
   } catch (error) {
     console.error(error);

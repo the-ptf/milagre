@@ -277,6 +277,19 @@ function issueBridges(invoke) {
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {import("../app/src/electron.d.ts").MilagreBridge["checkpoints"]}
+ */
+function checkpointBridge(invoke) {
+  return {
+    list: (request) => invoke("checkpoint:list", request),
+    preview: (request) => invoke("checkpoint:preview", request),
+    restore: (request) => invoke("checkpoint:restore", request),
+    rewind: (request) => invoke("checkpoint:rewind", request),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @returns {import("../app/src/electron.d.ts").MilagreBridge["validation"]}
  */
 function validationBridge(invoke) {
@@ -546,12 +559,9 @@ function makeBridge(invoke, listen, send) {
     retryQuit: () => invoke("app:retry-quit"),
     onQuitFailed: (callback) => listen("app:quit-failed", callback),
     onProjectState: (callback) => listen("project:state", callback),
-    checkpoints: {
-      list: (request) => invoke("checkpoint:list", request),
-      preview: (request) => invoke("checkpoint:preview", request),
-      restore: (request) => invoke("checkpoint:restore", request),
-    },
+    checkpoints: checkpointBridge(invoke),
     sendMessage: (request) => invoke("chat:send", request),
+    editMessage: (request) => invoke("chat:edit", request),
     sendStatus: (owner, id) => invoke("chat:send-status", owner, id),
     resumeChat: (projectPath, sessionId) => invoke("chat:resume", projectPath, sessionId),
     reloadChat: (chatId) => invoke("chat:reload", chatId),
@@ -717,7 +727,7 @@ const local = makeBridge(
 
 /** @type {Map<string, import("../app/src/electron.d.ts").MilagreBridge>} */
 const remotes = new Map();
-const SENDS = new Set(["chat:send", "link:send"]);
+const SENDS = new Set(["chat:send", "chat:edit", "link:send"]);
 /**
  * @param {string} channel
  * @param {unknown[]} args

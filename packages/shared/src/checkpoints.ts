@@ -25,10 +25,13 @@ export type CheckpointPreview = Checkpoint & { token: string; files: CheckpointF
 export type CheckpointDecision = "keep" | "restore";
 export type CheckpointRestore = { chatId: string; token: string; decisions: Record<string, CheckpointDecision>; approved: boolean };
 export type CheckpointRestoreResult = { restored: number; recoveryId: string | null; kept: number; checkpointId: string; redo: boolean };
+/** What editing a message would also undo: every task started at or after it, each file back to before the first that changed it. */
+export type CheckpointRewind = CheckpointPreview & { tasks: number; revision: string };
 export type CheckpointApi = {
   list(request: { chatId: string }): Promise<Checkpoint[]>;
   preview(request: { chatId: string; id: string }): Promise<CheckpointPreview>;
   restore(request: CheckpointRestore): Promise<CheckpointRestoreResult>;
+  rewind?(request: { chatId: string; messageId: number }): Promise<CheckpointRewind | null>;
 };
 
 /** The tasks Undo changes offers, newest first: ones that changed files, or that ended without a final capture. */

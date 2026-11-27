@@ -1,9 +1,8 @@
 const { withoutDraft, sentMessage } = require("./chat-session-state.cjs");
 const { forkChat, freshChatBrief } = require("./chat-fork.cjs");
-const fs = require("node:fs/promises");
-const path = require("node:path");
+const { assertEditSend } = require("./message-edit.cjs");
 const { randomUUID } = require("node:crypto");
-const { ChatImages } = require("../chat-images.cjs");
+const { ChatImages, queuedImages } = require("../chat-images.cjs");
 const { storeImages, withLoadedSubagent } = require("../project-content.cjs");
 const { ipcErrorMessage } = require("@milagre/shared/result");
 const {
@@ -92,25 +91,20 @@ function failHandoff(latest, divider, sessionId, from, to) {
   };
 }
 
+const turnOptions = ({ permissionMode, effort, ultracode, fastMode, replies, tldrEnabled }) => ({
+  permissionMode,
+  effort,
+  ultracode,
+  fastMode,
+  replies,
+  tldrEnabled,
+});
+
 function withoutQueued(session, id) {
   const { queued = [], queueHeld: _held, ...rest } = session;
   const left = queued.filter((item) => item.id !== id);
   if (!left.length) return rest;
   return { ...rest, queued: left, ...(session.queueHeld ? { queueHeld: true } : {}) };
-}
-
-const IMAGE_TYPES = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
-
-async function queuedImages(images = []) {
-  const read = await Promise.all(
-    images.map(async (image) => {
-      const mime = IMAGE_TYPES[path.extname(image.path ?? "").toLowerCase()];
-      if (!mime) return image.dataUrl ? image : null;
-      const bytes = await fs.readFile(image.path).catch(() => null);
-      return bytes ? { id: image.id, name: image.name, dataUrl: `data:${mime};base64,${bytes.toString("base64")}` } : null;
-    }),
-  );
-  return read.filter(Boolean);
 }
 
 function withNativeSessions(session, current, parked) {
@@ -143,6 +137,8 @@ function newChat(latest, worktree) {
 }
 
 class ChatHost {
+  editing = new Map();
+
   constructor({
     states,
     startTurn,
@@ -925,6 +921,7 @@ class ChatHost {
         if (worktree.sharedChat) throw new Error("This Worktree belongs to a shared Link Chat. Open its Link instead.");
         const started = session ? { state: latest, session } : starterChat(latest, worktree);
         session = started.session;
+        assertEditSend(this, chatKey(projectPath, session.id), request);
         const firstMessage = !latest.messages.some((message) => message.session_id === session.id);
         brief = firstMessage ? session.handoverDraft : undefined;
         const chatId = chatKey(projectPath, session.id);
@@ -998,14 +995,7 @@ class ChatHost {
             ...(typeof request.clientMessageId === "string" ? { clientMessageId: request.clientMessageId } : {}),
             ...(request.operationId ? { operationId: request.operationId } : {}),
             ...(request.prompt !== undefined && request.prompt !== body ? { prompt: request.prompt } : {}),
-            turn: {
-              permissionMode: request.permissionMode,
-              effort: request.effort,
-              ultracode: request.ultracode,
-              fastMode: request.fastMode,
-              replies: request.replies,
-              tldrEnabled: request.tldrEnabled,
-            },
+            turn: turnOptions(request),
           };
           target = { chatId, sessionId: session.id };
           return { ...withSession, sessions: { ...withSession.sessions, [session.id]: { ...session, queued: [...(session.queued ?? []), queuedEntry] } } };
@@ -1020,11 +1010,10 @@ class ChatHost {
           runModel = this.runs[chatId]?.model || lastUserModel(withSession, session.id) || model;
         }
         brief = freshChatBrief(withSession, session, { steering, handoff, firstMessage, brief });
-        const next = withSession;
         originalSession = beforeQueue;
-        if (handoff) dividerId = next.next_id;
+        if (handoff) dividerId = withSession.next_id;
         const message = sentMessage({
-          id: handoff ? next.next_id + 1 : next.next_id,
+          id: handoff ? withSession.next_id + 1 : withSession.next_id,
           sessionId: session.id,
           body,
           images: storedImages,
@@ -1074,10 +1063,10 @@ class ChatHost {
         }
         if (!steering) this.startingTurns.set(chatId, { provider: runProvider, guard });
         return {
-          ...next,
+          ...withSession,
           next_id: message.id + 1,
-          sessions: { ...next.sessions, [session.id]: stagedSession },
-          messages: [...next.messages, ...(divider ? [divider] : []), message],
+          sessions: { ...withSession.sessions, [session.id]: stagedSession },
+          messages: [...withSession.messages, ...(divider ? [divider] : []), message],
         };
       },
       { chats: request.sessionId == null ? [] : [request.sessionId] },
@@ -1139,12 +1128,7 @@ class ChatHost {
     const turn = {
       provider: runProvider,
       model: runModel,
-      permissionMode: request.permissionMode,
-      effort: request.effort,
-      ultracode: request.ultracode,
-      fastMode: request.fastMode,
-      replies: request.replies,
-      tldrEnabled: request.tldrEnabled,
+      ...turnOptions(request),
       ...(guard ? { guard } : {}),
       prompt: brief !== undefined ? withLead(framedBrief(brief), request.prompt || body) : request.prompt || body || "Describe the attached images.",
     };
@@ -1216,6 +1200,8 @@ class ChatHost {
           cwd: target.cwd,
           images,
           resumeId: target.resumeId,
+          rewind: request.rewind,
+          messageId: pendingId,
           ...(request.limitResumeId || request.limitSwitchToken || request.queueReleaseToken
             ? { canStart: request.canStart, expectedAccountId: request.expectedAccountId }
             : {}),
@@ -1705,4 +1691,4 @@ class ChatHost {
   }
 }
 
-module.exports = { ChatHost };
+module.exports = { ChatHost, queuedImages };
