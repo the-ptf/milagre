@@ -67,10 +67,10 @@ function runChatShortcut(ctx: AppShortcutContext, command: string, event: Keyboa
     if (!ctx.changesAvailableRef.current) return;
     event.preventDefault();
     ctx.changes.toggle();
-  } else if (command === "canvas.open") {
+  } else if (command === "canvas.open" || command === "pull-requests.open") {
     event.preventDefault();
     ctx.changes.closeDiff();
-    ctx.setView("canvas");
+    ctx.setView(command === "canvas.open" ? "canvas" : "pull-requests");
   } else if (command === "usage.open") {
     event.preventDefault();
     ctx.changes.closeDiff();
@@ -148,7 +148,7 @@ function handleEscape(ctx: EscapeContext, event: KeyboardEvent) {
     ctx.setView("chat");
     return;
   }
-  if (ctx.view === "orchestrator" || ctx.view === "design-library") return;
+  if (ctx.view === "orchestrator" || ctx.view === "design-library" || ctx.view === "pull-requests") return;
   ctx.escapeOpenChat(event);
 }
 
@@ -159,7 +159,7 @@ function handleEscape(ctx: EscapeContext, event: KeyboardEvent) {
  * Keys pressed in an embedded frame (a design, an HTML reply, the simulator) arrive from the main process and are
  * replayed as window keydowns. Over a Link only Settings and the theme run here; the Link's workspace takes the rest.
  * Over Settings, ⌘K opens the palette on top and any other shortcut closes Settings first. Escape closes, in order:
- * find, a Run Chat or Orchestrator task pane, a Routine's page, the canvas or Routines, then answers or stops the open Chat's turn.
+ * find, a Run Chat or Orchestrator task pane, a Routine's page, the canvas, Routines or Pull requests, then answers or stops the open Chat's turn.
  */
 export function useAppShortcuts(shortcuts: AppShortcutContext, escape: EscapeContext) {
   useEffect(

@@ -166,14 +166,21 @@ async function browserChecks() {
     assert.equal(await evaluate("document.querySelector(\"[data-pr-comment=IC1] a[href='https://example.com/x.png']\")?.textContent"), "elsewhere");
     assert.doesNotMatch(await text("[data-pr-comment=IC1]"), /<img|<script/);
     assert.equal(await evaluate("window.ran ?? null"), null);
-    assert.deepEqual(await evaluate('window.calls.filter((call) => call.name === "image").map((call) => [call.cwd, call.url])'), [
-      ["/fixture", "https://github.com/user-attachments/assets/1a75943a-4133-4d9d-8fa3-99d4a0b689da"],
-    ]);
-    await click("[data-pr-description] button");
+    assert.equal(
+      await evaluate('document.querySelector("[data-pr-description] button").getAttribute("aria-expanded")'),
+      "true",
+      "Description opens by default",
+    );
     await waitFor("document.querySelector('img[alt=\"asset1.png\"]')?.complete");
     assert.equal(await evaluate("document.querySelector('img[alt=\"asset1.png\"]').naturalWidth"), 1);
     assert.equal(await evaluate("document.querySelector('img[alt=\"asset1.png\"]').style.width"), "300px");
-    assert.equal((await calls("image")).at(-1).url, "https://github.com/acme/app/blob/abc123/.pr-assets/11965/asset1.png?raw=true");
+    assert.deepEqual(
+      (await evaluate('window.calls.filter((call) => call.name === "image").map((call) => [call.cwd, call.url])')).toSorted((a, b) => a[1].localeCompare(b[1])),
+      [
+        ["/fixture", "https://github.com/acme/app/blob/abc123/.pr-assets/11965/asset1.png?raw=true"],
+        ["/fixture", "https://github.com/user-attachments/assets/1a75943a-4133-4d9d-8fa3-99d4a0b689da"],
+      ],
+    );
     await click("[data-pr-comments-sort]");
     assert.deepEqual(await cards(), ["T1", "IC1"], "Oldest first flips them");
     await delay(150);

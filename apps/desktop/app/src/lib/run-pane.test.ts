@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chatOnScreen, keepsRoutinesView, leavesOnEscape, readsOnPick, runPaneRestore, runPaneState } from "./run-pane.ts";
+import { chatOnScreen, chatPanelsHidden, keepsRoutinesView, leavesOnEscape, readsOnPick, runPaneRestore, runPaneState } from "./run-pane.ts";
 
 test("keepsRoutinesView holds the view for the Run Chat being opened, by its whole chat key", () => {
   assert.equal(keepsRoutinesView("/code/a#7", "/code/a", 7), true);
@@ -72,11 +72,21 @@ test("runPaneState gives a task's Chat open beside the Orchestrator or its Routi
   assert.deepEqual(runPaneState({ ...at, view: "orchestrator", focusedChatKey: "/code/a#4" }), { runPaneOpen: false, chatShown: false });
 });
 
-test("Escape leaves the Canvas, Routines and Design library views, but not past a dialog or menu over the Design library", () => {
+test("Escape leaves the Canvas, Routines, Design library and Pull requests views, but not past a dialog or menu over those pages", () => {
   assert.equal(leavesOnEscape("canvas", false), true);
   assert.equal(leavesOnEscape("routines", true), true);
   assert.equal(leavesOnEscape("design-library", false), true);
   assert.equal(leavesOnEscape("design-library", true), false);
   assert.equal(leavesOnEscape("chat", false), false);
   assert.equal(leavesOnEscape("orchestrator", false), false);
+  assert.equal(leavesOnEscape("pull-requests", false), true);
+  assert.equal(leavesOnEscape("pull-requests", true), false);
+});
+
+test("the Chat panel buttons hide on the Orchestrator's board and on Pull requests", () => {
+  assert.equal(chatPanelsHidden("orchestrator", false), true);
+  assert.equal(chatPanelsHidden("orchestrator", true), false);
+  assert.equal(chatPanelsHidden("pull-requests", false), true);
+  assert.equal(chatPanelsHidden("chat", false), false);
+  assert.equal(chatPanelsHidden("routines", true), false);
 });

@@ -20,7 +20,7 @@ import { useSettings } from "../../lib/settings";
 import { fileManager, isMac } from "../../lib/shortcut-hints";
 import { hasBrowserPanel, openInBrowserPanel } from "../../lib/browser-panel";
 import { showNotice } from "../../lib/notice";
-import { isRemoteKey, useScope } from "../../lib/computer-bridge";
+import { isRemoteKey, useBridge, useScope } from "../../lib/computer-bridge";
 
 /** Opens a PR link in Code review when the Chat knows that PR; null for any other link. */
 export type PullRequestLink = (url: string) => (() => void) | null;
@@ -75,6 +75,7 @@ export function LinkMenu({ target, position, onClose }: { target: LinkMenuTarget
   const opener = useFileOpener();
   const root = useFilesRoot();
   const remote = isRemoteKey(useScope());
+  const bridge = useBridge();
   const platform = { mac: isMac, fileManager };
 
   const web = target.kind === "web" ? target : null;
@@ -95,8 +96,7 @@ export function LinkMenu({ target, position, onClose }: { target: LinkMenuTarget
     "copy-markdown": () => web && copy(markdownLink(web.text === web.href ? web.reachable : web.text, web.reachable)),
     viewer: () => target.kind === "file" && target.openViewer(),
     editor: () => target.kind === "file" && opener?.open(relative ?? target.path, target.line),
-    reveal: () =>
-      target.kind === "file" && root && void window.milagre.revealFile(root, target.path).catch((error: unknown) => showNotice(ipcErrorMessage(error))),
+    reveal: () => target.kind === "file" && root && void bridge.revealFile(root, target.path).catch((error: unknown) => showNotice(ipcErrorMessage(error))),
     "copy-path": () => target.kind === "file" && copy(target.line ? `${target.path}:${target.line}` : target.path),
     "copy-relative-path": () => target.kind === "file" && relative && copy(target.line ? `${relative}:${target.line}` : relative),
   };
