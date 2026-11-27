@@ -4,6 +4,7 @@ import type { AgentSession, CoordinatorState } from "@milagre/shared/model";
 import type { WorktreeStatus } from "@milagre/shared/archive";
 import { archiveActivity, archiveFromPhone as archiveNow, checkArchive, type ArchiveClient, type ArchiveRequest } from "./archive.ts";
 import { archiveChoices, undoDelete } from "@milagre/shared/archive";
+import { undoHistory } from "@milagre/shared/undo-history";
 
 const clean: WorktreeStatus = { uncommitted: 0, unpushed: 0, branch: "milagre/x-1", head: "abc", removable: true };
 const dirty: WorktreeStatus = { uncommitted: 2, unpushed: 1, branch: "milagre/x-1", head: "abc", removable: false };
@@ -276,6 +277,68 @@ test("an Undo after the hide brings the Chat back without removing its worktree"
     calls.some((call) => call.method === "worktree:remove"),
     false,
   );
+});
+
+test("a Worktree row's Delete takes its tab Chats along, then removes the Worktree they shared", async () => {
+  const order: string[] = [];
+  const shared = state();
+  shared.sessions[3] = session(3, 2);
+  const { client, calls } = fakeClient(
+    {
+      "chat:delete": (args) => {
+        order.push(`delete ${(args as unknown[])[1]}`);
+      },
+      "worktree:remove": () => {
+        order.push("remove");
+        return { removed: true };
+      },
+    },
+    shared,
+    { "/work/shop#3": {} },
+  );
+  const result = await archiveFromPhone({
+    client,
+    projectPath: "/work/shop",
+    state: shared,
+    chat: session(2, 2),
+    together: [session(3, 2)],
+    running: false,
+    notify: () => {},
+    refresh: async () => {},
+  });
+  assert.equal(result, "removed");
+  assert.deepEqual(order, ["delete 3", "remove"]);
+  assert.deepEqual(
+    calls.filter((call) => call.method === "chat:patch").map((call) => call.args[1]),
+    [3, 2],
+  );
+  assert.deepEqual(calls.find((call) => call.method === "agent:interrupt")!.args, ["/work/shop#3"]);
+  assert.equal(archiveActivity().hidden.size, 0);
+});
+
+test("one Undo brings back every Chat a Worktree row's Delete took", async () => {
+  const shared = state();
+  shared.sessions[3] = session(3, 2);
+  const { client, calls } = fakeClient({}, shared);
+  const work = archiveNow({
+    client,
+    projectPath: "/work/shop",
+    state: shared,
+    chat: session(2, 2),
+    together: [session(3, 2)],
+    running: false,
+    notify: () => {},
+    refresh: async () => {},
+    undoMs: 10_000,
+  });
+  assert.deepEqual([...archiveActivity().hidden].sort(), ["/work/shop#2", "/work/shop#3"]);
+  undoHistory.undo();
+  assert.equal(await work, "undone");
+  assert.equal(
+    calls.some((call) => call.method === "worktree:remove" || call.method === "chat:delete"),
+    false,
+  );
+  assert.equal(archiveActivity().hidden.size, 0);
 });
 
 test("whether to stop is read when the archive runs, not when Archive was tapped", async () => {

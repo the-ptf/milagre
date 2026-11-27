@@ -13,8 +13,14 @@ import { openBrowserTab } from "/src/lib/browser-panel";
 import { updateSettings } from "/src/lib/settings";
 import { useStage } from "/src/lib/workspace-stage";
 import { tabSet } from "/src/lib/workspace-tabs-store";
+import { FileDiffIcon } from "@hugeicons/core-free-icons";
 import "/src/styles.css";
-window.milagre = {};
+window.patched = [];
+window.stopped = [];
+window.milagre = {
+  patchChat: (path, id, patch) => { window.patched.push([id, patch]); return Promise.resolve(); },
+  interruptAgent: (key) => { window.stopped.push(key); return Promise.resolve(); },
+};
 const session = (id, worktree_id, extra = {}) => ({ id, worktree_id, title: "Chat " + id, provider: "claude", ...extra });
 window.opened = [];
 window.openPage = (chatId, url, agent) => openBrowserTab("/p#" + chatId, url, { agent });
@@ -43,7 +49,9 @@ function Harness() {
   const [sessions, setSessions] = useState({ 1: session(1, 1), 2: session(2, 1, { parent: 1 }), 3: session(3, 1), 4: session(4, 2) });
   window.show = setActive;
   window.archive = (id) => setSessions((current) => ({ ...current, [id]: { ...current[id], archived: true } }));
-  const rows = Object.values(sessions).map((chat) => ({ id: String(chat.id), label: chat.title, ...(chat.parent ? { parent: String(chat.parent) } : {}) }));
+  window.patch = (id, patch) => setSessions((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
+  window.addChat = (id, extra) => setSessions((current) => ({ ...current, [id]: session(id, 1, extra) }));
+  const rows = Object.values(sessions).map((chat) => ({ id: String(chat.id), label: chat.title, mark: chat.mark, ...(chat.parent ? { parent: String(chat.parent) } : {}) }));
   return (
     <main style={{ position: "relative", height: 300 }}>
       <WorkspaceTabStrip
@@ -55,7 +63,7 @@ function Harness() {
         rows={rows}
         activeChatId={active}
         corner={0}
-        menu={[]}
+        menu={[{ key: "diff", title: "Diff", icon: FileDiffIcon, tab: { kind: "diff" }, onSelect: () => {} }]}
         onOpenChat={(id) => { window.opened.push(id); setActive(id); }}
         onNewChat={() => { window.newChats += 1; setActive(null); }}
       />
@@ -184,17 +192,17 @@ async function browserChecks() {
     await evaluate(
       `document.querySelector('[data-workspace-tab="chat:1"] button[aria-label^="Close"]').dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }))`,
     );
-    await waitFor(`document.querySelector("[data-main-chat-close]")`);
-    assert.match(await evaluate(`document.querySelector("[data-main-chat-close]").textContent`), /Close the main Chat\?/);
+    await waitFor(`document.querySelector("[data-chat-close]")`);
+    assert.match(await evaluate(`document.querySelector("[data-chat-close]").textContent`), /Close the main Chat\?/);
     await screenshot("main-chat-close");
-    await evaluate(`[...document.querySelectorAll("[data-main-chat-close] button")].find((button) => button.textContent === "Cancel").click()`);
-    await waitFor(`!document.querySelector("[data-main-chat-close]")`);
+    await evaluate(`[...document.querySelectorAll("[data-chat-close] button")].find((button) => button.textContent === "Cancel").click()`);
+    await waitFor(`!document.querySelector("[data-chat-close]")`);
     await expectTabs(["chat:1*", "chat:3"], "Cancel keeps the main Chat's tab");
     await evaluate(
       `document.querySelector('[data-workspace-tab="chat:1"] button[aria-label^="Close"]').dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }))`,
     );
-    await waitFor(`document.querySelector("[data-main-chat-close]")`);
-    await evaluate(`[...document.querySelectorAll("[data-main-chat-close] button")].find((button) => button.textContent === "Close tab").click()`);
+    await waitFor(`document.querySelector("[data-chat-close]")`);
+    await evaluate(`[...document.querySelectorAll("[data-chat-close] button")].find((button) => button.textContent === "Close tab").click()`);
     await expectTabs(["chat:3*"], "closing the tab in front brings its neighbour forward");
     assert.equal(await evaluate(`window.opened.at(-1)`), 3);
 
@@ -240,6 +248,66 @@ async function browserChecks() {
     );
     await waitFor(`!document.querySelector('[data-workspace-tab="${agentTab}"]')`);
     await screenshot("page-tabs");
+
+    const closeButton = (id) =>
+      evaluate(
+        `document.querySelector('[data-workspace-tab="${id}"] button[aria-label^="Close"]').dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }))`,
+      );
+    await pointer('[data-workspace-tab="chat:3"]', "pointerdown");
+    await pointer("window", "pointerup", 0);
+    await evaluate(`window.addChat(5)`);
+    await waitFor(`document.querySelector('[data-workspace-tab="chat:5"]')`);
+    assert.equal((await tabs()).at(-1), "chat:5", "a Chat that lives only as a tab gets one, behind the one in front");
+    await closeButton("chat:5");
+    await waitFor(`window.patched.some(([id, patch]) => id === 5 && patch.done === true)`);
+    assert.equal(await evaluate(`!!document.querySelector("[data-chat-close]")`), false, "closing an idle Chat's tab asks nothing");
+    await evaluate(`window.patch(5, { done_at: 1 })`);
+    await waitFor(`!document.querySelector('[data-workspace-tab="chat:5"]')`);
+    await evaluate(`window.patch(5, { done_at: undefined })`);
+    await waitFor(`document.querySelector('[data-workspace-tab="chat:5"]')`);
+    await evaluate(`window.addChat(6, { mark: "running" })`);
+    await waitFor(`document.querySelector('[data-workspace-tab="chat:6"]')`);
+    await closeButton("chat:6");
+    await waitFor(`document.querySelector("[data-chat-close]")`);
+    assert.match(await evaluate(`document.querySelector("[data-chat-close]").textContent`), /Close a running Chat\?/);
+    await evaluate(`[...document.querySelectorAll("[data-chat-close] button")].find((button) => button.textContent === "Close tab").click()`);
+    await waitFor(`window.patched.some(([id, patch]) => id === 6 && patch.done === true)`);
+    assert.deepEqual(await evaluate(`window.stopped`), ["/p#6"], "closing a running Chat's tab stops it first");
+    await evaluate(`window.archive(5); window.archive(6)`);
+    await waitFor(`!document.querySelector('[data-workspace-tab="chat:5"]') && !document.querySelector('[data-workspace-tab="chat:6"]')`);
+
+    await evaluate(`document.querySelector("[data-workspace-tab-add]").click()`);
+    await waitFor(`document.querySelector("[data-new-tab-page]")`);
+    assert.match((await tabs()).find((tab) => tab.endsWith("*")) ?? "", /^new:/, "+ opens a New tab in front");
+    assert.equal(await evaluate(`document.querySelector("[data-stage]").dataset.stage`), "new:null", "the New tab fills the workspace");
+    assert.deepEqual(
+      await evaluate(`[...document.querySelectorAll("[data-new-tab-launch]")].map((row) => row.dataset.newTabLaunch)`),
+      ["chat", "diff"],
+      "the New tab lists a New Chat, then the strip's entries",
+    );
+    assert.equal(await evaluate(`document.activeElement?.dataset.newTabLaunch`), "chat", "the first row takes the keyboard");
+    await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))`);
+    assert.equal(await evaluate(`document.activeElement?.dataset.newTabLaunch`), "diff", "the arrow keys move between rows");
+    await screenshot("new-tab");
+    await evaluate(`window.patch(3, { title: "Chat three" })`);
+    await delay(100);
+    assert.match((await tabs()).find((tab) => tab.endsWith("*")) ?? "", /^new:/, "a Chat changing doesn't pull the New tab out of front");
+    const blankAt = (await tabs()).findIndex((tab) => tab.startsWith("new:"));
+    await evaluate(`document.querySelector('[data-new-tab-launch="diff"]').click()`);
+    await waitFor(`!document.querySelector("[data-new-tab-page]")`);
+    assert.equal((await tabs())[blankAt], "diff*", "a pick takes the New tab's place");
+    await closeButton("diff");
+    await evaluate(`document.querySelector("[data-workspace-tab-add]").click()`);
+    await waitFor(`document.querySelector('[data-new-tab-launch="chat"]')`);
+    const drafts = await evaluate(`window.newChats`);
+    await evaluate(`document.querySelector('[data-new-tab-launch="chat"]').click()`);
+    await waitFor(`window.newChats === ${drafts + 1}`);
+    assert.equal(
+      await evaluate(`[...document.querySelectorAll("[data-workspace-tab]")].some((tab) => tab.dataset.workspaceTab.startsWith("new:"))`),
+      false,
+      "New Chat replaces the New tab with a draft",
+    );
+    await evaluate(`window.show(3)`);
     await evaluate(`window.archive(3)`);
     await expectTabs([], "an archived Chat's tab closes, with its pages");
     await evaluate(`window.show(null)`);
@@ -247,7 +315,7 @@ async function browserChecks() {
     await screenshot("draft");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Chat and Subchat tabs open, switch by click and digit, reorder by drag, close by middle click, ask before the main Chat, drop archived Chats and show a New Chat draft, keep every button clear of the window drag area, give every tab menu row an icon and paint it over the strip; Browser pages become tabs, unread when the agent opened them, and stage the page in front; a Chat shown again keeps its tab in front instead of its designs",
+      "PASS: Chat and Subchat tabs open, switch by click and digit, reorder by drag, close by middle click, ask before the main Chat, move a tab-only Chat to Done on close (asking and stopping it while it runs) and give it back its tab when reopened, open a New tab launcher whose pick takes its place, drop archived Chats and show a New Chat draft, keep every button clear of the window drag area, give every tab menu row an icon and paint it over the strip; Browser pages become tabs, unread when the agent opened them, and stage the page in front; a Chat shown again keeps its tab in front instead of its designs",
     );
     app.exit(0);
   } catch (error) {

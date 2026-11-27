@@ -23,7 +23,7 @@ type Path = string | undefined;
 
 type ChatRowHandlers = {
   openGitDialog: (sessionId: number, path: Path) => Promise<void>;
-  archiveChat: (sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath: Path) => Promise<void>;
+  archiveChat: (sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath: Path, together?: number[]) => Promise<void>;
   markChatDone: (sessionId: number, path: Path) => void;
   reportMilagreBug: (sessionId: number) => void;
   openCanvasChat: (projectPath: string, sessionId: number) => Promise<void>;
@@ -63,12 +63,12 @@ function rowActions(ctx: ChatRowContext) {
         .patchChat(path, sessionId, { kept: true })
         .catch(() => {});
   }
-  async function checkArchive(sessionId: number, projectPath: Path): Promise<ArchivePlan> {
+  async function checkArchive(sessionId: number, projectPath: Path, together: number[] = []): Promise<ArchivePlan> {
     if (!projectPath) return { milagreOwned: false, shared: false, status: null };
     const bridge = bridgeForKey(projectPath);
     const latest = archiveState(projectPath);
     const worktree = latest ? latest.worktrees[latest.sessions[sessionId]?.worktree_id ?? -1] : undefined;
-    const shared = latest ? worktreeShared(latest, sessionId) : false;
+    const shared = latest ? worktreeShared(latest, sessionId, together) : false;
     const status = worktree?.base && !shared ? bridge.getWorktreeStatus(worktree.path, worktree.base) : Promise.resolve(null);
     status.catch(() => {});
     const [terminals, roots] = await Promise.all([busyTerminals(chatKey(projectPath, sessionId)), bridge.getWorktreeRoots()]);
@@ -156,8 +156,8 @@ function scopeRowActions(latest: RefObject<RowActions>, path: string, gitless: b
     onReload: (id) => void latest.current.reloadChat(Number(id), path),
     onSnooze: (id, until) => latest.current.snoozeChatHere(Number(id), until, path),
     onWake: (id) => latest.current.snoozeChatHere(Number(id), null, path),
-    onArchiveCheck: (id) => latest.current.checkArchive(Number(id), path),
-    onArchive: (id, mode, plan) => latest.current.archiveChat(Number(id), mode, plan, path),
+    onArchiveCheck: (id, together) => latest.current.checkArchive(Number(id), path, together?.map(Number)),
+    onArchive: (id, mode, plan, together) => latest.current.archiveChat(Number(id), mode, plan, path, together?.map(Number)),
     onUndoArchive: (id) => undoDelete(chatKey(path, Number(id))),
     ...(isRemoteKey(path)
       ? { remote: true }
@@ -191,8 +191,8 @@ function openRowActions(latest: RefObject<RowActions>, here: () => Path, remoteP
           onOpenInEditor: (id: string) => latest.current.openChatInEditor(Number(id), here()),
         }),
     ...(showGit ? { onCommit: (id: string) => latest.current.openGitDialog(Number(id), here()) } : { gitless: true }),
-    onArchiveCheck: (id) => latest.current.checkArchive(Number(id), latest.current.openPath),
-    onArchive: (id, mode, plan) => latest.current.archiveChat(Number(id), mode, plan, latest.current.openPath),
+    onArchiveCheck: (id, together) => latest.current.checkArchive(Number(id), latest.current.openPath, together?.map(Number)),
+    onArchive: (id, mode, plan, together) => latest.current.archiveChat(Number(id), mode, plan, latest.current.openPath, together?.map(Number)),
     onUndoArchive: (id) => {
       const path = here();
       return !!path && undoDelete(chatKey(path, Number(id)));
@@ -229,5 +229,13 @@ export function useChatRowActions(ctx: ChatRowContext) {
     [latest, projectRef, remoteProject, showGit, linkProject],
   );
   const scopeChatActions = useMemo(() => (path: string, gitless: boolean) => scopeRowActions(latest, path, gitless), [latest]);
-  return { ...actions, chatActions, scopeChatActions };
+  const scopeArchive = useMemo(
+    () => ({
+      check: (scopeKey: string, id: string, together?: string[]) => latest.current.checkArchive(Number(id), scopeKey, together?.map(Number)),
+      archive: (scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan, together?: string[]) =>
+        latest.current.archiveChat(Number(id), mode, plan, scopeKey, together?.map(Number)),
+    }),
+    [latest],
+  );
+  return { ...actions, chatActions, scopeChatActions, scopeArchive };
 }

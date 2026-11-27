@@ -24,6 +24,7 @@ A Named Link is an ordered set of two or more Projects. Its Chats have one trans
 - The daemon owns every member repository and records preparation before any Git change. Partial preparation never starts a provider. A missing member blocks new turns without deleting the transcript or shrinking membership.
 - A Named Link's Chats design with one member's design system, chosen in its settings (the first member by default); see [designs](designs.md).
 - Named Link metadata is stored apart from canvas edges, and neither creates the other. A shared Chat uses an explicit Link scope, never an arbitrary member as owner. Git operations always target an explicitly chosen member Worktree.
+- PR actions verify that the selected member Worktree's current branch still has the requested open PR, including when a device sends a queued action after reconnecting. The action starts in an idle Chat and identifies the Worktree in the agent's prompt. Babysit PRs uses the same setting as standalone Chats. Before a Run can fix or push, the host must match the watched PR URL to exactly one member Worktree on the PR's branch. Otherwise the Run reports only.
 - Project reconciliation must never create a second editable Chat in a shared Chat's Worktree.
 
 ## Shared Chat on existing Worktrees
@@ -33,7 +34,7 @@ On a Worktree-to-Worktree canvas Link, the user can pick Shared Chat (desktop or
 - The shared Chat adopts the two existing isolated Worktrees, one per Project, through the same Link scope, store, aliases and access roots. It creates no branches, moves no files, reruns no setup and merges no transcripts. Main checkouts, whole-Project Links and two Worktrees of one Project have no sharing action.
 - Earlier Chats in either Worktree stay readable under their own identity and become permanently read-only: no new turns, no Heartbeats, no Undo or Redo (the host refuses restores, even from previews taken before). Both canvas cards open the shared Chat, which has a new provider session and task list.
 - One permission mode covers both Worktrees, Ask at first, saved on the host. A stale or arbitrary `permissionMode` on a send can't raise it.
-- Transfer refuses while there are active turns, background tasks, queued messages, pending resumptions or an active Heartbeat (Babysit PR included); it never stops work implicitly. Shared Chats can't create Heartbeats.
+- Transfer refuses while there are active turns, background tasks, queued messages, pending resumptions or an active Heartbeat, including Babysit PR. In a shared Chat, Babysit PR is the only Heartbeat the host creates.
 - Ownership changes are saved before Project reconciliation, in both directions, so an interrupted switch is finished by retrying (the canvas shows Finish switching). An interrupted adoption blocks provider start meanwhile.
 - Switching back keeps the shared conversation read-only and starts new separate Chats; old provider sessions never reactivate. A Link returns to separate Chats before it can be removed.
 - Adopted groups are not Named Links: their Worktrees aren't disposable, even when clean, so they can't be deleted as one.

@@ -1,6 +1,6 @@
 import { ComputerTerminal01Icon, FileDiffIcon, Globe02Icon, GitPullRequestIcon } from "@hugeicons/core-free-icons";
 import { chatBookmark } from "@milagre/shared/subchats";
-import { workspaceKey } from "@milagre/shared/workspace-tabs";
+import { tabWorktree, workspaceKey } from "@milagre/shared/workspace-tabs";
 import { fullChatTitle } from "../../lib/chat-list";
 import { shortcutLabel, useKeybindings } from "../../lib/keybindings";
 import { useSettings } from "../../lib/settings";
@@ -19,7 +19,7 @@ type Family = Omit<SubchatSource, "parentKey" | "runs"> & {
 };
 
 type Tabs = {
-  state: { sessions: Record<string, AgentSession> } | null;
+  state: { sessions: Record<string, AgentSession>; worktrees: Record<string, { id: number; path: string }> } | null;
   worktree: number | undefined;
   rows: readonly SidebarRecent[];
   panels: { changes?: SidePanel; pullRequest?: SidePanel & { number: number } };
@@ -57,14 +57,15 @@ export function ChatTopBar({
   if (!shown) return null;
   const worktreeId = session ? session.worktree_id : tabs.worktree;
   if (workspaceTabs && worktreeId !== null && worktreeId !== undefined) {
-    const workspace = workspaceKey(projectPath, worktreeId, session?.id ?? -1);
+    const keyOf = (id: number | undefined, chatId: number) => workspaceKey(projectPath, tabWorktree(projectPath, tabs.state?.worktrees[id ?? -1]), chatId);
+    const workspace = keyOf(worktreeId, session?.id ?? -1);
     return (
       <WorkspaceTabStrip
         workspace={workspace}
         projectPath={projectPath}
         panels={tabs.panels}
         sessions={tabs.state?.sessions}
-        belongs={(other) => workspaceKey(projectPath, other.worktree_id, other.id) === workspace}
+        belongs={(other) => keyOf(other.worktree_id, other.id) === workspace}
         rows={tabs.rows}
         activeChatId={session?.id ?? null}
         corner={corner}

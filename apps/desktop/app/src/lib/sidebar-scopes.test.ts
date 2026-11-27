@@ -488,3 +488,16 @@ test("the Chats home never becomes a Project scope", () => {
   assert.equal(isChatsHomeScope("/code/shop", { currentKey: "/code/shop", homeKeys }), false);
   assert.equal(isChatsHomeScope("studio|/code/app", { currentKey: "/code/shop", homeKeys }), false);
 });
+
+test("rows name their Workspace tab set: a Worktree's Chats share one, a Project-folder Chat and a Link keep theirs", () => {
+  const none = { running: new Set<string>(), waiting: new Set<string>(), asking: new Set<string>() };
+  const tabbed = {
+    ...state,
+    worktrees: { 1: { id: 1, name: "main", path: "/code/shop" }, 7: { id: 7, name: "chat-ab", path: "/w/chat-ab" } },
+    sessions: { 1: session(1), 2: session(2, { worktree_id: 7 }), 4: session(4, { worktree_id: 7 }) },
+  } as unknown as CoordinatorState;
+  const rows = scopeChats("/code/shop", tabbed, "created", none);
+  assert.deepEqual(Object.fromEntries(rows.map((row) => [row.id, row.tabSet])), { 1: "/code/shop#chat:1", 2: "/code/shop#wt:7", 4: "/code/shop#wt:7" });
+  const link = { sessions: { 1: { id: 1, workspacePath: "/w/l", worktrees: [], agent_name: "Claude", status: "Idle" } }, messages: [message(1, 1, "Hi")] };
+  assert.equal(scopeChats("milagre-link:x", link as unknown as LinkState, "created", none)[0]?.tabSet, "milagre-link:x#wt:link");
+});

@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -259,7 +260,7 @@ test("patchRunContext hands a session patch on", async () => {
   assert.deepEqual(patched[0][4], { unread: false });
 });
 
-test("a Chat on a Named Link gets no routine tools", (t) => {
+test("a Link Chat can delete only its own Babysit Routine", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-adapter-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const routines = createRoutines({
@@ -267,10 +268,47 @@ test("a Chat on a Named Link gets no routine tools", (t) => {
     chats: { turnSettings: () => null },
     emit() {},
     cachedState: () => undefined,
-    openState: async () => undefined,
+    openState: async () => ({ sessions: { 2: { id: 2 } } }),
+    timers: { setTimeout: () => ({ unref() {} }), clearTimeout() {} },
   });
   assert.equal(routines.definitions("/project#2").length, 6);
-  assert.deepEqual(routines.definitions("milagre-link:0f8e2c1a-1b2c-4d5e-8f90-123456789abc#2"), []);
+  const own = "milagre-link:0f8e2c1a-1b2c-4d5e-8f90-123456789abc#2";
+  assert.deepEqual(routines.definitions(own), []);
+  const routine = await routines.createBabysit({ ...babysitInput({ on: true, days: 3 }), chatId: own });
+  assert.deepEqual(
+    routines.definitions(own).map((tool) => tool.name),
+    ["routine_delete"],
+  );
+  assert.deepEqual(routines.definitions(own.replace(/#2$/, "#3")), []);
+  await routines.definitions(own)[0].run({ id: routine.id });
+  assert.deepEqual(routines.definitions(own), []);
+});
+
+test("Babysit matches a Link PR by URL even when two member Worktrees share a branch name", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-link-pr-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const worktrees = ["api", "web"].map((alias) => {
+    const worktreePath = path.join(dir, alias);
+    execFileSync("git", ["init", "-qb", "feature", worktreePath]);
+    return { alias, worktreePath };
+  });
+  const id = "milagre-link:0f8e2c1a-1b2c-4d5e-8f90-123456789abc#2";
+  const url = "https://github.com/example/web/pull/42";
+  const prs = new Map([
+    [worktrees[0].worktreePath, { url: "https://github.com/example/api/pull/42" }],
+    [worktrees[1].worktreePath, { url }],
+  ]);
+  const openState = async () => ({ sessions: { 2: { worktrees } } });
+  const adapter = routineChats({
+    chats: {},
+    openState,
+    startCheck: routineTargets({ openState }).atStart,
+    readBranchPr: async (cwd) => ({ pr: prs.get(cwd) }),
+  });
+  assert.deepEqual(await adapter.pullRequestWorktree(id, url), { branch: "feature", alias: "web" });
+  assert.deepEqual(await adapter.pullRequestWorktree(id, "https://github.com/example/other/pull/42"), { branch: null });
+  prs.set(worktrees[0].worktreePath, { url });
+  assert.deepEqual(await adapter.pullRequestWorktree(id, url), { branch: null });
 });
 
 // The adapter's half of a Run in a Chat of its own: Worktrees and Chats faked, with what each call got.

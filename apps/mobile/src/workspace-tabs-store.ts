@@ -1,17 +1,8 @@
-import { PHONE_PAGES, PHONE_TERMINALS } from "./workspace-tabs-kinds";
+import { PHONE_PAGES, PHONE_TERMINALS, scopeKey, tabScope } from "./workspace-tabs-kinds";
 import * as SecureStore from "expo-secure-store";
 import { Directory, File, Paths } from "expo-file-system";
 import { useEffect, useSyncExternalStore } from "react";
-import {
-  EMPTY_TABS,
-  openTab,
-  parseTabSets,
-  pruneTabSets,
-  workspaceKey,
-  type StoredTabSets,
-  type TabSet,
-  type WorkspaceTab,
-} from "@milagre/shared/workspace-tabs";
+import { EMPTY_TABS, openTab, parseTabSets, pruneTabSets, type StoredTabSets, type TabSet, type WorkspaceTab } from "@milagre/shared/workspace-tabs";
 
 const SETTING_KEY = "milagre.workspace-tabs.v1";
 const REMEMBERED_WORKSPACES = 40;
@@ -98,17 +89,22 @@ export function useTabSet(workspace: string | null): TabSet {
 
 type PhoneSession = {
   client?: { url: string } | null;
-  snapshot?: { project: { path: string; state: { sessions: Record<string, { worktree_id: number }> } } } | null;
+  snapshot?: {
+    project: {
+      path: string;
+      link?: unknown;
+      state: { sessions: Record<string, { worktree_id: number }>; worktrees: Record<string, { id: number; path: string }> };
+    };
+  } | null;
 };
 
-/** The phone opening a Chat's Browser or Terminal: its Worktree's tab set gets a tab that opens it again. */
+/** The phone opening a Chat's Browser or Terminal: its tab set gets a tab that opens it again. */
 function notePhoneTab(session: PhoneSession, chatKey: string, tab: WorkspaceTab) {
   const snapshot = session.snapshot;
   if (!enabled || !session.client || !snapshot || !chatKey.startsWith(`${snapshot.project.path}#`)) return;
-  const chatId = Number(chatKey.slice(chatKey.lastIndexOf("#") + 1));
-  const worktreeId = snapshot.project.state.sessions[chatId]?.worktree_id;
-  if (worktreeId === undefined) return;
-  updateTabSet(`${session.client.url}|${workspaceKey(snapshot.project.path, worktreeId, chatId)}`, (current) => openTab(current, tab));
+  const scope = tabScope(snapshot.project, Number(chatKey.slice(chatKey.lastIndexOf("#") + 1)), undefined);
+  if (scope === undefined) return;
+  updateTabSet(`${session.client.url}|${scopeKey(snapshot.project.path, scope)}`, (current) => openTab(current, tab));
 }
 
 /** A sheet that shows a Chat's Browser pages or Terminals keeps a tab for them in its Worktree's set while tabs are on. */

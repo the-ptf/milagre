@@ -15,6 +15,7 @@ import { shownChat } from "./chat-list-filter";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import type { HostView, ProjectCopy, Reach } from "./all-computers-store";
 import { type SubchatMarks } from "./subchat-rows";
+import { foldTabRows, type FoldedTabs } from "./workspace-tabs-kinds";
 
 export type Destination = (href: Href, secondary?: boolean | "sheet") => void;
 type HostTag = { hostId: string; hostName: string; reach: Reach };
@@ -71,6 +72,7 @@ export type Row = { key: string; path: string } & (
       home?: boolean;
       shared?: boolean;
       indent?: number;
+      folded?: FoldedTabs;
     } & SubchatMarks &
       HostTag)
   | ({
@@ -125,6 +127,8 @@ export type ChatEntry = {
   prPath?: string;
   prRefs: string[];
   ownsWorktree?: boolean;
+  /** With Workspace tabs on, the Chats this row stands for besides its own, which live only as tabs. */
+  folded?: FoldedTabs;
 };
 export type ProjectBuild = {
   path: string;
@@ -133,6 +137,7 @@ export type ProjectBuild = {
   link: boolean;
   members?: RegisteredProject[];
   copy?: ProjectCopy;
+  /** Every listed Chat, tab Chats included, which search reaches. */
   all: ChatEntry[];
   chats: ChatEntry[];
   done: ChatEntry[];
@@ -156,6 +161,7 @@ export type BuildContext = {
   fallback: (path: string) => ProjectCopy | undefined;
   show: Show;
   pins: DevicePins;
+  tabs: boolean;
 };
 
 export type DoneMark = { doneAt: number | null };
@@ -219,7 +225,9 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
       count: chatSummary(chat, messages).count,
     };
   });
-  const toEntry = ({ chat, title, sortId, pending, mark, background }: (typeof entries)[number]): ChatEntry => ({
+  type Listed = (typeof entries)[number] & { folded?: FoldedTabs };
+  const toEntry = ({ chat, title, sortId, pending, mark, background, folded }: Listed): ChatEntry => ({
+    ...(folded ? { folded } : {}),
     chat,
     title,
     sortId,
@@ -247,23 +255,27 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
           .filter(({ chat }) => !ctx.hidden(copy?.project.path ?? project.path, chat.id))
           .map(toEntry)
       : [];
-  const all: ChatEntry[] = entries
-    .filter(({ chat, run, count, mark }) => {
-      if (ctx.hidden(copy?.project.path ?? project.path, chat.id)) return false;
-      if (ctx.show === "archived") return !!chat.archived && shownChat(chat, run, count, { archived: true });
-      if (chat.archived && !ctx.archiving(copy?.project.path ?? project.path, chat.id)) return false;
-      if (!shownChat(chat, run, count, { archived: false })) return false;
-      if (chat.done_at && !chat.archived) return false;
-      if (isSnoozed(chat, now)) return false;
-      if (ctx.show === "needs") return NEEDS.has(mark);
-      if (ctx.show === "running") return mark === "running" || mark === "background";
-      return true;
-    })
-    .sort((a, b) => comparePins(a.chat, b.chat) || b.sortId - a.sortId)
-    .map(toEntry);
+  const listed = entries.filter(({ chat, run, count }) => {
+    if (ctx.hidden(copy?.project.path ?? project.path, chat.id)) return false;
+    if (ctx.show === "archived") return !!chat.archived && shownChat(chat, run, count, { archived: true });
+    if (chat.archived && !ctx.archiving(copy?.project.path ?? project.path, chat.id)) return false;
+    if (!shownChat(chat, run, count, { archived: false })) return false;
+    return !(chat.done_at && !chat.archived) && !isSnoozed(chat, now);
+  });
+  const rowsOf = (items: Listed[]) =>
+    items
+      .filter(({ mark }) => (ctx.show === "needs" ? NEEDS.has(mark) : ctx.show === "running" ? mark === "running" || mark === "background" : true))
+      .sort((a, b) => comparePins(a.chat, b.chat) || b.sortId - a.sortId)
+      .map(toEntry);
+  const all = rowsOf(listed);
+  const folds = ctx.tabs && ctx.show !== "archived" && copy;
+  const rows = folds ? rowsOf(foldTabRows(listed, { path: copy.project.path, link: !!copy.project.link, worktrees: copy.project.state.worktrees })) : all;
+  const titles = folds ? new Map(entries.map(({ chat, title }) => [chat.id, title])) : undefined;
   const chats = ctx.needle
-    ? all.filter(({ title, worktree }) => [name, title, worktree, view.name].some((text) => text?.toLowerCase().includes(ctx.needle)))
-    : all;
+    ? rows.filter(({ title, worktree, folded }) =>
+        [name, title, worktree, view.name, ...(folded?.chats.map((id) => titles?.get(id)) ?? [])].some((text) => text?.toLowerCase().includes(ctx.needle)),
+      )
+    : rows;
   return {
     path: project.path,
     name,

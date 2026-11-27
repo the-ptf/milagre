@@ -31,6 +31,8 @@ import { useS } from "./navigation-styles";
 import { useActivityClock } from "./chat-row-store";
 import { ComputerTag } from "./navigation-chrome";
 import type { RowActions, RowProps, RowView } from "./navigation-row";
+import { tabSet } from "./workspace-tabs-store";
+import { rowChat } from "./workspace-tabs-kinds";
 
 const SUBCHAT_INDENT = 16;
 const labels: Record<ChatMark, string> = {
@@ -85,7 +87,9 @@ function chatRowSelection(ctx: ChatRowBase) {
     beside,
   );
   const isBeside = wide && activeChatId !== undefined && beside?.hostId === item.hostId && beside.projectPath === item.path && beside.chatId === item.chat.id;
-  const standIn = !!item.family?.folded && currentHostId === item.hostId && openRoot === `${item.path}#${item.chat.id}`;
+  const here = currentHostId === item.hostId;
+  const tabOpen = here && currentPath === item.path && activeChatId !== undefined && !!item.folded?.chats.includes(activeChatId);
+  const standIn = (!!item.family?.folded && here && openRoot === `${item.path}#${item.chat.id}`) || tabOpen;
   const selected = (currentHostId === item.hostId && currentPath === item.path && activeChatId === item.chat.id) || isBeside || standIn;
   const linked = item.linked ?? [];
   const doneable = doneHours[item.hostId] !== undefined;
@@ -216,7 +220,7 @@ function chatRowPieces(ctx: ChatRowBase & ReturnType<typeof chatRowSelection> & 
       : undefined;
   const openRow = () => {
     if (archiving) return;
-    void enter(item.hostId, item.path, item.chat.id, item.pending);
+    void enter(item.hostId, item.path, rowChat(tabSet, item.hostId, item.path, item.chat.id, item.folded), item.pending);
   };
   const foldFamily = () => {
     tap();
