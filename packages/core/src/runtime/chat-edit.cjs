@@ -51,7 +51,7 @@ function registerChatEdit({ commands, chats, agents, checkpoints, stopChat, send
       ...(plan.fresh && index > 0 && current.provider === request.provider ? { newSession: true } : {}),
     };
     if (files?.left) agentNotes.set(chatId, [...(agentNotes.get(chatId) ?? []), LEFT_FILES_NOTE]);
-    const attachments = request.keepAttachments ? { images: await queuedImages(original.images ?? []), files: original.files ?? [] } : {};
+    const attachments = request.keepAttachments ? await keptAttachments(original, request) : {};
     const undo = await rewind(chatId, { messageId, fresh: Boolean(plan.fresh), replaces: fallback?.replaces, context });
     const {
       messageId: _id,
@@ -172,6 +172,18 @@ function registerChatEdit({ commands, chats, agents, checkpoints, stopChat, send
 
   commands.handle("chat:edit", (_event, request) => editAsUser(request));
   return { editAsUser, observe, started };
+}
+
+// The edited message's own images and files stay, ahead of any the edit adds.
+async function keptAttachments(original, request) {
+  const files = [...new Set([...(original.files ?? []), ...(request.files ?? [])])];
+  const prompt = request.prompt || request.body;
+  return {
+    images: [...(await queuedImages(original.images ?? [])), ...(request.images ?? [])],
+    files,
+    prompt:
+      original.files?.length && !original.files.every((file) => prompt.includes(file)) ? `${prompt}\n\nAttached files:\n${original.files.join("\n")}` : prompt,
+  };
 }
 
 async function waitFor(condition, timeoutMs, message) {

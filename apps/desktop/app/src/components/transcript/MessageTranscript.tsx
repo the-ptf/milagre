@@ -10,6 +10,7 @@ import { InlineError } from "../primitives/InlineError";
 import { groupQuietRuns, isRoutineRun, routineRunOf } from "@milagre/shared/routines";
 import { RoutineRunDivider } from "../RoutineRunDivider";
 import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
+import { editMarks, type TranscriptEdit } from "./edit-marks";
 import { type UndoIntent } from "../checkpoints/UndoPanel";
 import { foldLinkedExchanges } from "@milagre/shared/linked-message";
 import { MessageFollowContext, TRANSCRIPT_END_EVENT, TRANSCRIPT_SHOWN_EVENT } from "../agents/message-scroller";
@@ -82,10 +83,12 @@ export const MessageTranscript = memo(function MessageTranscript({
   undoBlocked = false,
   onUndo,
   onFork,
+  edit,
   onSettle,
   highlightId = null,
   onCheckpointPreview,
 }: {
+  edit?: TranscriptEdit;
   undoable?: Map<number, { id: string; latest: boolean }>;
   undoBlocked?: boolean;
   onUndo?: (checkpointId: string) => void;
@@ -238,6 +241,7 @@ export const MessageTranscript = memo(function MessageTranscript({
   const shown = cut ? transcript.slice(-TAIL_FIRST) : transcript;
 
   const openingIds = openingMessages.current.ids;
+  const editProps = editMarks(edit, transcript, Boolean(offlineName));
   const limitMessageId = isSending || offlineName ? undefined : (limitSourceMessageId ?? messages.at(-1)?.id);
   return (
     <>
@@ -293,7 +297,8 @@ export const MessageTranscript = memo(function MessageTranscript({
               onFork={message.id > 0 && message !== streamingMessage ? onFork : undefined}
               onSettle={message === transcript.at(-1)?.message && message.role === "assistant" ? onSettle : undefined}
               highlighted={message.id === highlightId}
-              onCheckpointPreview={isCheckpointRestore(message) && !undoBlocked ? onCheckpointPreview : undefined}
+              {...editProps(message)}
+              onCheckpointPreview={(isCheckpointRestore(message) || editProps.divider(message)) && !undoBlocked ? onCheckpointPreview : undefined}
             />
           </Fragment>
         );
