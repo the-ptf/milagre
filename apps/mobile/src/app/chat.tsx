@@ -4,7 +4,7 @@ import type { BranchPolicySettings } from "@milagre/shared/branch-policy";
 import { chrome, lineHeight, type } from "../design-tokens";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { useContextSettings } from "../context-settings";
-import { COMPACT_COMMAND, compactionContext, compactionText, isCompaction } from "@milagre/shared/compaction";
+import { COMPACT_COMMAND, compactionContext, isCompaction } from "@milagre/shared/compaction";
 import {
   ArrowDown01Icon,
   Globe02Icon,
@@ -17,7 +17,7 @@ import {
   UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
 import { outbox, outboxAttachments, hasQueuedChat } from "../outbox";
-import { LINK_CHAT_WORKTREES_TEXT, isWorktreeLinked, linkDeletedElsewhereText, worktreeLinkText } from "@milagre/shared/worktree-link";
+import { LINK_CHAT_WORKTREES_TEXT, isWorktreeLinked, linkDeletedElsewhereText } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chatHistory } from "@milagre/shared/chat-history";
@@ -37,7 +37,6 @@ import { CHAT_COMMANDS, STORAGE_COMMANDS, NO_CHECKPOINTS, composerCommandHandler
 import { useBtw } from "../use-btw";
 import { chatTitle, createPendingChat, createResendMemory, pendingChatSessionId } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
-import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { LINK_PR_HINT, type LinearIssue } from "@milagre/shared/linear";
 import { worktreeShared } from "@milagre/shared/archive";
@@ -90,7 +89,6 @@ import { ChatReply, ChatRow, type ReplyChat } from "../chat-reply";
 import { onSendDesignMessageNow, sendWaitingDesign, type DesignMessage } from "../design-outbox";
 import { PanelTabsContext } from "../panel-tabs";
 import { chosenDesign } from "@milagre/shared/artifact";
-import { handoffSides } from "../handoff-sides";
 import { HandoffDivider } from "../handoff-divider";
 import { showBrief } from "../handoff-brief-store";
 import { foldLinkedExchanges } from "@milagre/shared/linked-message";
@@ -100,26 +98,18 @@ import { ChatReloadDivider } from "../chat-reload-divider";
 import { BabysitStoppedDivider } from "../babysit-stopped-divider";
 import { CheckpointRestoreDivider } from "../checkpoint-restore-divider";
 import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
+import { ValidationCard, isValidation } from "../validation-card";
 import { useCheckpoints } from "@milagre/shared/use-checkpoints";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import { type UndoIntent } from "../undo-panel";
-import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
-import { babysitStoppedText, isBabysitStopped } from "@milagre/shared/babysit";
+import { isChatReload } from "@milagre/shared/chat-reload";
+import { isBabysitStopped } from "@milagre/shared/babysit";
 import { RoutineRunDivider } from "../routine-run-divider";
-import {
-  chatBranchLabel,
-  RUN_WORKTREE_REMOVED_NOTE,
-  chatRoutine,
-  clock,
-  groupQuietRuns,
-  isRoutineRun,
-  mergedRoutineRunText,
-  routineRunOf,
-  routineRunText,
-} from "@milagre/shared/routines";
-import { CompactionDivider } from "../compaction-divider";
+import { chatBranchLabel, RUN_WORKTREE_REMOVED_NOTE, chatRoutine, clock, groupQuietRuns, isRoutineRun } from "@milagre/shared/routines";
+import { navigationLabel } from "../navigation-label";
 import { isHandoff } from "@milagre/shared/handoff";
-import { accountSwitchText, isAccountSwitch, isLimitReset, limitResetText } from "@milagre/shared/usage-limit";
+import { CompactionDivider } from "../compaction-divider";
+import { isAccountSwitch, isLimitReset } from "@milagre/shared/usage-limit";
 import { BackgroundIndicator } from "../running-logo";
 import { RunIndicator } from "../run-indicator";
 import { EdgeFade } from "../bottom-fade";
@@ -609,28 +599,9 @@ function ChatPane({
         if (!entry || isSilentNote(entry.message)) return [];
         const { message, merged } = entry;
         const position = `${index + 1} of ${shownEntries.length}`;
-        const run = routineRunOf(message);
         return {
           index,
-          label: isHandoff(message)
-            ? `Go to ${handoffSides(message.context, handoffModels).restored ? "context restored" : "context handoff"} ${position}.`
-            : isWorktreeLinked(message)
-              ? `Go to ${worktreeLinkText(message.context)}, ${position}.`
-              : isCompaction(message)
-                ? `Go to ${compactionText(message.context)}, ${position}.`
-                : isAccountSwitch(message)
-                  ? `Go to ${accountSwitchText(message.context)}, ${position}.`
-                  : isLimitReset(message)
-                    ? `Go to ${limitResetText()}, ${position}.`
-                    : isChatReload(message)
-                      ? `Go to ${RELOAD_TEXT}, ${position}.`
-                      : isBabysitStopped(message)
-                        ? `Go to ${babysitStoppedText(message.context).replace(/\.$/, "")}, ${position}.`
-                        : run
-                          ? `Go to ${merged ? mergedRoutineRunText(merged) : routineRunText(run)}, ${position}.`
-                          : isCheckpointRestore(message)
-                            ? `Go to ${message.body}, ${position}.`
-                            : `Go to ${messageSender(message)} message ${position}. ${message.body.slice(0, 88)}`,
+          label: navigationLabel(message, merged, position, handoffModels),
         };
       }),
     [shownEntries, handoffModels],
@@ -2185,6 +2156,13 @@ function ChatPane({
                                 <BabysitStoppedDivider context={message.context} />
                               ) : isRoutineRun(message) ? (
                                 <RoutineRunDivider context={message.context} merged={merged} />
+                              ) : isValidation(message) ? (
+                                <ValidationCard
+                                  context={message.context}
+                                  chatId={chat?.readOnlyReason ? null : chatId}
+                                  call={client?.call.bind(client)}
+                                  onAskToFix={(text) => void send(text, false)}
+                                />
                               ) : isCheckpointRestore(message) ? (
                                 <CheckpointRestoreDivider
                                   context={message.context}
