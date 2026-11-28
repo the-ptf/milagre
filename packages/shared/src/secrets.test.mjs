@@ -95,7 +95,7 @@ test("browser exports become logins by their headers, and a login's name is stab
   const { loginName, parseLoginCsv } = await import("./secrets.mjs");
   const chrome = 'name,url,username,password,note\ngithub.com,https://github.com/login,octo,"pa,ss""1",work\nbad,not a url,x,y,\nempty,https://a.com,u,,\n';
   assert.deepEqual(parseLoginCsv(chrome), {
-    logins: [{ origin: "https://github.com", username: "octo", password: 'pa,ss"1', note: "work" }],
+    logins: [{ line: 2, origin: "https://github.com", username: "octo", password: 'pa,ss"1', note: "work" }],
     skipped: [
       { row: 3, site: "not a url", reason: "The address isn't a web address." },
       { row: 4, site: "https://a.com", reason: "No password." },
@@ -103,8 +103,16 @@ test("browser exports become logins by their headers, and a login's name is stab
   });
   assert.throws(() => parseLoginCsv('url,password\nhttps://a.com,"open\nhttps://b.com,x\n'), /never closes/);
   assert.throws(() => parseLoginCsv("name,secret\na,b\n"), /isn't a passwords export/);
+  assert.throws(() => parseLoginCsv(""), /empty/);
+  const multiline = 'url,password,note\n\nhttps://a.com,x-123456,"two\nlines"\n\nnot a url,y,\n';
+  assert.deepEqual(
+    parseLoginCsv(multiline).skipped,
+    [{ row: 6, site: "not a url", reason: "The address isn't a web address." }],
+    "lines count as the file has them",
+  );
+  assert.equal(parseLoginCsv(multiline).logins[0].line, 3);
   const safari = "Title,URL,Username,Password,Notes,OTPAuth\r\nVercel,https://vercel.com/,me@x.com,secret-pass,,otpauth://x\r\n";
-  assert.deepEqual(parseLoginCsv(safari).logins, [{ origin: "https://vercel.com", username: "me@x.com", password: "secret-pass", note: null }]);
+  assert.deepEqual(parseLoginCsv(safari).logins, [{ line: 2, origin: "https://vercel.com", username: "me@x.com", password: "secret-pass", note: null }]);
   const name = loginName("https://github.com", "octo");
   assert.match(name, /^LOGIN_GITHUB_COM_[0-9A-F]{6}$/);
   assert.equal(secretNameProblem(name), null);

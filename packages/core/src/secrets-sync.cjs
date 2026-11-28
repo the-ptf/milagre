@@ -38,6 +38,8 @@ function outgoing(state, theirs) {
 function acceptable(state, name, secret) {
   if (!secret.value || Buffer.byteLength(secret.value, "utf8") > SECRET_LIMITS.valueBytes) return false;
   if (secret.kind === "file" && !(secret.fileName && FILE_NAME.test(secret.fileName))) return false;
+  const held = state.secrets[name]?.login;
+  if (held && secret.login && (held.origin !== secret.login.origin || held.username !== secret.login.username)) return false;
   return Boolean(state.secrets[name]) || Object.keys(state.secrets).length < SECRET_LIMITS.count;
 }
 

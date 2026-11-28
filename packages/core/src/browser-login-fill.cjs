@@ -17,7 +17,7 @@ const FILL = `function (expected, field, value) {
     view = view.parent;
   }
   const form = this instanceof HTMLInputElement ? this.form : null;
-  const submitters = form ? [...form.querySelectorAll("button, input[type=submit], input[type=image]")] : [];
+  const submitters = form ? [...form.elements].filter((element) => element.type === "submit" || element.type === "image") : [];
   const originOf = (address) => { try { return new URL(address, document.baseURI).origin; } catch { return null; } };
   const sendsTo = [
     ...(form && form.hasAttribute("action") ? [originOf(form.getAttribute("action"))] : []),
@@ -32,6 +32,7 @@ const FILL = `function (expected, field, value) {
   };
   const problem = (${refusal.toString()})(field, place, expected);
   if (problem) return { problem };
+  if (form && !form.hasAttribute("method") && form.method === "get") form.setAttribute("method", "post");
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(this, value);
   this.dispatchEvent(new Event("input", { bubbles: true }));
   this.dispatchEvent(new Event("change", { bubbles: true }));

@@ -42,22 +42,23 @@ async function readSmallFile(file, what, limit = SECRET_LIMITS.valueBytes) {
 async function importLogins(vault, { file, projects = "all", remove = false } = {}) {
   const parsed = parseLoginCsv(await readSmallFile(file, "The passwords file", LOGIN_CSV_BYTES));
   const imported = [];
-  const skipped = parsed.skipped.map(({ row, site, reason }) => ({ name: `row ${row}`, site, reason }));
+  const skipped = parsed.skipped.map(({ row, site, reason }) => ({ name: `line ${row}`, site, reason }));
   for (const row of parsed.logins) {
     const name = loginName(row.origin, row.username);
     try {
       await vault.set({ name, kind: "login", login: { origin: row.origin, username: row.username }, value: row.password, note: row.note, projects });
       imported.push(name);
     } catch (error) {
-      skipped.push({ name, site: row.origin, reason: error.message });
+      skipped.push({ name: `line ${row.line}`, site: row.origin, reason: error.message });
     }
   }
-  const removed = remove
-    ? await fs.rm(file).then(
-        () => true,
-        () => false,
-      )
-    : false;
+  const removed =
+    remove && imported.length > 0 && skipped.length === 0
+      ? await fs.rm(file).then(
+          () => true,
+          () => false,
+        )
+      : false;
   return { imported, skipped, removed };
 }
 

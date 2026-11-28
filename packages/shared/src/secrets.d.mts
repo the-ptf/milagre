@@ -149,7 +149,7 @@ export function carriesSecretValue(method: string, args: unknown[]): boolean;
 
 export function loginName(origin: string, username: string): string;
 export function parseLoginCsv(text: string): {
-  logins: { origin: string; username: string; password: string; note: string | null }[];
+  logins: { line: number; origin: string; username: string; password: string; note: string | null }[];
   skipped: { row: number; site: string; reason: string }[];
 };
 export function loginHost(origin: string): string;

@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { browserPageToolDefinitions } = require("./chat-browser-tools.cjs");
+const { browserPageToolDefinitions, useLogins } = require("./chat-browser-tools.cjs");
 const { runTool } = require("./linked-tools.cjs");
 
 const TARGET = { id: `panel-${"a".repeat(24)}:${"A".repeat(32)}`, title: "Checkout", url: "http://localhost:5173/", source: "panel" };
@@ -322,4 +322,27 @@ test("a click that opens no picker says so, and stops catching pickers", async (
     f.session.sent.filter(([method]) => method === "Page.setInterceptFileChooserDialog").map(([, params]) => params.enabled),
     [true, false],
   );
+});
+
+test("the agent's script and a filled login never share a page load", async (t) => {
+  useLogins({ resolve: async () => ({ origin: "http://localhost:5173", username: "me", password: "local-pass-123456" }) });
+  t.after(() => useLogins(null));
+  const f = fixture();
+  const send = f.session.send;
+  f.session.send = async (method, params = {}) => {
+    if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "top" } } };
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 9 };
+    if (method === "Runtime.callFunctionOn" && params.objectId === "obj-1" && params.arguments?.length === 3) return { result: { value: { filled: true } } };
+    return send(method, params);
+  };
+  const fill = { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } };
+  await f.run("browser_snapshot");
+  assert.equal((await f.run("browser_evaluate", { expression: "1 + 1" })).text, "2");
+  assert.match((await f.run("browser_fill", fill)).text, /agent's script ran on this page/);
+  f.session.emit("Page.frameNavigated", { frame: { id: "top" } });
+  await f.run("browser_snapshot");
+  assert.doesNotMatch((await f.run("browser_fill", fill)).text, /script ran|couldn't/);
+  assert.match((await f.run("browser_evaluate", { expression: "1 + 1" })).text, /saved login was filled on this page/);
+  f.session.emit("Page.frameNavigated", { frame: { id: "top" } });
+  assert.equal((await f.run("browser_evaluate", { expression: "1 + 1" })).text, "2");
 });

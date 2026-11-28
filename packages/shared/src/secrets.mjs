@@ -305,34 +305,42 @@ export function loginSite(site) {
   return { origin: url.origin, error: null };
 }
 
+/** The rows of a CSV text, each with the line it starts on. */
 function csvRows(text) {
   const rows = [];
   let row = [];
   let field = "";
   let quoted = false;
+  let line = 1;
+  let start = 1;
+  const end = () => {
+    row.push(field);
+    if (row.some((cell) => cell !== "")) rows.push(Object.assign(row, { line: start }));
+    row = [];
+    field = "";
+  };
   for (let index = 0; index < text.length; index++) {
     const char = text[index];
+    const newline = char === "\n" || char === "\r";
+    if (newline && char === "\r" && text[index + 1] === "\n") index++;
+    if (newline) line++;
     if (quoted) {
       if (char === '"' && text[index + 1] === '"') {
         field += '"';
         index++;
       } else if (char === '"') quoted = false;
-      else field += char;
+      else field += newline ? "\n" : char;
     } else if (char === '"') quoted = true;
     else if (char === ",") {
       row.push(field);
       field = "";
-    } else if (char === "\n" || char === "\r") {
-      if (char === "\r" && text[index + 1] === "\n") index++;
-      row.push(field);
-      if (row.some((cell) => cell !== "")) rows.push(row);
-      row = [];
-      field = "";
+    } else if (newline) {
+      end();
+      start = line;
     } else field += char;
   }
   if (quoted) throw new Error("The file has a quote that never closes, so it wasn't imported.");
-  row.push(field);
-  if (row.some((cell) => cell !== "")) rows.push(row);
+  end();
   return rows;
 }
 
@@ -343,7 +351,7 @@ function csvRows(text) {
  */
 export function parseLoginCsv(text) {
   const [header, ...rows] = csvRows(String(text).replace(/^﻿/, ""));
-  if (!header) return { logins: [], skipped: [] };
+  if (!header) throw new Error("The file is empty.");
   const column = (...names) => header.findIndex((cell) => names.includes(cell.trim().toLowerCase()));
   const url = column("url", "login_uri", "website", "web site");
   const username = column("username", "login_username", "user name", "login");
@@ -352,8 +360,8 @@ export function parseLoginCsv(text) {
   if (url < 0 || password < 0) throw new Error("The file has no url and password columns, so it isn't a passwords export.");
   const logins = [];
   const skipped = [];
-  rows.forEach((row, index) => {
-    const line = index + 2;
+  for (const row of rows) {
+    const { line } = row;
     let origin = null;
     try {
       origin = new URL(row[url]).origin;
@@ -361,7 +369,13 @@ export function parseLoginCsv(text) {
     if (!origin || origin === "null") skipped.push({ row: line, site: row[url] ?? "", reason: "The address isn't a web address." });
     else if (!row[password]) skipped.push({ row: line, site: origin, reason: "No password." });
     else
-      logins.push({ origin, username: username >= 0 ? (row[username] ?? "") : "", password: row[password], note: note >= 0 && row[note] ? row[note] : null });
-  });
+      logins.push({
+        line,
+        origin,
+        username: username >= 0 ? (row[username] ?? "") : "",
+        password: row[password],
+        note: note >= 0 && row[note] ? row[note] : null,
+      });
+  }
   return { logins, skipped };
 }
