@@ -13,6 +13,7 @@ const GH_MISSING = `Install the GitHub CLI (\`${process.platform === "win32" ? "
 const OID = /^[0-9a-f]{40}$/;
 const MAX_BODY = 65_000;
 const FILE_PAGES = 30;
+const LIST_PAGES = 10;
 const METHODS = new Set(["squash", "merge", "rebase"]);
 const EVENTS = new Set(["COMMENT", "APPROVE", "REQUEST_CHANGES"]);
 const MAX_IMAGE = 15 * 1024 * 1024;
@@ -31,12 +32,12 @@ const DETAIL_QUERY = `query($owner:String!,$name:String!,$number:Int!){
         kind: __typename
         ... on CheckRun{name status conclusion detailsUrl checkSuite{workflowRun{workflow{name}}}}
         ... on StatusContext{context state targetUrl}
-      }}}}}}
+      } pageInfo{hasNextPage endCursor}}}}}}
       files(first:100){nodes{path additions deletions changeType} pageInfo{hasNextPage endCursor}}
       reviewRequests(first:20){nodes{requestedReviewer{... on User{login} ... on Team{combinedSlug}}}}
       latestReviews(first:30){nodes{author{login} state commit{oid}}}
       reviewThreads(first:100){nodes{id path line originalLine diffSide isResolved isOutdated
-        comments(first:50){nodes{id body createdAt author{login} pullRequestReview{state}}}}}
+        comments(first:50){nodes{id body createdAt author{login} pullRequestReview{state}}}} pageInfo{hasNextPage endCursor}}
       comments(last:50){nodes{id body createdAt author{login}}}
       pending: reviews(states:PENDING,first:1){nodes{id comments{totalCount}}}
     }
@@ -46,6 +47,23 @@ const DETAIL_QUERY = `query($owner:String!,$name:String!,$number:Int!){
 const FILES_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String!){
   repository(owner:$owner,name:$name){pullRequest(number:$number){
     files(first:100,after:$after){nodes{path additions deletions changeType} pageInfo{hasNextPage endCursor}}
+  }}
+}`;
+
+const THREADS_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String!){
+  repository(owner:$owner,name:$name){pullRequest(number:$number){
+    reviewThreads(first:100,after:$after){nodes{id path line originalLine diffSide isResolved isOutdated
+      comments(first:50){nodes{id body createdAt author{login} pullRequestReview{state}}}} pageInfo{hasNextPage endCursor}}
+  }}
+}`;
+
+const CHECKS_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String!){
+  repository(owner:$owner,name:$name){pullRequest(number:$number){
+    checks: commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100,after:$after){nodes{
+      kind: __typename
+      ... on CheckRun{name status conclusion detailsUrl checkSuite{workflowRun{workflow{name}}}}
+      ... on StatusContext{context state targetUrl}
+    } pageInfo{hasNextPage endCursor}}}}}}
   }}
 }`;
 
@@ -281,6 +299,28 @@ function range(base, head) {
   return { base, head };
 }
 
+/** The PR with every review thread and check past the first 100 pulled in, as files are. */
+async function pageLists(graphql, cwd, prNumber, pr) {
+  const more = { ...pr, reviewThreads: { nodes: [...(pr.reviewThreads?.nodes ?? [])] } };
+  let page = pr.reviewThreads?.pageInfo;
+  for (let i = 1; page?.hasNextPage && page.endCursor && i < LIST_PAGES; i++) {
+    const next = (await graphql(cwd, THREADS_QUERY, { number: prNumber, after: page.endCursor }))?.repository?.pullRequest?.reviewThreads;
+    more.reviewThreads.nodes.push(...(next?.nodes ?? []));
+    page = next?.pageInfo;
+  }
+  const rollup = pr.checks?.nodes?.[0]?.commit?.statusCheckRollup;
+  if (!rollup?.contexts) return more;
+  const contexts = { nodes: [...(rollup.contexts.nodes ?? [])] };
+  page = rollup.contexts.pageInfo;
+  for (let i = 1; page?.hasNextPage && page.endCursor && i < LIST_PAGES; i++) {
+    const next = (await graphql(cwd, CHECKS_QUERY, { number: prNumber, after: page.endCursor }))?.repository?.pullRequest?.checks?.nodes?.[0]?.commit
+      ?.statusCheckRollup?.contexts;
+    contexts.nodes.push(...(next?.nodes ?? []));
+    page = next?.pageInfo;
+  }
+  return { ...more, checks: { nodes: [{ commit: { statusCheckRollup: { contexts } } }] } };
+}
+
 function createPullRequestReview({
   exec = scheduled(defaultExec),
   env = process.env,
@@ -320,7 +360,7 @@ function createPullRequestReview({
       files.push(...(next?.nodes ?? []).filter(Boolean).map(toFile));
       page = next?.pageInfo;
     }
-    const detail = toDetail(pr, files);
+    const detail = toDetail(await pageLists(graphql, cwd, prNumber, pr), files);
     const commits = detail.state === "OPEN" ? await localCommits(cwd, detail.headRefOid) : 0;
     return commits ? { ...detail, localCommits: commits } : detail;
   }
