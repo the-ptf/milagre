@@ -439,3 +439,25 @@ test("a fill whose outcome is unknown counts as filled, and the rule stays with 
   reconnected.session.navigate();
   assert.equal((await reconnected.run("browser_evaluate", { expression: "1 + 1" })).text, "2");
 });
+
+test("a script that ends on another document marks that document too, so no login is filled under it", async (t) => {
+  useLogins({ resolve: async () => ({ origin: "http://localhost:5173", username: "me", password: "local-pass-123456" }) });
+  t.after(() => useLogins(null));
+  const f = fixture();
+  const send = f.session.send;
+  f.session.send = async (method, params = {}) => {
+    if (method === "Runtime.evaluate" && params.expression === "location.reload()") {
+      f.session.navigate();
+      return { result: { value: null } };
+    }
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 9 };
+    if (method === "Runtime.callFunctionOn" && params.arguments?.length === 3) return { result: { value: { filled: true } } };
+    return send(method, params);
+  };
+  await f.run("browser_snapshot");
+  await f.run("browser_evaluate", { expression: "location.reload()" });
+  assert.match((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /agent's script ran on this page/);
+  f.session.navigate();
+  await f.run("browser_snapshot");
+  assert.doesNotMatch((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /script|couldn't/);
+});

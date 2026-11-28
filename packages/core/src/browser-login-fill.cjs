@@ -104,19 +104,24 @@ async function fillLogin({ session, node, login, field }) {
 }
 
 const REFUSED = "login-refused";
-const KEPT = 500;
+const SCRIPTED = "The agent's script ran on this page, so a saved login isn't filled until the page loads again. Reload or navigate first.";
+const FILLED =
+  "A saved login was filled on this page, so its script can't be read until the page loads another document. Use browser_snapshot, or navigate first.";
 
 /**
- * Which documents held a filled login, ran the agent's script or have a fill in progress, by tab and top-frame loader,
- * so the rule outlives a debugger reconnect and ends only when the tab loads another document.
+ * Which documents held a filled login or ran the agent's script, by tab and top-frame loader, so the rule outlives a
+ * debugger reconnect and ends only when the tab loads another document. A tab runs a login fill or the agent's script,
+ * never both at once, and a script marks the document it ended in too, so a navigation in between can't split them.
+ * Nothing is forgotten while Milagre runs: an entry is one per document, not per call.
  */
 function createLoginGuard() {
   const filled = new Set();
   const scripted = new Set();
-  const pending = new Map();
-  const remember = (set, key) => {
-    set.add(key);
-    if (set.size > KEPT) set.delete(set.values().next().value);
+  const unknown = new Set();
+  const tabs = new Map();
+  const tab = (target) => {
+    if (!tabs.has(target.id)) tabs.set(target.id, { fills: 0, scripts: 0 });
+    return tabs.get(target.id);
   };
   const documentOf = async (session, target) => {
     const { frameTree } = await session.send("Page.getFrameTree");
@@ -124,26 +129,38 @@ function createLoginGuard() {
   };
   return {
     async fill(session, target, run) {
-      const key = await documentOf(session, target);
-      if (scripted.has(key))
-        throw new Error("The agent's script ran on this page, so a saved login isn't filled until the page loads again. Reload or navigate first.");
-      pending.set(key, (pending.get(key) ?? 0) + 1);
+      const busy = tab(target);
+      busy.fills++;
       try {
-        await run(() => remember(filled, key));
-        remember(filled, key);
+        if (unknown.has(target.id))
+          throw new Error("Milagre couldn't tell which page the agent's script ended on, so this tab takes no saved login. Open the page in a new tab.");
+        if (busy.scripts) throw new Error(SCRIPTED);
+        const key = await documentOf(session, target);
+        if (scripted.has(key)) throw new Error(SCRIPTED);
+        await run(() => filled.add(key));
+        filled.add(key);
       } finally {
-        const left = pending.get(key) - 1;
-        if (left > 0) pending.set(key, left);
-        else pending.delete(key);
+        busy.fills--;
       }
     },
-    async script(session, target) {
-      const key = await documentOf(session, target);
-      if (filled.has(key) || pending.has(key))
-        throw new Error(
-          "A saved login was filled on this page, so its script can't be read until the page loads another document. Use browser_snapshot, or navigate first.",
-        );
-      remember(scripted, key);
+    async script(session, target, run) {
+      const busy = tab(target);
+      busy.scripts++;
+      try {
+        if (busy.fills) throw new Error(FILLED);
+        const key = await documentOf(session, target);
+        if (filled.has(key)) throw new Error(FILLED);
+        scripted.add(key);
+        try {
+          return await run();
+        } finally {
+          const after = await documentOf(session, target).catch(() => null);
+          if (after) scripted.add(after);
+          else unknown.add(target.id);
+        }
+      } finally {
+        busy.scripts--;
+      }
     },
   };
 }

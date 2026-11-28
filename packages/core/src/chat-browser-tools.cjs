@@ -555,11 +555,8 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
       readOnly: false,
       run: async (input) => {
         const { session, target } = await on(input);
-        await loginGuard.script(session, target);
-        const { result, exceptionDetails } = await session.send(
-          "Runtime.evaluate",
-          { expression: input.expression, returnByValue: true, awaitPromise: true },
-          30000,
+        const { result, exceptionDetails } = await loginGuard.script(session, target, () =>
+          session.send("Runtime.evaluate", { expression: input.expression, returnByValue: true, awaitPromise: true }, 30000),
         );
         if (exceptionDetails) throw new Error(String(exceptionDetails.exception?.description ?? exceptionDetails.text ?? "The expression threw."));
         return clip(result?.value === undefined ? String(result?.description ?? "undefined") : JSON.stringify(result.value, null, 2));
