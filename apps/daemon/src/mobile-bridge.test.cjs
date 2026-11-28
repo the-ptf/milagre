@@ -2149,6 +2149,25 @@ test("off the sealed channel a phone never sees a question whose answer is a sec
   assert.equal(runsFor({ headers: { [SEALED_HEADER]: SEALED_VALUE } }, all), all);
 });
 
+test("the Inbox and chat:runs leave out secret questions off the sealed channel too, by route and by RPC", () => {
+  const { forChannel } = require("./mobile-routes.cjs");
+  const { SEALED_HEADER, SEALED_VALUE } = require("./sealed-channel.cjs");
+  const secretQuestion = { requestId: "q-1", questions: [{ question: "API key?", secret: true }] };
+  const plainQuestion = { requestId: "q-2", questions: [{ question: "Which branch?" }] };
+  const inbox = {
+    agents: [
+      { key: "/p#1", status: "question", question: secretQuestion },
+      { key: "/p#2", status: "question", question: plainQuestion },
+    ],
+    items: [{ key: "/p#1", status: "question", question: secretQuestion }],
+  };
+  const tunneled = forChannel({ headers: {} }, "chat:inbox", inbox);
+  assert.deepEqual(tunneled.agents, [{ key: "/p#1", status: "question" }, inbox.agents[1]]);
+  assert.deepEqual(tunneled.items, [{ key: "/p#1", status: "question" }]);
+  assert.equal(forChannel({ headers: { [SEALED_HEADER]: SEALED_VALUE } }, "chat:inbox", inbox), inbox);
+  assert.deepEqual(forChannel({ headers: {} }, "chat:runs", { seq: 1, runs: { "/p#1": { questions: [secretQuestion] } } }).runs["/p#1"].questions, []);
+});
+
 test("every bridge takes a secret value only through the sealed channel, never through a tunnel or proxy", async (t) => {
   const { SEALED_HEADER, SEALED_VALUE } = require("./sealed-channel.cjs");
   const keys = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-sealed-key-"));
