@@ -7,6 +7,7 @@ const reported: AgentModels = {
   claude: null,
   antigravity: null,
   kiro: null,
+  grok: null,
   pi: null,
   codex: [
     {

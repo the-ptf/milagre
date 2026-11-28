@@ -328,7 +328,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
           }
         },
         {
@@ -346,7 +346,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
           }
         },
         {
@@ -364,7 +364,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
           }
         },
         {
@@ -382,7 +382,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
           }
         },
         {
@@ -400,7 +400,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
           }
         },
         {
@@ -418,7 +418,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
           }
         },
         {
@@ -1056,7 +1056,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
           }
         },
         {
@@ -2562,7 +2562,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
           }
         },
         {
@@ -2580,7 +2580,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
           }
         },
         {
@@ -3654,7 +3654,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
           }
         },
         {
@@ -3979,7 +3979,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
           }
         },
         {
@@ -4029,7 +4029,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+            "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
           }
         },
         {
@@ -5309,7 +5309,7 @@
           "type": "string"
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
         },
         "model": {
           "type": "string"
@@ -5702,7 +5702,7 @@
       "type": "object",
       "properties": {
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
         },
         "model": {
           "type": "string"
@@ -5739,6 +5739,9 @@
             },
             {
               "const": "kiro"
+            },
+            {
+              "const": "grok"
             },
             {
               "const": "pi"
@@ -7754,6 +7757,9 @@
               "const": "kiro"
             },
             {
+              "const": "grok"
+            },
+            {
               "const": "pi"
             }
           ]
@@ -7870,7 +7876,7 @@
       "type": "object",
       "properties": {
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
         },
         "model": {
           "type": "string"
@@ -7984,7 +7990,7 @@
           "type": "string"
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
         },
         "model": {
           "type": "string"
@@ -8301,7 +8307,7 @@
           "type": "string"
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
         },
         "model": {
           "type": "string"
@@ -8382,7 +8388,7 @@
       "type": "object",
       "properties": {
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
         },
         "accountId": {
           "type": "string"
@@ -8668,7 +8674,7 @@
           "type": "string"
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
         },
         "chat": {
           "$ref": "#/$defs/T186"
@@ -9155,7 +9161,7 @@
           "description": "What the agent is sent: the body with the attached files listed."
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
         },
         "model": {
           "type": "string"
@@ -9453,7 +9459,7 @@
           "description": "What the agent is sent: the body with the attached files listed."
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
         },
         "model": {
           "type": "string"
@@ -9535,7 +9541,7 @@
           "description": "What the agent is sent: the body with the attached files listed."
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
+          "enum": ["codex", "claude", "antigravity", "kiro", "grok", "pi"]
         },
         "model": {
           "type": "string"

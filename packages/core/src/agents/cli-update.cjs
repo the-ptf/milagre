@@ -245,6 +245,11 @@ async function runCliUpdate(name, deps = {}) {
       ok: false,
       error: "Pi is installed and updated outside Milagre: `npm install -g @earendil-works/pi-coding-agent` installs it, `pi update self` updates it.",
     };
+  if (name === "grok")
+    return {
+      ok: false,
+      error: "Grok Build is installed and updated outside Milagre: `curl -fsSL https://x.ai/cli/install.sh | bash` installs it, `grok update` updates it.",
+    };
   if (name === "kiro")
     return { ok: false, error: "Kiro CLI is installed and updated outside Milagre: `brew install --cask kiro-cli` installs it, `kiro-cli update` updates it." };
   if (deps.targetVersion) {

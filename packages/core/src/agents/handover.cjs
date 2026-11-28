@@ -6,7 +6,7 @@ const { chatTitle } = require("@milagre/shared/chats");
 const { compactionText } = require("@milagre/shared/compaction");
 const { routineRunText } = require("@milagre/shared/routines");
 const { neutralizeTags } = require("@milagre/shared/untrusted-text");
-const { claudeModel, codexModel, antigravityModel, kiroModel } = require("../git-text.cjs");
+const { claudeModel, codexModel, antigravityModel, kiroModel, grokModel } = require("../git-text.cjs");
 const { extractJson } = require("./antigravity-text.cjs");
 const { piTextModel } = require("./pi-text.cjs");
 
@@ -193,6 +193,7 @@ function createHandoverModels({ cli, clientVersion }) {
     codex: codexModel({ getCommand: getCommand("codex"), clientVersion, outputSchema: BRIEF_SCHEMA }),
     antigravity: antigravityModel({ getCommand: getCommand("antigravity"), clientVersion, outputSchema: BRIEF_SCHEMA }),
     kiro: kiroModel({ getCommand: getCommand("kiro"), clientVersion, outputSchema: BRIEF_SCHEMA }),
+    grok: grokModel({ getCommand: getCommand("grok"), clientVersion, outputSchema: BRIEF_SCHEMA }),
     pi: piTextModel({ getCommand: getCommand("pi"), outputSchema: BRIEF_SCHEMA }),
   };
 }

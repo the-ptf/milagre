@@ -31,7 +31,7 @@ export const TASK_PERMISSION_MODES = Object.freeze([
 export const TASK_PERMISSION_DESCRIPTION = "Applies to new tasks. Same as new Chats uses the default permission mode of the device you send from.";
 export const MEMORY_GROUPS = Object.freeze(["work", "projects", "tools", "other"]);
 
-const PROVIDER_IDS = new Set(["claude", "codex", "antigravity", "kiro", "pi"]);
+const PROVIDER_IDS = new Set(["claude", "codex", "antigravity", "kiro", "grok", "pi"]);
 const HINTS_MAX = 600;
 const INSTRUCTIONS_MAX = 4000;
 const NOTE_MAX = 300;

@@ -304,7 +304,7 @@ test("accounts saved before Antigravity existed still load and default Antigravi
   assert.equal(accounts.selected("antigravity"), "default");
   assert.deepEqual(
     (await accounts.list()).providers.map((p) => p.provider),
-    ["codex", "claude", "antigravity", "kiro", "pi"],
+    ["codex", "claude", "antigravity", "kiro", "grok", "pi"],
   );
 });
 

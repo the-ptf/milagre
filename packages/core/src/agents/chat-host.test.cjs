@@ -1601,7 +1601,7 @@ const babysitContext = {
   babysit: { level: 1, resolveThreads: false, offBranch: true },
 };
 
-for (const provider of ["claude", "codex", "pi", "antigravity", "kiro"]) {
+for (const provider of ["claude", "codex", "pi", "antigravity", "kiro", "grok"]) {
   test(`${provider}: Send now during a Report-only Babysit Run starts a user turn with the Chat's permissions`, async (t) => {
     const { host, manager, session, states } = harness();
     t.after(() => manager.closeAll());
@@ -2316,7 +2316,7 @@ test("a change that throws, or a state update that fails, writes and publishes n
 // Antigravity (ACP) can't steer a running turn: what the user sends meanwhile waits in the chat's queue.
 const agy = (projectPath, body, extra = {}) => message(projectPath, body, { provider: "antigravity", model: "gemini-3-pro", ...extra });
 
-for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
+for (const provider of ["claude", "codex", "antigravity", "kiro", "grok"]) {
   test(`${provider}: explicit queue waits, survives a duplicate send and runs in order`, async (t) => {
     const h = harness();
     t.after(() => h.manager.closeAll());

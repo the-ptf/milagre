@@ -20,6 +20,11 @@ export function capabilityFor(model: ModelOption, capabilities: ModelCapabilitie
       ? { efforts: known.efforts, ...(known.defaultEffort ? { defaultEffort: known.defaultEffort } : {}), ultracode: false, fastMode: false }
       : { efforts: [], ultracode: false, fastMode: false };
   }
+  // Grok reports its models with the list; until it does, the catalog's entries carry the thinking levels it offers.
+  if (model.provider === "grok") {
+    const known = grokModels(GROK_AGENT_OPTIONS).find((item) => item.id === model.id);
+    return { efforts: known?.efforts ?? [], ultracode: false, fastMode: false };
+  }
   // Pi's models are whatever Ollama has pulled and Pi's providers offer; until the host lists them, none has an effort.
   if (model.provider === "pi") return { efforts: [], ultracode: false, fastMode: false };
   const fastMode = CLAUDE_FAST_MODELS.has(model.id);
@@ -89,6 +94,7 @@ export {
   splitModelName,
 } from "./antigravity-models.mjs";
 import { ANTIGRAVITY_AGENT_OPTIONS, antigravityFamilies } from "./antigravity-models.mjs";
+import { GROK_AGENT_OPTIONS, grokModels } from "./grok-models.mjs";
 import { KIRO_AGENT_OPTIONS, kiroModels } from "./kiro-models.mjs";
 
 export { MODEL_CATALOG } from "./model-catalog.mjs";

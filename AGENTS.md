@@ -1,6 +1,6 @@
 # Milagre
 
-Milagre runs Claude Code, Codex, Antigravity and Kiro across Projects, Worktrees and computers. A host process (the daemon) owns agents, Chats and Git on each computer; the desktop app, the phone app and paired computers are its clients.
+Milagre runs Claude Code, Codex, Antigravity, Kiro and Grok across Projects, Worktrees and computers. A host process (the daemon) owns agents, Chats and Git on each computer; the desktop app, the phone app and paired computers are its clients.
 
 **You** are the agent changing Milagre, **we** are the maintainers, a **user** is a person using Milagre. Every other term is in `GLOSSARY.md`; use its words.
 
@@ -28,7 +28,7 @@ The most common defect is a change that works where you tried it and is missing 
 - **Desktop and phone.** Every change on desktop must also be applied on mobile, and every change on mobile must also be applied on desktop, in the same task. Skip syncing only when the user explicitly says to keep the change on one platform or not to sync it.
 - **Entry points:** the Chat, Settings, the command palette, shortcuts, the CLI.
 - **Agents:** a user action usually needs an MCP tool too, through the shared dispatcher and `command-contracts.json`.
-- **Providers:** decide per adapter (Claude, Codex, Antigravity, Kiro), even if the answer is "not supported".
+- **Providers:** decide per adapter (Claude, Codex, Antigravity, Kiro, Grok), even if the answer is "not supported".
 - **Computers:** a Project on another paired computer, over the relay, or offline.
 - **Reverse states:** a way in needs a way out and a way to see it.
 

@@ -4,8 +4,10 @@ const { CodexRpc } = require("./agents/codex-rpc.cjs");
 const { advisorCodexConfig } = require("./agents/advisor-policy.cjs");
 const { antigravityModel: acpModel } = require("./agents/antigravity-text.cjs");
 const { kiroAcp } = require("./agents/kiro-acp.cjs");
+const { grokAcp } = require("./agents/grok-acp.cjs");
 const { piTextModel } = require("./agents/pi-text.cjs");
 const { KIRO_TEXT_MODEL, kiroModelId } = require("@milagre/shared/kiro-models");
+const { GROK_TEXT_MODEL, grokModelId } = require("@milagre/shared/grok-models");
 const { agentEnvironment } = require("./agents/command.cjs");
 
 // small model, which returns the three as JSON. Claude chats ask Claude Haiku 4.5, Codex chats ask
@@ -256,6 +258,9 @@ const piModel = (options) => piTextModel({ outputSchema: OUTPUT_SCHEMA, ...optio
 
 const kiroModel = (options) => acpModel({ outputSchema: OUTPUT_SCHEMA, config: kiroAcp, model: kiroModelId(KIRO_TEXT_MODEL), effort: undefined, ...options });
 
+/** One Grok 4.6 turn on Grok Build (`grok agent stdio` over ACP), the same way. */
+const grokModel = (options) => acpModel({ outputSchema: OUTPUT_SCHEMA, config: grokAcp, model: grokModelId(GROK_TEXT_MODEL), effort: undefined, ...options });
+
 function codexModel({
   getCommand,
   createRpc = (options) => new CodexRpc(options),
@@ -336,6 +341,7 @@ module.exports = {
   codexModel,
   antigravityModel,
   kiroModel,
+  grokModel,
   piModel,
   generateGitText,
   parseGitText,

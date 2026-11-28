@@ -5,7 +5,7 @@ export type TaskPermissionMode = "chat" | "ask" | "auto" | "full";
 export type BoardPullRequest = "open" | "merged" | "closed" | null;
 export type BoardColumn = "running" | "needs" | "review" | "done";
 export type MemoryGroup = "work" | "projects" | "tools" | "other";
-export type OrchestratorProvider = "claude" | "codex" | "antigravity" | "kiro" | "pi";
+export type OrchestratorProvider = "claude" | "codex" | "antigravity" | "kiro" | "grok" | "pi";
 
 export interface OrchestratorRole {
   id: string;

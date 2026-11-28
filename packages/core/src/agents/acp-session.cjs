@@ -423,6 +423,7 @@ class AcpSession {
   }
 
   inStrictMode() {
+    if (this.config.modes.ask === undefined) return true;
     return this.state[this.config.modeOption ?? "mode"] === this.config.modes.ask;
   }
 

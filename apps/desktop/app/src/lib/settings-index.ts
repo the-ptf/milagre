@@ -51,7 +51,7 @@ export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
     "babysit pull requests review ci conflicts main branch sync pull fast-forward storage clean up cleanup disk idle repositories folder import migrate t3 paseo orca",
   "this-mac": "computer resources memory disk drive other computers add computer computer use",
   usage: "token tokens cost spend dollars analytics estimated",
-  accounts: "sign in login claude codex antigravity kiro pi ollama openrouter local models profile per project link usage limits",
+  accounts: "sign in login claude codex antigravity kiro grok xai pi ollama openrouter local models profile per project link usage limits",
   appearance: "theme dark light mode font size colors look",
   chat: "messages transcript reasoning tool calls follow-up queue steer",
   voice: "dictation speech whisper microphone language transcribe",
