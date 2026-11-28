@@ -12,3 +12,6 @@ dist/
 .vscode/
 .milagre/runtime/
 .astro/
+
+# Firebase service account keys (FCM V1) are secret; they go to EAS credentials, never the repo.
+*-firebase-adminsdk-*.json

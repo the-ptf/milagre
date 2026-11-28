@@ -153,6 +153,7 @@
     },
     "android": {
       "package": "com.victorlucas.milagre",
+      "googleServicesFile": "./google-services.json",
       "permissions": ["android.permission.CAMERA"],
       "adaptiveIcon": {
         "foregroundImage": "./assets/android/adaptive-foreground.png",
