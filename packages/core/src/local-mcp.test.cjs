@@ -1087,6 +1087,40 @@ test("out-of-scope Project calls prompt in the caller's Chat, deduplicate concur
   assert.equal(approvals.length, 3, "persisted Chat grant survives restart");
 });
 
+test("reachProject, which routine tools use for another Project, is the chat tools' gate: in scope, a card, or Full mode", async (t) => {
+  const { createLocalMcp } = require("./local-mcp.cjs");
+  let decision = "deny";
+  const { host, projectPath, otherPath, caller, calls, modes } = steeringHost(t, { approve: async () => decision });
+  const mcp = createLocalMcp({
+    dataDir: fixture(t),
+    host,
+    agentScope: () => ({
+      projects: { projectPaths: [projectPath], capabilities: ["read", "create"] },
+      chats: { projectPaths: [projectPath], capabilities: ["read", "create", "start"] },
+    }),
+  });
+  t.after(() => mcp.close());
+  const cards = () => calls.filter(([kind]) => kind === "approve").length;
+
+  await mcp.reachProject(caller, projectPath);
+  assert.equal(cards(), 0);
+  await assert.rejects(mcp.reachProject(caller, otherPath), /declined access/);
+  assert.equal(cards(), 1);
+  await assert.rejects(mcp.reachProject(caller, path.join(otherPath, "missing")), /outside scope until opened in Milagre/);
+
+  decision = "allow-for-chat";
+  await mcp.reachProject(caller, otherPath);
+  assert.deepEqual(mcp.grantedProjects(caller), [otherPath]);
+  await mcp.reachProject(caller, otherPath);
+  assert.equal(cards(), 2, "a Chat grant from chat_list or worktree_list counts here too");
+
+  const fullCaller = `${projectPath}#1`;
+  modes[fullCaller] = "full";
+  await mcp.reachProject(fullCaller, otherPath);
+  assert.equal(cards(), 2);
+  assert.deepEqual(mcp.grantedProjects(fullCaller), []);
+});
+
 test("project_add validates a Git repo, asks on a card below Full mode, registers the Project, and grants the calling Chat access", async (t) => {
   const { execFileSync } = require("node:child_process");
   const { createLocalMcpHost } = require("./local-mcp-host.cjs");
