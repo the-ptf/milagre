@@ -1212,7 +1212,7 @@ export default memo(function SidebarNav({
             onScroll={(event) => {
               if (event.currentTarget.isConnected && restoreScroll.current === null) scrollPositions.set(scrollKey, event.currentTarget.scrollTop);
             }}
-            className="sidebar-scroll flex-1 overflow-x-hidden pt-2"
+            className="sidebar-scroll flex-1 overflow-x-hidden"
           >
             <SidebarLinksProvider scopes={linkScopes} projects={registeredProjects} onAskChat={onAskChat}>
               {showAll && needle ? (

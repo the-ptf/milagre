@@ -84,7 +84,7 @@ export function SidebarSearchRow({
           if (query) onQuery("");
           else event.currentTarget.blur();
         }}
-        className="min-w-0 flex-1 pl-2 hover:bg-hover"
+        className="min-w-0 flex-1 pl-2"
         inputClassName="text-[length:calc(13px+var(--sidebar-delta))] [&::-webkit-search-cancel-button]:hidden"
         leading={<Icon icon={Search01Icon} size={16} className="shrink-0 text-ink-3" />}
         trailing={

@@ -650,6 +650,7 @@ a {
 
 [data-sidebar-collapsed="true"] .sidebar-scroll {
   scrollbar-width: none;
+  padding-top: 8px;
 }
 
 .chat-column,
