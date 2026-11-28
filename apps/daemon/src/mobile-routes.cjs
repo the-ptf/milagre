@@ -101,6 +101,21 @@ function runsFor(req, all) {
   return { ...all, runs: Object.fromEntries(runs) };
 }
 
+const withoutSecretQuestion = (item) => {
+  if (!item?.question || !masked(item.question)) return item;
+  const { question: _question, ...rest } = item;
+  return rest;
+};
+
+/** The same rule for every reply that carries questions: `chat:runs` and the Inbox, by route or by RPC. */
+function forChannel(req, method, value) {
+  if (plainSecretsAllowed(req) || !value || typeof value !== "object") return value;
+  if (method === "chat:runs") return runsFor(req, value);
+  if (method === "chat:inbox")
+    return { ...value, agents: (value.agents ?? []).map(withoutSecretQuestion), items: (value.items ?? []).map(withoutSecretQuestion) };
+  return value;
+}
+
 const masksAnswer = (runs, chatId, requestId) =>
   Boolean(runs?.[chatId]?.questions?.some((question) => question.requestId === requestId && secretAnswerFlag(question).secretAnswer));
 
@@ -216,8 +231,8 @@ function createMobileRoutes({
       reply(200, { result: confine ? [] : chatsNeedingAttention((await hostRuns.read()).runs) }, { etag: true });
       return;
     },
-    "/inbox": async ({ reply }) => {
-      const inbox = await client.call("chat:inbox");
+    "/inbox": async ({ req, reply }) => {
+      const inbox = forChannel(req, "chat:inbox", await client.call("chat:inbox"));
       reply(200, { result: confine ? await confine.filterResult("chat:inbox", inbox) : inbox }, { etag: true });
       return;
     },
@@ -266,11 +281,11 @@ function createMobileRoutes({
           result = "result" in decided ? decided.result : await confine.filterResult(request.method, await client.call(request.method, decided.args));
         } else result = await client.call(request.method, args);
       }
-      result = phoneReply(request.method, result);
+      result = forChannel(req, request.method, phoneReply(request.method, result));
     }
     return result;
   }
   return { get, post };
 }
 
-module.exports = { createMobileRoutes, phoneReply, carriesSecret, runsFor };
+module.exports = { createMobileRoutes, phoneReply, carriesSecret, runsFor, forChannel };

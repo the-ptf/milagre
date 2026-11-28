@@ -246,7 +246,7 @@ test("a card that couldn't be shown fails the request at once and leaves nothing
   );
 });
 
-test("a turn that ends while the secret is being stored cancels it, even if storing then fails", async (t) => {
+test("a cancelled request whose save fails writes no one-off file, even when this computer could write one", async (t) => {
   let release;
   let storing;
   const started = new Promise((resolve) => (storing = resolve));
@@ -262,14 +262,11 @@ test("a turn that ends while the secret is being stored cancels it, even if stor
   });
   const result = secrets.definitions("chat")[0].run({ title: "Token", description: "For the deploy.", name: "DEPLOY_TOKEN" });
   for (let tries = 0; !events.length && tries < 100; tries++) await new Promise((resolve) => setImmediate(resolve));
-  const id = events.at(-1).event.requestId;
-  const answering = secrets.answer("chat", id, { secret: ["value-123456"], save: ["all"] });
+  const answering = secrets.answer("chat", events.at(-1).event.requestId, { secret: ["value-123456"], save: ["all"] });
   await started;
   secrets.cancel("chat");
-  fs.chmodSync(directory, 0o755);
-  release(new Error("disk full"));
-  await assert.rejects(answering, /Could not save/);
-  fs.chmodSync(directory, 0o700);
-  assert.match(await result, /couldn't be stored/);
-  assert.equal(await secrets.answer("chat", id, { secret: ["again-123456"] }), false, "the cancelled request isn't open again");
+  release(new Error("vault locked"));
+  assert.equal(await answering, true);
+  assert.match(await result, /cancelled/);
+  assert.deepEqual(fs.readdirSync(directory), []);
 });
