@@ -176,13 +176,12 @@ function browserFillTool(chatId, on, done) {
         if (!logins) throw new Error("Saved logins aren't available on this computer.");
         if (state.scripted)
           throw new Error("The agent's script ran on this page, so a saved login isn't filled until the page loads again. Reload or navigate first.");
-        const before = state.loginFilled;
-        state.loginFilled = true;
+        state.fillsPending = (state.fillsPending ?? 0) + 1;
         try {
           await fillLogin({ session, node, login: await logins.resolve(chatId, input.login.name), field: input.login.field });
-        } catch (error) {
-          state.loginFilled = before;
-          throw error;
+          state.loginFilled = true;
+        } finally {
+          state.fillsPending--;
         }
         return done(target);
       }
@@ -558,7 +557,7 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
       readOnly: false,
       run: async (input) => {
         const { session, state } = await on(input);
-        if (state.loginFilled)
+        if (state.loginFilled || state.fillsPending > 0)
           throw new Error(
             "A saved login was filled on this page, so its script can't be read until the page loads another document. Use browser_snapshot, or navigate first.",
           );

@@ -381,3 +381,34 @@ test("a script started while a login is being filled is refused, and a refused f
   assert.match((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /only into a password field/);
   assert.equal((await f.run("browser_evaluate", { expression: "1 + 1" })).text, "2", "nothing was filled, so the page is free");
 });
+
+test("a fill that fails never frees a page another fill has filled", async (t) => {
+  let releaseFirst;
+  let firstAsked;
+  const asked = new Promise((resolve) => (firstAsked = resolve));
+  let calls = 0;
+  const login = { origin: "http://localhost:5173", username: "me", password: "local-pass-123456" };
+  useLogins({
+    resolve: () => {
+      if (++calls > 1) return Promise.resolve(login);
+      firstAsked();
+      return new Promise((_resolve, reject) => (releaseFirst = () => reject(new Error("The vault is locked."))));
+    },
+  });
+  t.after(() => useLogins(null));
+  const f = fixture();
+  const send = f.session.send;
+  f.session.send = async (method, params = {}) => {
+    if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "top" } } };
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 9 };
+    if (method === "Runtime.callFunctionOn" && params.arguments?.length === 3) return { result: { value: { filled: true } } };
+    return send(method, params);
+  };
+  await f.run("browser_snapshot");
+  const first = f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "username" } });
+  await asked;
+  assert.doesNotMatch((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /locked|couldn't/);
+  releaseFirst();
+  assert.match((await first).text, /vault is locked/);
+  assert.match((await f.run("browser_evaluate", { expression: "1 + 1" })).text, /saved login was filled on this page/);
+});

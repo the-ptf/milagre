@@ -16,28 +16,38 @@ const FILL = `function (expected, field, value) {
     if (view === view.top) break;
     view = view.parent;
   }
-  const form = this instanceof HTMLInputElement ? this.form : null;
+  const native = (element, name) =>
+    Object.getOwnPropertyDescriptor(element instanceof HTMLButtonElement ? HTMLButtonElement.prototype : element instanceof HTMLFormElement ? HTMLFormElement.prototype : HTMLInputElement.prototype, name).get.call(element);
+  const attribute = (element, name) => Element.prototype.getAttribute.call(element, name);
+  const withinRoot = (root) => (root instanceof Document ? Document.prototype : DocumentFragment.prototype).querySelectorAll.call(root, "button, input");
+  const base = Object.getOwnPropertyDescriptor(Node.prototype, "baseURI").get.call(document);
+  const form = this instanceof HTMLInputElement ? native(this, "form") : null;
   const submitters = form
-    ? [...document.querySelectorAll("button, input")].filter((element) => element.form === form && (element.type === "submit" || element.type === "image"))
+    ? [...withinRoot(Node.prototype.getRootNode.call(form))].filter(
+        (element) => (element instanceof HTMLButtonElement || element instanceof HTMLInputElement) && native(element, "form") === form && ["submit", "image"].includes(native(element, "type")),
+      )
     : [];
-  const originOf = (address) => { try { return new URL(address, document.baseURI).origin; } catch { return null; } };
+  const originOf = (address) => { try { return new URL(address, base).origin; } catch { return null; } };
   const sendsTo = [
-    ...(form && form.hasAttribute("action") ? [originOf(form.getAttribute("action"))] : []),
-    ...submitters.filter((button) => button.hasAttribute("formaction")).map((button) => originOf(button.getAttribute("formaction"))),
+    ...(form && attribute(form, "action") !== null ? [originOf(attribute(form, "action"))] : []),
+    ...submitters.filter((button) => attribute(button, "formaction") !== null).map((button) => originOf(attribute(button, "formaction"))),
   ];
+  const formMethod = form ? native(form, "method") : null;
   const place = {
     origins,
     tag: this.tagName,
     type: this instanceof HTMLInputElement ? this.type.toLowerCase() : "",
     getForm:
       Boolean(form) &&
-      (String(form.getAttribute("method") ?? "").trim().toLowerCase() === "get" ||
-        submitters.some((button) => button.hasAttribute("formmethod") && button.formMethod === "get")),
+      (String(attribute(form, "method") ?? "").trim().toLowerCase() === "get" ||
+        submitters.some(
+          (button) => attribute(button, "formmethod") !== null && native(button, "formMethod") === "get",
+        )),
     sendsTo,
   };
   const problem = (${refusal.toString()})(field, place, expected);
   if (problem) return { problem };
-  if (form && form.method === "get") form.setAttribute("method", "post");
+  if (formMethod === "get") Element.prototype.setAttribute.call(form, "method", "post");
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(this, value);
   this.dispatchEvent(new Event("input", { bubbles: true }));
   this.dispatchEvent(new Event("change", { bubbles: true }));
