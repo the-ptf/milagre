@@ -103,7 +103,7 @@ export function OrchestratorSidebarRow({ active, onShow }: { active: boolean; on
     </span>
   );
   return (
-    <div className="shrink-0 border-b border-line px-1.5 py-1.5">
+    <div className="shrink-0 px-1.5 py-1.5">
       {renaming ? (
         <div className="flex h-8 w-full items-center gap-2 rounded-control bg-hover-2 px-2">
           <Mascot size={20} color={settings.mascotColor} look={AWAY} />
