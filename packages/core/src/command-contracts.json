@@ -5368,6 +5368,9 @@
         "outcome": {
           "enum": ["pull-request", "merged", "reply"]
         },
+        "permissionMode": {
+          "enum": ["full", "ask", "chat", "auto"]
+        },
         "mascotColor": {
           "type": "string"
         },
@@ -7989,13 +7992,13 @@
             }
           ]
         },
+        "permissionMode": {
+          "type": "string"
+        },
         "provider": {
           "enum": ["codex", "claude", "antigravity", "kiro", "pi"]
         },
         "model": {
-          "type": "string"
-        },
-        "permissionMode": {
           "type": "string"
         },
         "fallback": {
@@ -8835,6 +8838,9 @@
     "T205": {
       "type": "object",
       "properties": {
+        "permissionMode": {
+          "enum": ["full", "ask", "auto"]
+        },
         "prompt": {
           "type": "string",
           "description": "What the agent is sent: the body with the attached files listed."
@@ -8844,9 +8850,6 @@
         },
         "model": {
           "type": "string"
-        },
-        "permissionMode": {
-          "enum": ["full", "ask", "auto"]
         },
         "delivery": {
           "enum": ["now", "queue"],
@@ -8928,7 +8931,7 @@
           "type": "string"
         }
       },
-      "required": ["prompt", "provider", "model", "permissionMode", "sessionId", "body", "images", "files", "linkId", "operationId"],
+      "required": ["permissionMode", "prompt", "provider", "model", "sessionId", "body", "images", "files", "linkId", "operationId"],
       "additionalProperties": false
     },
     "T206": {
@@ -9219,6 +9222,9 @@
           "enum": [false, true],
           "description": "Include the edited message's own images and files alongside new attachments."
         },
+        "permissionMode": {
+          "enum": ["full", "ask", "auto"]
+        },
         "prompt": {
           "type": "string",
           "description": "What the agent is sent: the body with the attached files listed."
@@ -9228,9 +9234,6 @@
         },
         "model": {
           "type": "string"
-        },
-        "permissionMode": {
-          "enum": ["full", "ask", "auto"]
         },
         "projectPath": {
           "type": "string"
@@ -9281,7 +9284,7 @@
           "description": "Where the user typed it, when not in the Chat's own computer's window. The agent is told (packages/core/src/sent-from.cjs)."
         }
       },
-      "required": ["sessionId", "messageId", "prompt", "provider", "model", "permissionMode", "projectPath", "worktreeId", "body", "images", "files"],
+      "required": ["sessionId", "messageId", "permissionMode", "prompt", "provider", "model", "projectPath", "worktreeId", "body", "images", "files"],
       "additionalProperties": false
     },
     "T218": {
