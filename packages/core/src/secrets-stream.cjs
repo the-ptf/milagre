@@ -24,17 +24,17 @@ function mapStrings(value, change, depth = 0) {
 
 const TURN_ENDS = new Set(["turn-completed", "turn-failed", "turn-cancelled"]);
 
-/** Which held streams an event ends: its turn's end ends them all, a finished step ends its output, a new message ends the text. */
+/** Which held streams an event ends: its turn's end ends them all, and a finished step ends its output. */
 function ends(event, key) {
   if (TURN_ENDS.has(event?.type)) return true;
-  if (event?.type === "step-completed") return key === `step:${event.id}`;
-  return event?.type === "text-delta" && event.startsMessage === true && key === "text";
+  return event?.type === "step-completed" && key === `step:${event.id}`;
 }
 
 /**
  * Redacts a Chat's provider events before they are stored or shown. Streamed text arrives in chunks, so a value can
- * straddle two of them: the end of a chunk that could begin a secret waits for the next chunk of the same stream. A
- * stream that ends while holding such a tail lets it through when it's too short to be a secret, else masks it.
+ * straddle two of them, or two messages: the end of a chunk that could begin a secret waits for the next chunk of the
+ * same stream (moving into the next message if one starts). A stream that ends while holding such a tail lets it
+ * through when it's too short to be a secret, else masks it.
  */
 function createSecretStream({ redactor }) {
   const held = new Map();
@@ -58,7 +58,7 @@ function createSecretStream({ redactor }) {
     const text = redact((prior?.text ?? "") + event.text);
     const keep = redact.pending(text);
     const ready = text.slice(0, text.length - keep);
-    const base = prior?.event ?? event;
+    const base = event.startsMessage ? event : (prior?.event ?? event);
     if (ready) deliver({ ...mapStrings(base, redact), text: ready });
     if (!keep) return;
     const { startsMessage: _starts, ...continued } = base;

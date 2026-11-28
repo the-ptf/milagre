@@ -87,7 +87,12 @@ function createSecretsWiring({
       send: (chatId, event) => chats.receive(chatId, event),
       active: (chatId) => Boolean(chats.runs[chatId]),
     }),
-    { forget: (chatId) => access.forget(chatId) },
+    {
+      forget: (chatId) => {
+        access.forget(chatId);
+        void refresh();
+      },
+    },
   );
 
   commands.handle("secrets:status", () => vault.status());

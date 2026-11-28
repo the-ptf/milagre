@@ -88,7 +88,7 @@ async function main(argv = process.argv.slice(2), { env = process.env, out = pro
       err.write(`${USAGE}\n`);
       return 2;
     }
-    const { secrets } = await call(url, { action: "run", names: parsed.names, command: parsed.command.join(" ") });
+    const { secrets } = await call(url, { action: "run", names: parsed.names, command: parsed.command.join(" "), executable: parsed.command[0] });
     const { env: given, cleanup } = materialize(secrets);
     const childEnv = { ...env, ...given };
     delete childEnv.MILAGRE_SECRETS_URL;

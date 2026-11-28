@@ -89,3 +89,18 @@ test("other events are redacted whole, and nothing changes without secrets", () 
     untouched,
   );
 });
+
+test("a tail held when a new message starts moves into it, so the two halves never meet in the run text", () => {
+  const { out, send } = fixture();
+  send({ type: "text-delta", text: "first message supe", startsMessage: true });
+  send({ type: "text-delta", text: "rsecret-token-123 second", startsMessage: true });
+  send({ type: "turn-completed" });
+  const deltas = out.filter((event) => event.type === "text-delta");
+  assert.deepEqual(
+    deltas.map((event) => [event.text, Boolean(event.startsMessage)]),
+    [
+      ["first message ", true],
+      ["[secret TOKEN] second", true],
+    ],
+  );
+});

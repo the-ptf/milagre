@@ -85,7 +85,8 @@ function createSecretsAccess({ vault, dataDir, secretsUrl, target, redactText = 
     if (names.length > MAX_NAMES) throw Object.assign(new Error(`At most ${MAX_NAMES} secrets per command.`), { status: 400 });
     const command = typeof body.command === "string" ? redactText(body.command) : null;
     try {
-      return { secrets: await vault.deliver({ names, target: where, chatId, command, delivery: "on-demand" }) };
+      const executable = typeof body.executable === "string" ? body.executable : (command?.trim().split(/\s+/)[0] ?? null);
+      return { secrets: await vault.deliver({ names, target: where, chatId, command: executable, delivery: "on-demand" }) };
     } catch (error) {
       throw Object.assign(error, { status: error.code === "secrets-missing" ? 404 : 500 });
     }

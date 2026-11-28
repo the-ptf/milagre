@@ -34,9 +34,9 @@ const inputSchema = z.strictObject({
   note: z.string().max(SECRET_LIMITS.noteChars).nullable().default(null),
 });
 
-const executableOf = (command) => {
-  const first = typeof command === "string" ? command.trim().split(/\s+/)[0] : "";
-  return first ? path.basename(first).slice(0, 80) : null;
+const executableOf = (executable) => {
+  const name = typeof executable === "string" ? path.basename(executable.trim().replaceAll("\\", "/")) : "";
+  return name ? name.slice(0, 80) : null;
 };
 const lockedError = () =>
   Object.assign(new Error("Secrets are locked: open Milagre on this computer, or set up a computer key for unattended access."), { code: "secrets-locked" });

@@ -66,7 +66,13 @@ test("delivery: named secrets in reach, refused whole when one is missing, logge
   await vault.set({ name: "ASC_KEY", value: "-----BEGIN-----\nabc\n-----END-----", kind: "file", fileName: "AuthKey.p8", projects: [ORIGIN] });
   await vault.set({ name: "OTHER_TOKEN", value: "other-123456", projects: ["github.com/a/b"] });
   const target = { origin: ORIGIN, unattended: false };
-  const got = await vault.deliver({ names: ["ASC_KEY_ID", "ASC_KEY"], target, chatId: "/p#1", command: "npx eas-cli submit", delivery: "on-demand" });
+  const got = await vault.deliver({
+    names: ["ASC_KEY_ID", "ASC_KEY"],
+    target,
+    chatId: "/p#1",
+    command: "C:\\Program Files\\nodejs\\npx.cmd",
+    delivery: "on-demand",
+  });
   assert.deepEqual(
     got.map((secret) => [secret.name, secret.kind, secret.fileName]),
     [
@@ -85,7 +91,7 @@ test("delivery: named secrets in reach, refused whole when one is missing, logge
     names: ["ASC_KEY_ID", "ASC_KEY"],
     chatId: "/p#1",
     computer: "mac-1",
-    command: "npx",
+    command: "npx.cmd",
     delivery: "on-demand",
   });
   const listed = await vault.list();

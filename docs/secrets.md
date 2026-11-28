@@ -29,11 +29,11 @@ Agents learn names from `secrets_list` (names, kinds, notes; never values), poin
 
 ## Use log
 
-`<dataDir>/secrets-log.jsonl`, 0600: time, names, Chat, computer, the command's executable name only (its arguments arrive expanded and may hold a credential), delivery. Kept 30 days. Ambient secrets are logged once per Chat per host run.
+`<dataDir>/secrets-log.jsonl`, 0600: time, names, Chat, computer, the program's file name only, sent apart from its arguments (they arrive expanded and may hold a credential), delivery. Kept 30 days. Ambient secrets are logged once per Chat per host run.
 
 ## Redaction
 
-Provider events are redacted where they enter the host (`send` in `runtime.cjs` through `secrets-stream.cjs`, before `ChatHost.receive`), so storage, the phone, Delegation reports and shares see `[secret NAME]`. It matches values of 8+ characters, each line of a file secret, their base64 and every Chat's secrets token. Streamed text and step output arrive in 50 ms chunks, so the end of a chunk that could begin a secret waits for that stream's next chunk; pauses and other events don't release it. When the stream ends (its step completes, a new message starts, the turn ends) a held tail of 8+ characters is masked as `[secret]` and a shorter one shows as is. Values stay in the matcher for 24 hours after they are replaced or deleted, since a running command may still print the old one; tokens are matched while their Chat lives. Bug reports add every value as a known token. Not covered: a person's own typed messages, the Terminal panel, screenshots, advisor result delivery and subagent recovery read from provider files.
+Provider events are redacted where they enter the host (`send` in `runtime.cjs` through `secrets-stream.cjs`, before `ChatHost.receive`), so storage, the phone, Delegation reports and shares see `[secret NAME]`. It matches values of 8+ characters, each line of a file secret, their base64 and every Chat's secrets token. Streamed text and step output arrive in 50 ms chunks, so the end of a chunk that could begin a secret waits for that stream's next chunk; pauses and other events don't release it. A tail held when a new message starts moves into that message, since the run's text joins them. When the stream ends (its step completes, the turn ends) a held tail of 8+ characters is masked as `[secret]` and a shorter one shows as is. Values stay in the matcher for 24 hours after they are replaced or deleted, since a running command may still print the old one; tokens are matched while their Chat lives. Bug reports add every value as a known token. Not covered: a person's own typed messages, the Terminal panel, screenshots, advisor result delivery and subagent recovery read from provider files.
 
 ## Commands
 
