@@ -17,6 +17,7 @@ import { useTheme } from "../theme";
 import { UpdateShell } from "../update-sheet";
 import { stackScreenOptions } from "../stack-options";
 import { SidePanelsHost, SidePanelsProvider, enterUnderPanel } from "../side-panels";
+import { TAB_SWITCH } from "../workspace-tabs-panel";
 import { setConfirmPresenter } from "../confirm-store";
 import { setChoicePresenter } from "../choice-store";
 import { setPromptPresenter } from "../text-prompt";
@@ -138,7 +139,9 @@ export default function Layout() {
                                 // The Chat clears its own header (topClear) and fades the transcript under it, on Android too.
                                 headerTransparent: true,
                                 headerStyle: { backgroundColor: "transparent" },
-                                ...(enterUnderPanel(route.key) ? { animation: "none" as const } : {}),
+                                ...(enterUnderPanel(route.key) || (route.params as { via?: string } | undefined)?.via === TAB_SWITCH
+                                  ? { animation: "none" as const }
+                                  : {}),
                               })}
                             />
                             <Stack.Screen name="context-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />

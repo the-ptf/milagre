@@ -5,9 +5,10 @@ import { saveTerminalHeight, setTerminalHeight, TERMINAL_HEIGHT } from "../../li
 
 const GAP = 8;
 
-export function TerminalSlide({ height, children }: { height: number; children: ReactNode }) {
+/** `instant` (a Workspace tab bringing the Terminal forward or away) shows and hides it without the slide. */
+export function TerminalSlide({ height, instant = false, children }: { height: number; instant?: boolean; children: ReactNode }) {
   const scale = useMotionScale();
-  const reduced = scale === 0;
+  const reduced = scale === 0 || instant;
   const slot = useRef<HTMLDivElement>(null);
   const shown = useMotionValue(0);
   const [card, setCard] = useState<number | null>(reduced ? null : height);

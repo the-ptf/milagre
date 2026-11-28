@@ -19,7 +19,7 @@ function Content() {
   window.contentRenders++;
   return <div data-dock-card className="h-full" />;
 }
-function Dock({ slot = "dock" }) {
+function Dock({ slot = "dock", instant = false }) {
   const width = usePanelWidth("simulator").width;
   return (
     <ResizableDockSlide
@@ -27,6 +27,7 @@ function Dock({ slot = "dock" }) {
       label="Resize simulator"
       width={width}
       reserve="--simulator-dock"
+      instant={instant}
       data-slot={slot}
       style={{ top: 60, right: 344, bottom: 12 }}
       className="fixed z-[42]"
@@ -59,6 +60,8 @@ function App() {
   const [dock, setDock] = React.useState(false);
   const [changes, setChanges] = React.useState(true);
   const [chat, setChat] = React.useState({ id: 0, dock: false });
+  const [instant, setInstant] = React.useState(false);
+  window.setInstant = setInstant;
   window.openDock = () => setDock(true);
   window.setDock = setDock;
   window.setChanges = setChanges;
@@ -69,7 +72,7 @@ function App() {
       <ChangesPanelSlot open={changes}>
         <aside data-changes-panel className="w-[var(--changes-panel-width,320px)] shrink-0 rounded-window bg-surface" />
       </ChangesPanelSlot>
-      <AnimatePresence>{dock && <Dock key="dock" />}</AnimatePresence>
+      <AnimatePresence>{dock && <Dock key="dock" instant={instant} />}</AnimatePresence>
       {chat.id > 0 && <ChatDock key={chat.id} open={chat.dock} />}
     </div>
   );
@@ -228,9 +231,13 @@ async function browserChecks() {
       changesWidth,
       "a Project switch closes the changes panel at once",
     );
+    await waitFor('!document.querySelector("[data-slot=dock]")');
+    await evaluate("window.setInstant(true)");
+    lands(await frames("[data-slot=dock]", "window.openDock()"), dockWidth, "a dock its Workspace tab brings forward lands at once");
+    leaves(await frames("[data-slot=dock]", "window.setDock(false)"), dockWidth, "and goes at once when another tab comes forward");
     console.log("Screenshots: changes-wide, dock-wide, dock-max in the temp directory");
     console.log(
-      "PASS: changes panel and docked panel drag from their left edge, clamp, keep the chat's room, persist, reset, keyboard; land at once in a Chat switch",
+      "PASS: changes panel and docked panel drag from their left edge, clamp, keep the chat's room, persist, reset, keyboard; land at once in a Chat switch or a Workspace tab switch",
     );
     app.exit(0);
   } catch (error) {

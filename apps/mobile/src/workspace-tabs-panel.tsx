@@ -38,6 +38,9 @@ import { tabSet, updateTabSet, useTabSet } from "./workspace-tabs-store";
 
 type Where = { hostId: string; projectPath: string; worktreeId: TabScope };
 
+/** The Chat route's `via` param when a Workspace tab opened it: the Chat swaps in place, without the push animation. */
+export const TAB_SWITCH = "tab";
+
 const placeOf = (where: Where): TabPlace => (where.worktreeId === LINK_TABS ? "link" : "worktree");
 
 const phoneWorkspace = (where: Where) => `${where.hostId}|${scopeKey(where.projectPath, where.worktreeId)}`;
@@ -79,14 +82,14 @@ function useTabs(where: Where, activeChatId: number | undefined, onDone?: () => 
     if (tab.kind === "browser") sheet("/browser-sheet", tab.chatId);
     else if (tab.kind === "terminal") sheet("/terminal-sheet", tab.chatId);
     else if (tab.kind === "chat" && tab.chatId !== activeChatId)
-      router.replace({ pathname: "/chat", params: { hostId: where.hostId, projectPath: where.projectPath, id: String(tab.chatId) } });
+      router.replace({ pathname: "/chat", params: { hostId: where.hostId, projectPath: where.projectPath, id: String(tab.chatId), via: TAB_SWITCH } });
   };
   const newChat = () => {
     onDone?.();
     const worktree = scopeWorktree(where.worktreeId, sessions);
     router.replace({
       pathname: "/chat",
-      params: { hostId: where.hostId, projectPath: where.projectPath, ...(worktree === undefined ? {} : { worktreeId: String(worktree) }) },
+      params: { hostId: where.hostId, projectPath: where.projectPath, via: TAB_SWITCH, ...(worktree === undefined ? {} : { worktreeId: String(worktree) }) },
     });
   };
   const launch = (id: string, onPanel?: (tab: "changes" | "pr") => void) => {
