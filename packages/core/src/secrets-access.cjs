@@ -104,6 +104,14 @@ function createSecretsAccess({
       };
     };
     const before = await policy(where);
+    const unknown = names.filter((name) => !(name in before.expect));
+    if (unknown.length)
+      throw Object.assign(
+        new Error(
+          `Not available to this Chat: ${unknown.join(", ")}.${where.unattended ? " Unattended runs only get secrets that allow them." : ""} Ask the person with request_secret.`,
+        ),
+        { status: 404 },
+      );
     let release = before;
     if (before.asking.length) {
       if (!(await approve(chatId, { names: before.asking, command })))

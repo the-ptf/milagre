@@ -89,6 +89,18 @@ function phoneReply(method, value) {
   return result;
 }
 
+const masked = (question) => isSecretRequest(question?.requestId) || Boolean(secretAnswerFlag(question).secretAnswer);
+const plainSecretsAllowed = (req) => isSealed(req) || process.env.MILAGRE_DEV_PLAIN_SECRETS === "1";
+
+/** Turns as a phone on this connection may see them: off the sealed channel, a question whose answer is a secret is left out, so no tunnel or proxy carries the answer. */
+function runsFor(req, all) {
+  if (plainSecretsAllowed(req)) return all;
+  const runs = Object.entries(all?.runs ?? {}).map(([key, run]) =>
+    run?.questions?.some(masked) ? [key, { ...run, questions: run.questions.filter((question) => !masked(question)) }] : [key, run],
+  );
+  return { ...all, runs: Object.fromEntries(runs) };
+}
+
 const masksAnswer = (runs, chatId, requestId) =>
   Boolean(runs?.[chatId]?.questions?.some((question) => question.requestId === requestId && secretAnswerFlag(question).secretAnswer));
 
@@ -124,7 +136,8 @@ function createMobileRoutes({
     },
     "/snapshot": async ({ target, req, reply }) => {
       const projectPath = target.searchParams.get("projectPath");
-      const [held, runs] = await Promise.all([readScope(projectPath), hostRuns.read()]);
+      const [held, all] = await Promise.all([readScope(projectPath), hostRuns.read()]);
+      const runs = runsFor(req, all);
       if (!held.link && target.searchParams.get("view") === "chats") {
         const { project } = await withMessages(projectPath, held, { marks: true });
         reply(200, { result: forChatList(project, projectRuns(runs, projectPath)) }, { etag: true });
@@ -139,7 +152,7 @@ function createMobileRoutes({
       else reply(200, { result: numberSnapshot(pages ? `${projectPath}#pages` : projectPath, result, since) });
       return;
     },
-    "/chat-lists": async ({ target, reply }) => {
+    "/chat-lists": async ({ target, req, reply }) => {
       let paths;
       try {
         paths = JSON.parse(target.searchParams.get("paths") ?? "");
@@ -149,7 +162,7 @@ function createMobileRoutes({
       if (!Array.isArray(paths) || !paths.length || !paths.every((item) => typeof item === "string"))
         throw failure(400, "Choose the Projects as a JSON list of paths");
       if (paths.length > MAX_CHAT_LISTS) throw failure(400, `Choose at most ${MAX_CHAT_LISTS} Projects`);
-      const runs = await hostRuns.read();
+      const runs = runsFor(req, await hostRuns.read());
       const projects = [...new Set(paths)];
       const result = {};
       const read = async (projectPath) => {
@@ -191,12 +204,12 @@ function createMobileRoutes({
       reply(200, { result: confine ? await confine.filterResult("chats:search", found) : found });
       return;
     },
-    "/runs": async ({ target, reply }) => {
+    "/runs": async ({ target, req, reply }) => {
       const projectPath = target.searchParams.get("projectPath");
       if (!validScope(projectPath)) throw failure(400, "Choose a valid Project or Link");
       await confine?.check(projectPath);
       const chats = requestedRunChats(target.searchParams);
-      reply(200, { result: projectRunsForPhone(await hostRuns.read(), projectPath, chats) }, { etag: true });
+      reply(200, { result: projectRunsForPhone(runsFor(req, await hostRuns.read()), projectPath, chats) }, { etag: true });
       return;
     },
     "/attention": async ({ reply }) => {
@@ -245,7 +258,7 @@ function createMobileRoutes({
       } else {
         if (!METHODS.has(request.method)) throw failure(403, "Command is not available from mobile");
         if (request.method === "secrets:set" && request.args[0]?.file !== undefined) throw failure(403, "The phone can't read files on this computer");
-        if (!isSealed(req) && (await carriesSecret(request, hostRuns)) && process.env.MILAGRE_DEV_PLAIN_SECRETS !== "1")
+        if (!plainSecretsAllowed(req) && (await carriesSecret(request, hostRuns)))
           throw failure(403, "Secrets travel only over Milagre's encrypted connection (relay, local network or Tailscale), not through a tunnel or proxy.");
         const args = withoutHiddenArgs(request);
         if (confine) {
@@ -260,4 +273,4 @@ function createMobileRoutes({
   return { get, post };
 }
 
-module.exports = { createMobileRoutes, phoneReply, carriesSecret };
+module.exports = { createMobileRoutes, phoneReply, carriesSecret, runsFor };

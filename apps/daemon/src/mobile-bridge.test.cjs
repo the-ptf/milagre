@@ -2131,6 +2131,24 @@ test("a provider's masked question counts as a secret by the question this compu
   assert.equal(await carriesSecret({ method: "secrets:list", args: [] }, hostRuns), false);
 });
 
+test("off the sealed channel a phone never sees a question whose answer is a secret, so it can't send one through a tunnel", () => {
+  const { runsFor } = require("./mobile-routes.cjs");
+  const { SEALED_HEADER, SEALED_VALUE } = require("./sealed-channel.cjs");
+  const plain = { requestId: "q-2", questions: [{ question: "Which branch?" }] };
+  const all = {
+    seq: 3,
+    runs: {
+      "/p#1": { questions: [{ requestId: "q-1", questions: [{ question: "API key?", secret: true }] }, plain] },
+      "/p#2": { questions: [{ requestId: "milagre-secret-x", questions: [{ question: "Token" }] }] },
+    },
+  };
+  const tunneled = runsFor({ headers: {} }, all);
+  assert.deepEqual(tunneled.runs["/p#1"].questions, [plain]);
+  assert.deepEqual(tunneled.runs["/p#2"].questions, []);
+  assert.equal(tunneled.seq, 3);
+  assert.equal(runsFor({ headers: { [SEALED_HEADER]: SEALED_VALUE } }, all), all);
+});
+
 test("every bridge takes a secret value only through the sealed channel, never through a tunnel or proxy", async (t) => {
   const { SEALED_HEADER, SEALED_VALUE } = require("./sealed-channel.cjs");
   const keys = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-sealed-key-"));
