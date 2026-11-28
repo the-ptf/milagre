@@ -75,26 +75,43 @@ test("a server without dynamic registration uses the pre-registered client id an
   assert.ok(exchange.code_verifier);
 });
 
-test("an expired access token refreshes without opening a browser", async (t) => {
-  const server = await fake(t);
-  let opened = 0;
-  const { connectors } = fixture(t, {
-    openBrowser: (url) => {
-      opened += 1;
-      followInBrowser(url);
-    },
+test("Slack's token endpoint signs in, and its refusal names Slack's error instead of a schema dump", async (t) => {
+  const server = await fake(t, { registration: false, clientSecret: "shh", slackTokens: true });
+  const { connectors } = fixture(t);
+  await connectors.add({ name: "Slack", url: server.url, clientId: "preset-client", clientSecret: "shh" });
+  assert.equal((await connectors.signIn("slack")).state, "connected");
+  assert.equal((await connectors.call("slack", "echo", { text: "hi" })).content[0].text, "echo: hi");
+
+  await connectors.update("slack", { clientSecret: "wrong" });
+  await assert.rejects(connectors.signIn("slack"), (error) => {
+    assert.match(error.message, /refused the sign-in: bad_client_secret/);
+    assert.doesNotMatch(error.message, /access_token/);
+    return true;
   });
-  const { id } = await connectors.add({ name: "Linear", url: server.url });
-  assert.equal(id, "linear_2", "linear belongs to Milagre's own Linear sign-in");
-  await connectors.signIn(id);
-  assert.equal(opened, 1);
-  server.expire();
-  await connectors.update(id, { name: "Linear" });
-  const result = await connectors.call(id, "echo", { text: "again" });
-  assert.equal(result.content[0].text, "echo: again");
-  assert.equal(opened, 1);
-  assert.ok(server.state.tokenRequests.some((request) => request.grant_type === "refresh_token"));
 });
+
+for (const slackTokens of [false, true]) {
+  test(`an expired access token refreshes without opening a browser${slackTokens ? " (Slack's token shape)" : ""}`, async (t) => {
+    const server = await fake(t, { slackTokens });
+    let opened = 0;
+    const { connectors } = fixture(t, {
+      openBrowser: (url) => {
+        opened += 1;
+        followInBrowser(url);
+      },
+    });
+    const { id } = await connectors.add({ name: "Linear", url: server.url });
+    assert.equal(id, "linear_2", "linear belongs to Milagre's own Linear sign-in");
+    await connectors.signIn(id);
+    assert.equal(opened, 1);
+    server.expire();
+    await connectors.update(id, { name: "Linear" });
+    const result = await connectors.call(id, "echo", { text: "again" });
+    assert.equal(result.content[0].text, "echo: again");
+    assert.equal(opened, 1);
+    assert.ok(server.state.tokenRequests.some((request) => request.grant_type === "refresh_token"));
+  });
+}
 
 test("a refused refresh asks for sign-in instead of opening a browser", async (t) => {
   const server = await fake(t);

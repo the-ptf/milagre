@@ -5,6 +5,7 @@ const { ConnectorError, CALLBACK_PATH } = require("./callback.cjs");
 const { createOAuthProvider } = require("./oauth.cjs");
 const { createConnectorSession, httpTransport, commandTransport } = require("./session.cjs");
 const { runSignIn, createSignIns, revokeTokens } = require("./sign-in.cjs");
+const { tokenFetch } = require("./token-fetch.cjs");
 const { connectorUrl, connectorName, connectorHeaders, connectorEnv, connectorCommand, idFor } = require("./input.cjs");
 
 const CALLBACK_PORT = 47616;
@@ -22,7 +23,7 @@ function createConnectors({
   dataDir,
   port = CALLBACK_PORT,
   openBrowser = openInBrowser,
-  fetchImpl,
+  fetchImpl: baseFetch,
   now = Date.now,
   version = "0.0.0",
   timeoutMs,
@@ -30,6 +31,7 @@ function createConnectors({
   reserved = ["linear", "email"],
   changed = () => {},
 }) {
+  const fetchImpl = tokenFetch(baseFetch);
   const store = createConnectorStore({ dataDir });
   const sessions = new Map();
   const health = new Map();
