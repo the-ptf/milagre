@@ -75,6 +75,19 @@ export function artifactPageSections({
   return sections;
 }
 
+export const OPEN_PARADISE = "open-paradise";
+export const OPEN_ARTIFACT = "open-artifact";
+
+/** The ⋯ menu and New tab entries for a Chat's Artifact: Paradise when it has designs, then its HTML page by title. */
+export function artifactShortcuts(designs: number, page: { title: string } | null): MenuSection["items"] {
+  return [
+    ...(designs > 0
+      ? [{ id: OPEN_PARADISE, title: PARADISE_NAME, systemImage: "square.grid.2x2", subtitle: `${designs} design${designs === 1 ? "" : "s"}` }]
+      : []),
+    ...(page ? [{ id: OPEN_ARTIFACT, title: "Artifact", systemImage: "doc.richtext", subtitle: page.title }] : []),
+  ];
+}
+
 /** The Versions section of a design's actions, newest first, `version` checked. None for a design with one version. */
 export function versionSections(latest: number, version: number): MenuSection[] {
   if (latest <= 1) return [];
