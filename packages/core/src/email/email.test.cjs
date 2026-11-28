@@ -86,6 +86,37 @@ test("email_recent returns the newest matching messages, fenced as untrusted, fr
   await assert.rejects(none.recent({}), /No mailbox is connected/);
 });
 
+test("email_recent still returns a message when another mailbox can't be read, and fails only when none can", async () => {
+  const reader = fakeReader({
+    inbox: {
+      "work@example.com": [
+        {
+          folder: "Inbox",
+          date: new Date(NOW - 60_000),
+          from: "GitHub <noreply@github.com>",
+          to: "work@example.com",
+          subject: "Your code",
+          text: "Code: 777111",
+        },
+      ],
+    },
+  });
+  const recent = reader.recent;
+  reader.recent = async (mailbox, filters) => {
+    if (mailbox.address === "me@gmail.com") throw new Error("imap.gmail.com refused the sign-in");
+    return recent(mailbox, filters);
+  };
+  const email = createEmail({ dataDir: tempDir(), reader, now: () => NOW });
+  await email.connect({ address: "me@gmail.com", password: "pw" });
+  await email.connect({ address: "work@example.com", password: "pw2" });
+  const tools = createEmailTools({ email, mailboxes: () => ["me@gmail.com", "work@example.com"], now: () => NOW });
+
+  const text = await tools.recent({});
+  assert.match(text, /Code: 777111/);
+  assert.match(text, /Could not read me@gmail\.com \(imap\.gmail\.com refused the sign-in\)\.$/);
+  await assert.rejects(tools.recent({ mailbox: "me@gmail.com" }), /me@gmail\.com: imap\.gmail\.com refused the sign-in/);
+});
+
 test("email_recent waits for a message that hasn't arrived yet, then says what it looked for", async () => {
   let clock = NOW;
   const inbox = { "me@gmail.com": [] };

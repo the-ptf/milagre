@@ -50,13 +50,21 @@ function createEmailTools({ email, mailboxes, now = Date.now, sleep = (ms) => ne
 
   async function search(addresses, filters) {
     const found = [];
+    const failed = [];
+    let tried = 0;
     for (const address of addresses) {
       const mailbox = email.secret(address);
       if (!mailbox) continue;
-      const messages = await email.reader.recent(mailbox, filters);
-      found.push(...messages.map((message) => ({ message, address })));
+      tried += 1;
+      try {
+        const messages = await email.reader.recent(mailbox, filters);
+        found.push(...messages.map((message) => ({ message, address })));
+      } catch (error) {
+        failed.push({ address, reason: error instanceof Error ? error.message : String(error) });
+      }
     }
-    return found.sort((a, b) => b.message.date - a.message.date).slice(0, filters.limit);
+    if (tried && failed.length === tried) throw new Error(failed.map(({ address, reason }) => `${address}: ${reason}`).join("\n"));
+    return { found: found.sort((a, b) => b.message.date - a.message.date).slice(0, filters.limit), failed };
   }
 
   async function recent({ from, subject, withinMinutes = 10, waitSeconds = 0, limit = 3, mailbox } = {}) {
@@ -70,17 +78,21 @@ function createEmailTools({ email, mailboxes, now = Date.now, sleep = (ms) => ne
     };
     const deadline = now() + wait * 1000;
     let found = [];
+    let failed = [];
     for (;;) {
-      found = await search(addresses, { ...filters, since: new Date(now() - minutes * MINUTE_MS) });
+      ({ found, failed } = await search(addresses, { ...filters, since: new Date(now() - minutes * MINUTE_MS) }));
       if (found.length || now() >= deadline) break;
       await sleep(Math.min(POLL_MS, deadline - now()));
     }
+    const unread = failed.length
+      ? `\n\nCould not read ${failed.map(({ address, reason }) => `${address} (${neutralizeTags(clip(reason, 200))})`).join(", ")}.`
+      : "";
     if (!found.length) {
       const what = [filters.from && `from ${filters.from}`, filters.subject && `with "${filters.subject}" in the subject`].filter(Boolean).join(" ");
-      return `No messages${what ? ` ${what}` : ""} in the last ${minutes} minutes in ${addresses.join(", ")}${wait ? ` after waiting ${wait} seconds` : ""}.`;
+      return `No messages${what ? ` ${what}` : ""} in the last ${minutes} minutes in ${addresses.join(", ")}${wait ? ` after waiting ${wait} seconds` : ""}.${unread}`;
     }
     const at = now();
-    return clip(`${UNTRUSTED_NOTE}\n\n${found.map(({ message, address }) => formatMessage(message, address, at)).join("\n\n")}`, MAX_OUTPUT);
+    return clip(`${UNTRUSTED_NOTE}\n\n${found.map(({ message, address }) => formatMessage(message, address, at)).join("\n\n")}`, MAX_OUTPUT) + unread;
   }
 
   return { recent };
