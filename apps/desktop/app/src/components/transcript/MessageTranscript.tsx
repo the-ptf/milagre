@@ -243,6 +243,7 @@ export const MessageTranscript = memo(function MessageTranscript({
   const openingIds = openingMessages.current.ids;
   const editProps = editMarks(edit, transcript, Boolean(offlineName));
   const limitMessageId = isSending || offlineName ? undefined : (limitSourceMessageId ?? messages.at(-1)?.id);
+  const messageActions = useTranscriptActions(chatId, transcript, isSending);
   return (
     <>
       {historyError && <InlineError size={12}>Could not load earlier messages: {historyError}. Use Show earlier messages to retry.</InlineError>}
@@ -295,6 +296,7 @@ export const MessageTranscript = memo(function MessageTranscript({
               undoDisabled={message.role === "user" && undoable?.has(message.id) && undoBlocked}
               onUndo={message.role === "user" && undoable?.has(message.id) ? onUndo : undefined}
               onFork={message.id > 0 && message !== streamingMessage ? onFork : undefined}
+              {...messageActions(message)}
               onSettle={message === transcript.at(-1)?.message && message.role === "assistant" ? onSettle : undefined}
               highlighted={message.id === highlightId}
               {...editProps(message)}
@@ -307,6 +309,20 @@ export const MessageTranscript = memo(function MessageTranscript({
     </>
   );
 });
+
+function useTranscriptActions(chat: string | number, transcript: { message: AppChatMessage }[], sending: boolean) {
+  const latest = transcript.at(-1)?.message;
+  const latestId = latest?.clientMessageId ?? latest?.id;
+  const scope = `${chat}:${latestId}:${sending}`;
+  const [selected, setSelected] = useState<{ scope: string; id?: string | number }>({ scope });
+  if (selected.scope !== scope) setSelected({ scope });
+  const active = (selected.scope === scope ? selected.id : undefined) ?? (sending ? undefined : latestId);
+  const select = useEvent((id: string | number) => setSelected({ scope, id }));
+  return (message: AppChatMessage) => ({
+    actionsVisible: active === (message.clientMessageId ?? message.id),
+    onSelectActions: message.id > 0 ? select : undefined,
+  });
+}
 
 function insertStreamingMessage(transcript: { message: AppChatMessage }[], streamingMessage?: AppChatMessage, pendingMessageId?: number | null) {
   if (!streamingMessage) return;

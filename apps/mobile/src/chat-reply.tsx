@@ -270,11 +270,7 @@ function ReplyActivity({
       entry.type === "step" ? (
         <ToolRow key={entry.step.id} step={entry.step} live={!!run} waiting={waitingIds.includes(entry.step.id)} onPress={() => openActivity(entry.step.id)} />
       ) : (
-        <MessageActions key={`text-${index}`} text={entry.text} markdown>
-          {(openActions, swap) =>
-            swap(<Markdown text={entry.text} media={media} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />)
-          }
-        </MessageActions>
+        selectableReplyText({ key: `text-${index}`, text: entry.text, media, basePath })
       ),
     );
   const held = run && !run.questions.length ? loaderActivity(text, steps, waitingIds) : [];
@@ -347,6 +343,8 @@ type ChatReplyProps = {
   onOpenChat?: (chatKey: string) => void;
   onFork?: (messageId: number) => void;
   onEdit?: (messageId: number) => void;
+  actionsVisible?: boolean;
+  onShowActions?: () => void;
   highlighted?: boolean;
   run?: AgentRun;
   onActivity: (message: string, stepId?: string) => void;
@@ -379,6 +377,8 @@ export const ChatReply = memo(function ChatReply({
   onOpenChat,
   onFork,
   onEdit,
+  actionsVisible,
+  onShowActions,
 }: ChatReplyProps) {
   const { colors, textPx } = useTheme();
   const styles = useStyles();
@@ -472,7 +472,7 @@ export const ChatReply = memo(function ChatReply({
         ) : (
           !!text &&
           !onlyImageMentions(text, userImages) && (
-            <MessageActions text={userText} from="user" onEdit={editThis}>
+            <MessageActions text={userText} from="user" onPress={onShowActions}>
               {(openActions, swap) => (
                 <View
                   style={{
@@ -494,7 +494,7 @@ export const ChatReply = memo(function ChatReply({
                         selectable={selectableMessageText}
                         accessibilityLabel={promptAccessibilityLabel(parts, (id) => chats.find((chat) => chat.id === id)?.title ?? "Chat")}
                         style={{ color: colors.ink, fontSize: textPx, lineHeight }}
-                        {...messageActionProps(openActions, editThis)}
+                        {...messageActionProps(openActions, editThis, onShowActions)}
                       >
                         {parts.map((part, index) =>
                           part.kind === "skill" ? (
@@ -526,7 +526,7 @@ export const ChatReply = memo(function ChatReply({
             </MessageActions>
           )
         )}
-        <MessageToolbar text={userText} message={message} onFork={onFork} onEdit={editThis} align="end" />
+        <MessageToolbar visible={actionsVisible} text={userText} message={message} onFork={onFork} onEdit={editThis} align="end" />
       </SendLaunch>
     );
   }
@@ -559,35 +559,12 @@ export const ChatReply = memo(function ChatReply({
       ))}
       {reply.desktop.length > 0 && <ComputerUseCard steps={reply.desktop} chatId={chatId} />}
       <ArtifactCards steps={reply.artifacts} chatId={chatId} chosen={designChoice} />
-      {!!reply.answer.trim() && (
-        <MessageActions text={reply.answer} markdown>
-          {(openActions, swap) =>
-            swap(
-              <Markdown
-                text={reply.answer}
-                streaming={!!run}
-                media={savedMedia}
-                basePath={basePath}
-                selectable={selectableMessageText}
-                onMessageAction={openActions}
-              />,
-            )
-          }
-        </MessageActions>
-      )}
-      <MessageToolbar text={reply.answer} message={message} run={run} onFork={onFork} />
+      {!!reply.answer.trim() && selectableReplyText({ text: reply.answer, streaming: !!run, media: savedMedia, basePath, onShowActions })}
+      <MessageToolbar visible={actionsVisible} text={reply.answer} message={message} run={run} onFork={onFork} />
       {heartbeats.map((step) => (
         <HeartbeatCard key={step.id} step={step} />
       ))}
-      {!!thought && (
-        <MessageActions text={thought} markdown>
-          {(openActions, swap) =>
-            swap(
-              <Markdown text={thought} tone="ink2" media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />,
-            )
-          }
-        </MessageActions>
-      )}
+      {!!thought && selectableReplyText({ text: thought, tone: "ink2", media: savedMedia, basePath, onShowActions })}
       {!run && message?.outcome === "cancelled" && <Text style={styles.muted}>Turn stopped</Text>}
       {limit && message && (
         <UsageLimitCard
@@ -606,17 +583,33 @@ export const ChatReply = memo(function ChatReply({
   );
 });
 
+function selectableReplyText({ key, onShowActions, ...markdown }: ComponentProps<typeof Markdown> & { key?: string; onShowActions?: () => void }) {
+  return (
+    <MessageActions key={key} text={markdown.text} markdown onPress={onShowActions}>
+      {(openActions, swap) =>
+        swap(<Markdown {...markdown} selectable={selectableMessageText} messageActions={messageActionProps(openActions, undefined, onShowActions)} />)
+      }
+    </MessageActions>
+  );
+}
+
 /** A Chat's reply row: the reply, or the one-line Pebble note autopilot leaves when it answers for the owner. */
 // The user's own typed message, shown as a bubble (not a design feedback or page comments card), once its turn is saved.
 function editAction(onEdit: ChatReplyProps["onEdit"], message: ChatMessage | undefined, run: AgentRun | undefined, cards: unknown[]) {
   return onEdit && message && !run && canEditMessage(message) && !cards.some(Boolean) ? () => onEdit(message.id) : undefined;
 }
 
-export const ChatRow = memo(function ChatRow(props: ComponentProps<typeof ChatReply>) {
+export const ChatRow = memo(function ChatRow({ onSelectActions, ...props }: ChatReplyProps & { onSelectActions?: (id: string | number) => void }) {
   const { message } = props;
-  return message && isOrchestratorAnswer(message) ? (
-    <OrchestratorAnswerLine summaries={message.context.summaries ?? [message.context.summary]} />
-  ) : (
-    <ChatReply {...props} />
+  const actionId = message?.clientMessageId ?? message?.id;
+  const showActions = useCallback(() => {
+    if (actionId !== undefined) onSelectActions?.(actionId);
+  }, [actionId, onSelectActions]);
+  if (message && isOrchestratorAnswer(message)) return <OrchestratorAnswerLine summaries={message.context.summaries ?? [message.context.summary]} />;
+  if (!message || !onSelectActions) return <ChatReply {...props} />;
+  return (
+    <Pressable accessible={false} onPress={showActions}>
+      <ChatReply {...props} onShowActions={showActions} />
+    </Pressable>
   );
 });

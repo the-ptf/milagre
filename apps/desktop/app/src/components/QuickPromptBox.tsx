@@ -118,7 +118,7 @@ export function QuickPromptBox<Result>({
           {leading}
           <textarea
             ref={field}
-            rows={large ? 2 : 1}
+            rows={1}
             value={text}
             aria-label={label}
             placeholder={placeholder}
@@ -146,7 +146,7 @@ export function QuickPromptBox<Result>({
                 onEscape();
               }
             }}
-            className={`min-w-0 flex-1 resize-none border-0 bg-transparent p-0 text-ink outline-none placeholder:text-ink-3 ${large ? "min-h-11 text-15" : "min-h-5 text-13"}`}
+            className={`min-w-0 flex-1 resize-none border-0 bg-transparent p-0 text-ink outline-none placeholder:text-ink-3 ${large ? "min-h-8 text-15" : "min-h-5 text-13"}`}
           />
         </div>
         {attached.images.length > 0 && (

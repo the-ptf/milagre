@@ -37,7 +37,6 @@ import { CHAT_COMMANDS, STORAGE_COMMANDS, NO_CHECKPOINTS, composerCommandHandler
 import { useBtw } from "../use-btw";
 import { chatTitle, createPendingChat, createResendMemory, pendingChatSessionId } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
-import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { LINK_PR_HINT, type LinearIssue } from "@milagre/shared/linear";
 import { worktreeShared } from "@milagre/shared/archive";
 import type { Client, OpenProject, Snapshot } from "../client";
@@ -106,7 +105,6 @@ import { isChatReload } from "@milagre/shared/chat-reload";
 import { isBabysitStopped } from "@milagre/shared/babysit";
 import { RoutineRunDivider } from "../routine-run-divider";
 import { chatBranchLabel, RUN_WORKTREE_REMOVED_NOTE, chatRoutine, clock, groupQuietRuns, isRoutineRun } from "@milagre/shared/routines";
-import { navigationLabel } from "../navigation-label";
 import { isHandoff } from "@milagre/shared/handoff";
 import { CompactionDivider } from "../compaction-divider";
 import { isAccountSwitch, isLimitReset } from "@milagre/shared/usage-limit";
@@ -151,7 +149,7 @@ import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "../project-icon";
 import { panelWorktree } from "../project-surfaces";
 import { besideState, closeBeside, openBeside, useBesideChat } from "../split-chats";
 import { chatBookmark, chatFamily } from "@milagre/shared/subchats";
-import { subchatNotes, isSilentNote } from "../subchat-notes";
+import { subchatNotes } from "../subchat-notes";
 import { SubchatBookmarkHost } from "../subchat-bookmark";
 import { BESIDE_PARENT } from "../subchat-family";
 import { BesideSession, touchPane } from "../beside-session";
@@ -170,7 +168,7 @@ import {
   SidebarToolbar,
   chatPaneMenu,
 } from "../chat-header";
-import { issueRunDivider, LiveReply, transcriptRows, useLiveSteps } from "../chat-transcript-rows";
+import { issueRunDivider, LiveReply, transcriptRows, useLiveSteps, useMessageNavigation, useTranscriptActions } from "../chat-transcript-rows";
 import { useChatPrs, useChatTranscriptData } from "../chat-transcript-data";
 import { nextFollow, useTranscriptFollow } from "../chat-follow";
 
@@ -596,20 +594,8 @@ function ChatPane({
   }
   const handoffModels = useMemo(() => [...modelsFor("claude", session.models), ...modelsFor("codex", session.models)], [session.models]);
   const shownEntries = useMemo(() => groupedMessages.filter((entry) => !entry.hidden), [groupedMessages]);
-  const navigationItems = useMemo(
-    () =>
-      messageNavigationIndices(shownEntries.length).flatMap((index) => {
-        const entry = shownEntries[index];
-        if (!entry || isSilentNote(entry.message)) return [];
-        const { message, merged } = entry;
-        const position = `${index + 1} of ${shownEntries.length}`;
-        return {
-          index,
-          label: navigationLabel(message, merged, position, handoffModels),
-        };
-      }),
-    [shownEntries, handoffModels],
-  );
+  const messageActions = useTranscriptActions(scrollKey, shownEntries, [liveRun, pending, sendingKeys.includes(sendingKey)]);
+  const navigationItems = useMessageNavigation(shownEntries, handoffModels);
   const messagePositions = useRef(new Map<number, number>());
   const navigationTarget = useRef<number | null>(null);
   useEffect(() => {
@@ -2173,6 +2159,7 @@ function ChatPane({
                                   <ChatRow
                                     message={message}
                                     onFork={forkFromMessage}
+                                    {...messageActions(message)}
                                     chats={message.role === "user" ? replyChats : undefined}
                                     media={media}
                                     basePath={worktree?.path || project.path}

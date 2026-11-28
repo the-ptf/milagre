@@ -17,7 +17,7 @@ const DIMMED = { opacity: DISABLED_OPACITY.control };
 type Target = { projectPath: string; worktreeId: number; model: MobileModel; preferences: TurnPreferences };
 
 /**
- * Edit message on the phone: the pill under a selected bubble, its toolbar pencil or its VoiceOver action load the message
+ * Edit message on the phone: the toolbar pencil or its VoiceOver action loads the message
  * into the composer while the draft waits, the card above the composer says what goes with it, and Send replaces it
  * through `chat:edit`. Desktop's flow is the same (use-composer-edit.tsx). Called before the screen can return early, so
  * what a send needs comes with the send.
