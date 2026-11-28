@@ -16,8 +16,8 @@ import {
   UnavailableIcon,
 } from "@hugeicons/core-free-icons";
 import { clock, runDuration, runTitle } from "@milagre/shared/routines";
-import { durationText, flattenSteps, flowRunText, needsAnswer, stepSubtitle, type FlowRunRow } from "@milagre/shared/routine-flows";
-import type { FlowStep, FlowStepKind, FlowStepRun, Routine, RoutineRun, RoutineTrigger } from "@milagre/shared/model";
+import { autopilotPlan, durationText, flattenSteps, flowRunText, needsAnswer, stepSubtitle, type FlowRunRow } from "@milagre/shared/routine-flows";
+import type { FlowApproval, FlowStep, FlowStepKind, FlowStepRun, Routine, RoutineRun, RoutineTrigger } from "@milagre/shared/model";
 import type { IconData, Tone } from "./icons";
 
 export type StepLook = { icon: IconData; tone: Tone; tint: Tone };
@@ -123,6 +123,18 @@ const firstLine = (text: string | undefined) =>
     .find((line) => line.trim())
     ?.trim() ?? "";
 
+function approvalLine(step: FlowStep, approval: FlowApproval, now: number) {
+  const plan = autopilotPlan(approval, now);
+  if (plan) return `Autopilot approves at ${clock(plan.at)}`;
+  if (step.kind === "pull-request") return `Waiting for you since ${clock(approval.askedAt)}`;
+  const left = Math.max(1, Math.ceil((approval.expiresAt - Math.max(now, approval.askedAt)) / 3_600_000));
+  return `No answer in ${left} h ends the Run`;
+}
+
+function approvedLine(approval: FlowApproval, run: FlowStepRun) {
+  return approval.by === "autopilot" && run.summary ? run.summary : `Approved at ${clock(approval.decidedAt ?? approval.askedAt)}`;
+}
+
 export function stepRunLine(row: Extract<FlowRunRow, { kind: "step" }>, now: number): string {
   const { step, status, run } = row;
   if (status === "not-taken") return "Not taken";
@@ -138,11 +150,7 @@ export function stepRunLine(row: Extract<FlowRunRow, { kind: "step" }>, now: num
     return tries > 1 ? `Failed ${tries} times${error ? `, ${error}` : ""}` : error || "Failed";
   }
   if (status === "waiting") {
-    if (approval && !approval.decision) {
-      if (step.kind === "pull-request") return `Waiting for you since ${clock(approval.askedAt)}`;
-      const left = Math.max(1, Math.ceil((approval.expiresAt - Math.max(now, approval.askedAt)) / 3_600_000));
-      return `No answer in ${left} h ends the Run`;
-    }
+    if (approval && !approval.decision) return approvalLine(step, approval, now);
     if (step.kind === "wait") {
       if (step.until.kind === "time") return run.waitUntil ? `Waits until ${clock(run.waitUntil)}` : `Waits ${durationText(step.until.minutes)}`;
       const until = run.waitUntil ? `, up to ${clock(run.waitUntil)}` : "";
@@ -161,7 +169,7 @@ export function stepRunLine(row: Extract<FlowRunRow, { kind: "step" }>, now: num
     return receipt.matched ? `Found ${what} by branch, receipt kept` : `Opened ${what} at ${clock(receipt.at)}, receipt kept`;
   }
   if (receipt?.kind === "linear-comment") return `Posted to ${receipt.issue} at ${clock(receipt.at)}`;
-  if (approval?.decision === "approved") return `Approved at ${clock(approval.decidedAt ?? approval.askedAt)}`;
+  if (approval?.decision === "approved") return approvedLine(approval, run);
   if (run.summary?.trim()) return run.summary.trim();
   if (step.kind === "agent") {
     return run.startedAt !== undefined && run.endedAt !== undefined ? `Done in ${runDuration(run.endedAt - run.startedAt)}` : "Done";

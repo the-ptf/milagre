@@ -677,3 +677,9 @@ export function needsAnswer(run) {
   const approval = current ? flow.state[current.id]?.approval : null;
   return Boolean(approval && !approval.decision);
 }
+
+/** The answer autopilot gives an approval later unless the owner answers first, while it still lies ahead. */
+export function autopilotPlan(approval, now) {
+  const plan = approval?.autopilot;
+  return plan && !approval.decision && plan.at > now ? plan : null;
+}

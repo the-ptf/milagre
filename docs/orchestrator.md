@@ -72,7 +72,10 @@ Without available PR evidence (including an unavailable computer), the board can
 
 ## Autopilot
 
-`orchestrator/autopilot.cjs` watches approvals and questions in task Chats only. Anything `isIrreversible` (merging,
+`orchestrator/autopilot.cjs` watches approvals and questions in task Chats and Routine Run Chats, and the approval steps of
+flow Runs (`routines/flow-autopilot.cjs` hooks the flow's "waits for you" notice). In a Run, anything about design or UI waits
+for the owner (`isDesignDecision`, then the router model's `design` verdict), so a flow only stops on taste and on what can't
+be undone. A planned flow approval shows on the step until it lands; the step then says "Approved by autopilot". Anything `isIrreversible` (merging,
 pushing to main or with force, deleting, deploying, publishing, paying, messaging someone) always waits for the owner.
 Otherwise confidence and the owner's trust for that kind of decision pick: answer now, answer after the veto window, or ask.
 A question is answered only with its listed options. The owner stepping in during the veto window cancels the answer and

@@ -18,6 +18,12 @@ const QUESTION_SCHEMA = {
   required: ["answers", "confidence", "summary"],
 };
 
+const FLOW_SCHEMA = {
+  type: "object",
+  properties: { design: { type: "boolean" }, approve: { type: "boolean" }, confidence: { type: "number" }, summary: { type: "string" } },
+  required: ["design", "approve", "confidence", "summary"],
+};
+
 const MEMORY_SCHEMA = {
   type: "object",
   properties: {
@@ -72,7 +78,7 @@ function taskAccountsFor({ states, accounts, routing, agentCli }) {
 
 function registerOrchestrator(
   { commands, dataDir, emit, chats, states, accounts, routing, agentCli, version, doneSettings, shutdown },
-  { projectRegistry, projectName, updateProject, defaultProjectBase, stopChat, archiveChat, respondPermission, answerQuestion, remote, git },
+  { projectRegistry, projectName, updateProject, defaultProjectBase, stopChat, archiveChat, respondPermission, answerQuestion, remote, git, routines },
 ) {
   let memorySync = null;
   const store = createOrchestratorStore({
@@ -185,8 +191,14 @@ function registerOrchestrator(
       note: (chatId, summary) =>
         void chats.addNote(chatId, { body: `The Orchestrator answered for you: ${summary}.`, context: { kind: "orchestrator-answer", summary } }),
       questionCall: (router) => routerCall(router, QUESTION_SCHEMA),
+      flowCall: (router) => routerCall(router, FLOW_SCHEMA),
+      runPrompt: (routine) => routines?.runPrompt(routine),
+      flowApproval: (runId, stepId) => routines?.flowApproval(runId, stepId) ?? null,
+      approveFlow: (runId, summary) => routines?.autopilotApprove(runId, summary),
+      planFlow: (runId, stepId, plan) => routines?.autopilotPlan(runId, stepId, plan),
     },
   });
+  routines?.onApprovalWaiting((waiting) => autopilot.considerFlow(waiting));
   const taskTools = createTaskTools({
     taskOf: (chatId) => states.states.get(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)]?.orchestrator ?? null,
     mark: (chatId, patch) => markTaskChat(updateProject, projectOfKey(chatId), sessionIdFromKey(chatId), patch),

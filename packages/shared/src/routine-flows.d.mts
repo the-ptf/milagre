@@ -1,4 +1,16 @@
-import type { FlowField, FlowIfStep, FlowRun, FlowStep, FlowStepKind, FlowStepRun, ModelProvider, RoutineEvent, RoutineRun, RoutineTrigger } from "./model.ts";
+import type {
+  FlowApproval,
+  FlowField,
+  FlowIfStep,
+  FlowRun,
+  FlowStep,
+  FlowStepKind,
+  FlowStepRun,
+  ModelProvider,
+  RoutineEvent,
+  RoutineRun,
+  RoutineTrigger,
+} from "./model.ts";
 
 export const FLOW_LIMITS: Readonly<{
   steps: number;
@@ -86,3 +98,4 @@ export function currentStep(flow: FlowRun | undefined): FlowStep | null;
 export function failedStep(flow: FlowRun | undefined): FlowStep | null;
 export function flowRunText(run: RoutineRun | undefined): string;
 export function needsAnswer(run: RoutineRun | undefined): boolean;
+export function autopilotPlan(approval: FlowApproval | undefined, now: number): { at: number; summary: string } | null;

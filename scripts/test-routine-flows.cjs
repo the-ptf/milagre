@@ -40,11 +40,35 @@ async function browserChecks() {
   try {
     await win.loadURL(process.argv[2]);
     await waitFor(`!!document.querySelector('[data-flow-inspector="classify"]')`);
-    assert.equal(await evaluate(`document.querySelectorAll('[data-flow-step][data-flow-kind]').length`), 7);
-    for (const kind of ["agent", "if", "ask", "pull-request", "wait", "linear-comment"])
-      assert.equal(await evaluate(`!!document.querySelector('[data-flow-kind="${kind}"]')`), true, kind);
+    await waitFor(`document.querySelectorAll('[data-flow-node][data-flow-kind]').length === 8`);
+    for (const kind of ["trigger", "agent", "if", "ask", "pull-request", "wait", "linear-comment"])
+      assert.equal(await evaluate(`!!document.querySelector('[data-flow-node][data-flow-kind="${kind}"]')`), true, kind);
+    const box = (selector) =>
+      evaluate(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
+    const yes = await box('[data-flow-node="ask"]');
+    const otherwise = await box('[data-flow-empty-path="if:otherwise"]');
+    assert.ok(yes.x + yes.w <= otherwise.x, "an If's paths sit side by side");
+    assert.ok((await box('[data-flow-node="implement"]')).y > yes.y, "the step after an If sits below both paths");
+    assert.equal(await evaluate(`!!document.querySelector('[data-flow-wire="trigger.issue.title"]')`), true, "the selected step's reads are wired");
+    assert.equal(await evaluate(`document.querySelector('[data-flow-port="trigger.issue.title"]').dataset.lit`), "true");
     await shot("flow-editor");
+    await click('[data-flow-add-here="top::1"]');
+    await waitFor(`!!document.querySelector('[data-flow-add="wait"]')`);
+    await click('[data-flow-add="wait"]');
+    await waitFor(`window.current().flow.draft?.steps[1]?.kind === "wait"`);
+    assert.equal(await evaluate(`!!document.querySelector('[data-flow-inspector]') && document.querySelector('[data-flow-step-name]').value`), "Wait");
+    await click("[data-flow-toolbar-step] [data-flow-step-more]");
+    await waitFor(`!!document.querySelector('[data-flow-action="delete"]')`);
+    await click('[data-flow-action="delete"]');
+    await waitFor(`!window.current().flow.draft && document.querySelectorAll('[data-flow-node][data-flow-kind="wait"]').length === 1`);
+    await click('[data-flow-path-label="if:yes"]');
+    await waitFor(`!!document.querySelector('[data-flow-collapsed="if:yes"]')`);
+    assert.equal(await evaluate(`document.querySelector('[data-flow-collapsed="if:yes"]').textContent.trim()`), "1 step");
+    assert.equal(await evaluate(`!!document.querySelector('[data-flow-node="ask"]')`), false, "a folded path hides its steps");
+    await click('[data-flow-collapsed="if:yes"]');
+    await waitFor(`!!document.querySelector('[data-flow-node="ask"]')`);
     await evaluate("window.holdNextSave=true");
+    await click('[data-flow-node="classify"]');
     await type("[data-flow-step-name]", "Classify carefully");
     await waitFor("!!window.releaseSave");
     await click("[data-flow-publish]");
@@ -59,22 +83,33 @@ async function browserChecks() {
     assert.equal(await evaluate("window.current().runs[0].flow.revision"), 1);
     await click("[data-flow-show-waiting]");
     await waitFor(`!!document.querySelector('[data-flow-approval]')`);
+    assert.equal(await evaluate(`document.querySelector('[data-flow-tab="runs"]').getAttribute('aria-selected')`), "true", "a Run opens in the Runs tab");
     assert.equal(await evaluate(`!!document.querySelector('[data-flow-step-name]')`), false, "Run view is locked");
     assert.match(await evaluate("document.body.textContent"), /revision 1/);
+    assert.equal(await evaluate(`document.querySelector('[data-flow-node="ask"]').dataset.flowRunStatus`), "waiting");
+    assert.equal(await evaluate(`document.querySelector('[data-flow-node="classify"]').dataset.flowRunStatus`), "done");
+    assert.equal(await evaluate(`!!document.querySelector('[data-flow-line="trigger->classify"][data-on]')`), true, "the taken route is drawn");
+    assert.equal(await evaluate(`!!document.querySelector('[data-flow-line="if->empty:if:otherwise"][data-on]')`), false, "the path not taken is not");
     await shot("flow-approval");
     await click("[data-flow-approve]");
     await waitFor(`window.lastAction?.action==='approve'`);
     assert.equal(await evaluate("window.current().runs[0].flow.state.ask.approval.decision"), "approved");
+    await click("[data-flow-all-runs]");
+    await waitFor(`!document.querySelector('[data-flow-canvas]')`);
     await evaluate("window.setNarrow(true)");
     win.setSize(760, 900);
     await delay(100);
     assert.equal(await evaluate("document.documentElement.scrollWidth <= window.innerWidth"), true, "narrow layout fits");
     await evaluate("window.emptyFlow()");
-    await waitFor(`!!document.querySelector('[data-flow-empty]')`);
+    await click('[data-flow-tab="steps"]');
+    await waitFor(`!!document.querySelector('[data-flow-add-here="top::0"]')`);
     assert.equal(await evaluate(`document.querySelector('[data-flow-test]').hasAttribute('aria-disabled')`), true);
-    assert.equal(await evaluate(`document.querySelectorAll('[data-flow-tile]').length`), 6);
+    await click('[data-flow-add-here="top::0"]');
+    await waitFor(`document.querySelectorAll('[data-flow-add]').length === 6`);
     await shot("flow-empty");
-    console.log("PASS: all six step types, serialized autosave and publish, immutable Run revision, approval, narrow layout and empty flow");
+    console.log(
+      "PASS: canvas layout, wires, add and delete on the canvas, folding, serialized autosave and publish, immutable Run revision, Run route, approval, narrow layout and empty flow",
+    );
   } catch (error) {
     failed = true;
     console.error(error);

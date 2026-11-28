@@ -228,6 +228,10 @@
       "types": "./src/routines.d.mts",
       "default": "./src/routines.mjs"
     },
+    "./routine-flow-graph": {
+      "types": "./src/routine-flow-graph.d.mts",
+      "default": "./src/routine-flow-graph.mjs"
+    },
     "./routine-flows": {
       "types": "./src/routine-flows.d.mts",
       "default": "./src/routine-flows.mjs"
