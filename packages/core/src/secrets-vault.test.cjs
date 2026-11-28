@@ -182,3 +182,13 @@ test("a secret can't both live in the environment and ask before each use", asyn
   await assert.rejects(vault.update("A_TOKEN", { askEachUse: true }), /can't ask before each use/);
   assert.equal((await vault.update("A_TOKEN", { askEachUse: true, delivery: "on-demand" })).askEachUse, true);
 });
+
+test("delivery hands values over only if each is still the revision the caller read, including a policy change", async (t) => {
+  const { vault } = fixture(t);
+  const saved = await vault.set({ name: "DEPLOY_TOKEN", value: "deploy-123456", projects: "all" });
+  const target = { origin: ORIGIN, unattended: false };
+  const expect = { DEPLOY_TOKEN: { version: saved.version, changedOn: saved.changedOn } };
+  assert.equal((await vault.deliver({ names: ["DEPLOY_TOKEN"], target, chatId: "c", delivery: "on-demand", expect }))[0].value, "deploy-123456");
+  await vault.update("DEPLOY_TOKEN", { askEachUse: true });
+  await assert.rejects(vault.deliver({ names: ["DEPLOY_TOKEN"], target, chatId: "c", delivery: "on-demand", expect }), { code: "secrets-changed" });
+});

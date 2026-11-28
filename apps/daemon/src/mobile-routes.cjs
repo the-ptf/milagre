@@ -89,8 +89,8 @@ function phoneReply(method, value) {
   return result;
 }
 
-const masksAnswer = (runs, requestId) =>
-  Object.values(runs ?? {}).some((run) => run?.questions?.some((question) => question.requestId === requestId && secretAnswerFlag(question).secretAnswer));
+const masksAnswer = (runs, chatId, requestId) =>
+  Boolean(runs?.[chatId]?.questions?.some((question) => question.requestId === requestId && secretAnswerFlag(question).secretAnswer));
 
 /**
  * A secret value in a phone call: every bridge takes it only through the sealed channel, unless a development host opts
@@ -99,8 +99,8 @@ const masksAnswer = (runs, requestId) =>
 async function carriesSecret(request, hostRuns) {
   if (request.method === "secrets:set") return true;
   if (request.method !== "agent:answer-question") return false;
-  const requestId = request.args[0]?.requestId;
-  return isSecretRequest(requestId) || request.args[0]?.secretAnswer === true || masksAnswer((await hostRuns.read()).runs, requestId);
+  const { chatId, requestId, secretAnswer } = request.args[0] ?? {};
+  return isSecretRequest(requestId) || secretAnswer === true || masksAnswer((await hostRuns.read()).runs, chatId, requestId);
 }
 
 function createMobileRoutes({

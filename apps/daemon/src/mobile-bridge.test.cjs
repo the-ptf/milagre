@@ -2124,6 +2124,7 @@ test("a provider's masked question counts as a secret by the question this compu
   const plain = { requestId: "q-2", questions: [{ question: "Which branch?" }] };
   const hostRuns = { read: async () => ({ runs: { "/p#1": { questions: [masked, plain] } } }) };
   const answer = (requestId, extra = {}) => ({ method: "agent:answer-question", args: [{ chatId: "/p#1", requestId, answers: {}, ...extra }] });
+  assert.equal(await carriesSecret(answer("q-1", { chatId: "/p#2" }), hostRuns), false, "a question is looked up in its own Chat");
   assert.equal(await carriesSecret(answer("q-1"), hostRuns), true, "an older phone that sends no flag still goes through the sealed check");
   assert.equal(await carriesSecret(answer("q-2"), hostRuns), false);
   assert.equal(await carriesSecret(answer("q-2", { secretAnswer: true }), hostRuns), true);

@@ -114,8 +114,7 @@ function createSecretsAccess({
     }
     try {
       const executable = typeof body.executable === "string" ? body.executable : (command?.trim().split(/\s+/)[0] ?? null);
-      const expect = before.asking.length ? release.expect : null;
-      return { secrets: await vault.deliver({ names, target: release.at, chatId, command: executable, delivery: "on-demand", expect }) };
+      return { secrets: await vault.deliver({ names, target: release.at, chatId, command: executable, delivery: "on-demand", expect: release.expect }) };
     } catch (error) {
       throw Object.assign(error, { status: error.code === "secrets-missing" ? 404 : error.code === "secrets-changed" ? 409 : 500 });
     }

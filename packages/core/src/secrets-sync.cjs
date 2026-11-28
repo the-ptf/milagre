@@ -29,8 +29,8 @@ function digestOf(state) {
 function outgoing(state, theirs) {
   const known = new Map(theirs.map((entry) => [entry.name, entry]));
   const entries = [];
-  for (const [name, secret] of Object.entries(state.secrets)) if (!secret.from && newer(secret, known.get(name))) entries.push({ name, secret });
   for (const [name, tombstone] of Object.entries(state.tombstones)) if (newer(tombstone, known.get(name))) entries.push({ name, tombstone });
+  for (const [name, secret] of Object.entries(state.secrets)) if (!secret.from && newer(secret, known.get(name))) entries.push({ name, secret });
   return entries;
 }
 

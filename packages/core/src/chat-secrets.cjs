@@ -19,6 +19,7 @@ const SAVE_CHOICES = new Set(["project", "all", "none"]);
  */
 function createChatSecrets({ directory, send, active, saveAs = null, onValue = null, now = Date.now }) {
   const pending = new Map();
+  const saving = new Map();
   const timers = new Map();
   let closed = false;
   preparePrivateDirectory(directory);
@@ -102,8 +103,7 @@ function createChatSecrets({ directory, send, active, saveAs = null, onValue = n
           ],
         }),
       ).catch(() => {
-        pending.delete(requestId);
-        clearTimeout(timer);
+        claim(requestId);
         reject(new Error("Could not show the secret request. Try again."));
       });
     });
@@ -164,6 +164,7 @@ function createChatSecrets({ directory, send, active, saveAs = null, onValue = n
       throw new Error("Enter a secret of at most 10,000 characters.");
     const value = answers.secret[0];
     claim(id);
+    saving.set(id, entry);
     onValue?.(value);
     try {
       if (save === "none") return finish(entry, id, "answered", oneOffFile(value));
@@ -184,9 +185,11 @@ function createChatSecrets({ directory, send, active, saveAs = null, onValue = n
         }),
       );
     } catch (error) {
-      if (closed || now() >= entry.expiresAt) finish(entry, id, "cancelled", `The secret couldn't be stored: ${error.message}`);
+      if (closed || entry.cancelled || now() >= entry.expiresAt) finish(entry, id, "cancelled", `The secret couldn't be stored: ${error.message}`);
       else pending.set(id, { ...entry, timer: expireAt(id, entry.expiresAt) });
       throw error;
+    } finally {
+      saving.delete(id);
     }
   }
 
@@ -220,6 +223,7 @@ function createChatSecrets({ directory, send, active, saveAs = null, onValue = n
   }
 
   function cancel(chatId) {
+    for (const entry of saving.values()) if (entry.chatId === chatId) entry.cancelled = true;
     for (const [id, entry] of pending)
       if (entry.chatId === chatId) settle(id, "cancelled", entry.kind === "use" ? false : "Secret request cancelled. No secret was saved.");
   }

@@ -234,3 +234,42 @@ test("a secret that couldn't be stored leaves the request open, so the person ca
   assert.equal(await secrets.answer("chat", id, { secret: ["second-try-123456"] }), true);
   assert.equal(fs.readFileSync(JSON.parse(await result).path, "utf8"), "second-try-123456");
 });
+
+test("a card that couldn't be shown fails the request at once and leaves nothing pending", async (t) => {
+  const { secrets } = fixture(t, { send: async () => Promise.reject(new Error("offline")) });
+  await assert.rejects(secrets.definitions("chat")[0].run({ title: "Token", description: "For the deploy." }), /Could not show the secret request/);
+  await assert.doesNotReject(
+    secrets
+      .definitions("chat")[0]
+      .run({ title: "Token", description: "Again." })
+      .catch(() => {}),
+  );
+});
+
+test("a turn that ends while the secret is being stored cancels it, even if storing then fails", async (t) => {
+  let release;
+  let storing;
+  const started = new Promise((resolve) => (storing = resolve));
+  const { secrets, events, directory } = fixture(t, {
+    saveAs: {
+      offer: async () => ({ name: "DEPLOY_TOKEN", project: false, replaces: false, version: 0, changedOn: null }),
+      save: () =>
+        new Promise((_resolve, reject) => {
+          release = reject;
+          storing();
+        }),
+    },
+  });
+  const result = secrets.definitions("chat")[0].run({ title: "Token", description: "For the deploy.", name: "DEPLOY_TOKEN" });
+  for (let tries = 0; !events.length && tries < 100; tries++) await new Promise((resolve) => setImmediate(resolve));
+  const id = events.at(-1).event.requestId;
+  const answering = secrets.answer("chat", id, { secret: ["value-123456"], save: ["all"] });
+  await started;
+  secrets.cancel("chat");
+  fs.chmodSync(directory, 0o755);
+  release(new Error("disk full"));
+  await assert.rejects(answering, /Could not save/);
+  fs.chmodSync(directory, 0o700);
+  assert.match(await result, /couldn't be stored/);
+  assert.equal(await secrets.answer("chat", id, { secret: ["again-123456"] }), false, "the cancelled request isn't open again");
+});
