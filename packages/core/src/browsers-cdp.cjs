@@ -180,7 +180,7 @@ function createBrowserAdapter(options = {}) {
         try {
           const version = await readJson(fetcher, `${base}/json/version`, 65536);
           const id = BROWSER_PATH.exec(String(version.webSocketDebuggerUrl ?? ""))?.[1];
-          if (!id) return null;
+          if (!id || id.startsWith("panel-")) return null;
           const pages = await readJson(fetcher, `${base}/json/list`, 1024 * 1024);
           return {
             id,

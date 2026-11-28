@@ -158,7 +158,7 @@ async function uploadable(paths, roots) {
 
 /**
  * @param {string} chatId
- * @param {{ devtools(request: { chatId: string; page?: string }): Promise<{ target: { id: string; title: string; url: string }; session: any; state: any }>; list(request: { chatId: string }): Promise<{ targets: { id: string; url: string; source: string }[] }> }} browsers
+ * @param {{ devtools(request: { chatId: string; page?: string }): Promise<{ target: { id: string; title: string; url: string }; session: any; state: any; panel?: boolean }>; list(request: { chatId: string }): Promise<{ targets: { id: string; url: string; source: string }[] }> }} browsers
  * @param {{ openInPanel(chatId: string, url: string): void; closePage?(chatId: string, targetId: string): Promise<unknown>; closeAll?(chatId: string): Promise<unknown> }} panel
  * @param {{ roots(): Promise<string[]>; chooserWaitMs?: number }} [uploads] the folders browser_upload may send files from
  */
@@ -176,11 +176,11 @@ function browserFillTool(chatId, on, done) {
     readOnly: false,
     run: async (input) => {
       if ((input.text === undefined) === (input.login === undefined)) throw new Error("Give either text or login.");
-      const { target, session, state } = await on(input);
+      const { target, session, state, panel } = await on(input);
       const node = backendNode(state, input.ref);
       if (input.login) {
         if (!logins) throw new Error("Saved logins aren't available on this computer.");
-        if (!PANEL_PAGE_ID.test(target.id))
+        if (panel !== true)
           throw new Error(
             "A saved login is filled only in Milagre's Browser panel, which keeps pages from opening windows that could read it. Open the page there with browser_open.",
           );

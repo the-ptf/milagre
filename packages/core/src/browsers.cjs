@@ -221,7 +221,7 @@ function createBrowsers(options = {}) {
     }
     return browsers;
   }
-  const allBrowsers = (world) => [...world.browsers, ...panelBrowsers()];
+  const allBrowsers = (world) => [...panelBrowsers(), ...world.browsers.filter((browser) => !String(browser.id).startsWith("panel-"))];
   function mayOwn(chatId) {
     if (attachments.has(chatId) || roots().has(chatId)) return true;
     for (const panel of panels.values()) if (panel.pages.some((page) => page.chatId === chatId)) return true;
@@ -556,7 +556,7 @@ function createBrowsers(options = {}) {
         for (const file of paths) placed.push(await adapter.upload(browser, file));
         return placed;
       };
-      return { target, session: await entry.ready, state: entry.state, files };
+      return { target, session: await entry.ready, state: entry.state, files, panel: browser?.panel === true };
     },
     async setPanelPages(request, owner) {
       if (typeof owner !== "string" || !owner || owner.length > 1024) throw new Error("A trusted desktop connection is required.");

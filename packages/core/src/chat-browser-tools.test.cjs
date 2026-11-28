@@ -69,7 +69,7 @@ function fakeSession() {
   return session;
 }
 
-function fixture({ roots = [], files, listError, listErrorOnCall } = {}) {
+function fixture({ roots = [], files, listError, listErrorOnCall, panel = true } = {}) {
   const session = fakeSession();
   const state = {};
   const opened = [];
@@ -81,7 +81,7 @@ function fixture({ roots = [], files, listError, listErrorOnCall } = {}) {
     devtools: async ({ chatId, page }) => {
       assert.equal(chatId, "/p#1", "tools act for their own Chat only");
       if (page && page !== TARGET.id) throw new Error("That page is not in this Chat.");
-      return { target: TARGET, session, state, ...(files ? { files } : {}) };
+      return { target: TARGET, session, state, panel, ...(files ? { files } : {}) };
     },
     list: async () => {
       listCalls++;
@@ -518,15 +518,12 @@ test("a navigation while the agent's script is starting stops it, and it runs on
   );
 });
 
-test("a saved login is filled only on a Browser panel page", async (t) => {
+test("a saved login is filled only on a page the Browser panel holds, whatever its id looks like", async (t) => {
   let resolved = 0;
   useLogins({ resolve: async () => (resolved++, { origin: "http://localhost:5173", username: "me", password: "local-pass-123456" }) });
   t.after(() => useLogins(null));
-  const f = fixture();
+  const f = fixture({ panel: false });
   await f.run("browser_snapshot");
-  const original = TARGET.id;
-  TARGET.id = "chrome-9222:ABCDEF";
-  t.after(() => (TARGET.id = original));
   assert.match((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /only in Milagre's Browser panel/);
   assert.equal(resolved, 0, "the vault is never asked for a login another browser would get");
 });
