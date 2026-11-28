@@ -12,6 +12,7 @@ import {
   ComputerIcon,
   Globe02Icon,
   InformationCircleIcon,
+  Key01Icon,
   LaptopIcon,
   FolderTreeIcon,
   Mic01Icon,
@@ -58,6 +59,7 @@ import { VoiceSettings } from "./settings/VoiceSettings";
 import { BrowserSettings } from "./settings/BrowserSettings";
 import { GeneralSettings } from "./settings/GeneralSettings";
 import { ModelsSettings } from "./settings/ModelsSettings";
+import { SecretsSettings } from "./settings/SecretsSettings";
 
 export type SettingsSection =
   | "general"
@@ -71,6 +73,7 @@ export type SettingsSection =
   | "usage"
   | "skills"
   | "mcp"
+  | "secrets"
   | "browser"
   | "worktrees"
   | "devices"
@@ -100,6 +103,7 @@ const SECTIONS: Array<{
   { key: "usage", label: SECTION_TITLES.usage, icon: <Icon icon={ChartColumnIcon} />, group: "Agents" },
   { key: "skills", label: SECTION_TITLES.skills, icon: <Icon icon={BookOpen01Icon} />, group: "Agents" },
   { key: "mcp", label: SECTION_TITLES.mcp, icon: <Icon icon={Plug01Icon} />, group: "Agents" },
+  { key: "secrets", label: SECTION_TITLES.secrets, icon: <Icon icon={Key01Icon} />, group: "Agents" },
   { key: "browser", label: SECTION_TITLES.browser, icon: <Icon icon={Globe02Icon} />, group: "Agents" },
   { key: "worktrees", label: SECTION_TITLES.worktrees, icon: <Icon icon={FolderTreeIcon} />, group: "Code" },
   { key: "experimental", label: SECTION_TITLES.experimental, icon: <Icon icon={ChurchIcon} />, group: "footer" },
@@ -416,6 +420,7 @@ export function SettingsPanel({
             <p className="mt-6 text-13 text-ink-3">Open a project to see its skills.</p>
           ))}
         {section === "mcp" && <ConnectorsSettings title={title} />}
+        {section === "secrets" && <SecretsSettings />}
         {section === "browser" && <BrowserSettings />}
         {section === "worktrees" && <WorktreesSettings title={title} />}
         {section === "devices" && <PhoneSharingPage title={title} />}

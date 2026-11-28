@@ -36,8 +36,8 @@ window.bugReport = (recheck = false) => {
   request = { requestId: "milagre-bug-report-test", bugReport: { repo: "the-ptf/milagre", title: "Delegation to <repo> never reports back", body, redactions: 4, ...(recheck ? { recheck: true } : {}) }, questions: [{ id: "report", header: "Bug report", question: "Report a Milagre bug", options: [], multiSelect: false, allowOther: true }] };
   root.render(<Fixture key={Math.random()} />);
 };
-window.secret = (remaining = 300000) => {
-  request = { requestId: "milagre-secret-test", secretRequest: { description: "A test token for deployment.", expiresAt: Date.now() + remaining }, questions: [{ id: "secret", header: "Secret", question: "Service token", options: [], multiSelect: false, allowOther: true, secret: true }] };
+window.secret = (remaining = 300000, saveAs) => {
+  request = { requestId: "milagre-secret-test", secretRequest: { description: "A test token for deployment.", expiresAt: Date.now() + remaining, ...(saveAs ? { saveAs } : {}) }, questions: [{ id: "secret", header: "Secret", question: "Service token", options: [], multiSelect: false, allowOther: true, secret: true }] };
   root.render(<Fixture key={Math.random()} />);
 };
 `;
@@ -185,6 +185,37 @@ async function browserChecks() {
     assert.equal(await evaluate("document.querySelector('button[type=submit]').disabled"), true);
     assert.equal(await evaluate("window.sent()"), undefined);
     await shot("7-secret-expired");
+    await evaluate('window.secret(300000, { name: "DEPLOY_TOKEN", project: true, replaces: true })');
+    await waitFor('!!document.querySelector("[data-secret-save-as]")');
+    assert.deepEqual(
+      await evaluate('[...document.querySelectorAll("[data-secret-save-as] [role=radio]")].map((b) => [b.textContent, b.getAttribute("aria-checked")])'),
+      [
+        ["This Project", "true"],
+        ["All Projects", "false"],
+        ["Don't save", "false"],
+      ],
+    );
+    assert.match(await evaluate("document.querySelector('[data-secret-save-as]').textContent"), /Save as DEPLOY_TOKEN.*Replaces the saved DEPLOY_TOKEN/);
+    await evaluate(`(() => {
+      const input = document.querySelector('input[type=password]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'saved-token');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await evaluate('[...document.querySelectorAll("[data-secret-save-as] [role=radio]")].find((b) => b.textContent === "All Projects").click()');
+    await shot("7b-secret-save-as");
+    await evaluate('document.querySelector("button[type=submit]").click()');
+    await waitFor("window.sent() !== undefined");
+    assert.deepEqual(await evaluate("window.sent()"), { secret: ["saved-token"], save: ["all"] });
+    await evaluate('window.secret(300000, { name: "DEPLOY_TOKEN", project: false, replaces: false })');
+    await waitFor('!!document.querySelector("[data-secret-save-as]")');
+    assert.deepEqual(
+      await evaluate('[...document.querySelectorAll("[data-secret-save-as] [role=radio]")].map((b) => [b.textContent, b.getAttribute("aria-checked")])'),
+      [
+        ["All Projects", "false"],
+        ["Don't save", "true"],
+      ],
+    );
+    assert.doesNotMatch(await evaluate("document.querySelector('[data-secret-save-as]').textContent"), /Replaces/);
     await evaluate("window.bugReport()");
     await waitFor("!!document.querySelector(\"form[aria-label='Milagre bug report']\")");
     assert.deepEqual(await evaluate('[...document.querySelectorAll("mark")].map((m) => m.textContent)'), ["<worktree>", "<org>", "<repo>", "<branch>"]);

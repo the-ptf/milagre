@@ -1,3 +1,4 @@
+import { carriesSecretValue } from "@milagre/shared/secrets";
 import { uploadAttachment } from "@milagre/shared/attachment-upload";
 import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import type { ChatMessage, CoordinatorState, NamedProjectLink, OpenLink } from "@milagre/shared/model";
@@ -165,6 +166,13 @@ function unsupportedOn404(error: unknown): never {
   throw (error as { status?: number })?.status === 404 ? Object.assign(error as Error, { code: "unsupported" as const }) : error;
 }
 
+const PLAIN_SECRET =
+  "Secrets travel only over Milagre's encrypted connection. Type it on your computer, or connect this phone through the relay or your network.";
+const refusesPlain = (body: unknown, url: string) => {
+  const call = body as { method?: string; args?: unknown[] } | undefined;
+  return carriesSecretValue(String(call?.method ?? ""), call?.args ?? []) && !/^http:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(url);
+};
+
 export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, timeoutMs = 30000, runtime?: RelayRuntime) {
   const relay = host.relay ? validRelay(host.relay) : undefined;
   if (relay && !runtime) throw new Error("This app cannot reach a computer through the relay.");
@@ -260,6 +268,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
     const sent = body === undefined ? undefined : JSON.stringify(body);
     let response: Answer;
     const through = carrier();
+    if (!through && route === "/rpc" && refusesPlain(body, url)) throw new Error(PLAIN_SECRET);
     if (through) {
       const relayed = await overRelay(through, sent === undefined ? "GET" : "POST", route, headers, sent, signal);
       response = {
@@ -400,7 +409,6 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       ),
     reuseUpload: (projectPath: string, id: string) => request<{ path: string; name: string; id: string } | null>("/attachments", { projectPath, reuse: id }),
     call: async <T>(method: string, args: unknown[] = []) => {
-      if (retired) throw replaced();
       return request<T>(
         "/rpc",
         { v: 1, method, args },

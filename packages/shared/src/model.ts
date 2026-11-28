@@ -882,7 +882,8 @@ export interface AgentQuestion {
 
 export interface QuestionRequest {
   requestId: string;
-  secretRequest?: { description: string; expiresAt?: number };
+  /** `saveAs`: the agent named the secret, so the card can also save it under that name, to this Project or all of them. */
+  secretRequest?: { description: string; expiresAt?: number; saveAs?: { name: string; project: boolean; replaces: boolean } };
   /**
    * Host-owned Milagre bug report (bug-reports.cjs): the exact redacted text to approve. The answer is `{ title, body }`
    * (edited or not), or null to cancel; text that needs more redacted comes back as a new request with `recheck`.

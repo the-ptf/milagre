@@ -13,7 +13,7 @@ Milagre runs Claude Code, Codex, Antigravity and Kiro across Projects, Worktrees
 - `apps/mobile`: the Expo phone app. Read `apps/mobile/AGENTS.md` first.
 - `apps/relay`, `apps/site`, `apps/design-share`: phone relay, website, shared Designs.
 
-`docs/` holds one doc per subject (host, chat storage, providers, links, computers, routines, designs, development, release, UI). Read the one that owns your area. If your change contradicts it, say so.
+`docs/` holds one doc per subject (host, chat storage, providers, links, computers, routines, secrets, designs, development, release, UI). Read the one that owns your area. If your change contradicts it, say so.
 
 ## Ways to hurt yourself
 

@@ -20,6 +20,7 @@ import type { SettingsSection } from "../components/Settings";
 import { computerNoun } from "./shortcut-hints.ts";
 import { CLEANUP_INTRO, CLEANUP_TITLE } from "@milagre/shared/storage";
 import { IMPORT_INTRO, IMPORT_TITLE } from "@milagre/shared/ade-import";
+import { SECRETS_COPY } from "@milagre/shared/secrets";
 
 export type DesktopSettingsEntry = SettingsSearchEntry<SettingsSection>;
 
@@ -35,6 +36,7 @@ export const SECTION_TITLES: Record<Exclude<SettingsSection, "project" | "comput
   usage: "Usage",
   skills: "Skills",
   mcp: "Connectors",
+  secrets: SECRETS_COPY.title,
   browser: "Browser",
   worktrees: "Worktrees",
   devices: "Phone & sharing",
@@ -56,6 +58,7 @@ export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   models: "default model permission mode compact context replies tldr concise",
   keybindings: "shortcuts keyboard keys hotkeys",
   browser: "links web sign-ins cookies",
+  secrets: "secrets keys api keys tokens passwords credentials env environment variables vault milagre-secrets",
   notifications: "alerts sounds chimes push routines unread runs",
   mcp: "connectors connections integrations linear issues slack sign in servers tools model context protocol milagre mcp",
   devices: "phone pairing computers remote qr published pages share simlock baguette iphone simulators reset access",
@@ -512,6 +515,10 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Milagre MCP",
     keywords: "connection token custom",
   },
+
+  { page: "secrets", title: SECRETS_COPY.add, description: SECRETS_COPY.intro, keywords: "new key token password credential environment variable" },
+  { page: "secrets", title: SECRETS_COPY.importEnv, keywords: "dotenv env file environment variables keys tokens bulk" },
+  { page: "secrets", title: SECRETS_COPY.sharing.title, description: SECRETS_COPY.sharing.intro, keywords: "share secrets sync paired computers" },
 
   { page: "browser", title: "Links" },
   {

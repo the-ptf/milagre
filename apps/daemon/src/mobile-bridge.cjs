@@ -62,6 +62,7 @@ const SIGNAL_ORDER = [
   "orchestrator",
   "provider-updates",
   "pulls",
+  "secrets",
   "btw",
 ];
 const librarySignal = (channel, payload, entry) => (channel === "design-library:changed" && payload?.projectPath === entry.projectPath ? "library" : undefined);
@@ -74,6 +75,7 @@ const OWNER_SIGNALS = {
   "canvas:links-changed": "links",
   "orchestrator:changed": "orchestrator",
   "provider-updates:changed": "provider-updates",
+  "secrets:changed": "secrets",
 };
 
 async function startMobileBridge({

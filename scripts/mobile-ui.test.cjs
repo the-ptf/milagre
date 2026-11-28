@@ -666,6 +666,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@milagre/shared/orchestrator" && !(id in modules)) return require("@milagre/shared/orchestrator");
       if (id === "@milagre/shared/provider-capabilities" && !(id in modules)) return require("@milagre/shared/provider-capabilities");
       if (id === "@milagre/shared/providers" && !(id in modules)) return require("@milagre/shared/providers");
+      if (id === "@milagre/shared/secrets" && !(id in modules)) return require("@milagre/shared/secrets");
       // Message search across a computer's Projects: one host request per computer while the sidebar search has text.
       if (base === "host-search" && !(id in modules)) return load("host-search.ts", modules, "", cache);
       // Message search's copy and row details are plain logic shared with the desktop.
@@ -15210,6 +15211,7 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
           ["Usage", ""],
           ["Skills", ""],
           ["Connectors", ""],
+          ["Secrets", ""],
         ],
       ],
       ["Code on Studio", [["Worktrees", ""]]],
@@ -15248,6 +15250,7 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
     "usage",
     "skills",
     "mcp",
+    "secrets",
     "worktrees",
     "phone-sharing",
     "this-mac",

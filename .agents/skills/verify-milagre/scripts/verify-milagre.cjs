@@ -797,7 +797,7 @@ async function main() {
       state.pids.phoneHost = spawnLogged(
         process.execPath,
         [path.join(repo, "scripts/mobile-host.cjs"), "--data-dir", hostDir, "--desktop-data-dir", state.profile, "--port", String(port), "--no-qr"],
-        { cwd: state.scratch, env: cleanEnv({}), logFile },
+        { cwd: state.scratch, env: cleanEnv({ MILAGRE_DEV_PLAIN_SECRETS: "1" }), logFile },
       );
       state.phonePort = port;
       saveState(state);

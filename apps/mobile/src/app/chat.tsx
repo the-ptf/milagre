@@ -41,7 +41,7 @@ import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { LINK_PR_HINT, type LinearIssue } from "@milagre/shared/linear";
 import { worktreeShared } from "@milagre/shared/archive";
 import type { Client, OpenProject, Snapshot } from "../client";
-import { answeredQuestions, lastUserModel, projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
+import { answeredQuestions, lastUserModel, projectOfKey, secretAnswerFlag, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { pullRequestActionBody, pullRequestActionPrompt, pullRequestActionRequest } from "@milagre/shared/pr-action";
 import { issueChoiceId, issueSendFields, issueStartContext, issueStartMessage, issueWorktreeFields, type PickedIssue } from "@milagre/shared/issue-start";
 import { pickGithubIssue, pickLinearIssue } from "../issue-pickers";
@@ -1906,7 +1906,7 @@ function ChatPane({
         void action(async () => {
           const uploaded = await prepareAnswerImages(client, projectOfKey(chatId), images);
           const accepted = await client.call("agent:answer-question", [
-            { chatId, requestId: question.requestId, answers, summary, ...(uploaded ? { images: uploaded } : {}) },
+            { chatId, requestId: question.requestId, answers, summary, ...(uploaded ? { images: uploaded } : {}), ...secretAnswerFlag(question) },
           ]);
           if (!accepted) throw new Error("This question is no longer pending. Refresh the Chat.");
         }, true).then((ok) => {

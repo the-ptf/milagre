@@ -234,6 +234,19 @@ function subscribe(set, listener) {
   return () => set.delete(listener);
 }
 
+/** Other computers as the runtime sees them, plus this computer's vault key for its secrets. */
+function remoteComputersPort(computers, listeners, thisMac) {
+  return {
+    list: () => computers().remote.list(),
+    invoke: (id, method, args) => computers().remote.invoke(id, method, args),
+    thisMac,
+    onEvent: (listener) => subscribe(listeners.event, listener),
+    onOnline: (listener) => subscribe(listeners.online, listener),
+    onRemoved: (listener) => subscribe(listeners.removed, listener),
+    masterKey: () => computers().masterKey(),
+  };
+}
+
 async function startDaemon({
   dataDir,
   version,
@@ -286,14 +299,11 @@ async function startDaemon({
   });
   const remoteListeners = { event: new Set(), online: new Set(), removed: new Set() };
   let macName;
-  const remoteComputers = {
-    list: () => computers.remote.list(),
-    invoke: (id, method, args) => computers.remote.invoke(id, method, args),
-    thisMac: () => (macName ??= computerName()),
-    onEvent: (listener) => subscribe(remoteListeners.event, listener),
-    onOnline: (listener) => subscribe(remoteListeners.online, listener),
-    onRemoved: (listener) => subscribe(remoteListeners.removed, listener),
-  };
+  const remoteComputers = remoteComputersPort(
+    () => computers,
+    remoteListeners,
+    () => (macName ??= computerName()),
+  );
   const runtime = createRuntime({
     hookRelayUrl: phoneOptions.relayUrl ?? RELAY_URL,
     remoteComputers,

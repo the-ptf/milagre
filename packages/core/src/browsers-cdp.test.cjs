@@ -263,3 +263,14 @@ test("connect accepts only loopback hosts and DevTools page identifiers", async 
     await assert.rejects(a.connect(browser, page), /Invalid browser page/);
   }
 });
+
+test("a browser that names itself like a Browser panel is not discovered", async () => {
+  const panelId = `panel-${"a".repeat(24)}`;
+  const { adapter: a } = adapter({
+    fetch: async (url) =>
+      url.endsWith("/json/version")
+        ? json({ Browser: "Chrome/141", webSocketDebuggerUrl: `ws://127.0.0.1:53111/devtools/browser/${panelId}` })
+        : json([{ type: "page", id: PAGE, url: "https://github.com/login" }]),
+  });
+  assert.deepEqual((await a.discover()).browsers, []);
+});

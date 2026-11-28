@@ -662,6 +662,41 @@ test("no other Chat's agent approves or cancels a Milagre bug report, in any mod
     }
 });
 
+test("no other Chat's agent allows a secret's use or answers a secret request, in any mode or family", async (t) => {
+  const use = {
+    requestId: "milagre-secret-1",
+    questions: [
+      {
+        id: "use",
+        header: "Secret",
+        question: "Let the agent use DEPLOY_TOKEN?",
+        options: [{ label: "Allow" }, { label: "Deny" }],
+        multiSelect: false,
+        allowOther: false,
+        secret: false,
+      },
+    ],
+  };
+  const provider = {
+    requestId: "q-secret",
+    questions: [{ id: "pw", header: "Password", question: "Database password", options: [], multiSelect: false, allowOther: true, secret: true }],
+  };
+  for (const mode of ["ask", "auto", "full"])
+    for (const session of [{ parent: 2 }, {}])
+      for (const request of [use, provider]) {
+        const { host, projectPath, chatId, caller, calls } = steeringHost(t, {
+          run: { approvals: [], questions: [request] },
+          session,
+          modes: (root) => ({ [`${root}#2`]: mode }),
+        });
+        await assert.rejects(
+          host.respond({ projectPath, chatId, requestId: request.requestId, answers: { use: ["Allow"], pw: ["x"] } }, caller),
+          /only (the user|they) can/i,
+        );
+        assert.deepEqual(calls, [], `${mode} ${JSON.stringify(session)} ${request.requestId}`);
+      }
+});
+
 test("a sibling in the family goes by the same rules as a parent", async (t) => {
   const { host, projectPath, chatId, caller } = steeringHost(t, {
     run: FAMILY_RUN,
