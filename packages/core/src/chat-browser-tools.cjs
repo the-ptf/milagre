@@ -166,7 +166,7 @@ function browserFillTool(chatId, on, done) {
   return {
     name: "browser_fill",
     description:
-      "Replace the text of an input or text area by its ref with `text`, firing the input events a framework listens for. To sign in with a saved login, pass `login` instead of `text`: its name from secrets_list and the field (username or password). Milagre types it only into a field on the login's own site and never returns it.",
+      "Replace the text of an input or text area by its ref with `text`, firing the input events a framework listens for. To sign in with a saved login, pass `login` instead of `text`: its name from secrets_list and the field (username or password). Milagre fills it only on a Browser panel page, only into a field on the login's own site, and never returns it.",
     input: {
       page,
       ref,
@@ -180,6 +180,10 @@ function browserFillTool(chatId, on, done) {
       const node = backendNode(state, input.ref);
       if (input.login) {
         if (!logins) throw new Error("Saved logins aren't available on this computer.");
+        if (!PANEL_PAGE_ID.test(target.id))
+          throw new Error(
+            "A saved login is filled only in Milagre's Browser panel, which keeps pages from opening windows that could read it. Open the page there with browser_open.",
+          );
         await loginGuard.fill(session, target, async (unknownOutcome) => {
           const login = await logins.resolve(chatId, input.login.name);
           await fillLogin({ session, node, login, field: input.login.field }).catch((error) => {

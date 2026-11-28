@@ -517,3 +517,16 @@ test("a navigation while the agent's script is starting stops it, and it runs on
     "the document it moved to counts as scripted",
   );
 });
+
+test("a saved login is filled only on a Browser panel page", async (t) => {
+  let resolved = 0;
+  useLogins({ resolve: async () => (resolved++, { origin: "http://localhost:5173", username: "me", password: "local-pass-123456" }) });
+  t.after(() => useLogins(null));
+  const f = fixture();
+  await f.run("browser_snapshot");
+  const original = TARGET.id;
+  TARGET.id = "chrome-9222:ABCDEF";
+  t.after(() => (TARGET.id = original));
+  assert.match((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /only in Milagre's Browser panel/);
+  assert.equal(resolved, 0, "the vault is never asked for a login another browser would get");
+});

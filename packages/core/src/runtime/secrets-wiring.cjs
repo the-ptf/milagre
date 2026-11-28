@@ -194,7 +194,7 @@ function createSecretsWiring({
   const listTool = (chatId) => ({
     name: "secrets_list",
     description:
-      'List the secrets this Chat may use: names, kinds and notes, never values. Run a command with them through the shell: `milagre-secrets run --with NAME[,NAME] -- <command>` puts each in that one command\'s environment (a file secret\'s variable holds a temporary file path). A login (kind login, with its site) goes only into a page on that site: browser_fill with login { name, field: "username" or "password" } types it without showing it to you. Every use is logged. If a secret you need is missing, ask with request_secret.',
+      'List the secrets this Chat may use: names, kinds and notes, never values. Run a command with them through the shell: `milagre-secrets run --with NAME[,NAME] -- <command>` puts each in that one command\'s environment (a file secret\'s variable holds a temporary file path). A login (kind login, with its site) goes only into a Browser panel page on that site: browser_fill with login { name, field: "username" or "password" } types it without showing it to you. Every use is logged. If a secret you need is missing, ask with request_secret.',
     input: {},
     readOnly: true,
     run: async () => {
