@@ -52,6 +52,11 @@ routing, so later settings edits, rerouting, account fallback and placement on a
 requirement. The receiving computer keeps the sender's outcome while using its own autopilot settings. Agents can
 change the default through `orchestrator_outcome`, backed by `orchestrator:settings:save` like both Settings screens.
 
+Completion › Permission mode sets the mode new task Chats run in: Ask, Auto or Full, or **Same as new Chats** (the
+default), which takes the sending device's default and Auto when an agent sends. `send` resolves it once, so a task
+placed on another computer keeps the sender's mode. There is no MCP tool for it: an agent must not raise the mode of
+the tasks it starts.
+
 Every provider receives the outcome in its task prompt. The board verifies PR state through the host's GitHub reads;
 a URL in a reply alone is insufficient. Ending a turn cannot bypass a PR requirement: missing PR evidence puts
 finished work in Needs you, an open PR satisfies PR created but stays In review for PR merged, and a closed, unmerged

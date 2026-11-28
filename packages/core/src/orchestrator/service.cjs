@@ -7,6 +7,7 @@ const {
   titleFromPrompt,
   recordTrust,
   normalizeTaskOutcome,
+  taskPermissionMode,
   taskOutcomePrompt,
   BOARD_COLUMNS,
 } = require("@milagre/shared/orchestrator");
@@ -298,7 +299,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       const images = checkedImages(options?.images);
       if (typeof prompt !== "string" || (!prompt.trim() && !images.length)) throw new Error("Type what you need first.");
       if (!settings().enabled) throw new Error("Turn the Orchestrator on in Settings › Church first.");
-      const taskId = addTask(prompt.trim() || IMAGES_ONLY_PROMPT, options?.permissionMode, images);
+      const taskId = addTask(prompt.trim() || IMAGES_ONLY_PROMPT, taskPermissionMode(settings().permissionMode, options?.permissionMode), images);
       void routeAndStart(taskId);
       return store.task(taskId);
     },
