@@ -188,7 +188,7 @@ export function OrchestratorSidebarRow({ active, onShow }: { active: boolean; on
                   data-orchestrator-bubble
                   className={`absolute -top-2.5 left-3 transition-[opacity,scale] duration-fast ${waitingAt ? "scale-50 opacity-0" : ""}`}
                 >
-                  <span className="orchestrator-bubble flex h-3.5 min-w-3.5 items-center justify-center rounded-[7px_7px_7px_2px] bg-orange px-[3px] text-[9px] font-bold text-on-orange tabular-nums ring-2 ring-page">
+                  <span className="orchestrator-bubble flex h-3.5 min-w-3.5 items-center justify-center rounded-[7px_7px_7px_2px] bg-orange px-[3px] text-10 font-semibold text-on-orange tabular-nums ring-2 ring-page">
                     {counts.needs > 1 ? counts.needs : "?"}
                   </span>
                 </span>

@@ -23,7 +23,7 @@ import type { AgentSession, PullRequestSnapshot, QuestionRequest } from "../mode
 type TaskCardKind = "deciding" | "pick-project" | "failed" | "chat";
 
 /** What a waiting task Chat asks the user, answerable outside its transcript. */
-export type TaskAsk = PendingAsk<QuestionRequest>;
+type TaskAsk = PendingAsk<QuestionRequest>;
 
 export type TaskCard = {
   task: OrchestratorTask;
