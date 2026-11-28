@@ -17,10 +17,13 @@ import {
   type OrchestratorTask,
 } from "@milagre/shared/orchestrator";
 import { boardPullRequestMark, type BoardPullRequestMark } from "@milagre/shared/pr-blockers";
-import { subchatState, type SubchatKind } from "@milagre/shared/subchat-states";
-import type { AgentSession, PullRequestSnapshot } from "../model";
+import { pendingAsk, subchatState, type PendingAsk, type SubchatKind } from "@milagre/shared/subchat-states";
+import type { AgentSession, PullRequestSnapshot, QuestionRequest } from "../model";
 
 type TaskCardKind = "deciding" | "pick-project" | "failed" | "chat";
+
+/** What a waiting task Chat asks the user, answerable outside its transcript. */
+export type TaskAsk = PendingAsk<QuestionRequest>;
 
 export type TaskCard = {
   task: OrchestratorTask;
@@ -33,6 +36,7 @@ export type TaskCard = {
   pullRequest: BoardPullRequest;
   pullRequestMark: BoardPullRequestMark | null;
   detail: string;
+  ask: TaskAsk | null;
   inSidebar: boolean;
   countdown: string | null;
 };
@@ -68,6 +72,7 @@ function pending(task: OrchestratorTask, kind: TaskCardKind, column: BoardColumn
     pullRequest: null,
     pullRequestMark: null,
     detail,
+    ask: null,
     inSidebar: false,
     countdown: null,
   };
@@ -91,6 +96,8 @@ function taskPullRequest(
     pullRequestMark: boardPullRequestMark(prs),
   };
 }
+
+const askUnless = (run: AgentRun | undefined, autopilot: unknown): TaskAsk | null => (autopilot ? null : pendingAsk(run));
 
 function doneCardCountdown(column: BoardColumn, session: AgentSession | undefined, retentionHours: number, now: number): string | null {
   return column === "done" && session ? doneCountdown(session, retentionHours, now) : null;
@@ -132,6 +139,7 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
     detail: autopilot
       ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
       : (blocked ?? limit ?? (!needsYou && (column === "needs" || column === "review") ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),
+    ask: askUnless(run, autopilot),
     inSidebar: session ? !session.orchestrator?.hidden : false,
     countdown: doneCardCountdown(column, session, retentionHours, now),
   };

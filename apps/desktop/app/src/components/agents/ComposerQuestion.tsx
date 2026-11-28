@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ComponentProps, KeyboardEvent, RefObject } from "react";
-import { ArrowLeft01Icon, ArrowRight01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowRight01Icon, ArrowUp02Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { answerPlaceholder, questionPosition, QUESTION_COMPOSER_COPY as COPY } from "@milagre/shared/question-composer";
 import type { AgentQuestion, QuestionAnswers, QuestionImages, QuestionRequest } from "../../model";
 import {
@@ -58,6 +58,43 @@ export function QuestionPromptComposer({ question, ...props }: QuestionPromptPro
       onStop={undefined}
       suggestion={undefined}
     />
+  );
+}
+
+/** The composer's question outside a Chat, such as beside the Orchestrator row: the same options, with a plain field as the typed answer. */
+export function CompactQuestionComposer({ question, busy }: { question: ComposerQuestionProps; busy: boolean }) {
+  const images = usePastedImages(`question:${question.request.requestId}`);
+  const answer = useComposerQuestion(question, images);
+  return (
+    <form
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!busy) answer.advance();
+      }}
+    >
+      {answer.banner}
+      <div className="flex min-h-9 items-center gap-1 rounded-control bg-field pr-1 pl-2.5">
+        <input
+          aria-label={answer.placeholder}
+          placeholder={answer.placeholder}
+          autoComplete="off"
+          readOnly={!answer.typable}
+          disabled={busy}
+          value={answer.typed}
+          onChange={(event) => answer.type(event.target.value)}
+          className="min-w-0 flex-1 bg-transparent py-2 text-13 text-ink outline-none placeholder:text-ink-3"
+        />
+        <button
+          type="submit"
+          aria-label="Send answer"
+          disabled={busy || !answer.ready}
+          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-ink text-on-ink transition-[opacity,scale] duration-fast enabled:hover:opacity-90 enabled:active:scale-press disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Icon icon={ArrowUp02Icon} size={16} />
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -142,6 +179,7 @@ function useComposerQuestion({ request, waiting, onAnswer }: ComposerQuestionPro
       if (question.allowOther) setDrafts((latest) => typeAnswer(latest, question, value));
     },
     placeholder: answerPlaceholder(question),
+    typable: question.allowOther,
   };
 }
 

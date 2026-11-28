@@ -62,12 +62,23 @@ export function latestLine(text: string | undefined, max = 120): string {
   return line.length > max ? `…${line.slice(line.length - max + 1)}` : line;
 }
 
-function waitingRequest(run: SubchatInput["run"]): SubchatRequest | undefined {
+export type PendingAsk<Q> = { kind: "approval"; request: PermissionRequest } | { kind: "question"; request: Q };
+
+/** What a run waits on the user for, answerable outside its transcript: its oldest unanswered approval, else its oldest unanswered question. */
+export function pendingAsk<Q extends { requestId: string }>(
+  run: { approvals?: PermissionRequest[]; questions?: Q[]; answered?: Record<string, unknown> } | null | undefined,
+): PendingAsk<Q> | null {
   const answered = run?.answered ?? {};
   const approval = run?.approvals?.find((request) => !(request.requestId in answered));
   if (approval) return { kind: "approval", request: approval };
   const question = run?.questions?.find((request) => !(request.requestId in answered));
-  return question ? { kind: "question", requestId: question.requestId, questions: question.questions } : undefined;
+  return question ? { kind: "question", request: question } : null;
+}
+
+function waitingRequest(run: SubchatInput["run"]): SubchatRequest | undefined {
+  const ask = pendingAsk(run);
+  if (!ask) return undefined;
+  return ask.kind === "approval" ? ask : { kind: "question", requestId: ask.request.requestId, questions: ask.request.questions };
 }
 
 function nextBeat(heartbeat: NonNullable<SubchatInput["heartbeat"]>, now: number): string {

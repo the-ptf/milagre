@@ -173,6 +173,19 @@ test("a task at its usage limit waits in Needs you and says until when", () => {
   assert.match(card!.detail, /^Claude hit its usage limit\. It resets at /);
 });
 
+test("a waiting task card carries the oldest unanswered ask, approvals first", () => {
+  const states = { "/p/app": { sessions: { 1: { id: 1 } } } };
+  const question = { requestId: "q", questions: [{ id: "0", header: "", question: "Which sender?", options: [], multiSelect: false }] };
+  const ask = (patch: object) => boardCards([task("t1")], states, { "/p/app#1": run(patch) } as unknown as AgentRuns, NOW)[0]!.ask;
+  assert.deepEqual(ask({ questions: [question] }), { kind: "question", request: question });
+  assert.equal(ask({ approvals: [{ requestId: "a", title: "ls" }], questions: [question] })?.kind, "approval");
+  assert.deepEqual(ask({ approvals: [{ requestId: "a", title: "ls" }], questions: [question], answered: { a: "allow" } }), {
+    kind: "question",
+    request: question,
+  });
+  assert.equal(boardCards([task("t1")], states, {}, NOW)[0]!.ask, null);
+});
+
 test("an answered approval no longer counts as needing the user", () => {
   const runs = { "/p/app#1": run({ approvals: [{ requestId: "a", title: "ls" }], answered: { a: { allow: true } } }) } as unknown as AgentRuns;
   assert.equal(boardCards([task("t1")], { "/p/app": { sessions: { 1: { id: 1 } } } }, runs, NOW)[0]!.column, "running");
