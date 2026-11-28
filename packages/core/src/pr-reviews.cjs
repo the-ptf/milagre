@@ -17,8 +17,8 @@ function readFile(file) {
   try {
     const raw = object(JSON.parse(fs.readFileSync(file, "utf8")));
     return { settings: { enabled: object(raw.settings).enabled === true }, reviews: object(raw.reviews) };
-  } catch {
-    return { settings: { enabled: false }, reviews: {} };
+  } catch (error) {
+    return { settings: { enabled: false }, reviews: {}, damaged: error?.code !== "ENOENT" };
   }
 }
 
@@ -29,6 +29,10 @@ function readFile(file) {
 function createPrReviews({ file, emit = () => {}, now = Date.now, sendFix, babysit = async () => false }) {
   let data = readFile(file);
   function write() {
+    if (data.damaged) {
+      fs.copyFileSync(file, `${file}.bad`);
+      throw new Error(`${path.basename(file)} is damaged; a copy is at ${path.basename(file)}.bad. Fix or delete it.`);
+    }
     const entries = Object.entries(data.reviews).toSorted(([, a], [, b]) => b.reviewedAt - a.reviewedAt);
     data.reviews = Object.fromEntries(entries.slice(0, MAX_REVIEWS));
     fs.mkdirSync(path.dirname(file), { recursive: true });

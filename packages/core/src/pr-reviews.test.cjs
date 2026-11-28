@@ -149,3 +149,23 @@ test("a revised finding stays open when a previous fix reaches the Chat", async 
   await reviews.report(report([{ ...revised, severity: "medium" }]));
   assert.equal(reviews.read(url).findings[0].status, "open");
 });
+
+test("a damaged file keeps a .bad copy and is never overwritten", async (t) => {
+  const { make, file } = setup(t);
+  const first = make();
+  first.saveSettings({ enabled: true });
+  await first.report(report([high]));
+  const damaged = fs.readFileSync(file, "utf8").slice(0, 40);
+  fs.writeFileSync(file, damaged);
+  const reviews = make();
+  assert.throws(() => reviews.saveSettings({ enabled: true }), /damaged/);
+  assert.equal(fs.readFileSync(file, "utf8"), damaged);
+  assert.equal(fs.readFileSync(`${file}.bad`, "utf8"), damaged);
+});
+
+test("a missing file is an empty store that can be written", (t) => {
+  const { make, file } = setup(t);
+  make().saveSettings({ enabled: true });
+  assert.deepEqual(make().settings(), { enabled: true });
+  assert.equal(fs.existsSync(`${file}.bad`), false);
+});
