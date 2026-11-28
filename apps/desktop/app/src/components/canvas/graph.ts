@@ -16,21 +16,21 @@ import { chatMark } from "@/lib/chat-list";
 import { delegatedChats } from "@/lib/linked-work";
 import { WINDOW, liveHeight, placeWindows, type Box, type WindowRecord } from "@/lib/canvas-open";
 
-export const CARD_WIDTH = 276;
-export const SECTION_PADDING = 16;
+const CARD_WIDTH = 276;
+const SECTION_PADDING = 16;
 export const SECTION_HEADER = 52;
-export const CARD_GAP = 12;
-export const SECTION_GAP = 96;
-export const ROW_WIDTH = 1400;
+const CARD_GAP = 12;
+const SECTION_GAP = 96;
+const ROW_WIDTH = 1400;
 
-export const CHAT_ROW = 38;
-export const DIVIDER = 21;
-export const FOOTER = 26;
-export const cardHeight = (rows: readonly CardRow[]) =>
+const CHAT_ROW = 38;
+const DIVIDER = 21;
+const FOOTER = 26;
+const cardHeight = (rows: readonly CardRow[]) =>
   26 + rows.length * CHAT_ROW + (rows.length > 1 ? (rows.length - 1) * DIVIDER + FOOTER : 0) + rows.reduce((sum, row) => sum + liveHeight(row.live), 0);
 
 export type CardRow = CanvasChat & { shared?: { linkId: string }; live?: CanvasLive };
-export type SectionData = {
+type SectionData = {
   kind: "project";
   endpoint: LinkEndpoint;
   name: string;
@@ -56,7 +56,7 @@ export type CardData = {
   opened?: readonly string[];
   [key: string]: unknown;
 };
-export type WindowData = {
+type WindowData = {
   kind: "window";
   chatKey: string;
   cardId: string;
@@ -72,8 +72,8 @@ export type CanvasNode = SectionNode | CardNode | WindowNode;
 
 export const endpointOf = (node: CanvasNode | undefined) => (node && node.data.kind !== "window" ? node.data.endpoint : undefined);
 
-export const SECTION_TONES: [string, ...string[]] = ["var(--accent)", "var(--green)", "var(--purple, var(--accent))"];
-export function sectionTone(id: string) {
+const SECTION_TONES: [string, ...string[]] = ["var(--accent)", "var(--green)", "var(--purple, var(--accent))"];
+function sectionTone(id: string) {
   let hash = 0;
   for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) | 0;
   return SECTION_TONES[Math.abs(hash) % SECTION_TONES.length] ?? SECTION_TONES[0];
@@ -92,7 +92,7 @@ export type Built = {
   considered: Set<string>;
 };
 
-export const rowsOf = (worktree: CanvasWorktree, liveOf?: (id: number) => CanvasLive | undefined): CardRow[] => {
+const rowsOf = (worktree: CanvasWorktree, liveOf?: (id: number) => CanvasLive | undefined): CardRow[] => {
   const chats = liveOf
     ? worktree.chats.map((chat) => {
         const live = liveOf(chat.id);
@@ -104,7 +104,7 @@ export const rowsOf = (worktree: CanvasWorktree, liveOf?: (id: number) => Canvas
     : chats;
 };
 
-export function defaultCardPositions(worktrees: CanvasWorktree[], liveOf?: (id: number) => CanvasLive | undefined) {
+function defaultCardPositions(worktrees: CanvasWorktree[], liveOf?: (id: number) => CanvasLive | undefined) {
   const columns: [number, number] = [SECTION_HEADER, SECTION_HEADER];
   return worktrees.map((worktree) => {
     const rows = rowsOf(worktree, liveOf);
@@ -116,7 +116,7 @@ export function defaultCardPositions(worktrees: CanvasWorktree[], liveOf?: (id: 
   });
 }
 
-export function sectionSize(cards: Array<{ position: { x: number; y: number }; height: number }>) {
+function sectionSize(cards: Array<{ position: { x: number; y: number }; height: number }>) {
   let width = CARD_WIDTH + 2 * SECTION_PADDING,
     height = SECTION_HEADER + SECTION_PADDING;
   for (const card of cards) {

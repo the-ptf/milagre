@@ -70,9 +70,12 @@ test("a closed card grows by the line or the block its Chat shows, nothing when 
   assert.equal(liveHeight(live({ pending: { kind: "question", request: question({ multiSelect: true }), more: 0 } })), LIVE.questionForm);
 });
 
-test("only a plain approval is answered on the closed card; a Delegation or a setup command is read in full first", () => {
+test("only a command whose text the closed card shows is approved there; anything else is reviewed in its window first", () => {
   assert.equal(quickApproval(approval()), true);
-  assert.equal(quickApproval(approval({ kind: "edit" })), true);
+  const edit = approval({ kind: "edit", tool: "Edit files", title: "Edit 2 files?", command: undefined, files: ["/r/a.ts", "/r/b.ts"], diff: "+x" });
+  assert.equal(quickApproval(edit), false, "an edit's paths and diff are seen before it is allowed");
+  assert.equal(quickApproval(approval({ kind: "other", command: undefined, detail: "{}" })), false);
+  assert.equal(quickApproval(approval({ command: undefined, description: "Run ping" })), false, "a command the card can't show");
   assert.equal(quickApproval(approval({ kind: "delegation", delegation: { target: "x", message: "y", negotiation: false } })), false);
   assert.equal(quickApproval(approval({ kind: "setup" })), false);
 });

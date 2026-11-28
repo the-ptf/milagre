@@ -81,9 +81,9 @@ export function forgetGone(
 export const LIVE = { step: 20, approval: 70, questionBase: 56, questionOption: 32, questionForm: 86 } as const;
 const QUICK_OPTIONS = 4;
 
-/** Whether a closed card answers this approval in place: not a Delegation or a setup command, which are read in full first. */
+/** Whether a closed card answers this approval in place: only a command whose text it shows. Edits, other tools, Delegations and setup are reviewed in the window. */
 export function quickApproval(request: PermissionRequest): boolean {
-  return request.kind !== "delegation" && request.kind !== "setup" && !request.delegation;
+  return request.kind === "command" && Boolean(request.command?.trim()) && !request.delegation;
 }
 
 /** The question a closed card answers with one click: the only one asked, single choice, a few options, nothing secret. */
