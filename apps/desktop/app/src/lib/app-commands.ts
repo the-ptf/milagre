@@ -229,7 +229,7 @@ function actionCommands(ctx: AppCommandContext): Command[] {
       label: SECRETS_COPY.logins.add,
       group: "Actions",
       icon: "add",
-      keywords: "login password sign in site website browser username credential",
+      keywords: "login password sign in browser username credential",
       run: () => {
         actions.openSettingsAt("secrets");
         requestAddLogin();
