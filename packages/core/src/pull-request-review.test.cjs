@@ -184,6 +184,38 @@ test("detail pages through more than 100 files", async () => {
   assert.ok(calls[1].includes("after=CUR"));
 });
 
+test("detail pages through more than 100 review threads and 100 checks", async () => {
+  const thread = (id) => ({ id, path: "a.ts", line: 1, diffSide: "RIGHT", isResolved: false, isOutdated: false, comments: { nodes: [] } });
+  const run = (name) => ({ kind: "CheckRun", name, status: "COMPLETED", conclusion: "FAILURE" });
+  const rollup = (nodes, pageInfo) => [{ commit: { statusCheckRollup: { contexts: { nodes, pageInfo } } } }];
+  const { exec, calls } = fakeGh((_args, query) => {
+    if (query.includes("after:$after") && query.includes("reviewThreads")) {
+      return { data: { repository: { pullRequest: { reviewThreads: { nodes: [thread("T_2")], pageInfo: { hasNextPage: false } } } } } };
+    }
+    if (query.includes("after:$after") && query.includes("contexts")) {
+      return { data: { repository: { pullRequest: { checks: { nodes: rollup([run("late")], { hasNextPage: false }) } } } } };
+    }
+    return {
+      data: {
+        repository: {
+          pullRequest: prNode({
+            reviewThreads: { nodes: [thread("T_1")], pageInfo: { hasNextPage: true, endCursor: "TCUR" } },
+            checks: { nodes: rollup([run("early")], { hasNextPage: true, endCursor: "CCUR" }) },
+          }),
+        },
+      },
+    };
+  });
+  const result = await createPullRequestReview({ exec }).detail({ cwd: "/w", number: 7 });
+  assert.deepEqual(
+    result.pr.threads.map((item) => item.id),
+    ["T_1", "T_2"],
+  );
+  assert.deepEqual(result.pr.checks.map((item) => item.name).toSorted(), ["early", "late"]);
+  assert.ok(calls.some((call) => call.includes("after=TCUR")));
+  assert.ok(calls.some((call) => call.includes("after=CCUR")));
+});
+
 test("gh failures come back as the user's next step", async () => {
   const signedOut = Object.assign(new Error("exit 4"), { code: 4, stderr: "To get started with GitHub CLI, please run:  gh auth login" });
   assert.deepEqual(await createPullRequestReview({ exec: fakeGh(() => signedOut).exec }).detail({ cwd: "/w", number: 7 }), { ok: false, message: GH_LOGIN });
