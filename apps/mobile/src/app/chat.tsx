@@ -670,7 +670,7 @@ function ChatPane({
   const [workspaceTabsOn] = useWorkspaceTabs();
   const tabsProject = targetMatches ? session.snapshot?.project : undefined;
   const tabsWhere = workspaceTabsOn && !secondary ? tabsAt(targetHost, tabsProject, params.id ? Number(params.id) : undefined, params.worktreeId) : null;
-  useWorkspaceTabSync(workspaceTabsOn, tabsWhere, tabsProject?.state.sessions, params.id ? Number(params.id) : undefined);
+  const shownTabs = useWorkspaceTabSync(workspaceTabsOn, tabsWhere, tabsProject?.state.sessions, params.id ? Number(params.id) : undefined);
   const panels = useSidePanels({
     chatId: pending ? (pendingCanonicalId ?? pending.preview.session.id) : params.id ? Number(params.id) : undefined,
     worktreeId: targetMatches && worktreeOf ? panelWorktree(session.snapshot?.project, worktreeOf.id) : undefined,
@@ -1680,12 +1680,12 @@ function ChatPane({
       {family && <Icon icon={UnfoldMoreIcon} tone="ink3" size={12} />}
     </View>
   );
-  const tabsInHeader = !!tabsWhere && split.widthClass !== "compact";
+  const tabsInHeader = !!shownTabs && split.widthClass !== "compact";
   const header = tabsInHeader ? (
-    <WorkspaceTabStrip where={tabsWhere} activeChatId={chat?.id} actionCount={1 + Number(!!browserShortcut) + Number(!!pr)} />
+    <WorkspaceTabStrip where={shownTabs} activeChatId={chat?.id} actionCount={1 + Number(!!browserShortcut) + Number(!!pr)} />
   ) : (
     <>
-      <HeaderTitleBox actionCount={1 + Number(!!browserShortcut) + Number(!!pr) + Number(!!tabsWhere)}>
+      <HeaderTitleBox actionCount={1 + Number(!!browserShortcut) + Number(!!pr) + Number(!!shownTabs)}>
         {family && chat ? (
           <FamilyTitleMenu
             sessions={project.state.sessions}
@@ -1722,7 +1722,7 @@ function ChatPane({
   const paneMenu = chatPaneMenu({ chatsHomeOpen, diff, chat, run, ownRoutine, ownHeartbeat, linearIssue, linkHint, agents, busy, canLink, storedIssue });
   const headerActions = (
     <HeaderActionGroup>
-      {tabsWhere && !tabsInHeader && <TabCountAction where={tabsWhere} onPress={panels.showTabs} />}
+      {shownTabs && !tabsInHeader && <TabCountAction where={shownTabs} onPress={panels.showTabs} />}
       {browserShortcut && (
         <HeaderAction
           label={browserShortcut.accessibilityLabel}
@@ -1739,7 +1739,7 @@ function ChatPane({
       </PullDown>
     </HeaderActionGroup>
   );
-  const more = <ChatToolbar shape={`${!!browserShortcut}|${!!pr}|${!!tabsWhere}`}>{headerActions}</ChatToolbar>;
+  const more = <ChatToolbar shape={`${!!browserShortcut}|${!!pr}|${!!shownTabs}`}>{headerActions}</ChatToolbar>;
   const paneHeader = paired ? (
     <View
       pointerEvents="box-none"
