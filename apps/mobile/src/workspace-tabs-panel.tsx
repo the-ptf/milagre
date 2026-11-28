@@ -19,6 +19,7 @@ import {
   runningChatCloseMessage,
   subchatAnchor,
   tabId,
+  tabStripShown,
   withLoneChatTabs,
   type OpenTab,
   type TabPlace,
@@ -46,7 +47,14 @@ const placeOf = (where: Where): TabPlace => (where.worktreeId === LINK_TABS ? "l
 const phoneWorkspace = (where: Where) => `${where.hostId}|${scopeKey(where.projectPath, where.worktreeId)}`;
 
 /** Keeps the open Chat's tab in its Worktree's tab set, and drops tabs of Chats that are gone or moved away. */
-export function useWorkspaceTabSync(enabled: boolean, where: Where | null, sessions: Record<string, AgentSession> | undefined, chatId: number | undefined) {
+/** Keeps the Worktree's tabs in step with its Chats; returns where the header shows them, null for a new Chat drafted where no tab is open. */
+export function useWorkspaceTabSync(
+  enabled: boolean,
+  where: Where | null,
+  sessions: Record<string, AgentSession> | undefined,
+  chatId: number | undefined,
+): Where | null {
+  const set = useTabSet(where ? phoneWorkspace(where) : null);
   const hostId = where?.hostId;
   const projectPath = where?.projectPath;
   const worktreeId = where?.worktreeId;
@@ -65,6 +73,7 @@ export function useWorkspaceTabSync(enabled: boolean, where: Where | null, sessi
       return next;
     });
   }, [enabled, hostId, projectPath, worktreeId, sessions, chatId]);
+  return where && tabStripShown(set, chatId === undefined) ? where : null;
 }
 
 function useTabs(where: Where, activeChatId: number | undefined, onDone?: () => void) {

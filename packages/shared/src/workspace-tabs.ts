@@ -164,6 +164,11 @@ export function foldTabbedChats<T>(items: readonly T[], read: (item: T) => Tabbe
   return rows;
 }
 
+/** A new Chat drafted where no tab is open has nothing to switch to, so the top bar shows no tabs for it. */
+export function tabStripShown(set: TabSet, drafting: boolean): boolean {
+  return !drafting || set.tabs.length > 0;
+}
+
 export function chatOf(tab: WorkspaceTab): number | undefined {
   return "chatId" in tab ? tab.chatId : undefined;
 }
