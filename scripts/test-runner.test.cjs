@@ -7,6 +7,7 @@ const {
   failureReason,
   HOST_ENV,
   needsShell,
+  unitConcurrency,
   shouldRetry,
   discoverUnitTests,
   discoverElectronChecks,
@@ -135,6 +136,12 @@ test("every Electron check that loads the built renderer asks for the build", ()
     if (fs.readFileSync(path.join(root, file), "utf8").includes("apps/desktop/dist/index.html"))
       assert.equal(MANIFEST[name]?.needsBuild, true, `${name} loads apps/desktop/dist but is missing needsBuild in MANIFEST`);
   }
+});
+
+test("unit tests use half the cores outside CI and node's default in CI", () => {
+  assert.equal(unitConcurrency({ ci: undefined, cores: 18 }), 9);
+  assert.equal(unitConcurrency({ ci: undefined, cores: 1 }), 1);
+  assert.equal(unitConcurrency({ ci: "true", cores: 18 }), null);
 });
 
 test("only npm on Windows runs through a shell", () => {
