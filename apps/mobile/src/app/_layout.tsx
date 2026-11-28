@@ -121,6 +121,7 @@ export default function Layout() {
                             <Stack.Screen name="design-library" options={{ title: "Designs" }} />
                             <Stack.Screen name="orchestrator" options={{ title: "Orchestrator" }} />
                             <Stack.Screen name="orchestrator-task" options={{ ...sheet, sheetAllowedDetents: [0.7, 1], sheetInitialDetentIndex: 0 }} />
+                            <Stack.Screen name="orchestrator-waiting" options={{ ...sheet, sheetAllowedDetents: [0.7, 1], sheetInitialDetentIndex: 0 }} />
                             <Stack.Screen name="routine" options={{ title: "Routine" }} />
                             <Stack.Screen name="routine-form" options={fullSheet} />
                             <Stack.Screen name="flow-run" options={{ title: "Run" }} />

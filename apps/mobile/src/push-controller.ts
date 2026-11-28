@@ -67,7 +67,15 @@ const SETTINGS_SHEET_PAGES = new Set([
   "project-settings",
   "published-pages",
 ]);
-export const SHEETS_OVER_PAGES = new Set(["design-share-sheet", "flow-step", "flow-add-step", "flow-publish", "orchestrator-task", "orchestrator-hint"]);
+export const SHEETS_OVER_PAGES = new Set([
+  "design-share-sheet",
+  "flow-step",
+  "flow-add-step",
+  "flow-publish",
+  "orchestrator-task",
+  "orchestrator-hint",
+  "orchestrator-waiting",
+]);
 export function viewedChat(path: string, chat: PushView, previous: PushView, connected: string | undefined): PushView {
   if (path === "/chat") return chat;
   return previous && previous.hostId === connected && (SHEETS_OVER_CHAT.has(path.slice(1)) || SETTINGS_SHEET_PAGES.has(path.slice(1))) ? previous : null;

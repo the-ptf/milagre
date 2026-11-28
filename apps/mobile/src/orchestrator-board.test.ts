@@ -115,6 +115,16 @@ test("a finished task is Done; one its agent marked blocked or that asks a quest
   assert.equal(boardItem(task({ outcome: "reply" }), { chat: { ...blocked, done_at: 5 } }, null, 0).column, "done", "marking the Chat Done accepts it");
 });
 
+test("a waiting card carries what its Chat asks, so the phone can answer it outside the Chat", () => {
+  const question = { requestId: "q", questions: [{ id: "0", header: "", question: "Which sender?", options: [], multiSelect: false }] };
+  const approval = { requestId: "a", title: "npm install" };
+  const ask = (patch: Partial<AgentRun>) => boardItem(task({ outcome: "reply" }), { chat: chat(), run: run(patch) }, null, 0).ask;
+  assert.deepEqual(ask({ questions: [question] as never }), { kind: "question", request: question });
+  assert.equal(ask({ approvals: [approval] as never, questions: [question] as never })?.kind, "approval");
+  assert.equal(ask({ approvals: [approval] as never, answered: { a: "allow" } })?.kind, undefined);
+  assert.equal(boardItem(task({ state: "needs-project" }), undefined, null, 0).ask, null);
+});
+
 test("a done or in-review card leads with its PR mark; a running one keeps its own", () => {
   const finished = { chat: chat({ summary: { count: 2, lastOutcome: "completed" } as AgentSession["summary"] }) };
   const mark = { icon: "failed", tone: "red", label: "Pull request #7 open, CI failed" } as const;
