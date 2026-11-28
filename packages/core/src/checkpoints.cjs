@@ -171,17 +171,17 @@ function createCheckpoints({
     }
     return { roots: snapshots, excluded };
   }
-  async function idle(item) {
-    const roots = item.before.map((s) => s.identity.root);
-    await validateRoots(item.chatId, roots);
+  async function idle(roots) {
     if ([...running.values()].some((task) => task.roots.some((root) => roots.includes(root))))
       throw new Error("Wait for running tasks to finish before restoring");
     await assertIdle(roots);
   }
   // Several tasks undone together (editing an earlier message) restore each file to before the first task that changed it,
   // and treat it as edited afterwards when it no longer matches the end of the last task that changed it.
-  async function impact(items) {
-    await idle(items[0]);
+  async function impact(items, { whileOthersRun = false } = {}) {
+    const roots = items[0].before.map((s) => s.identity.root);
+    await validateRoots(items[0].chatId, roots);
+    if (!whileOthersRun) await idle(roots);
     const files = [],
       states = [],
       targets = new Map();
@@ -280,13 +280,14 @@ function createCheckpoints({
           result = await impact([item]);
         return { ...summary(item), token: remember(chatId, [id], result.digest), files: result.files, excluded: result.excluded };
       }),
-    // Every task started at or after a message, undone together: what editing that message would also undo.
+    // Every task started at or after a message, undone together: what editing that message would also undo. Another Chat
+    // running in the Worktree blocks only the undo itself, so an edit that leaves files alone still goes through.
     rewind: (chatId, messageId, roots) =>
       serial(async () => {
         const items = (await listItems(chatId)).filter((item) => item.kind === "task" && item.messageId >= messageId && sameRoots(item, roots)).toReversed();
         if (!items.length) return null;
         const ids = items.map((item) => item.id),
-          result = await impact(items);
+          result = await impact(items, { whileOthersRun: true });
         return rewindPreview(items, ids, result, remember(chatId, ids, result.digest));
       }),
     running: (chatId) => running.has(chatId),
