@@ -10,7 +10,7 @@ const readBody = async (request) => {
   return Buffer.concat(chunks).toString("utf8");
 };
 
-async function startFakeMcp({ registration = true, clientId = "preset-client", clientSecret, requireAuth = true, apiKey } = {}) {
+async function startFakeMcp({ registration = true, clientId = "preset-client", clientSecret, requireAuth = true, apiKey, slackTokens = false } = {}) {
   const state = { codes: new Map(), tokens: new Set(), refreshes: new Map(), registered: [], tokenRequests: [], revoked: [], toolCalls: [] };
   let origin;
   const json = (response, status, value, headers = {}) =>
@@ -73,9 +73,13 @@ async function startFakeMcp({ registration = true, clientId = "preset-client", c
       return response.writeHead(302, { location: target.href }).end();
     }
     if (url.pathname === "/token" && request.method === "POST") {
+      const answer = (status, value) =>
+        slackTokens
+          ? json(response, 200, status === 200 ? { ok: true, authed_user: { ...value, token_type: "user" } } : { ok: false, error: value.error })
+          : json(response, status, value);
       const params = new URLSearchParams(await readBody(request));
       state.tokenRequests.push(Object.fromEntries(params));
-      if (clientSecret && params.get("client_secret") !== clientSecret) return json(response, 401, { error: "invalid_client" });
+      if (clientSecret && params.get("client_secret") !== clientSecret) return answer(401, { error: slackTokens ? "bad_client_secret" : "invalid_client" });
       if (params.get("grant_type") === "authorization_code") {
         const entry = state.codes.get(params.get("code"));
         state.codes.delete(params.get("code"));
@@ -83,17 +87,17 @@ async function startFakeMcp({ registration = true, clientId = "preset-client", c
           .createHash("sha256")
           .update(params.get("code_verifier") ?? "")
           .digest("base64url");
-        if (!entry || entry.challenge !== challenge || entry.clientId !== params.get("client_id")) return json(response, 400, { error: "invalid_grant" });
-        return json(response, 200, issue());
+        if (!entry || entry.challenge !== challenge || entry.clientId !== params.get("client_id")) return answer(400, { error: "invalid_grant" });
+        return answer(200, issue());
       }
       if (params.get("grant_type") === "refresh_token") {
         const previous = state.refreshes.get(params.get("refresh_token"));
-        if (!previous) return json(response, 400, { error: "invalid_grant" });
+        if (!previous) return answer(400, { error: "invalid_grant" });
         state.refreshes.delete(params.get("refresh_token"));
         state.tokens.delete(previous);
-        return json(response, 200, issue());
+        return answer(200, issue());
       }
-      return json(response, 400, { error: "unsupported_grant_type" });
+      return answer(400, { error: "unsupported_grant_type" });
     }
     if (url.pathname === "/revoke" && request.method === "POST") {
       state.revoked.push(Object.fromEntries(new URLSearchParams(await readBody(request))));
