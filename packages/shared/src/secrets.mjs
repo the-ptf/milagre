@@ -93,10 +93,13 @@ export function parseDotenv(text) {
     if (!match) continue;
     let value = match[2];
     const quote = value[0];
-    if ((quote === '"' || quote === "'") && value.length > 1 && value.endsWith(quote)) {
-      value = value.slice(1, -1);
-      if (quote === '"') value = value.replace(/\\n/g, "\n").replace(/\\"/g, '"');
-    } else value = value.replace(/\s+#.*$/, "");
+    const quoted =
+      quote === '"' || quote === "'" ? new RegExp(quote === '"' ? '^"((?:[^"\\\\]|\\\\.)*)"(?:\\s+#.*)?$' : "^'([^']*)'(?:\\s+#.*)?$").exec(value) : null;
+    if (quoted) {
+      value = quoted[1];
+      if (quote === '"') value = value.replace(/\\(["n\\])/g, (_, char) => (char === "n" ? "\n" : char));
+    } else if ((quote === '"' || quote === "'") && value.length > 1 && value.endsWith(quote)) value = value.slice(1, -1);
+    else value = value.replace(/\s+#.*$/, "");
     entries.push({ name: match[1], value });
   }
   return entries;
