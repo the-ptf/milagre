@@ -6,6 +6,8 @@ import {
   VETO_SECONDS,
   TASK_OUTCOMES,
   TASK_OUTCOME_DESCRIPTION,
+  TASK_PERMISSION_DESCRIPTION,
+  TASK_PERMISSION_MODES,
   type AutopilotMode,
   type ComputerPreference,
   type OrchestratorComputer,
@@ -182,6 +184,15 @@ function OrchestratorForm({
               value={settings.outcome}
               options={[...TASK_OUTCOMES]}
               onChange={(outcome) => save({ outcome })}
+            />
+          </Row>
+          <Row label="Permission mode" description={TASK_PERMISSION_DESCRIPTION}>
+            <Select<Settings["permissionMode"]>
+              label="Permission mode"
+              width={180}
+              value={settings.permissionMode}
+              options={[...TASK_PERMISSION_MODES]}
+              onChange={(permissionMode) => save({ permissionMode })}
             />
           </Row>
         </Group>

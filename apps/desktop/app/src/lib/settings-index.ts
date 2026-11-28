@@ -698,6 +698,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   { page: "experimental", title: "Memory", group: "Orchestrator", keywords: "notes" },
   { page: "experimental", title: "Completion", group: "Orchestrator", keywords: "done required outcome pull request PR created merged agent finished" },
   { page: "experimental", title: "Required outcome", group: "Orchestrator", keywords: "completion done pull request PR created merged agent finished" },
+  { page: "experimental", title: "Permission mode", group: "Orchestrator", keywords: "task approval ask auto full permissions default" },
   { page: "experimental", title: "Board", group: "Orchestrator", keywords: "task chats sidebar" },
   { page: "experimental", title: "Turn on the Orchestrator", group: "Orchestrator", keywords: "enable" },
   { page: "experimental", title: "Mascot and shortcut", group: "Orchestrator", keywords: "pebble color shortcut" },

@@ -3,6 +3,8 @@ import { router } from "expo-router";
 import {
   TASK_OUTCOMES,
   TASK_OUTCOME_DESCRIPTION,
+  TASK_PERMISSION_DESCRIPTION,
+  TASK_PERMISSION_MODES,
   normalizeTaskOutcome,
   type OrchestratorMemory,
   type OrchestratorSettings,
@@ -54,6 +56,20 @@ export function OrchestratorSettingsPage() {
               value={TASK_OUTCOMES.find((option) => option.value === settings.outcome)?.label ?? "PR created"}
               sections={[{ items: TASK_OUTCOMES.map((option) => ({ id: option.value, title: option.label, checked: option.value === settings.outcome })) }]}
               onSelect={(value) => save({ outcome: normalizeTaskOutcome(value) })}
+            />
+            <MenuRow
+              title="Permission mode"
+              subtitle={TASK_PERMISSION_DESCRIPTION}
+              value={TASK_PERMISSION_MODES.find((option) => option.value === settings.permissionMode)?.label ?? "Same as new Chats"}
+              sections={[
+                {
+                  items: TASK_PERMISSION_MODES.map((option) => ({ id: option.value, title: option.label, checked: option.value === settings.permissionMode })),
+                },
+              ]}
+              onSelect={(value) => {
+                const option = TASK_PERMISSION_MODES.find((entry) => entry.value === value);
+                if (option) save({ permissionMode: option.value });
+              }}
             />
           </Group>
         }

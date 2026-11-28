@@ -1,6 +1,7 @@
 export type AutopilotMode = "answer" | "ask" | "off";
 export type ComputerPreference = "prefer" | "normal" | "less" | "manual" | "never";
 export type TaskOutcome = "pull-request" | "merged" | "reply";
+export type TaskPermissionMode = "chat" | "ask" | "auto" | "full";
 export type BoardPullRequest = "open" | "merged" | "closed" | null;
 export type BoardColumn = "running" | "needs" | "review" | "done";
 export type MemoryGroup = "work" | "projects" | "tools" | "other";
@@ -30,6 +31,7 @@ export interface OrchestratorSettings {
   hideTaskChats: boolean;
   notify: boolean;
   outcome: TaskOutcome;
+  permissionMode: TaskPermissionMode;
   mascotColor: string;
   name: string;
   boardHidden: boolean;
@@ -130,6 +132,9 @@ export const VETO_SECONDS: readonly number[];
 export const TASK_OUTCOMES: readonly { value: TaskOutcome; label: string }[];
 export const TASK_OUTCOME_DESCRIPTION: string;
 export function normalizeTaskOutcome(value: unknown, fallback?: TaskOutcome): TaskOutcome;
+export const TASK_PERMISSION_MODES: readonly { value: TaskPermissionMode; label: string }[];
+export const TASK_PERMISSION_DESCRIPTION: string;
+export function taskPermissionMode(setting: TaskPermissionMode, sent: unknown): "ask" | "auto" | "full";
 export function taskOutcomePrompt(outcome: TaskOutcome): string;
 export function taskOutcomeDetail(outcome: TaskOutcome, pullRequest: BoardPullRequest): string | null;
 export function pullRequestState(states: readonly ("OPEN" | "MERGED" | "CLOSED")[]): BoardPullRequest;

@@ -365,6 +365,7 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   { page: "orchestrator-settings", title: "Account", group: "Routing", keywords: "least used today project's account limit" },
   { page: "orchestrator-settings", title: "Use other computers", group: "Computers", keywords: "load balancing room cpu memory" },
   { page: "orchestrator-settings", title: "Required outcome", group: "Completion", keywords: "done pull request PR created merged agent finished" },
+  { page: "orchestrator-settings", title: "Permission mode", group: "Completion", keywords: "task approval ask auto full permissions default" },
   { page: "orchestrator-settings", title: "Answer threads for me", group: "Autopilot", keywords: "autopilot ask me first off approvals questions" },
   {
     page: "orchestrator-settings",

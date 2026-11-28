@@ -119,11 +119,20 @@ function createAutopilot({ store, ports, now = () => Date.now(), schedule = setT
     }
   }
 
+  const stopped = () => {
+    const settings = store.read().settings;
+    return !settings.enabled || settings.autopilot === "off";
+  };
+
   async function act(chatId, event, task, plan) {
     const key = `${chatId}\n${event.requestId}`;
     planned.set(key, { kind: plan.kind, choice: plan.choice, taskId: task?.id ?? null });
     const run = async () => {
       pending.delete(key);
+      if (stopped()) {
+        planned.delete(key);
+        return;
+      }
       const accepted =
         plan.question === null
           ? await ports.respondPermission({ chatId, requestId: event.requestId, decision: "allow" })
@@ -156,6 +165,7 @@ function createAutopilot({ store, ports, now = () => Date.now(), schedule = setT
     if (context.run && isDesignDecision(text)) return;
     const answer = question && !irreversible ? await questionAnswer(event, context) : null;
     if (question && !answer) return;
+    if (stopped()) return;
     const confidence = question ? answer.confidence : permissionConfidence(event);
     const decision = autopilotDecision({ mode: settings.autopilot, irreversible, confidence, trust: trustScore(store.read().memory.trust[kind]) });
     if (decision !== "answer" && decision !== "veto") return;
@@ -195,7 +205,7 @@ function createAutopilot({ store, ports, now = () => Date.now(), schedule = setT
     const irreversible = isIrreversible({ text });
     if (irreversible) return;
     const verdict = await flowVerdict(routine, step, approval);
-    if (!verdict) return;
+    if (!verdict || stopped()) return;
     const kind = `flow:${step.kind}`;
     const decision = autopilotDecision({
       mode: settings.autopilot,
@@ -204,6 +214,7 @@ function createAutopilot({ store, ports, now = () => Date.now(), schedule = setT
       trust: trustScore(store.read().memory.trust[kind]),
     });
     const approve = async () => {
+      if (stopped()) return;
       const owner = ports.flowApproval?.(run.id, step.id);
       if (owner?.decision) return learn(kind, owner.decision === "approved" ? "answered" : "corrected");
       await ports.approveFlow(run.id, verdict.summary);

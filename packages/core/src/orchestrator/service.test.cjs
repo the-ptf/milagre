@@ -371,18 +371,32 @@ test("new tasks keep their outcome through settings edits, restarts and reroutin
   assert.match(calls.sent[2].prompt, /report the result/);
 });
 
+test("the Orchestrator's permission mode overrides the sending device's default", async (t) => {
+  const { orchestrator, calls } = setup(t);
+  orchestrator.saveSettings({ permissionMode: "ask" });
+  const asked = await orchestrator.send("fix happiergym timer", { permissionMode: "full" });
+  await settled(orchestrator, asked.id);
+  assert.equal(calls.sent[0].permissionMode, "ask");
+  orchestrator.saveSettings({ permissionMode: "chat" });
+  const followed = await orchestrator.send("explain happiergym timer");
+  await settled(orchestrator, followed.id);
+  assert.equal(calls.sent[1].permissionMode, "auto", "an agent's send with no device default runs in Auto");
+});
+
 test("a task received from another computer keeps the sender's outcome", async (t) => {
   const { orchestrator, store, calls } = setup(t);
-  orchestrator.saveSettings({ outcome: "reply" });
+  orchestrator.saveSettings({ outcome: "reply", permissionMode: "full" });
   const task = await orchestrator.startHere({
     prompt: "fix timer",
     title: "Fix timer",
     origin: "git@github.com:me/happiergym",
     role: "build",
     outcome: "merged",
+    permissionMode: "ask",
   });
   await until(() => calls.sent.length === 1);
   assert.equal(store.task(task.id).outcome, "merged");
+  assert.equal(calls.sent[0].permissionMode, "ask", "the sender already picked the mode");
   assert.match(calls.sent[0].prompt, /only after its pull request is merged/);
 });
 

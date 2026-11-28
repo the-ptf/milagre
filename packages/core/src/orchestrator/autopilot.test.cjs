@@ -175,3 +175,47 @@ test("answers a Run Chat's question but leaves a design question waiting", async
     ["a"],
   );
 });
+
+const turnOff = (store) => store.update((current) => ({ settings: normalizeOrchestratorSettings({ ...current.settings, autopilot: "off" }) }));
+
+test("switching Autopilot off stops a chat answer, permission and Flow approval that were already waiting", async (t) => {
+  const question = { id: "q", question: "Monthly or yearly first?", options: [{ label: "Monthly" }, { label: "Yearly" }] };
+
+  const perm = setup(t, { vetoSeconds: 30 });
+  perm.pilot.observe(CHAT, { type: "permission-request", requestId: "p1", kind: "other", tool: "mcp__linear__get_issue", title: "Use get_issue?" });
+  await settle();
+  assert.equal(perm.timers.length, 1);
+  turnOff(perm.store);
+  await perm.timers[0].run();
+  await settle();
+  assert.equal(perm.calls.permissions.length, 0);
+
+  const ask = setup(t, { vetoSeconds: 30, reply: { answers: { q: ["Yearly"] }, confidence: 0.6, summary: "yearly" } });
+  ask.pilot.observe(CHAT, { type: "question-request", requestId: "q1", questions: [question] });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(ask.timers.length, 1);
+  turnOff(ask.store);
+  await ask.timers[0].run();
+  await settle();
+  assert.equal(ask.calls.answers.length, 0);
+
+  const flow = setup(t, { vetoSeconds: 30, flowReply: { design: false, approve: true, confidence: 0.6, summary: "ok" } });
+  const step = { id: "scope", name: "Check the scope", kind: "ask" };
+  flow.pilot.considerFlow({ routine: { name: "Backlog fixes" }, run: waitingRun(step, "Go ahead?"), step });
+  await settle();
+  assert.equal(flow.timers.length, 1);
+  turnOff(flow.store);
+  await flow.timers[0].run();
+  await settle();
+  assert.equal(flow.calls.approved.length, 0);
+
+  const inFlight = setup(t, {
+    flowReply: { design: false, approve: true, confidence: 1, summary: "ok" },
+    trust: { "flow:ask": { answered: 9, corrected: 0 } },
+  });
+  inFlight.pilot.considerFlow({ routine: { name: "Backlog fixes" }, run: waitingRun(step, "Go ahead?"), step });
+  turnOff(inFlight.store);
+  await settle();
+  await settle();
+  assert.equal(inFlight.calls.approved.length, 0);
+});
