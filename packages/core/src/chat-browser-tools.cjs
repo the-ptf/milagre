@@ -118,6 +118,7 @@ async function onElement(session, backendNodeId, fn, args = []) {
 }
 
 const settle = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const MAX_UPLOAD_FILES = 20;
 const CHOOSER_WAIT_MS = 5000;
 
@@ -385,12 +386,12 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
     },
     {
       name: "browser_type",
-      description: "Type text into whatever has the keyboard focus on the page (after browser_click on a field).",
+      description: "Type text into whatever has the keyboard focus (after browser_click on a field), one character at a time. Long text: browser_fill.",
       input: { page, text: z.string().max(20000) },
       readOnly: false,
       run: async (input) => {
         const { target, session } = await on(input);
-        await session.send("Input.insertText", { text: input.text });
+        for (const { segment } of GRAPHEMES.segment(input.text)) await session.send("Input.insertText", { text: segment });
         return done(target);
       },
     },

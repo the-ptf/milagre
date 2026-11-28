@@ -161,6 +161,24 @@ test("click presses the middle of the element; an unknown ref asks for a new sna
   assert.match((await f.run("browser_click", { ref: "@e3" })).text, /take a new browser_snapshot/);
 });
 
+test("type sends one character at a time, so a code field split into one box per digit fills every box", async () => {
+  const f = fixture();
+  // Six maxlength=1 boxes; each box's input handler moves the focus to the next one, as sign-in pages do.
+  const boxes = ["", "", "", "", "", ""];
+  let focused = 0;
+  const send = f.session.send;
+  f.session.send = async (method, params) => {
+    if (method === "Input.insertText" && focused < boxes.length) boxes[focused++] = params.text.slice(0, 1);
+    return send(method, params);
+  };
+  await f.run("browser_type", { text: "123456" });
+  assert.deepEqual(boxes, ["1", "2", "3", "4", "5", "6"]);
+  // A character drawn from several code points still reaches the page whole.
+  await f.run("browser_type", { text: "é👍🏽" });
+  const inserted = f.session.sent.filter(([method]) => method === "Input.insertText").map(([, params]) => params.text);
+  assert.deepEqual(inserted.slice(-2), ["é", "👍🏽"]);
+});
+
 test("fill types the text into the field; select picks an option by text", async () => {
   const f = fixture();
   await f.run("browser_snapshot");
