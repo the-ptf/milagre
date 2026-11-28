@@ -13,7 +13,7 @@ import type { RunMark } from "./FlowCanvasNodes";
 
 export const outlineButton =
   "inline-flex h-8 shrink-0 items-center gap-2 rounded-control border border-line-strong bg-surface px-3 text-13 font-medium text-ink transition-colors hover:bg-hover disabled:opacity-40";
-export const primaryButton =
+const primaryButton =
   "inline-flex h-8 shrink-0 items-center gap-2 rounded-control bg-ink px-3 text-13 font-medium text-surface transition-opacity hover:opacity-90 aria-disabled:opacity-40 aria-disabled:hover:opacity-40";
 
 /** The trigger's card on the canvas, with only the trigger fields a step reads. */

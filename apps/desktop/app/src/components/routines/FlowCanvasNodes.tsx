@@ -31,7 +31,7 @@ export interface CanvasHandlers {
 
 export const CanvasContext = createContext<CanvasHandlers | null>(null);
 
-export const useCanvas = () => {
+const useCanvas = () => {
   const value = useContext(CanvasContext);
   if (!value) throw new Error("Flow canvas parts need a CanvasContext");
   return value;
