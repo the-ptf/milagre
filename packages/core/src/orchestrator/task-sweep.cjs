@@ -18,12 +18,15 @@ function createTaskSweep({ store, ports, now = () => Date.now() }) {
     return gone;
   }
 
+  // async so a port that throws before it's wired (the daemon's first sweep runs mid-startup) reads as offline, not a failed sweep
+  const readRemote = async (computerId) => ports.remote.invoke(computerId, "orchestrator:read", []);
+
   async function remoteGone() {
     const mirrors = store.read().tasks.filter((task) => task.remoteTaskId && task.remoteComputerId);
     if (!mirrors.length || !ports.remote?.enabled?.()) return [];
     const gone = [];
     for (const computerId of new Set(mirrors.map((task) => task.remoteComputerId))) {
-      const snapshot = await ports.withTimeout(ports.remote.invoke(computerId, "orchestrator:read", []), REMOTE_READ_MS).catch(() => null);
+      const snapshot = await ports.withTimeout(readRemote(computerId), REMOTE_READ_MS).catch(() => null);
       if (!Array.isArray(snapshot?.tasks)) continue;
       const kept = new Set(snapshot.tasks.map((task) => task.id));
       for (const task of mirrors) if (task.remoteComputerId === computerId && !kept.has(task.remoteTaskId)) gone.push({ task, archive: false });

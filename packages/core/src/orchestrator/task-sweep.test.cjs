@@ -9,7 +9,7 @@ const { createTaskSweep } = require("./task-sweep.cjs");
 const HOUR = 60 * 60 * 1000;
 const NOW = 100 * HOUR;
 
-function setup(t, { tasks, sessions = {}, held = ["/p/a"], busy = [], retentionHours = 24, remoteTasks = {} }) {
+function setup(t, { tasks, sessions = {}, held = ["/p/a"], busy = [], retentionHours = 24, remoteTasks = {}, remoteInvoke }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-task-sweep-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const store = createOrchestratorStore({ file: path.join(dir, "orchestrator.json") });
@@ -28,11 +28,13 @@ function setup(t, { tasks, sessions = {}, held = ["/p/a"], busy = [], retentionH
       images: { drop: (id) => dropped.push(id) },
       remote: {
         enabled: () => true,
-        invoke: async (computerId, method) => {
-          assert.equal(method, "orchestrator:read");
-          if (!(computerId in remoteTasks)) throw new Error("offline");
-          return { tasks: remoteTasks[computerId].map((id) => ({ id })) };
-        },
+        invoke:
+          remoteInvoke ??
+          (async (computerId, method) => {
+            assert.equal(method, "orchestrator:read");
+            if (!(computerId in remoteTasks)) throw new Error("offline");
+            return { tasks: remoteTasks[computerId].map((id) => ({ id })) };
+          }),
       },
       withTimeout: (promise) => promise,
     },
@@ -98,4 +100,20 @@ test("a task placed on another computer leaves once that computer's board droppe
   });
   assert.deepEqual(await sweep.sweep(), ["swept"]);
   assert.deepEqual(left(), ["kept", "offline"]);
+});
+
+test("a remote port that throws synchronously (daemon not fully wired yet) doesn't skip the local Done sweep", async (t) => {
+  const { sweep, left } = setup(t, {
+    retentionHours: 0,
+    tasks: [
+      { id: "archived", sessionId: 1 },
+      { id: "mirror", remoteComputerId: "studio", remoteTaskId: "r1", sessionId: 2 },
+    ],
+    sessions: { 1: { archived: true } },
+    remoteInvoke: () => {
+      throw new ReferenceError("Cannot access 'computers' before initialization");
+    },
+  });
+  assert.deepEqual(await sweep.sweep(), ["archived"]);
+  assert.deepEqual(left(), ["mirror"]);
 });
