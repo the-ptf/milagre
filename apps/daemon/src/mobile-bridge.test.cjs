@@ -2118,6 +2118,18 @@ test("/runs validates Chat selections, keeps legacy responses, and preserves sco
   }
 });
 
+test("a provider's masked question counts as a secret by the question this computer holds, not by the phone's flag", async () => {
+  const { carriesSecret } = require("./mobile-routes.cjs");
+  const masked = { requestId: "q-1", questions: [{ question: "API key?", secret: true }] };
+  const plain = { requestId: "q-2", questions: [{ question: "Which branch?" }] };
+  const hostRuns = { read: async () => ({ runs: { "/p#1": { questions: [masked, plain] } } }) };
+  const answer = (requestId, extra = {}) => ({ method: "agent:answer-question", args: [{ chatId: "/p#1", requestId, answers: {}, ...extra }] });
+  assert.equal(await carriesSecret(answer("q-1"), hostRuns), true, "an older phone that sends no flag still goes through the sealed check");
+  assert.equal(await carriesSecret(answer("q-2"), hostRuns), false);
+  assert.equal(await carriesSecret(answer("q-2", { secretAnswer: true }), hostRuns), true);
+  assert.equal(await carriesSecret({ method: "secrets:list", args: [] }, hostRuns), false);
+});
+
 test("every bridge takes a secret value only through the sealed channel, never through a tunnel or proxy", async (t) => {
   const { SEALED_HEADER, SEALED_VALUE } = require("./sealed-channel.cjs");
   const keys = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-sealed-key-"));

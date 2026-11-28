@@ -87,15 +87,12 @@ function createSecretsWiring({
           if (!(await vault.status()).unlocked) return null;
           const { origin: found } = await target(chatId);
           const existing = (await vault.list()).find((secret) => secret.name === name);
-          return { name, project: Boolean(found), replaces: Boolean(existing), version: existing?.version ?? 0 };
+          return { name, project: Boolean(found), replaces: Boolean(existing), version: existing?.version ?? 0, changedOn: existing?.changedOn ?? null };
         },
-        save: async (chatId, { name, value, scope, expectVersion }) => {
+        save: async (chatId, { name, value, scope, expect }) => {
           const where = await target(chatId);
           if (scope === "project" && !where.origin) throw new Error("This Chat's Project has no Git origin.");
-          const existing = (await vault.list()).find((secret) => secret.name === name);
-          if ((existing?.version ?? 0) !== expectVersion) throw new Error(`${name} changed while the card was open.`);
-          const kept = existing ? { delivery: existing.delivery, askEachUse: existing.askEachUse, unattended: existing.unattended, note: existing.note } : {};
-          await vault.set({ ...kept, name, value, projects: scope === "project" ? [where.origin] : "all" });
+          await vault.set({ name, value, projects: scope === "project" ? [where.origin] : "all" }, { expect, keepPolicy: true });
         },
       },
     }),
@@ -122,10 +119,10 @@ function createSecretsWiring({
   });
   void refresh();
 
-  const sync = createSecretsSync({ vault, remote: options.remoteComputers, dataDir, self: computerId });
+  const sync = createSecretsSync({ vault, remote: options.remoteComputers, dataDir });
   commands.handle("secrets:digest", () => sync.digest());
-  commands.handle("secrets:push", (_context, request) => sync.receive(request));
-  commands.handle("secrets:forget-from", (_context, request) => sync.forgetFrom(request));
+  commands.handle("secrets:push", (context, request) => sync.receive(request, context?.peerKey));
+  commands.handle("secrets:forget-from", (context, request) => sync.forgetFrom(request, context?.peerKey));
   commands.handle("secrets:sharing", () => sync.sharing());
   commands.handle("secrets:share", (_context, request) => sync.share(request));
   commands.handle("secrets:status", () => vault.status());

@@ -76,7 +76,10 @@ function createResultPages(maxFrameBytes, { ttlMs = PAGES_TTL_MS, budgetChars = 
     },
   };
 }
-function acceptConnectionWith(deps, { send, end, destroy, isClosed, requireAuthentication: mustAuthenticate = false, policy = null, openStream = null }) {
+function acceptConnectionWith(
+  deps,
+  { send, end, destroy, isClosed, requireAuthentication: mustAuthenticate = false, policy = null, openStream = null, peerKey = null },
+) {
   const {
     authenticationToken,
     authTimeoutMs,
@@ -118,7 +121,7 @@ function acceptConnectionWith(deps, { send, end, destroy, isClosed, requireAuthe
   const awaitingPages = new Set();
   const resultPages = createResultPages(maxFrameBytes, { ttlMs: pagesTtlMs, budgetChars: pagesBudgetChars });
   const view = { focused: false, projectPath: null, chatId: null, peer: policy === peerPolicy };
-  const context = Object.freeze({ clientId: randomUUID(), ...(openStream ? { openStream } : {}) });
+  const context = Object.freeze({ clientId: randomUUID(), ...(openStream ? { openStream } : {}), ...(peerKey ? { peerKey } : {}) });
   const key = Symbol("connection");
   const connection = { send, policy };
   if (authenticated) {

@@ -143,7 +143,7 @@ function registerOrchestrator(
         )?.memory;
         const secrets = await commands
           .get("secrets:list")({})
-          .then((list) => list.map((secret) => secret.name))
+          .then((list) => list.filter((secret) => secret.unattended).map(({ name, projects }) => ({ name, projects })))
           .catch(() => null);
         return {
           cpu: Math.min(1, load),
@@ -159,6 +159,12 @@ function registerOrchestrator(
             .catch(() => [])
         )
           .filter((secret) => secret.unattended && secretReaches(secret, { origin: originId(origin), unattended: true }))
+          .map((secret) => secret.name),
+      secretsReaching: (secrets, origin) =>
+        (Array.isArray(secrets) ? secrets : [])
+          .filter(
+            (secret) => secret && typeof secret === "object" && secretReaches({ ...secret, unattended: true }, { origin: originId(origin), unattended: true }),
+          )
           .map((secret) => secret.name),
       wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms).unref()),
       withTimeout,

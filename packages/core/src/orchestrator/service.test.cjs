@@ -233,7 +233,7 @@ test("the router falls back to keywords when the model is unavailable or vague",
   assert.equal(invented.projectPath, "/p/happiergym", "a Project outside the list is ignored");
 });
 
-test("a task stays here when the roomier computer lacks a secret its unattended run needs", async (t) => {
+test("a task stays here when the roomier computer lacks a secret its unattended run needs, or holds it for another Project", async (t) => {
   const asked = [];
   const remote = {
     enabled: () => true,
@@ -245,7 +245,7 @@ test("a task stays here when the roomier computer lacks a secret its unattended 
           cpu: 0.1,
           memoryFree: 0.8,
           agents: 0,
-          secrets: [],
+          secrets: [{ name: "ASC_KEY_ID", projects: ["github.com/me/other-app"] }],
           projects: [{ path: "/Users/s/happiergym", name: "happiergym", origin: "git@github.com:me/happiergym" }],
         };
       return { id: "remote-task", state: "routing" };
@@ -253,7 +253,11 @@ test("a task stays here when the roomier computer lacks a secret its unattended 
   };
   const { orchestrator, store } = setup(t, {
     remote,
-    extraPorts: { requiredSecrets: async () => ["ASC_KEY_ID"] },
+    extraPorts: {
+      requiredSecrets: async () => ["ASC_KEY_ID"],
+      secretsReaching: (secrets) =>
+        secrets.filter((secret) => secret.projects === "all" || secret.projects.includes("github.com/me/happiergym")).map((secret) => secret.name),
+    },
     reply: { project: "/p/happiergym", role: "build", title: "Fix the rest timer", reason: "Mentions the gym app", confidence: 0.9 },
   });
   const task = await orchestrator.send("the rest timer in my gym app skips");

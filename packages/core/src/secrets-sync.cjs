@@ -1,9 +1,11 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { secretNameProblem } = require("@milagre/shared/secrets");
+const { SECRET_LIMITS, secretNameProblem } = require("@milagre/shared/secrets");
 const { recordSchema, tombstoneSchema } = require("./secrets-vault.cjs");
 
 const BATCH = 20;
+const RETRY_MS = 60_000;
+const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** Which of two versions of a secret wins on every computer alike: the higher version, then the higher computer name. */
 function newer(candidate, current) {
@@ -19,16 +21,24 @@ function digestOf(state) {
   ];
 }
 
-/** The entries another computer lacks or holds older, by its digest. Deletes go only where the name is known. */
+/**
+ * The entries another computer lacks or holds older, by its digest. Only this computer's own secrets go: one received
+ * from another computer is never passed on, so turning sharing off reaches every copy. Deletes carry no value and go
+ * everywhere, so a computer that never had a secret can't take an older copy of it later.
+ */
 function outgoing(state, theirs) {
   const known = new Map(theirs.map((entry) => [entry.name, entry]));
   const entries = [];
-  for (const [name, secret] of Object.entries(state.secrets)) {
-    const { from: _from, ...shared } = secret;
-    if (newer(secret, known.get(name))) entries.push({ name, secret: shared });
-  }
-  for (const [name, tombstone] of Object.entries(state.tombstones)) if (known.has(name) && newer(tombstone, known.get(name))) entries.push({ name, tombstone });
+  for (const [name, secret] of Object.entries(state.secrets)) if (!secret.from && newer(secret, known.get(name))) entries.push({ name, secret });
+  for (const [name, tombstone] of Object.entries(state.tombstones)) if (newer(tombstone, known.get(name))) entries.push({ name, tombstone });
   return entries;
+}
+
+/** Whether a received secret passes the checks a secret saved here passes. */
+function acceptable(state, name, secret) {
+  if (!secret.value || Buffer.byteLength(secret.value, "utf8") > SECRET_LIMITS.valueBytes) return false;
+  if (secret.kind === "file" && !(secret.fileName && FILE_NAME.test(secret.fileName))) return false;
+  return Boolean(state.secrets[name]) || Object.keys(state.secrets).length < SECRET_LIMITS.count;
 }
 
 /** Applies what a computer sent; a reserved or malformed entry is skipped, never stored. Returns the names it changed. */
@@ -42,8 +52,9 @@ function merge(state, entries, from) {
     const incoming = secret?.success ? secret.data : tombstone?.success ? tombstone.data : null;
     if (!incoming || !newer(incoming, state.secrets[name] ?? state.tombstones[name])) continue;
     if (secret?.success) {
+      if (!acceptable(state, name, incoming)) continue;
       if (incoming.kind === "file" || incoming.askEachUse) incoming.delivery = "on-demand";
-      state.secrets[name] = { ...incoming, from };
+      state.secrets[name] = { ...incoming, fileName: incoming.kind === "file" ? incoming.fileName : null, from };
       delete state.tombstones[name];
     } else {
       delete state.secrets[name];
@@ -70,12 +81,18 @@ function readJson(file) {
   }
 }
 
+const fromPeer = (peerKey) => {
+  if (typeof peerKey !== "string" || !peerKey) throw new Error("Only a paired computer sends secrets here.");
+  return peerKey;
+};
+
 /**
  * Sends this computer's secrets to the paired computers it shares them with, over the encrypted computer link. Push
- * only: another computer can send changes here, never read a value back. Turning sharing off asks that computer to
- * drop what came from here, and keeps asking while it is offline.
+ * only: another computer can send changes here, never read a value back. What arrives is kept under the sending
+ * computer's paired key, which the link authenticated, never a name it sends. Turning sharing off asks that computer
+ * to drop what came from here, and keeps asking, also while it is offline, until it has.
  */
-function createSecretsSync({ vault, remote, dataDir, self }) {
+function createSecretsSync({ vault, remote, dataDir, retryMs = RETRY_MS }) {
   const file = path.join(dataDir, "secrets-sharing.json");
   let settings = readJson(file);
   const save = () => {
@@ -84,6 +101,8 @@ function createSecretsSync({ vault, remote, dataDir, self }) {
   };
   const online = () => new Map((remote?.list?.() ?? []).filter((computer) => computer.online !== false).map((computer) => [computer.id, computer]));
   const running = new Map();
+  const again = new Set();
+  const retries = new Map();
 
   async function pushTo(id) {
     const theirs = await remote.invoke(id, "secrets:digest", []);
@@ -92,24 +111,47 @@ function createSecretsSync({ vault, remote, dataDir, self }) {
       entries = outgoing(state, Array.isArray(theirs) ? theirs : []);
       return null;
     });
-    for (let index = 0; index < entries.length; index += BATCH)
-      await remote.invoke(id, "secrets:push", [{ from: self(), entries: entries.slice(index, index + BATCH) }]);
-    return entries.length;
+    for (let index = 0; index < entries.length && settings.shared.includes(id); index += BATCH)
+      await remote.invoke(id, "secrets:push", [{ entries: entries.slice(index, index + BATCH) }]);
   }
 
   async function forgetOn(id) {
-    await remote.invoke(id, "secrets:forget-from", [{ from: self() }]);
+    await remote.invoke(id, "secrets:forget-from", [{}]);
     settings = { ...settings, pendingForget: settings.pendingForget.filter((item) => item !== id) };
     save();
   }
 
+  const wanted = (id) => settings.shared.includes(id) || settings.pendingForget.includes(id);
+
+  function retryLater(id) {
+    clearTimeout(retries.get(id));
+    const timer = setTimeout(() => {
+      retries.delete(id);
+      if (wanted(id)) void syncOne(id);
+    }, retryMs);
+    timer.unref?.();
+    retries.set(id, timer);
+  }
+
   function syncOne(id) {
-    if (running.has(id)) return running.get(id);
+    if (running.has(id)) {
+      again.add(id);
+      return running.get(id);
+    }
     const work = (async () => {
-      if (settings.pendingForget.includes(id)) await forgetOn(id);
-      if (settings.shared.includes(id) && (await vault.status()).unlocked) await pushTo(id);
+      do {
+        again.delete(id);
+        if (settings.pendingForget.includes(id)) await forgetOn(id);
+        if (settings.shared.includes(id) && (await vault.status()).unlocked) await pushTo(id);
+      } while (again.has(id));
+      clearTimeout(retries.get(id));
+      retries.delete(id);
     })()
-      .catch((error) => console.warn(`Secrets didn't reach ${id}:`, error.message))
+      .catch((error) => {
+        console.warn(`Secrets didn't reach ${id}:`, error.message);
+        again.delete(id);
+        retryLater(id);
+      })
       .finally(() => running.delete(id));
     running.set(id, work);
     return work;
@@ -119,7 +161,7 @@ function createSecretsSync({ vault, remote, dataDir, self }) {
   const syncAll = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
-      for (const id of online().keys()) if (settings.shared.includes(id) || settings.pendingForget.includes(id)) void syncOne(id);
+      for (const id of online().keys()) if (wanted(id)) void syncOne(id);
     }, 300);
     timer.unref?.();
   };
@@ -128,8 +170,8 @@ function createSecretsSync({ vault, remote, dataDir, self }) {
 
   return {
     digest: async () => digestOf(await snapshot(vault)),
-    async receive({ from, entries } = {}) {
-      if (typeof from !== "string" || !from) throw new Error("A push names the computer it comes from.");
+    async receive({ entries } = {}, peerKey) {
+      const from = fromPeer(peerKey);
       let applied = [];
       await vault.transact((state) => {
         applied = merge(state, entries, from);
@@ -137,10 +179,11 @@ function createSecretsSync({ vault, remote, dataDir, self }) {
       });
       return { applied };
     },
-    async forgetFrom({ from } = {}) {
+    async forgetFrom(_request, peerKey) {
+      const from = fromPeer(peerKey);
       let removed = [];
       await vault.transact((state) => {
-        removed = forgetFrom(state, String(from ?? ""));
+        removed = forgetFrom(state, from);
         return removed.length ? state : null;
       });
       return { removed };
@@ -162,6 +205,7 @@ function createSecretsSync({ vault, remote, dataDir, self }) {
       settings = on ? { shared: [...shared, computer], pendingForget } : { shared, pendingForget: [...pendingForget, computer] };
       save();
       if (online().has(computer)) await syncOne(computer);
+      else if (!on) retryLater(computer);
       return this.sharing();
     },
     syncOne,

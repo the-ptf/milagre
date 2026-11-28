@@ -10,7 +10,11 @@ function createPlacement({ store, ports, settings, projectList, addTask, imagesO
     if (!origin) return null;
     const here = await ports.capacity();
     const required = (await ports.requiredSecrets?.(origin).catch(() => [])) ?? [];
-    const holdsSecrets = (capacity) => required.every((name) => capacity?.secrets?.includes(name));
+    const holdsSecrets = (capacity) => {
+      if (!required.length) return true;
+      const there = ports.secretsReaching?.(capacity?.secrets, origin) ?? [];
+      return required.every((name) => there.includes(name));
+    };
     const answers = await Promise.all(
       remote.list().map(async (computer) => {
         const capacity = await ports.withTimeout(remote.invoke(computer.id, "orchestrator:capacity", []), 4000).catch(() => null);

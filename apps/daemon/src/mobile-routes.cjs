@@ -2,6 +2,7 @@ const { isSealed } = require("./sealed-channel.cjs");
 const { isSecretRequest } = require("@milagre/core/chat-secrets");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const { chatsNeedingAttention } = require("@milagre/shared/attention");
+const { secretAnswerFlag } = require("@milagre/shared/agent-runs");
 const { METHODS } = require("./mobile-methods.cjs");
 const {
   failure,
@@ -88,10 +89,19 @@ function phoneReply(method, value) {
   return result;
 }
 
-/** A secret value in a phone call: every bridge takes it only through the sealed channel, unless a development host opts out. */
-const carriesSecret = (request) =>
-  request.method === "secrets:set" ||
-  (request.method === "agent:answer-question" && (isSecretRequest(request.args[0]?.requestId) || request.args[0]?.secretAnswer === true));
+const masksAnswer = (runs, requestId) =>
+  Object.values(runs ?? {}).some((run) => run?.questions?.some((question) => question.requestId === requestId && secretAnswerFlag(question).secretAnswer));
+
+/**
+ * A secret value in a phone call: every bridge takes it only through the sealed channel, unless a development host opts
+ * out. A masked question is known by the question this computer holds, whatever the phone says about it.
+ */
+async function carriesSecret(request, hostRuns) {
+  if (request.method === "secrets:set") return true;
+  if (request.method !== "agent:answer-question") return false;
+  const requestId = request.args[0]?.requestId;
+  return isSecretRequest(requestId) || request.args[0]?.secretAnswer === true || masksAnswer((await hostRuns.read()).runs, requestId);
+}
 
 function createMobileRoutes({
   readScope,
@@ -235,7 +245,7 @@ function createMobileRoutes({
       } else {
         if (!METHODS.has(request.method)) throw failure(403, "Command is not available from mobile");
         if (request.method === "secrets:set" && request.args[0]?.file !== undefined) throw failure(403, "The phone can't read files on this computer");
-        if (carriesSecret(request) && !isSealed(req) && process.env.MILAGRE_DEV_PLAIN_SECRETS !== "1")
+        if (!isSealed(req) && (await carriesSecret(request, hostRuns)) && process.env.MILAGRE_DEV_PLAIN_SECRETS !== "1")
           throw failure(403, "Secrets travel only over Milagre's encrypted connection (relay, local network or Tailscale), not through a tunnel or proxy.");
         const args = withoutHiddenArgs(request);
         if (confine) {
@@ -250,4 +260,4 @@ function createMobileRoutes({
   return { get, post };
 }
 
-module.exports = { createMobileRoutes, phoneReply };
+module.exports = { createMobileRoutes, phoneReply, carriesSecret };

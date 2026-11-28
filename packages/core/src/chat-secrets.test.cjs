@@ -155,7 +155,7 @@ test("a named request offers Save as; the chosen scope saves it and the agent is
   assert.deepEqual(secretRequest.saveAs, { name: "VERCEL_TOKEN", project: true, replaces: false });
   await assert.rejects(secrets.answer("chat", requestId, { secret: ["v-123456789"], save: ["elsewhere"] }), /Choose where to save/);
   assert.equal(await secrets.answer("chat", requestId, { secret: ["v-123456789"], save: ["project"] }), true);
-  assert.deepEqual(saves, [{ chatId: "chat", name: "VERCEL_TOKEN", value: "v-123456789", scope: "project", expectVersion: 0 }]);
+  assert.deepEqual(saves, [{ chatId: "chat", name: "VERCEL_TOKEN", value: "v-123456789", scope: "project", expect: null }]);
   assert.deepEqual(values, ["v-123456789"], "the value joins redaction");
   assert.deepEqual(
     fs.readdirSync(directory).filter((name) => name.endsWith(".secret")),
@@ -223,4 +223,14 @@ test("the first answer claims the request: a second answer while Save as is writ
     writes.map((input) => input.value),
     ["first-123456"],
   );
+});
+
+test("a secret that couldn't be stored leaves the request open, so the person can send it again", { skip: process.platform === "win32" }, async (t) => {
+  const { directory, secrets, request } = fixture(t);
+  const { id, result } = request();
+  fs.chmodSync(directory, 0o755);
+  await assert.rejects(secrets.answer("chat", id, { secret: ["first-try-123456"] }), /Could not save the secret privately/);
+  fs.chmodSync(directory, 0o700);
+  assert.equal(await secrets.answer("chat", id, { secret: ["second-try-123456"] }), true);
+  assert.equal(fs.readFileSync(JSON.parse(await result).path, "utf8"), "second-try-123456");
 });

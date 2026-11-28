@@ -39,6 +39,7 @@ const LOCAL_ONLY_PREFIXES = Object.freeze([
   "linked:",
   "notification:",
   "phone:",
+  "secrets:",
   "settings:",
   "update:",
 ]);

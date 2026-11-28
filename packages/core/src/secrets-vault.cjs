@@ -51,6 +51,9 @@ const executableOf = (executable) => {
 const AMBIENT_ASKS = "A secret kept in the environment can't ask before each use: every command already has it.";
 const lockedError = () =>
   Object.assign(new Error("Secrets are locked: open Milagre on this computer, or set up a computer key for unattended access."), { code: "secrets-locked" });
+const sameRevision = (secret, expected) =>
+  expected ? Boolean(secret) && secret.version === expected.version && secret.changedOn === expected.changedOn : !secret;
+const pick = (object, keys) => Object.fromEntries(keys.map((key) => [key, object[key]]));
 const inputError = (message) => Object.assign(new Error(message), { code: "secrets-input" });
 
 function validState(value) {
@@ -223,7 +226,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
           .map(([name, secret]) => summary(name, secret))
           .sort((a, b) => a.name.localeCompare(b.name));
       }),
-    set: (input) =>
+    set: (input, { expect, keepPolicy = false } = {}) =>
       serial(async () => {
         const parsed = inputSchema.safeParse(input);
         if (!parsed.success) throw inputError(parsed.error.issues[0]?.message ?? "Invalid secret");
@@ -239,6 +242,8 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
           throw inputError("A file name uses letters, digits, dots, dashes and underscores.");
         const current = await read();
         const previous = current.secrets[name];
+        if (expect !== undefined && !sameRevision(previous, expect)) throw inputError(`${name} changed while the card was open.`);
+        if (keepPolicy && previous) Object.assign(fields, pick(previous, ["delivery", "askEachUse", "unattended", "note"]));
         if (!previous && Object.keys(current.secrets).length >= SECRET_LIMITS.count) throw inputError(`At most ${SECRET_LIMITS.count} secrets.`);
         const version = Math.max(previous?.version ?? 0, current.tombstones[name]?.version ?? 0) + 1;
         const secret = { ...fields, fileName: fields.kind === "file" ? fields.fileName : null, version, changedOn: computerId(), updatedAt: now() };
@@ -296,9 +301,11 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
      * Values for one use. `names` null means every ambient secret in reach (an agent's environment at start). Refuses
      * the whole request if any named secret is missing or out of reach, so a command never runs half-configured.
      */
-    deliver: ({ names, target, chatId, command = null, delivery, record: shouldRecord = true }) =>
+    deliver: ({ names, target, chatId, command = null, delivery, record: shouldRecord = true, expect = null }) =>
       serial(async () => {
         const current = await read();
+        if (expect && Object.entries(expect).some(([name, revision]) => !sameRevision(current.secrets[name], revision)))
+          throw Object.assign(new Error("These secrets changed while waiting for approval. Run the command again."), { code: "secrets-changed" });
         const reach = ([name, secret]) => secretReaches({ name, ...secret }, target);
         let chosen;
         if (names === null) chosen = Object.entries(current.secrets).filter((entry) => entry[1].delivery === "ambient" && reach(entry));

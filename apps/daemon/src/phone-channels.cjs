@@ -212,7 +212,7 @@ function createPhoneChannels({
     if (kind === "computer") {
       try {
         record.peer = openPeerChannel({
-          openPeer,
+          openPeer: (carrier) => openPeer({ ...carrier, peerKey: record.key }),
           deliver: (encoded) => {
             diagnostics?.message("out", "peer");
             sendEncoded(current, conn, record, encoded);

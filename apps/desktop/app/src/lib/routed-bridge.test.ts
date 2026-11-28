@@ -173,6 +173,7 @@ const ALLOWED: Record<string, string[]> = {
   // Secrets live in this computer's vault; paired computers and the relay can't reach any secrets: method.
   "components/settings/SecretsSettings.tsx": ["secrets", "listRecentProjects"],
   "components/settings/SecretDialogs.tsx": ["secrets"],
+  "components/settings/SecretSharing.tsx": ["secrets"],
   "components/settings/SecretFields.tsx": ["getPathForFile"],
   "components/terminal/TerminalPanel.tsx": ["onCloseFocusedTerminal", "setTerminalFocused"],
   "components/SkillsSettings.tsx": ["openSkill", "revealSkill"],

@@ -100,7 +100,7 @@ function createSecretsAccess({
       return {
         at,
         asking: named.filter((secret) => secret.askEachUse).map((secret) => secret.name),
-        key: JSON.stringify(named.map((secret) => [secret.name, secret.version])),
+        expect: Object.fromEntries(named.map((secret) => [secret.name, { version: secret.version, changedOn: secret.changedOn }])),
       };
     };
     const before = await policy(where);
@@ -109,14 +109,15 @@ function createSecretsAccess({
       if (!(await approve(chatId, { names: before.asking, command })))
         throw Object.assign(new Error(`The person didn't allow ${before.asking.join(", ")} for this command.`), { status: 403 });
       release = await policy(await target(chatId));
-      if (release.at.origin !== where.origin || release.at.unattended !== where.unattended || release.key !== before.key)
+      if (release.at.origin !== where.origin || release.at.unattended !== where.unattended || JSON.stringify(release.expect) !== JSON.stringify(before.expect))
         throw Object.assign(new Error("These secrets or this Chat's Project changed while waiting for approval. Run the command again."), { status: 409 });
     }
     try {
       const executable = typeof body.executable === "string" ? body.executable : (command?.trim().split(/\s+/)[0] ?? null);
-      return { secrets: await vault.deliver({ names, target: release.at, chatId, command: executable, delivery: "on-demand" }) };
+      const expect = before.asking.length ? release.expect : null;
+      return { secrets: await vault.deliver({ names, target: release.at, chatId, command: executable, delivery: "on-demand", expect }) };
     } catch (error) {
-      throw Object.assign(error, { status: error.code === "secrets-missing" ? 404 : 500 });
+      throw Object.assign(error, { status: error.code === "secrets-missing" ? 404 : error.code === "secrets-changed" ? 409 : 500 });
     }
   }
 

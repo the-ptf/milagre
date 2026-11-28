@@ -62,6 +62,12 @@ function createChatSecrets({ directory, send, active, saveAs = null, onValue = n
     return true;
   }
 
+  function expireAt(id, expiresAt) {
+    const timer = setTimeout(() => settle(id, "cancelled", "Secret request expired. No secret was saved."), Math.max(0, expiresAt - now()));
+    timer.unref();
+    return timer;
+  }
+
   function settle(id, outcome, result) {
     const entry = claim(id);
     return entry ? finish(entry, id, outcome, result) : false;
@@ -75,15 +81,14 @@ function createChatSecrets({ directory, send, active, saveAs = null, onValue = n
     const offer = name && saveAs ? await saveAs.offer(chatId, name) : null;
     const requestId = PREFIX + randomUUID();
     const expiresAt = now() + REQUEST_TTL;
+    const { changedOn: _changedOn, ...shown } = offer ?? {};
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => settle(requestId, "cancelled", "Secret request expired. No secret was saved."), REQUEST_TTL);
-      timer.unref();
-      pending.set(requestId, { kind: "secret", chatId, resolve, timer, expiresAt, offer });
+      pending.set(requestId, { kind: "secret", chatId, resolve, timer: expireAt(requestId, expiresAt), expiresAt, offer });
       Promise.resolve(
         send(chatId, {
           type: "question-request",
           requestId,
-          secretRequest: { description, expiresAt, ...(offer ? { saveAs: offer } : {}) },
+          secretRequest: { description, expiresAt, ...(offer ? { saveAs: shown } : {}) },
           questions: [
             {
               id: "secret",
@@ -163,7 +168,8 @@ function createChatSecrets({ directory, send, active, saveAs = null, onValue = n
     try {
       if (save === "none") return finish(entry, id, "answered", oneOffFile(value));
       const name = entry.offer.name;
-      const failure = await saveAs.save(chatId, { name, value, scope: save, expectVersion: entry.offer.version ?? 0 }).then(
+      const expect = entry.offer.replaces ? { version: entry.offer.version, changedOn: entry.offer.changedOn } : null;
+      const failure = await saveAs.save(chatId, { name, value, scope: save, expect }).then(
         () => null,
         (error) => error,
       );
@@ -178,7 +184,8 @@ function createChatSecrets({ directory, send, active, saveAs = null, onValue = n
         }),
       );
     } catch (error) {
-      finish(entry, id, "cancelled", `The secret couldn't be stored: ${error.message}`);
+      if (closed || now() >= entry.expiresAt) finish(entry, id, "cancelled", `The secret couldn't be stored: ${error.message}`);
+      else pending.set(id, { ...entry, timer: expireAt(id, entry.expiresAt) });
       throw error;
     }
   }

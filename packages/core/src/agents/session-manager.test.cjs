@@ -501,6 +501,11 @@ test("an unattended turn never runs in a busy process holding secrets it may not
     manager.startTurn(request("1", { env: { MILAGRE_SECRETS_AMBIENT: "unattended", MILAGRE_SECRETS_UNATTENDED: "1" } })),
     /holds secrets this run may not use/,
   );
+  await assert.rejects(
+    manager.startTurn(request("1", { workspaceRoots: ["/elsewhere"], env: { MILAGRE_SECRETS_AMBIENT: "unattended", MILAGRE_SECRETS_UNATTENDED: "1" } })),
+    /holds secrets this run may not use/,
+    "new folders don't open a way into the busy process either",
+  );
   assert.equal(created.length, 1);
   manager.sessions.get("1").backgroundTasks.clear();
   await manager.startTurn(request("1", { env: { MILAGRE_SECRETS_AMBIENT: "unattended", MILAGRE_SECRETS_UNATTENDED: "1" } }));
