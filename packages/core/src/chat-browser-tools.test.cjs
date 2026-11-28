@@ -346,3 +346,38 @@ test("the agent's script and a filled login never share a page load", async (t) 
   f.session.emit("Page.frameNavigated", { frame: { id: "top" } });
   assert.equal((await f.run("browser_evaluate", { expression: "1 + 1" })).text, "2");
 });
+
+test("a script started while a login is being filled is refused, and a refused fill frees the page again", async (t) => {
+  let resolveLogin;
+  let asked;
+  const resolving = new Promise((resolve) => (asked = resolve));
+  useLogins({
+    resolve: () =>
+      new Promise((resolve) => {
+        resolveLogin = resolve;
+        asked();
+      }),
+  });
+  t.after(() => useLogins(null));
+  const f = fixture();
+  const send = f.session.send;
+  let fills = 0;
+  f.session.send = async (method, params = {}) => {
+    if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "top" } } };
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 9 };
+    if (method === "Runtime.callFunctionOn" && params.arguments?.length === 3)
+      return { result: { value: ++fills === 1 ? { filled: true } : { problem: "The password goes only into a password field." } } };
+    return send(method, params);
+  };
+  await f.run("browser_snapshot");
+  const filling = f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } });
+  await resolving;
+  assert.match((await f.run("browser_evaluate", { expression: "1 + 1" })).text, /saved login was filled on this page/, "the page is held from the first await");
+  resolveLogin({ origin: "http://localhost:5173", username: "me", password: "local-pass-123456" });
+  await filling;
+  f.session.emit("Page.frameNavigated", { frame: { id: "top" } });
+  await f.run("browser_snapshot");
+  useLogins({ resolve: async () => ({ origin: "http://localhost:5173", username: "me", password: "local-pass-123456" }) });
+  assert.match((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /only into a password field/);
+  assert.equal((await f.run("browser_evaluate", { expression: "1 + 1" })).text, "2", "nothing was filled, so the page is free");
+});

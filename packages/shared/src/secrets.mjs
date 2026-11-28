@@ -321,20 +321,20 @@ function csvRows(text) {
   };
   for (let index = 0; index < text.length; index++) {
     const char = text[index];
-    const newline = char === "\n" || char === "\r";
-    if (newline && char === "\r" && text[index + 1] === "\n") index++;
-    if (newline) line++;
+    const crlf = char === "\r" && text[index + 1] === "\n";
+    if (char === "\n" || (char === "\r" && !crlf)) line++;
     if (quoted) {
       if (char === '"' && text[index + 1] === '"') {
         field += '"';
         index++;
       } else if (char === '"') quoted = false;
-      else field += newline ? "\n" : char;
+      else field += char;
     } else if (char === '"') quoted = true;
     else if (char === ",") {
       row.push(field);
       field = "";
-    } else if (newline) {
+    } else if (crlf) continue;
+    else if (char === "\n" || char === "\r") {
       end();
       start = line;
     } else field += char;

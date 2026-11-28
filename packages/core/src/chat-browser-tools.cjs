@@ -176,9 +176,14 @@ function browserFillTool(chatId, on, done) {
         if (!logins) throw new Error("Saved logins aren't available on this computer.");
         if (state.scripted)
           throw new Error("The agent's script ran on this page, so a saved login isn't filled until the page loads again. Reload or navigate first.");
-        const login = await logins.resolve(chatId, input.login.name);
-        await fillLogin({ session, node, login, field: input.login.field });
+        const before = state.loginFilled;
         state.loginFilled = true;
+        try {
+          await fillLogin({ session, node, login: await logins.resolve(chatId, input.login.name), field: input.login.field });
+        } catch (error) {
+          state.loginFilled = before;
+          throw error;
+        }
         return done(target);
       }
       await session.send("DOM.focus", { backendNodeId: node }).catch(() => {});

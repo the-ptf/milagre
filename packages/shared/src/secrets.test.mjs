@@ -111,6 +111,12 @@ test("browser exports become logins by their headers, and a login's name is stab
     "lines count as the file has them",
   );
   assert.equal(parseLoginCsv(multiline).logins[0].line, 3);
+  const exact = 'url,password\r\nhttps://a.com,"cr\rcrlf\r\nlf\nend"\r\nnot a url,y\r\n';
+  assert.equal(parseLoginCsv(exact).logins[0].password, "cr\rcrlf\r\nlf\nend", "a quoted password keeps every character");
+  assert.deepEqual(
+    parseLoginCsv(exact).skipped.map((entry) => entry.row),
+    [6],
+  );
   const safari = "Title,URL,Username,Password,Notes,OTPAuth\r\nVercel,https://vercel.com/,me@x.com,secret-pass,,otpauth://x\r\n";
   assert.deepEqual(parseLoginCsv(safari).logins, [{ line: 2, origin: "https://vercel.com", username: "me@x.com", password: "secret-pass", note: null }]);
   const name = loginName("https://github.com", "octo");
