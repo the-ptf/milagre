@@ -55,7 +55,11 @@ const DRAG_SLOP = 5;
 const DRAFT = "draft";
 const WORKING = new Set<string>(["running", "question", "waiting", "delegated"]);
 
-export type TabMenuEntry = { key: string; title: string; icon: IconSvgElement; shortcut?: string; tab?: WorkspaceTab; onSelect: () => void };
+/** A New tab row: one with a tab of its own takes the New tab's place; the rest run onSelect. */
+export type TabMenuEntry = { key: string; title: string; icon: IconSvgElement; shortcut?: string; detail?: string } & (
+  | { tab: WorkspaceTab; onSelect?: () => void }
+  | { tab?: undefined; onSelect: () => void }
+);
 
 type Props = {
   workspace: string;

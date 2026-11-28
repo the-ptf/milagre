@@ -31,7 +31,7 @@ export function LinkTabStrip({
   const { workspaceTabs } = useSettings();
   const activeChatId = chat?.id ?? null;
   const panels = activeChatId === null ? {} : { changes: { open: changes.open, toggle } };
-  const menu = useTabMenu(panels);
+  const menu = useTabMenu(panels, owner, activeChatId);
   const shown = useSidePanels();
   if (!workspaceTabs || changes.diffOpen) return null;
   return (

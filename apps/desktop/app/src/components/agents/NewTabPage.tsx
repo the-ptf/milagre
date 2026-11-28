@@ -7,13 +7,13 @@ import { updateTabSet } from "../../lib/workspace-tabs-store";
 import { MenuRow } from "../primitives/Popover";
 import { dockLayer, useDockArea } from "./dock-area";
 
-export type Launch = { key: string; title: string; icon: IconSvgElement; shortcut?: string; onSelect: () => void };
+export type Launch = { key: string; title: string; icon: IconSvgElement; shortcut?: string; detail?: string; onSelect: () => void };
 
-type Entry = Omit<Launch, "onSelect"> & { tab?: WorkspaceTab; onSelect: () => void };
+type Entry = Omit<Launch, "onSelect"> & ({ tab: WorkspaceTab; onSelect?: () => void } | { tab?: undefined; onSelect: () => void });
 
 /**
- * What a New tab offers: a New Chat here, then the strip's own entries. A pick with a tab of its own (the diff, the PR)
- * takes the New tab's place; the rest close it and open through their panel, which adds their tab.
+ * What a New tab offers: a New Chat here, then the strip's own entries. A pick with a tab of its own (the diff, the PR,
+ * Paradise, the Artifact) takes the New tab's place; the rest close it and open through their panel, which adds their tab.
  */
 export function newTabLaunches({
   workspace,
@@ -44,7 +44,7 @@ export function newTabLaunches({
       onSelect: () => {
         if (tab) return updateTabSet(workspace, (current) => replaceTab(current, blank, tab));
         drop();
-        onSelect();
+        onSelect?.();
       },
     })),
   ];
@@ -83,7 +83,9 @@ export function NewTabPage({ launches }: { launches: readonly Launch[] }) {
             icon={launch.icon}
             title={launch.title}
             data-new-tab-launch={launch.key}
-            trailing={launch.shortcut && <span className="text-12 text-ink-3">{launch.shortcut}</span>}
+            trailing={
+              (launch.shortcut || launch.detail) && <span className="max-w-[160px] truncate text-12 text-ink-3">{launch.shortcut ?? launch.detail}</span>
+            }
             onClick={launch.onSelect}
             className="h-10"
           />
