@@ -13,6 +13,7 @@ export function MessageToolbar({
   run,
   onFork,
   onEdit,
+  visible = true,
   align = "start",
 }: {
   text?: string;
@@ -20,6 +21,7 @@ export function MessageToolbar({
   run?: AgentRun;
   onFork?: (messageId: number) => void;
   onEdit?: () => void;
+  visible?: boolean;
   align?: "start" | "end";
 }) {
   const forkThis = !run && message && message.id > 0 && onFork ? () => onFork(message.id) : undefined;
@@ -31,7 +33,7 @@ export function MessageToolbar({
     },
     [],
   );
-  if (run || (!text?.trim() && !forkThis)) return null;
+  if (!visible || run || (!text?.trim() && !forkThis)) return null;
   async function copy() {
     await Clipboard.setStringAsync(text ?? "");
     setCopied(true);

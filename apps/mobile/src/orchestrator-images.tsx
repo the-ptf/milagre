@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 import { Image, View } from "react-native";
-import { Cancel01Icon, Image01Icon } from "@hugeicons/core-free-icons";
+import { Attachment01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { ORCHESTRATOR_MAX_IMAGES } from "@milagre/shared/orchestrator";
-import { pickAttachments } from "./attachment-picker";
+import { discardPastedImage, pickAttachments, preparePastedImage, type PastedImage } from "./attachment-picker";
 import type { Attachment } from "./attachments";
 import { radius, space } from "./design-tokens";
 import { Icon } from "./icons";
@@ -12,55 +12,56 @@ import { IconButton, PullDown } from "./ui";
 
 export type OrchestratorImage = { id: string; name: string; dataUrl: string };
 type Picked = Attachment & { image: OrchestratorImage };
+type ImageSource = "photos" | "camera" | "paste";
 
 const SEND_CHARS = 900 * 1024;
 const TOO_BIG = "These photos are too big to send together. Remove one and try again.";
 
 export function useOrchestratorImages() {
-  const [items, setItems] = useState<Picked[]>([]);
-  const [error, setError] = useState("");
-  const picking = useRef(false);
-  async function attach(kind: "photos" | "camera" | "paste") {
-    if (picking.current) return;
-    picking.current = true;
-    setError("");
+  const [{ items, error }, setDraft] = useState<{ items: Picked[]; error: string }>({ items: [], error: "" });
+  const [picking, setPicking] = useState(false);
+  const preparing = useRef(false);
+  async function attach(source: ImageSource | PastedImage) {
+    if (preparing.current) {
+      if (typeof source !== "string") discardPastedImage(source);
+      return;
+    }
+    preparing.current = true;
+    setPicking(true);
+    setDraft((draft) => ({ ...draft, error: "" }));
     try {
-      const added = await pickAttachments(kind);
-      const photos = added.filter((item): item is Picked => !!item.image?.dataUrl);
-      if (photos.length < added.length) setError("Only photos can go to the Orchestrator.");
-      if (!photos.length) return;
-      const next = [...items, ...photos];
-      if (next.length > ORCHESTRATOR_MAX_IMAGES) return setError(`Attach at most ${ORCHESTRATOR_MAX_IMAGES} photos.`);
-      if (next.reduce((total, item) => total + item.image.dataUrl.length, 0) > SEND_CHARS) return setError(TOO_BIG);
-      setItems(next);
+      const added = typeof source === "string" ? await pickAttachments(source) : [await preparePastedImage(source)];
+      const photos = added.filter((item): item is Picked => Boolean(item.image?.dataUrl));
+      setDraft((draft) => {
+        const next = [...draft.items, ...photos];
+        if (next.length > ORCHESTRATOR_MAX_IMAGES) return { ...draft, error: `Attach at most ${ORCHESTRATOR_MAX_IMAGES} photos.` };
+        if (next.reduce((total, item) => total + item.image.dataUrl.length, 0) > SEND_CHARS) return { ...draft, error: TOO_BIG };
+        return { items: next, error: photos.length < added.length ? "Only photos can go to the Orchestrator." : "" };
+      });
     } catch (failure) {
-      setError((failure as Error).message);
+      setDraft((draft) => ({ ...draft, error: (failure as Error).message }));
     } finally {
-      picking.current = false;
+      preparing.current = false;
+      setPicking(false);
     }
   }
   return {
     items,
     error,
+    picking,
     attach,
     images: () => items.map((item) => item.image),
-    remove: (id: string) => {
-      setItems((current) => current.filter((item) => item.id !== id));
-      setError("");
-    },
-    clear: () => {
-      setItems([]);
-      setError("");
-    },
-    restore: (kept: Picked[]) => setItems(kept),
+    remove: (id: string) => setDraft((draft) => ({ items: draft.items.filter((item) => item.id !== id), error: "" })),
+    clear: () => setDraft({ items: [], error: "" }),
+    restore: (kept: Picked[]) => setDraft((draft) => ({ ...draft, items: kept })),
   };
 }
 
-export function OrchestratorAttachButton({ disabled, onAttach }: { disabled: boolean; onAttach: (kind: "photos" | "camera" | "paste") => void }) {
+export function OrchestratorAttachButton({ disabled, onAttach }: { disabled: boolean; onAttach: (kind: ImageSource) => void }) {
   return (
     <PullDown
       label="Attach photos"
-      nativeTrigger={{ systemImage: "photo", disabled }}
+      nativeTrigger={{ systemImage: "paperclip", iconSize: 16, disabled }}
       sections={[
         {
           items: [
@@ -70,10 +71,10 @@ export function OrchestratorAttachButton({ disabled, onAttach }: { disabled: boo
           ],
         },
       ]}
-      onSelect={(kind) => onAttach(kind as "photos" | "camera" | "paste")}
+      onSelect={(kind) => onAttach(kind as ImageSource)}
     >
-      <View style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", opacity: disabled ? DISABLED_OPACITY.control : 1 }}>
-        <Icon icon={Image01Icon} tone="ink2" size={18} />
+      <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: disabled ? DISABLED_OPACITY.control : 1 }}>
+        <Icon icon={Attachment01Icon} tone="ink2" size={18} />
       </View>
     </PullDown>
   );
@@ -83,7 +84,7 @@ export function OrchestratorImageStrip({ items, disabled, onRemove }: { items: A
   const { colors } = useTheme();
   if (!items.length) return null;
   return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md, paddingTop: space.sm }}>
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.lg, paddingHorizontal: space.md, paddingVertical: space.xs }}>
       {items.map((item) => (
         <View key={item.id} style={{ width: 64, height: 64 }}>
           <Image
@@ -91,7 +92,7 @@ export function OrchestratorImageStrip({ items, disabled, onRemove }: { items: A
             accessibilityLabel={item.name}
             style={{ width: 64, height: 64, borderRadius: radius.control, backgroundColor: colors.field }}
           />
-          <View style={{ position: "absolute", top: -10, right: -10 }}>
+          <View style={{ position: "absolute", top: -space.xs, right: -space.xs }}>
             <IconButton label={`Remove ${item.name}`} icon={Cancel01Icon} filled size={32} disabled={disabled} onPress={() => onRemove(item.id)} />
           </View>
         </View>

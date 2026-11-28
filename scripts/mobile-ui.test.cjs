@@ -20470,7 +20470,9 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
   const react = hookHost({ effects: true });
   const copied = [];
   let edits = 0;
+  let reveals = 0;
   const onEdit = () => edits++;
+  const showActions = () => reveals++;
   const platform = { OS: "ios" };
   const { MessageActions, messageActionProps } = load("message-actions.tsx", {
     react,
@@ -20497,8 +20499,8 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
     const tree = MessageActions({
       text,
       markdown: true,
-      onEdit,
-      children: (open, swap) => swap(jsx("Message", { ...messageActionProps(open, onEdit), text })),
+      onPress: showActions,
+      children: (open, swap) => swap(jsx("Message", { ...messageActionProps(open, onEdit, showActions), text })),
     });
     const expand = (node) => {
       if (!node || typeof node !== "object") return node;
@@ -20510,6 +20512,8 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
   };
   const original = render();
   assert.equal(original.type, "Pressable");
+  original.props.onPress();
+  assert.equal(reveals, 1, "a tap shows the message toolbar");
   original.props.onLongPress();
   let tree = render();
   const field = find(tree, (node) => node.type === "TextInput");
@@ -20529,14 +20533,17 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
     find(render(), (node) => node.type === "TextInput"),
     "VoiceOver opens the same in-place selection",
   );
-  const edit = find(render(), (node) => node.props.title === "Edit message");
-  edit.props.onPressIn();
-  edit.props.onPress();
-  assert.equal(edits, 1);
+  assert.equal(
+    find(render(), (node) => node.props.title === "Edit message"),
+    undefined,
+    "selection adds no second Edit control",
+  );
   const message = find(render(), (node) => node.type === "Message");
   assert.ok(message.props.accessibilityActions.some((action) => action.label === "Edit message"));
   message.props.onAccessibilityAction({ nativeEvent: { actionName: "edit" } });
-  assert.equal(edits, 2);
+  assert.equal(edits, 1);
+  message.props.onAccessibilityAction({ nativeEvent: { actionName: "activate" } });
+  assert.equal(reveals, 2, "VoiceOver can show the same toolbar");
   platform.OS = "android";
   assert.equal(render().type, "Message", "Android keeps its native inline Text selection");
 });

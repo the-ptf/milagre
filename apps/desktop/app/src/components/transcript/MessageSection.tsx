@@ -18,7 +18,7 @@ import { issueCard } from "@milagre/shared/issue-start";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import type { LimitResume, ImageAttachment } from "../../model";
 import { reportMarker } from "@milagre/shared/subchat-states";
-import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { GitForkIcon, PencilEdit02Icon, Undo02Icon } from "@hugeicons/core-free-icons";
 import type { RoutineRunContext } from "@milagre/shared/model";
 import type { AgentCliStatus, ChatMessage as AppChatMessage, ChatStep, ModelOption, ModelProvider } from "../../model";
@@ -202,11 +202,13 @@ function ReplyContent({
   waitingStepIds,
   credits,
   copyable = true,
+  actionsVisible = false,
   onFork,
   onSettle,
 }: {
   body: string;
   copyable?: boolean;
+  actionsVisible?: boolean;
   steps: ChatStep[];
   attachments?: ImageAttachment[];
   streaming: boolean;
@@ -250,35 +252,57 @@ function ReplyContent({
         </div>
       )}
       {after.length > 0 && !loaderHolds && <ActivityBlock entries={after} streaming={streaming} waitingStepIds={waitingStepIds} credits={credits} />}
-      {copyable && (answer.trim() || onFork || onSettle) && (
-        <div className="h-7" data-message-copy-footer>
-          {!streaming && (
-            <div className="flex w-fit items-center gap-0.5 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
-              {answer.trim() && <CopyButton text={answer} />}
-              {onFork && (
-                <Tooltip label="Fork Chat from here">
-                  <button
-                    type="button"
-                    data-fork-message
-                    aria-label="Fork Chat from here"
-                    onClick={onFork}
-                    className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-                  >
-                    <Icon icon={GitForkIcon} size={14} />
-                  </button>
-                </Tooltip>
-              )}
-              {onSettle && <MessageSettleButtons onSettle={onSettle} />}
-            </div>
-          )}
-        </div>
-      )}
+      {copyable && <ReplyActions text={answer} streaming={streaming} visible={actionsVisible} onFork={onFork} onSettle={onSettle} />}
       {thought && (
         <div data-slot="message-thought" data-quotable className="text-ink-2">
           <Markdown text={thought} />
         </div>
       )}
     </>
+  );
+}
+
+function ReplyActions({
+  text,
+  streaming,
+  visible,
+  onFork,
+  onSettle,
+}: {
+  text: string;
+  streaming?: boolean;
+  visible: boolean;
+  onFork?: () => void;
+  onSettle?: (snoozeUntil?: number) => void;
+}) {
+  const copy = Boolean(text.trim());
+  if (!copy && !onFork && !onSettle) return null;
+  return (
+    <div className="flex h-7 w-fit items-center gap-0.5" data-message-copy-footer>
+      {!streaming && visible && copy && <CopyButton text={text} />}
+      {!streaming && visible && onFork && <ForkMessageButton onFork={onFork} />}
+      {!streaming && onSettle && (
+        <div className="flex opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+          <MessageSettleButtons onSettle={onSettle} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ForkMessageButton({ onFork, id }: { onFork: () => void; id?: number }) {
+  return (
+    <Tooltip label="Fork Chat from here" align={id === undefined ? undefined : "end"}>
+      <button
+        type="button"
+        data-fork-message={id ?? true}
+        aria-label="Fork Chat from here"
+        onClick={onFork}
+        className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
+      >
+        <Icon icon={GitForkIcon} size={14} />
+      </button>
+    </Tooltip>
   );
 }
 
@@ -293,6 +317,8 @@ type MessageSectionProps = {
   undoDisabled?: boolean;
   onUndo?: (checkpointId: string) => void;
   onFork?: (messageId: number) => void;
+  actionsVisible: boolean;
+  onSelectActions?: (id: string | number) => void;
   onEdit?: (messageId: number) => void;
   onSettle?: (snoozeUntil?: number) => void;
   highlighted?: boolean;
@@ -435,6 +461,7 @@ function BubbleActions({
   undoId,
   undoLatest,
   undoDisabled,
+  actionsVisible,
   onUndo,
   onFork,
   onEdit,
@@ -444,13 +471,14 @@ function BubbleActions({
   undoId?: string;
   undoLatest: boolean;
   undoDisabled: boolean;
+  actionsVisible: boolean;
   onUndo?: (checkpointId: string) => void;
-  onFork?: (messageId: number) => void;
+  onFork?: () => void;
   onEdit?: () => void;
 }) {
   return (
-    <div className="absolute top-[3px] right-full mr-1.5 flex opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
-      {onEdit && (
+    <div className="absolute top-[3px] right-full mr-1.5 flex">
+      {actionsVisible && onEdit && (
         <Tooltip label="Edit message" align="end">
           <button
             type="button"
@@ -475,26 +503,14 @@ function BubbleActions({
             aria-label="Undo this task's changes"
             disabled={undoDisabled}
             onClick={() => onUndo(undoId)}
-            className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-50"
+            className={`flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-50 ${actionsVisible ? "" : "opacity-0 group-hover/message:opacity-100 focus-visible:opacity-100"}`}
           >
             <Icon icon={Undo02Icon} size={16} />
           </button>
         </Tooltip>
       )}
-      {onFork && message.id > 0 && (
-        <Tooltip label="Fork Chat from here" align="end">
-          <button
-            type="button"
-            data-fork-message={message.id}
-            aria-label="Fork Chat from here"
-            onClick={() => onFork(message.id)}
-            className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-          >
-            <Icon icon={GitForkIcon} size={14} />
-          </button>
-        </Tooltip>
-      )}
-      {copyUser && <CopyButton text={message.body} />}
+      {actionsVisible && onFork && <ForkMessageButton id={message.id} onFork={onFork} />}
+      {actionsVisible && copyUser && <CopyButton text={message.body} />}
     </div>
   );
 }
@@ -507,6 +523,7 @@ function MessageBody({
   streaming,
   asking,
   waitingStepIds,
+  actionsVisible,
   onRecommendationSelect,
   onFork,
   onSettle,
@@ -518,6 +535,7 @@ function MessageBody({
   streaming: boolean;
   asking: boolean;
   waitingStepIds: string[];
+  actionsVisible: boolean;
   onRecommendationSelect: (option: string) => void;
   onFork?: () => void;
   onSettle?: (snoozeUntil?: number) => void;
@@ -558,24 +576,7 @@ function MessageBody({
         <div className={recommendation.intro ? "mt-2" : undefined}>
           <RecommendationCard question={recommendation.question} options={recommendation.options} onSelect={(option) => onRecommendationSelect(option.label)} />
         </div>
-        <div className="h-7" data-message-copy-footer>
-          <div className="flex w-fit items-center gap-0.5 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
-            <CopyButton text={message.body} />
-            {onFork && (
-              <Tooltip label="Fork Chat from here">
-                <button
-                  type="button"
-                  data-fork-message={message.id}
-                  aria-label="Fork Chat from here"
-                  onClick={onFork}
-                  className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-                >
-                  <Icon icon={GitForkIcon} size={14} />
-                </button>
-              </Tooltip>
-            )}
-          </div>
-        </div>
+        <ReplyActions text={message.body} visible={actionsVisible} onFork={onFork} />
       </>
     );
   return (
@@ -588,6 +589,7 @@ function MessageBody({
         asking={asking}
         waitingStepIds={waitingStepIds}
         credits={message.credits}
+        actionsVisible={actionsVisible}
         onFork={onFork}
         onSettle={onSettle}
       />
@@ -673,6 +675,8 @@ export const MessageSection = memo(function MessageSection({
   undoDisabled = false,
   onUndo,
   onFork,
+  actionsVisible,
+  onSelectActions,
   onEdit,
   onSettle,
   highlighted = false,
@@ -700,6 +704,7 @@ export const MessageSection = memo(function MessageSection({
       data-provider={!isUser && message.model ? providerForId(message.model) : undefined}
       data-linked={linked?.kind}
       data-streaming={streaming || undefined}
+      {...messageSelection(message, onSelectActions)}
       {...editState(editing, dimmed)}
       className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-slow ${articleLayout(cards, dimmed, [copyUser, undoId && onUndo, forkThis, editThis])}`}
       style={animate ? { animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" } : undefined}
@@ -707,11 +712,7 @@ export const MessageSection = memo(function MessageSection({
       {linked && (
         <div className="flex min-w-0 max-w-full items-center gap-1.5">
           <LinkedMessageHeader context={linked} onOpenChat={onOpenChat} />
-          {copyUser && (
-            <div className="shrink-0 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
-              <CopyButton text={message.body} />
-            </div>
-          )}
+          <LinkedCopy visible={actionsVisible && Boolean(copyUser)} text={message.body} />
         </div>
       )}
       <div data-user-bubble={bubble || undefined} className={bodyClass(cards, isUser, highlighted, editing)}>
@@ -722,8 +723,9 @@ export const MessageSection = memo(function MessageSection({
             undoId={undoId}
             undoLatest={undoLatest}
             undoDisabled={undoDisabled}
+            actionsVisible={actionsVisible}
             onUndo={onUndo}
-            onFork={onFork}
+            onFork={forkThis}
             onEdit={editThis}
           />
         )}
@@ -747,6 +749,7 @@ export const MessageSection = memo(function MessageSection({
           streaming={streaming}
           asking={asking}
           waitingStepIds={waitingStepIds}
+          actionsVisible={actionsVisible}
           onRecommendationSelect={onRecommendationSelect}
           onFork={forkThis}
           onSettle={streaming ? undefined : onSettle}
@@ -771,6 +774,29 @@ export const MessageSection = memo(function MessageSection({
 
 function forkAction(onFork: MessageSectionProps["onFork"], id: number, streaming: boolean) {
   return onFork && !streaming && id > 0 ? () => onFork(id) : undefined;
+}
+function LinkedCopy({ visible, text }: { visible: boolean; text: string }) {
+  return (
+    visible && (
+      <div className="shrink-0">
+        <CopyButton text={text} />
+      </div>
+    )
+  );
+}
+function messageSelection(message: AppChatMessage, select: MessageSectionProps["onSelectActions"]): ComponentProps<"article"> {
+  if (!select) return {};
+  const id = message.clientMessageId ?? message.id;
+  return {
+    tabIndex: 0,
+    onFocus: (event) => {
+      if (event.target === event.currentTarget && event.currentTarget.matches(":focus-visible")) select(id);
+    },
+    onClick: (event) => {
+      if (event.defaultPrevented || (event.target as Element).closest("button, a, input, textarea, [role=button]")) return;
+      if (window.getSelection()?.isCollapsed !== false) select(id);
+    },
+  };
 }
 function editAction(onEdit: MessageSectionProps["onEdit"], message: AppChatMessage, bubble: boolean, streaming: boolean) {
   return bubble && onEdit && !streaming && canEditMessage(message) ? () => onEdit(message.id) : undefined;

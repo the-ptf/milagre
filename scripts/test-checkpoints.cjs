@@ -178,6 +178,8 @@ async function browserChecks() {
     );
 
     // Copy uses raw message text, the final Markdown answer, and the entire recommendation.
+    assert.equal(await evaluate('document.querySelector("#message-11 [data-fork-message]") === null'), true, "older actions start hidden");
+    await evaluate('document.querySelector("#message-11 [data-user-bubble]").click()');
     assert.equal(
       await evaluate('!!document.querySelector("#message-11 [data-fork-message]")'),
       true,
@@ -194,6 +196,7 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.calls.done"), [1, [1, "snooze"]], "Snooze snoozes the open Chat");
     await evaluate("window.setSending(true)");
     await wait('!document.querySelector("[data-message-done]")');
+    assert.equal(await evaluate('document.querySelectorAll("[data-fork-message]").length'), 0, "sending clears the selected actions");
     await evaluate("window.setSending(false)");
     await wait('!!document.querySelector("[data-message-done]")');
     await evaluate(
@@ -279,7 +282,8 @@ async function browserChecks() {
       ])})`,
     );
     const button = (id, label = "Copy message") => `document.querySelector('#message-${id} [aria-label="${label}"]')`;
-    await wait(`${button(21)} && ${button(22)} && ${button(23)}`);
+    await wait(`${button(32)} !== null`);
+    assert.equal(await evaluate("document.querySelectorAll('[aria-label=\"Copy message\"]').length"), 1, "only the newest message starts with actions");
     // A Delegation is one line now; its text opens in a dialog instead of sitting in the transcript with a Copy button.
     assert.equal(await evaluate(`!!document.querySelector('#message-24 [data-linked-message-line]')`), true, "a Delegation is one line");
     for (const id of [24, 25, 26, 27, 28, 29, 30, 31, 33])
@@ -295,21 +299,22 @@ async function browserChecks() {
       return { height: viewport.scrollHeight, scroll: viewport.scrollTop,
         rows: [...viewport.querySelectorAll('article')].map(node => ({ id: node.id, height: node.getBoundingClientRect().height })) };
     })()`);
-    // Finish finite entry/layout animations before comparing hover geometry.
+    // Finish finite entry/layout animations before comparing transcript geometry.
     await evaluate(
       `Promise.all(document.getAnimations().filter(a => a.effect?.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})))`,
     );
     const before = await metrics();
-    const debuggerApi = window.webContents.debugger;
-    if (!debuggerApi.isAttached()) debuggerApi.attach("1.3");
-    await debuggerApi.sendCommand("DOM.enable");
-    await debuggerApi.sendCommand("CSS.enable");
-    const { root } = await debuggerApi.sendCommand("DOM.getDocument");
-    const { nodeId } = await debuggerApi.sendCommand("DOM.querySelector", { nodeId: root.nodeId, selector: "#message-22" });
-    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: ["hover"] });
-    await wait(`getComputedStyle(${button(22)}.parentElement.parentElement).opacity === '1'`);
-    assert.deepEqual(await metrics(), before, "hover preserves transcript height and scroll position");
-    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] });
+    const showActions = async (id) => {
+      await evaluate(`document.querySelector('#message-${id}').click()`);
+      await wait(`${button(id)} !== null`);
+      assert.equal(
+        await evaluate('document.querySelectorAll(\'[aria-label="Copy message"], [aria-label="Copied"]\').length'),
+        1,
+        "selecting a message moves its actions",
+      );
+    };
+    await showActions(22);
+    assert.deepEqual(await metrics(), before, "showing actions preserves transcript height and scroll position");
     // Trusted pointer clicks also prove containment does not clip the side controls.
     const pointerClick = async (selector) => {
       await evaluate(`${selector}.scrollIntoView({ block: 'center' })`);
@@ -333,10 +338,15 @@ async function browserChecks() {
       [22, answer],
       [23, recommendation],
     ]) {
+      await showActions(id);
       await pointerClick(button(id));
       await wait(`${button(id, "Copied")} !== null`);
       assert.equal(await clipboard.readText(), text, `raw clipboard text for message ${id}`);
     }
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Tab" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Tab" });
+    await wait("document.activeElement?.matches(':focus-visible')");
+    await evaluate("document.querySelector('#message-21').focus()");
     await wait(`${button(21)} !== null`);
     await evaluate(`${button(21)}.focus()`);
     await wait(`getComputedStyle(${button(21)}.parentElement.parentElement).opacity === '1'`);
@@ -371,6 +381,7 @@ async function browserChecks() {
     await evaluate(`window.setStream(''); window.setSending(false); window.setExtra([]); window.setPrompt13('Long wrapping user prompt '.repeat(30))`);
     window.setSize(560, 720);
     await wait(`document.querySelector('#message-13')?.textContent.includes('Long wrapping')`);
+    await showActions(13);
     await pointerClick(button(13));
     await wait(`${button(13, "Copied")} !== null`);
     assert.equal(await clipboard.readText(), "Long wrapping user prompt ".repeat(30));
@@ -479,13 +490,15 @@ async function browserChecks() {
     await evaluate(`window.setExtra([{id: 19, session_id: 1, role: "assistant", body: "Validation passed",
       context: {kind: "validation", runId: "r19", status: "passed", trigger: "user", startedAt: 1, worktreePath: "/Projects/storefront", results: []}}])`);
     await evaluate('window.setDraft("half-written note")');
+    await showActions(11);
+    assert.equal(await evaluate('!!document.querySelector("[data-edit-message=\\"11\\"]")'), true, "every typed message offers Edit");
+    await showActions(13);
     await evaluate('document.querySelector("[data-edit-message=\\"13\\"]").click()');
     await wait('!!document.querySelector("[data-message-edit-card]")');
     assert.match(
       await evaluate('document.querySelector("[data-message-edit-card]").textContent'),
       /Editing a message · the 1 message after it will be removed/,
     );
-    assert.equal(await evaluate('!!document.querySelector("[data-edit-message=\\"11\\"]")'), true, "every typed message offers Edit");
     assert.equal(
       await evaluate('!!document.querySelector("#message-12 [data-edit-message], #message-15 [data-edit-message]")'),
       false,
@@ -508,6 +521,7 @@ async function browserChecks() {
     await wait('!document.querySelector("[data-message-edit-card]")');
     await wait('document.querySelector("[data-prompt-editor]").textContent.includes("half-written note")');
     assert.deepEqual(await ringed(), []);
+    await showActions(13);
     await evaluate('document.querySelector("[data-edit-message=\\"13\\"]").click()');
     await wait('document.querySelector("[data-message-edit-card]")?.textContent.includes("Also undo the changes to 3 files")');
     await evaluate('window.setDraft("After login, send people to the account page.")');
@@ -534,6 +548,7 @@ async function browserChecks() {
     await wait('document.querySelector("[data-composer-note]")?.textContent.includes("archived")');
     assert.equal(await evaluate('document.querySelectorAll("[data-edit-message]").length'), 0, "archived messages have no edit action");
     await evaluate('[...document.querySelectorAll("button")].find(button => button.textContent.trim() === "Restore Chat").click()');
+    await showActions(13);
     await wait('!!document.querySelector("[data-edit-message]")');
 
     // While a turn runs, Esc Esc stays with Stop and the undo buttons wait.

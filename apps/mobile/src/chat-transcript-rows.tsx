@@ -1,8 +1,9 @@
-import { memo, useCallback, useLayoutEffect, useRef, type ComponentProps } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { ChatReply } from "./chat-reply";
 import { useRun } from "./session";
 import { router } from "expo-router";
 import type { ChatMessage, ChatStep, RoutineRunContext } from "@milagre/shared/model";
+import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import type { Client } from "./client";
 import { showBrief } from "./handoff-brief-store";
 import { exchangeText, linkedContext, linkedLine, type LinkedExchange } from "@milagre/shared/linked-message";
@@ -10,8 +11,9 @@ import { LinkedMessageLine } from "./linked-message-line";
 import { RoutineRunDivider } from "./routine-run-divider";
 import { isRoutineRun, routineRunOf } from "@milagre/shared/routines";
 import { Approval } from "./questions";
-import { subchatNote, subchatNotes, suggestionArguments } from "./subchat-notes";
+import { isSilentNote, subchatNote, subchatNotes, suggestionArguments } from "./subchat-notes";
 import { SubchatNoteView } from "./subchat-note";
+import { navigationLabel } from "./navigation-label";
 
 import type { AgentRun } from "@milagre/shared/agent-runs";
 
@@ -106,4 +108,34 @@ export function useLiveSteps() {
     liveSteps.current = steps;
   }, []);
   return { liveSteps, onLiveSteps };
+}
+
+export function useTranscriptActions(chat: string, entries: { message: ChatMessage }[], sending: unknown[]) {
+  const latest = entries.at(-1)?.message;
+  const latestId = latest?.clientMessageId ?? latest?.id;
+  const running = sending.some(Boolean);
+  const scope = `${chat}:${latestId}:${running}`;
+  const [selected, setSelected] = useState<{ scope: string; id?: string | number }>({ scope });
+  if (selected.scope !== scope) setSelected({ scope });
+  const active = (selected.scope === scope ? selected.id : undefined) ?? (running ? undefined : latestId);
+  const select = useCallback((id: string | number) => setSelected({ scope, id }), [scope]);
+  return (message: ChatMessage) => ({
+    actionsVisible: active === (message.clientMessageId ?? message.id),
+    onSelectActions: message.id > 0 ? select : undefined,
+  });
+}
+
+export function useMessageNavigation(
+  entries: { message: ChatMessage; merged?: Parameters<typeof navigationLabel>[1] }[],
+  models: Parameters<typeof navigationLabel>[3],
+) {
+  return useMemo(
+    () =>
+      messageNavigationIndices(entries.length).flatMap((index) => {
+        const entry = entries[index];
+        if (!entry || isSilentNote(entry.message)) return [];
+        return { index, label: navigationLabel(entry.message, entry.merged, `${index + 1} of ${entries.length}`, models) };
+      }),
+    [entries, models],
+  );
 }
