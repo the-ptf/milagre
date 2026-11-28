@@ -6,7 +6,7 @@ import { UI_COPY } from "@milagre/shared/model-copy";
 import { GITHUB_ISSUE_TITLE } from "@milagre/shared/github-issue";
 import { requestGithubIssuePicker } from "./issue-picker-request";
 import { SECRETS_COPY } from "@milagre/shared/secrets";
-import { requestAddSecret } from "./secrets-intent";
+import { requestAddLogin, requestAddSecret } from "./secrets-intent";
 import type { SettingsSection } from "../components/Settings";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
 import type { AgentSession, OpenProject } from "../model";
@@ -222,6 +222,17 @@ function actionCommands(ctx: AppCommandContext): Command[] {
       run: () => {
         actions.openSettingsAt("secrets");
         requestAddSecret();
+      },
+    },
+    {
+      id: "logins-add",
+      label: SECRETS_COPY.logins.add,
+      group: "Actions",
+      icon: "add",
+      keywords: "login password sign in browser username credential",
+      run: () => {
+        actions.openSettingsAt("secrets");
+        requestAddLogin();
       },
     },
     {

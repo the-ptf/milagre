@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { SECRET_LIMITS, secretNameProblem } = require("@milagre/shared/secrets");
-const { recordSchema, tombstoneSchema } = require("./secrets-vault.cjs");
+const { recordSchema, tombstoneSchema, normalized } = require("./secrets-vault.cjs");
 
 const BATCH = 20;
 const RETRY_MS = 60_000;
@@ -38,6 +38,8 @@ function outgoing(state, theirs) {
 function acceptable(state, name, secret) {
   if (!secret.value || Buffer.byteLength(secret.value, "utf8") > SECRET_LIMITS.valueBytes) return false;
   if (secret.kind === "file" && !(secret.fileName && FILE_NAME.test(secret.fileName))) return false;
+  const held = state.secrets[name]?.login;
+  if (held && secret.login && (held.origin !== secret.login.origin || held.username !== secret.login.username)) return false;
   return Boolean(state.secrets[name]) || Object.keys(state.secrets).length < SECRET_LIMITS.count;
 }
 
@@ -52,8 +54,7 @@ function merge(state, entries, from) {
     const incoming = secret?.success ? secret.data : tombstone?.success ? tombstone.data : null;
     if (!incoming || !newer(incoming, state.secrets[name] ?? state.tombstones[name])) continue;
     if (secret?.success) {
-      if (!acceptable(state, name, incoming)) continue;
-      if (incoming.kind === "file" || incoming.askEachUse) incoming.delivery = "on-demand";
+      if (!acceptable(state, name, incoming) || !normalized(incoming)) continue;
       state.secrets[name] = { ...incoming, fileName: incoming.kind === "file" ? incoming.fileName : null, from };
       delete state.tombstones[name];
     } else {

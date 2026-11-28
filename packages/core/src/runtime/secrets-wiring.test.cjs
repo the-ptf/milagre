@@ -181,3 +181,42 @@ test("Save as over an existing secret keeps its policy, and a card opened before
   assert.ok(reply.path, "the value still reaches the agent as a one-off file");
   assert.equal((await wiring.values()).find((secret) => secret.name === "DEPLOY_TOKEN").value, "new-value-123456");
 });
+
+test("a browser's passwords file becomes logins by site, shown to the agent by site and typed only through the browser", async (t) => {
+  const { call, listTool, dataDir } = fixture(t);
+  const csv = path.join(dataDir, "Chrome Passwords.csv");
+  fs.writeFileSync(
+    csv,
+    "name,url,username,password,note\nvercel,https://vercel.com/login,me@x.com,vercel-pass-123456,\nold,http://intranet.example/login,me,intranet-pass-123456,\nbroken,nowhere,me,pass-123456,\n",
+  );
+  const result = await call("secrets:import-logins", { file: csv, remove: true });
+  assert.equal(result.removed, false);
+  assert.equal(fs.existsSync(csv), true, "an export with rows that weren't saved stays, so nothing is lost");
+  assert.equal(result.imported.length, 1);
+  assert.match(result.imported[0], /^LOGIN_VERCEL_COM_/);
+  assert.deepEqual(
+    result.skipped.map((entry) => entry.site),
+    ["nowhere", "http://intranet.example"],
+    "a login without https is never saved",
+  );
+  const [login] = await call("secrets:list");
+  assert.deepEqual(login.login, { origin: "https://vercel.com", username: "me@x.com" });
+  const listed = await listTool(`${PROJECT}#1`).run({});
+  assert.deepEqual(JSON.parse(listed), [{ name: result.imported[0], kind: "login", note: null, site: "https://vercel.com" }]);
+  assert.equal(listed.includes("vercel-pass"), false);
+  const clean = path.join(dataDir, "clean.csv");
+  fs.writeFileSync(clean, "url,username,password\nhttps://linear.app,me,linear-pass-123456\n");
+  assert.equal((await call("secrets:import-logins", { file: clean, remove: true })).removed, true);
+  assert.equal(fs.existsSync(clean), false, "a fully imported export is deleted");
+  await assert.rejects(
+    call("secrets:set", {
+      name: "LOGIN_AMBIENT",
+      kind: "login",
+      login: { origin: "https://a.com", username: "u" },
+      value: "pass-123456",
+      projects: "all",
+      delivery: "ambient",
+    }),
+    /never in the environment/,
+  );
+});

@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
-import { SECRETS_COPY, SECRET_LIMITS, secretFlags, type SecretPatch, type SecretSummary } from "@milagre/shared/secrets";
+import { SECRETS_COPY, SECRET_LIMITS, loginHost, secretFlags, type SecretPatch, type SecretSummary } from "@milagre/shared/secrets";
 import { ago } from "@milagre/shared/main-sync";
 import { ErrorNotice, Field, Group, PageScroll, PillButton, SectionLabel, Tag, useStyles } from "../../ui";
 import { confirm } from "../../confirm-store";
-import { SecretOptInFields, SecretScopeFields, SecretValueField, secretRowLine } from "../../secret-fields";
+import { SecretOptInFields, SecretScopeFields, SecretValueField, loginRowLine, loginTitle, secretRowLine } from "../../secret-fields";
 import { useSecretLog, useSecrets, useThisComputerName } from "../../use-secrets";
 
 const FILE_FROM_COMPUTER = "A file secret's value is replaced on the computer that holds the file.";
@@ -22,7 +22,7 @@ export default function SecretScreen() {
   const secret = secrets.loaded?.secrets.find((item) => item.name === name);
   return (
     <>
-      <Stack.Screen options={{ title: name ?? SECRETS_COPY.title }} />
+      <Stack.Screen options={{ title: (secret ? loginTitle(secret) : name) ?? SECRETS_COPY.title }} />
       <PageScroll>
         {secrets.error && !secrets.loaded ? (
           <ErrorNotice message={secrets.error} retry={secrets.reload} retryTitle="Try again" />
@@ -56,6 +56,7 @@ function SecretDetail({
   const styles = useStyles();
   const log = useSecretLog(secret.name);
   const here = useThisComputerName();
+  const login = secret.kind === "login";
   const [value, setValue] = useState("");
   const [note, setNote] = useState(secret.note ?? "");
   const [scopeDraft, setScopeDraft] = useState<string[] | null>(null);
@@ -92,7 +93,8 @@ function SecretDetail({
       set({
         name: secret.name,
         value,
-        kind: "text",
+        kind: login ? "login" : "text",
+        login: secret.login,
         projects: secret.projects,
         delivery: secret.delivery,
         askEachUse: secret.askEachUse,
@@ -106,30 +108,34 @@ function SecretDetail({
     }
   };
   const deleteSecret = async () => {
-    if (!(await confirm(SECRETS_COPY.removeConfirm(secret.name), undefined, SECRETS_COPY.remove))) return;
+    const question = secret.login
+      ? SECRETS_COPY.logins.removeConfirm(loginHost(secret.login.origin), secret.login.username)
+      : SECRETS_COPY.removeConfirm(secret.name);
+    if (!(await confirm(question, undefined, SECRETS_COPY.remove))) return;
     if (await run("delete", () => remove(secret.name))) router.back();
   };
   return (
     <View style={{ gap: 24 }}>
       <View style={styles.card}>
         <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-          <Text selectable numberOfLines={1} style={[styles.subtitle, { fontFamily: styles.code.fontFamily, flexShrink: 1 }]}>
-            {secret.name}
+          <Text selectable numberOfLines={1} style={[styles.subtitle, login ? { flexShrink: 1 } : { fontFamily: styles.code.fontFamily, flexShrink: 1 }]}>
+            {loginTitle(secret)}
           </Text>
           {secret.kind === "file" ? <Tag label={SECRETS_COPY.file} /> : null}
           {secretFlags(secret).map((flag) => (
             <Tag key={flag} label={flag} tone={flag === UNATTENDED_FLAG ? "orange" : "neutral"} />
           ))}
         </View>
-        <Text style={styles.caption}>{secretRowLine(secret, now, here)}</Text>
+        <Text style={styles.caption}>{login ? loginRowLine(secret, now) : secretRowLine(secret, now, here)}</Text>
       </View>
 
       <View style={{ gap: 8 }}>
-        <SectionLabel>{SECRETS_COPY.value}</SectionLabel>
-        {secret.kind === "text" ? (
+        <SectionLabel>{login ? SECRETS_COPY.logins.password : SECRETS_COPY.value}</SectionLabel>
+        {secret.kind !== "file" ? (
           <View style={[styles.card, { gap: 12 }]}>
             <SecretValueField
-              label={SECRETS_COPY.replace}
+              label={login ? SECRETS_COPY.logins.replacePassword : SECRETS_COPY.replace}
+              placeholder={login ? SECRETS_COPY.logins.passwordPlaceholder : undefined}
               value={value}
               onChangeText={(next) => {
                 setValue(next);
@@ -139,7 +145,7 @@ function SecretDetail({
               onSubmitEditing={() => void replace()}
             />
             <PillButton
-              title={replaced ? "Replaced" : SECRETS_COPY.replace}
+              title={replaced ? "Replaced" : login ? SECRETS_COPY.logins.replacePassword : SECRETS_COPY.replace}
               secondary
               disabled={!value || busy !== null}
               loading={busy === "value"}

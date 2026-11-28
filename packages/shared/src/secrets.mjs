@@ -1,5 +1,5 @@
 export const SECRET_LIMITS = Object.freeze({ count: 500, valueBytes: 64 * 1024, noteChars: 500, fileNameChars: 128, projects: 100 });
-export const SECRET_KINDS = Object.freeze(["text", "file"]);
+export const SECRET_KINDS = Object.freeze(["text", "file", "login"]);
 export const SECRET_DELIVERIES = Object.freeze(["on-demand", "ambient"]);
 export const REDACT_MIN_CHARS = 8;
 const HINT_MIN_CHARS = 12;
@@ -208,6 +208,31 @@ export const SECRETS_COPY = Object.freeze({
     replaces: (name) => `Replaces the saved ${name}.`,
   },
   changedOn: (name) => `Changed on ${name}`,
+  logins: {
+    title: "Logins",
+    intro:
+      "A saved login is filled only into its own site in the Browser panel. Agents never get the password back, and can't read that page's script until it moves on.",
+    empty: "No logins yet. Add one, or import your browser's passwords on a computer.",
+    add: "Add login",
+    importPasswords: "Import passwords…",
+    import: "Import",
+    site: "Site address",
+    sitePlaceholder: "https://github.com",
+    username: "Username",
+    password: "Password",
+    replacePassword: "Replace password",
+    passwordPlaceholder: "Type the password",
+    badSite: "Use a full address that starts with https://, like https://github.com.",
+    exportHelp:
+      "Export from Chrome, Arc or Edge in Settings › Passwords › Export, Safari in File › Export › Passwords, Firefox in Passwords › Export. 1Password and Bitwarden export as CSV.",
+    deleteExport: "The file holds every password in plain text. Delete it once the import is done.",
+    removeExport: "Delete the file after importing",
+    exportDeleted: "The exported file is deleted.",
+    phoneImport: "Import passwords from Milagre on your computer.",
+    imported: (count) => `Imported ${count} ${count === 1 ? "login" : "logins"}.`,
+    removeConfirm: (site, username) => `Delete the login for ${username ? `${username} on ` : ""}${site}? Agents can't sign in there from their next command.`,
+    nobody: "No username",
+  },
   sharing: {
     title: "Share with",
     intro: "Secrets you save here are sent to the computers you pick, over the encrypted link between your computers. They can't read values back.",
@@ -241,4 +266,116 @@ export function carriesSecretValue(method, args) {
     method === "secrets:set" ||
     (method === "agent:answer-question" && (String(first?.requestId ?? "").startsWith("milagre-secret-") || first?.secretAnswer === true))
   );
+}
+
+function hashText(text) {
+  let hash = 2166136261;
+  for (const char of text) hash = Math.imul(hash ^ char.codePointAt(0), 16777619) >>> 0;
+  return hash.toString(16).toUpperCase().padStart(8, "0").slice(0, 6);
+}
+
+/** The name a login is saved under: the site and a short hash of the site and username, so each pair has one. */
+export function loginName(origin, username) {
+  const host = String(origin)
+    .replace(/^[a-z]+:\/\//i, "")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .toUpperCase()
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+  return `LOGIN_${host || "SITE"}_${hashText(`${origin}\n${username}`)}`;
+}
+
+/** The site of an origin without its scheme, as a row names it. */
+export function loginHost(origin) {
+  return String(origin).replace(/^[a-z]+:\/\//i, "");
+}
+
+/** The origin a typed site address means, or why it can't be one: https, or http on this computer. */
+export function loginSite(site) {
+  const text = String(site ?? "").trim();
+  if (!text) return { origin: null, error: null };
+  let url;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `https://${text}`);
+  } catch {
+    return { origin: null, error: SECRETS_COPY.logins.badSite };
+  }
+  const local = url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+  if (url.protocol !== "https:" && !local) return { origin: null, error: SECRETS_COPY.logins.badSite };
+  return { origin: url.origin, error: null };
+}
+
+/** The rows of a CSV text, each with the line it starts on. */
+function csvRows(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let quoted = false;
+  let line = 1;
+  let start = 1;
+  const end = () => {
+    row.push(field);
+    if (row.some((cell) => cell !== "")) rows.push(Object.assign(row, { line: start }));
+    row = [];
+    field = "";
+  };
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    const crlf = char === "\r" && text[index + 1] === "\n";
+    if (char === "\n" || (char === "\r" && !crlf)) line++;
+    if (quoted) {
+      if (char === '"' && text[index + 1] === '"') {
+        field += '"';
+        index++;
+      } else if (char === '"') quoted = false;
+      else field += char;
+    } else if (char === '"') quoted = true;
+    else if (char === ",") {
+      row.push(field);
+      field = "";
+    } else if (crlf) continue;
+    else if (char === "\n" || char === "\r") {
+      end();
+      start = line;
+    } else field += char;
+  }
+  if (quoted) throw new Error("The file has a quote that never closes, so it wasn't imported.");
+  end();
+  return rows;
+}
+
+/**
+ * Logins from a browser's or password manager's CSV export (Chrome, Arc, Edge, Safari, Firefox, 1Password, Bitwarden):
+ * url, username and password columns by header, plus a note when there is one. One-time-code columns are ignored. A
+ * row that can't be a login is reported with its line, never dropped silently; a broken file throws.
+ */
+export function parseLoginCsv(text) {
+  const [header, ...rows] = csvRows(String(text).replace(/^﻿/, ""));
+  if (!header) throw new Error("The file is empty.");
+  const column = (...names) => header.findIndex((cell) => names.includes(cell.trim().toLowerCase()));
+  const url = column("url", "login_uri", "website", "web site");
+  const username = column("username", "login_username", "user name", "login");
+  const password = column("password", "login_password");
+  const note = column("note", "notes");
+  if (url < 0 || password < 0) throw new Error("The file has no url and password columns, so it isn't a passwords export.");
+  const logins = [];
+  const skipped = [];
+  for (const row of rows) {
+    const { line } = row;
+    let origin = null;
+    try {
+      origin = new URL(row[url]).origin;
+    } catch {}
+    if (!origin || origin === "null") skipped.push({ row: line, site: row[url] ?? "", reason: "The address isn't a web address." });
+    else if (!row[password]) skipped.push({ row: line, site: origin, reason: "No password." });
+    else
+      logins.push({
+        line,
+        origin,
+        username: username >= 0 ? (row[username] ?? "") : "",
+        password: row[password],
+        note: note >= 0 && row[note] ? row[note] : null,
+      });
+  }
+  return { logins, skipped };
 }

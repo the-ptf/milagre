@@ -1,4 +1,10 @@
-export type SecretKind = "text" | "file";
+export type SecretKind = "text" | "file" | "login";
+
+/** The site a login is typed into and the username it signs in with. */
+export interface SecretLogin {
+  origin: string;
+  username: string;
+}
 export type SecretDelivery = "on-demand" | "ambient";
 
 /** A secret without its value: what agents, peers and the phone may see. */
@@ -6,6 +12,7 @@ export interface SecretSummary {
   name: string;
   kind: SecretKind;
   fileName: string | null;
+  login?: SecretLogin;
   hint: string | null;
   projects: "all" | string[];
   delivery: SecretDelivery;
@@ -72,6 +79,29 @@ export declare const SECRETS_COPY: Readonly<{
   skipped: string;
   saveAs: { label: (name: string) => string; project: string; all: string; none: string; replaces: (name: string) => string };
   changedOn: (name: string) => string;
+  logins: {
+    title: string;
+    intro: string;
+    empty: string;
+    add: string;
+    importPasswords: string;
+    import: string;
+    site: string;
+    sitePlaceholder: string;
+    username: string;
+    password: string;
+    replacePassword: string;
+    passwordPlaceholder: string;
+    badSite: string;
+    exportHelp: string;
+    deleteExport: string;
+    removeExport: string;
+    exportDeleted: string;
+    phoneImport: string;
+    imported: (count: number) => string;
+    removeConfirm: (site: string, username: string) => string;
+    nobody: string;
+  };
   sharing: { title: string; intro: string; empty: string; online: string; offline: string; removing: (name: string) => string };
 }>;
 
@@ -101,6 +131,7 @@ export interface SecretInput {
   file?: string;
   kind?: SecretKind;
   fileName?: string | null;
+  login?: SecretLogin;
   projects: "all" | string[];
   delivery?: SecretDelivery;
   askEachUse?: boolean;
@@ -115,3 +146,12 @@ export function secretScopeText(projects: "all" | string[]): string;
 export function secretFlags(secret: Pick<SecretSummary, "delivery" | "askEachUse" | "unattended">): string[];
 
 export function carriesSecretValue(method: string, args: unknown[]): boolean;
+
+export function loginName(origin: string, username: string): string;
+export function parseLoginCsv(text: string): {
+  logins: { line: number; origin: string; username: string; password: string; note: string | null }[];
+  skipped: { row: number; site: string; reason: string }[];
+};
+export function loginHost(origin: string): string;
+/** `origin` is set for a usable address, `error` for a typed one that isn't, both null while empty. */
+export function loginSite(site: string): { origin: string | null; error: string | null };

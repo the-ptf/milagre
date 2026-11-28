@@ -2,22 +2,24 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Clock01Icon, Delete02Icon, Edit02Icon, Key01Icon, LockKeyIcon } from "@hugeicons/core-free-icons";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ago } from "@milagre/shared/main-sync";
-import { SECRETS_COPY, secretFlags, secretScopeText, type SecretSummary } from "@milagre/shared/secrets";
+import { SECRETS_COPY, loginHost, secretFlags, secretScopeText, type SecretSummary } from "@milagre/shared/secrets";
 import { useComputers } from "../../lib/computers";
-import { useAddSecretRequest } from "../../lib/secrets-intent";
+import { useAddLoginRequest, useAddSecretRequest } from "../../lib/secrets-intent";
 import type { RecentProject } from "../../lib/project-list";
 import { Button, IconButton } from "../primitives/Button";
 import { EmptyState } from "../primitives/EmptyState";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { Skeleton } from "../primitives/Skeleton";
+import { AddLoginDialog, ImportLoginsDialog } from "./LoginDialogs";
 import { AddSecretDialog, DeleteSecretDialog, EditSecretDialog, ImportSecretsDialog, ReplaceSecretDialog, SecretLogDialog } from "./SecretDialogs";
 import { useFilePicker, type ScopeChoice } from "./SecretFields";
 import { SecretSharing } from "./SecretSharing";
 import { Group } from "./SettingsGroup";
 
 type Open =
-  | { kind: "add" }
+  | { kind: "add" | "add-login" }
+  | { kind: "import-logins"; file: { path: string; fileName: string } }
   | { kind: "import"; file: { path: string; fileName: string } }
   | { kind: "replace" | "edit" | "log" | "delete"; secret: SecretSummary };
 
@@ -125,6 +127,42 @@ function SecretRow({
   );
 }
 
+function LoginRow({ secret, choices, now, onOpen }: { secret: SecretSummary; choices: ScopeChoice[]; now: number; onOpen: (open: Open) => void }) {
+  const login = secret.login!;
+  const unattended = secretFlags({ delivery: "on-demand", askEachUse: false, unattended: true })[0];
+  const used = secret.lastUsedAt === null ? SECRETS_COPY.neverUsed : SECRETS_COPY.lastUsed(ago(secret.lastUsedAt, now));
+  return (
+    <li data-secret={secret.name} data-login className="flex items-center gap-3 px-4 py-3">
+      <div className="grid min-w-0 flex-1 gap-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="min-w-0 truncate text-13 font-medium text-ink">{loginHost(login.origin)}</span>
+          <span className="min-w-0 truncate text-12 text-ink-2">{login.username || SECRETS_COPY.logins.nobody}</span>
+          {secretFlags(secret).map((flag) => (
+            <Badge key={flag} warning={flag === unattended}>
+              {flag}
+            </Badge>
+          ))}
+        </div>
+        {secret.note && <p className="break-words text-12 text-ink-2">{secret.note}</p>}
+        <p className="truncate text-12 text-ink-3">
+          <span title={secret.projects === "all" ? undefined : secret.projects.join("\n")}>{scopeText(secret, choices)}</span> · {used}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <IconButton label={SECRETS_COPY.logins.replacePassword} icon={Key01Icon} data-secret-replace onClick={() => onOpen({ kind: "replace", secret })} />
+        <IconButton label={SECRETS_COPY.edit} icon={Edit02Icon} data-secret-edit onClick={() => onOpen({ kind: "edit", secret })} />
+        <IconButton
+          label={SECRETS_COPY.remove}
+          icon={Delete02Icon}
+          variant="danger-ghost"
+          data-secret-delete
+          onClick={() => onOpen({ kind: "delete", secret })}
+        />
+      </div>
+    </li>
+  );
+}
+
 /** Settings › Secrets: this computer's named secrets for agents (docs/secrets.md). Values go in and never come back. */
 export function SecretsSettings() {
   const { unlocked, secrets, projects, error, reload } = useSecrets();
@@ -136,6 +174,11 @@ export function SecretsSettings() {
   const picker = useFilePicker((path, fileName) => setOpen({ kind: "import", file: { path, fileName } }));
   const openAdd = useCallback(() => setOpen({ kind: "add" }), []);
   useAddSecretRequest(openAdd);
+  const openAddLogin = useCallback(() => setOpen({ kind: "add-login" }), []);
+  useAddLoginRequest(openAddLogin);
+  const loginPicker = useFilePicker((path, fileName) => setOpen({ kind: "import-logins", file: { path, fileName } }), ".csv,text/csv");
+  const plain = useMemo(() => secrets?.filter((secret) => secret.kind !== "login") ?? null, [secrets]);
+  const logins = useMemo(() => secrets?.filter((secret) => secret.kind === "login" && secret.login) ?? [], [secrets]);
   const close = () => setOpen(null);
   const saved = () => {
     setOpen(null);
@@ -170,22 +213,58 @@ export function SecretsSettings() {
               <Skeleton className="h-9" />
               <Skeleton className="h-9" />
             </div>
-          ) : secrets.length === 0 ? (
+          ) : plain === null || plain.length === 0 ? (
             <EmptyState data-secrets-empty icon={Key01Icon} title={SECRETS_COPY.empty} />
           ) : (
             <ul data-secrets-list className="divide-y divide-line">
-              {secrets.map((secret) => (
+              {plain.map((secret) => (
                 <SecretRow key={secret.name} secret={secret} choices={choices} now={now} here={thisMac} onOpen={setOpen} />
               ))}
             </ul>
           )}
         </Group>
       )}
+      {!locked && (
+        <>
+          <p className="mt-6 px-1 text-13 text-ink-2">{SECRETS_COPY.logins.intro}</p>
+          <Group
+            title={SECRETS_COPY.logins.title}
+            footer={`${SECRETS_COPY.logins.exportHelp} ${SECRETS_COPY.logins.deleteExport}`}
+            action={
+              <span className="flex gap-2">
+                <Button size={28} variant="secondary" data-logins-import disabled={unlocked !== true} onClick={loginPicker.open}>
+                  {SECRETS_COPY.logins.importPasswords}
+                </Button>
+                <Button size={28} data-logins-add disabled={unlocked !== true} onClick={openAddLogin}>
+                  {SECRETS_COPY.logins.add}
+                </Button>
+              </span>
+            }
+          >
+            {secrets === null ? (
+              <div className="grid gap-2 p-4">
+                <Skeleton className="h-9" />
+              </div>
+            ) : logins.length === 0 ? (
+              <EmptyState data-logins-empty icon={Key01Icon} title={SECRETS_COPY.logins.empty} />
+            ) : (
+              <ul data-logins-list className="divide-y divide-line">
+                {logins.map((secret) => (
+                  <LoginRow key={secret.name} secret={secret} choices={choices} now={now} onOpen={setOpen} />
+                ))}
+              </ul>
+            )}
+          </Group>
+        </>
+      )}
       <InlineError size={12} className="mt-2 px-1">
         {error}
       </InlineError>
       {!locked && <SecretSharing />}
       {picker.element}
+      {loginPicker.element}
+      {open?.kind === "add-login" && unlocked && <AddLoginDialog choices={choices} onClose={close} onSaved={saved} />}
+      {open?.kind === "import-logins" && <ImportLoginsDialog file={open.file} choices={choices} onClose={close} onImported={() => void reload()} />}
       {open?.kind === "add" && unlocked && <AddSecretDialog choices={choices} existing={secrets ?? []} onClose={close} onSaved={saved} />}
       {open?.kind === "import" && <ImportSecretsDialog file={open.file} choices={choices} onClose={close} onImported={() => void reload()} />}
       {open?.kind === "replace" && <ReplaceSecretDialog secret={open.secret} onClose={close} onSaved={saved} />}

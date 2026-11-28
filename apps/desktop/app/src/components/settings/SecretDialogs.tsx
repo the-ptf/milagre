@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { ipcErrorMessage } from "@milagre/shared/result";
-import { SECRETS_COPY, secretNameProblem, type SecretInput, type SecretSummary, type SecretUse } from "@milagre/shared/secrets";
+import { SECRETS_COPY, loginHost, secretNameProblem, type SecretInput, type SecretSummary, type SecretUse } from "@milagre/shared/secrets";
 import { ago } from "@milagre/shared/main-sync";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { Button } from "../primitives/Button";
@@ -23,13 +23,17 @@ import {
   type SecretSource,
 } from "./SecretFields";
 
-const NO_OPT_INS: SecretOptIns = { ambient: false, askEachUse: false, unattended: false };
+export const NO_OPT_INS: SecretOptIns = { ambient: false, askEachUse: false, unattended: false };
+
+function secretTitle(secret: SecretSummary): string {
+  return secret.login ? `${loginHost(secret.login.origin)}${secret.login.username ? ` · ${secret.login.username}` : ""}` : secret.name;
+}
 
 function optInsOf(secret: SecretSummary): SecretOptIns {
   return { ambient: secret.delivery === "ambient", askEachUse: secret.askEachUse, unattended: secret.unattended };
 }
 
-function fieldsOf(scope: SecretScope, optIns: SecretOptIns, file: boolean, note: string) {
+export function fieldsOf(scope: SecretScope, optIns: SecretOptIns, file: boolean, note: string) {
   return {
     projects: scope,
     delivery: optIns.ambient && !file ? ("ambient" as const) : ("on-demand" as const),
@@ -39,14 +43,15 @@ function fieldsOf(scope: SecretScope, optIns: SecretOptIns, file: boolean, note:
   };
 }
 
-function sourceInput(source: SecretSource, kept?: SecretSummary): Pick<SecretInput, "value" | "file" | "kind" | "fileName"> {
+function sourceInput(source: SecretSource, kept?: SecretSummary): Pick<SecretInput, "value" | "file" | "kind" | "fileName" | "login"> {
   if (source.mode === "file") return { file: source.path };
+  if (kept?.kind === "login") return { value: source.value, kind: "login", login: kept.login };
   if (kept?.kind === "file") return { value: source.value, kind: "file", fileName: kept.fileName };
   return { value: source.value, kind: "text" };
 }
 
 /** A save in flight and its error, for a dialog whose primary action calls the host. */
-function useSaving(onDone: () => void) {
+export function useSaving(onDone: () => void) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const run = async (action: () => Promise<unknown>) => {
@@ -63,7 +68,7 @@ function useSaving(onDone: () => void) {
   return { busy, error, run };
 }
 
-function FormActions({ busy, ready, label, onClose }: { busy: boolean; ready: boolean; label: string; onClose: () => void }) {
+export function FormActions({ busy, ready, label, onClose }: { busy: boolean; ready: boolean; label: string; onClose: () => void }) {
   return (
     <>
       <Button variant="secondary" onClick={onClose}>
@@ -148,6 +153,7 @@ export function ReplaceSecretDialog({ secret, onClose, onSaved }: { secret: Secr
   const [source, setSource] = useState<SecretSource>(EMPTY_SOURCE);
   const saving = useSaving(onSaved);
   const file = source.mode === "file" || secret.kind === "file";
+  const login = secret.kind === "login";
   const ready = sourceReady(source);
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -164,15 +170,15 @@ export function ReplaceSecretDialog({ secret, onClose, onSaved }: { secret: Secr
     <Dialog
       as="form"
       data-secret-dialog="replace"
-      title={SECRETS_COPY.replace}
-      description={<span className="font-mono">{secret.name}</span>}
+      title={login ? SECRETS_COPY.logins.replacePassword : SECRETS_COPY.replace}
+      description={<span className={login ? undefined : "font-mono"}>{secretTitle(secret)}</span>}
       width={480}
       onSubmit={submit}
       onClose={onClose}
-      actions={<FormActions busy={saving.busy} ready={ready} label={SECRETS_COPY.replace} onClose={onClose} />}
+      actions={<FormActions busy={saving.busy} ready={ready} label={login ? SECRETS_COPY.logins.replacePassword : SECRETS_COPY.replace} onClose={onClose} />}
       className="grid gap-3 pt-4"
     >
-      <SourceField source={source} onChange={setSource} />
+      <SourceField source={source} onChange={setSource} allowFile={!login} label={login ? SECRETS_COPY.logins.password : undefined} />
       <InlineError size={12}>{saving.error}</InlineError>
     </Dialog>
   );
@@ -195,6 +201,7 @@ export function EditSecretDialog({
   const [optIns, setOptIns] = useState<SecretOptIns>(optInsOf(secret));
   const saving = useSaving(onSaved);
   const file = secret.kind === "file";
+  const login = secret.kind === "login";
   const ready = scopeReady(scope);
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -206,7 +213,7 @@ export function EditSecretDialog({
       as="form"
       data-secret-dialog="edit"
       title={SECRETS_COPY.edit}
-      description={<span className="font-mono">{secret.name}</span>}
+      description={<span className={login ? undefined : "font-mono"}>{secretTitle(secret)}</span>}
       width={520}
       footer="bar"
       onSubmit={submit}
@@ -218,7 +225,7 @@ export function EditSecretDialog({
         <Input id={noteId} data-secret-note value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} />
       </FieldBlock>
       <ScopeField scope={scope} onChange={setScope} choices={choices} />
-      <OptInsField value={optIns} onChange={setOptIns} file={file} />
+      <OptInsField value={optIns} onChange={setOptIns} file={file} login={login} />
       <InlineError size={12}>{saving.error}</InlineError>
     </Dialog>
   );
@@ -231,7 +238,9 @@ export function DeleteSecretDialog({ secret, onClose, onDeleted }: { secret: Sec
       role="alertdialog"
       data-secret-dialog="delete"
       title={SECRETS_COPY.remove}
-      description={SECRETS_COPY.removeConfirm(secret.name)}
+      description={
+        secret.login ? SECRETS_COPY.logins.removeConfirm(loginHost(secret.login.origin), secret.login.username) : SECRETS_COPY.removeConfirm(secret.name)
+      }
       width={420}
       onClose={onClose}
       actions={

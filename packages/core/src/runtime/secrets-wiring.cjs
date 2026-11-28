@@ -3,7 +3,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
-const { SECRET_LIMITS, parseDotenv, secretNameProblem, secretRedactor } = require("@milagre/shared/secrets");
+const { SECRET_LIMITS, loginName, parseDotenv, parseLoginCsv, secretNameProblem, secretRedactor } = require("@milagre/shared/secrets");
 const { createSecretsVault } = require("../secrets-vault.cjs");
 const { createSecretsAccess } = require("../secrets-access.cjs");
 const { createSecretsSync } = require("../secrets-sync.cjs");
@@ -19,6 +19,7 @@ const currentOrigin = (projectPath) =>
   );
 
 const RETIRED_MS = 24 * 60 * 60 * 1000;
+const LOGIN_CSV_BYTES = 5 * 1024 * 1024;
 
 /** Turns a person isn't there for: Routine runs and triggers, Heartbeats, babysitting, wakes and Orchestrator tasks. */
 function isUnattended(session, chats, chatId) {
@@ -26,12 +27,39 @@ function isUnattended(session, chats, chatId) {
   return hiddenRun(session?.routine) || hiddenRun(session?.orchestrator) || chats.routineTurns.has(chatId) || Boolean(chats.turns.get(chatId)?.guard?.level);
 }
 
-async function readSmallFile(file, what) {
+async function readSmallFile(file, what, limit = SECRET_LIMITS.valueBytes) {
   if (typeof file !== "string" || !path.isAbsolute(file)) throw new Error(`${what} must be an absolute path.`);
   const stat = await fs.stat(file);
   if (!stat.isFile()) throw new Error(`${what} is not a file.`);
-  if (stat.size > SECRET_LIMITS.valueBytes) throw new Error(`${what} is larger than ${SECRET_LIMITS.valueBytes / 1024} KB.`);
+  if (stat.size > limit) throw new Error(`${what} is larger than ${Math.round(limit / 1024)} KB.`);
   return fs.readFile(file, "utf8");
+}
+
+/**
+ * Saves each login of a browser's or password manager's CSV export under its site's login name; a row that fails is
+ * reported. With `remove`, the export (every password in plain text) is deleted once its logins are saved.
+ */
+async function importLogins(vault, { file, projects = "all", remove = false } = {}) {
+  const parsed = parseLoginCsv(await readSmallFile(file, "The passwords file", LOGIN_CSV_BYTES));
+  const imported = [];
+  const skipped = parsed.skipped.map(({ row, site, reason }) => ({ name: `line ${row}`, site, reason }));
+  for (const row of parsed.logins) {
+    const name = loginName(row.origin, row.username);
+    try {
+      await vault.set({ name, kind: "login", login: { origin: row.origin, username: row.username }, value: row.password, note: row.note, projects });
+      imported.push(name);
+    } catch (error) {
+      skipped.push({ name: `line ${row.line}`, site: row.origin, reason: error.message });
+    }
+  }
+  const removed =
+    remove && imported.length > 0 && skipped.length === 0
+      ? await fs.rm(file).then(
+          () => true,
+          () => false,
+        )
+      : false;
+  return { imported, skipped, removed };
 }
 
 /**
@@ -113,6 +141,9 @@ function createSecretsWiring({
   });
   const receive = chats.receive.bind(chats);
   chats.receive = (chatId, event) => receive(chatId, redactor ? mapStrings(event, redactor) : event);
+  require("../chat-browser-tools.cjs").useLogins({
+    resolve: async (chatId, name) => vault.login({ name, target: await target(chatId), chatId }),
+  });
   vault.onChange(() => {
     void refresh();
     options.emit?.("secrets:changed", {});
@@ -158,11 +189,12 @@ function createSecretsWiring({
     }
     return { imported, skipped };
   });
+  commands.handle("secrets:import-logins", (_context, request) => importLogins(vault, request ?? {}));
 
   const listTool = (chatId) => ({
     name: "secrets_list",
     description:
-      "List the secrets this Chat may use: names, kinds and notes, never values. Run a command with them through the shell: `milagre-secrets run --with NAME[,NAME] -- <command>` puts each in that one command's environment (a file secret's variable holds a temporary file path). Every use is logged. If a secret you need is missing, ask with request_secret.",
+      'List the secrets this Chat may use: names, kinds and notes, never values. Run a command with them through the shell: `milagre-secrets run --with NAME[,NAME] -- <command>` puts each in that one command\'s environment (a file secret\'s variable holds a temporary file path). A login (kind login, with its site) goes only into a Browser panel page on that site: browser_fill with login { name, field: "username" or "password" } types it without showing it to you. Every use is logged. If a secret you need is missing, ask with request_secret.',
     input: {},
     readOnly: true,
     run: async () => {
@@ -170,7 +202,13 @@ function createSecretsWiring({
       if (locked) return "Secrets are locked on this computer: the person needs to open Milagre here, or set up a computer key for unattended access.";
       if (!secrets.length) return "No secrets are available to this Chat.";
       return JSON.stringify(
-        secrets.map(({ name, kind, note, delivery }) => ({ name, kind, note, ...(delivery === "ambient" ? { alreadyInEnvironment: true } : {}) })),
+        secrets.map(({ name, kind, note, delivery, login }) => ({
+          name,
+          kind,
+          note,
+          ...(login ? { site: login.origin } : {}),
+          ...(delivery === "ambient" ? { alreadyInEnvironment: true } : {}),
+        })),
         null,
         2,
       );
@@ -188,6 +226,7 @@ function createSecretsWiring({
     },
     forward: (chatId, event, deliver) => stream.forward(chatId, event, deliver),
     redact: (event) => (redactor ? mapStrings(event, redactor) : event),
+    redactResult: (result) => (redactor ? mapStrings(result, redactor) : result),
     values: () => vault.values().catch(() => []),
     tools: (chatId) => [...chatSecrets.definitions(chatId), listTool(chatId)],
   };

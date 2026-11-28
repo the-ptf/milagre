@@ -10,7 +10,8 @@ const LOG_DAYS = 30;
 const DAY = 24 * 60 * 60 * 1000;
 const origin = z.string().min(3).max(300);
 const recordSchema = z.strictObject({
-  kind: z.enum(["text", "file"]),
+  kind: z.enum(["text", "file", "login"]),
+  login: z.strictObject({ origin: z.string().min(8).max(300), username: z.string().max(500) }).optional(),
   value: z.string(),
   fileName: z.string().max(SECRET_LIMITS.fileNameChars).nullable(),
   projects: z.union([z.literal("all"), z.array(origin).min(1).max(SECRET_LIMITS.projects)]),
@@ -28,7 +29,8 @@ const stateSchema = z.strictObject({ secrets: z.record(z.string(), recordSchema)
 const inputSchema = z.strictObject({
   name: z.string(),
   value: z.string().min(1),
-  kind: z.enum(["text", "file"]).default("text"),
+  kind: z.enum(["text", "file", "login"]).default("text"),
+  login: z.strictObject({ origin: z.string().min(8).max(300), username: z.string().max(500) }).optional(),
   fileName: z.string().min(1).max(SECRET_LIMITS.fileNameChars).nullable().default(null),
   projects: z.union([z.literal("all"), z.array(origin).min(1).max(SECRET_LIMITS.projects)]),
   delivery: z.enum(["on-demand", "ambient"]).default("on-demand"),
@@ -48,6 +50,14 @@ const executableOf = (executable) => {
   const name = typeof executable === "string" ? path.basename(executable.trim().replaceAll("\\", "/")) : "";
   return name ? name.slice(0, 80) : null;
 };
+const loginOrigin = (value) => {
+  try {
+    const url = new URL(value);
+    return url.origin === value && (url.protocol === "https:" || ["localhost", "127.0.0.1"].includes(url.hostname));
+  } catch {
+    return false;
+  }
+};
 const AMBIENT_ASKS = "A secret kept in the environment can't ask before each use: every command already has it.";
 const lockedError = () =>
   Object.assign(new Error("Secrets are locked: open Milagre on this computer, or set up a computer key for unattended access."), { code: "secrets-locked" });
@@ -56,11 +66,23 @@ const sameRevision = (secret, expected) =>
 const pick = (object, keys) => Object.fromEntries(keys.map((key) => [key, object[key]]));
 const inputError = (message) => Object.assign(new Error(message), { code: "secrets-input" });
 
+/**
+ * A record as every path keeps it (save, update, load, sync), or null when it can't be one: only a login has a site
+ * and username, a login's site is https (or http on this computer), and a file, a login or an ask-each-use secret is
+ * never in the environment.
+ */
+function normalized(secret) {
+  if ((secret.kind === "login") !== Boolean(secret.login)) return null;
+  if (secret.kind === "login" && !loginOrigin(secret.login.origin)) return null;
+  if (secret.kind === "file" || secret.kind === "login" || secret.askEachUse) secret.delivery = "on-demand";
+  return secret;
+}
+
 function validState(value) {
   const state = stateSchema.parse(value);
   for (const [name, secret] of Object.entries(state.secrets)) {
     if (secretNameProblem(name)) throw new Error(`Saved secret ${name} has an invalid name`);
-    if (secret.kind === "file" || secret.askEachUse) secret.delivery = "on-demand";
+    if (!normalized(secret)) throw new Error(`Saved secret ${name} is malformed`);
   }
   return state;
 }
@@ -195,8 +217,9 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
   const summary = (name, secret) => ({
     name,
     kind: secret.kind,
+    ...(secret.login ? { login: secret.login } : {}),
     fileName: secret.fileName,
-    hint: secretHint(secret.value),
+    hint: secret.kind === "login" ? null : secretHint(secret.value),
     projects: secret.projects,
     delivery: secret.delivery,
     askEachUse: secret.askEachUse,
@@ -236,6 +259,9 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
         if (Buffer.byteLength(fields.value, "utf8") > SECRET_LIMITS.valueBytes)
           throw inputError(`A secret holds at most ${SECRET_LIMITS.valueBytes / 1024} KB.`);
         if (fields.kind === "file" && !fields.fileName) throw inputError("A file secret needs a file name.");
+        if ((fields.kind === "login") !== Boolean(fields.login)) throw inputError("A login has an origin and a username, and only a login has them.");
+        if (fields.kind === "login" && (fields.delivery === "ambient" || !loginOrigin(fields.login.origin)))
+          throw inputError("A login's origin is an https address (or http on this computer), and a login is never in the environment.");
         if (fields.kind === "file" && fields.delivery === "ambient") throw inputError("A file secret is given per command, not kept in the environment.");
         if (fields.delivery === "ambient" && fields.askEachUse) throw inputError(AMBIENT_ASKS);
         if (fields.fileName && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(fields.fileName))
@@ -244,6 +270,8 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
         const previous = current.secrets[name];
         if (expect !== undefined && !sameRevision(previous, expect)) throw inputError(`${name} changed while the card was open.`);
         if (keepPolicy && previous) Object.assign(fields, pick(previous, ["delivery", "askEachUse", "unattended", "note"]));
+        if (fields.login && previous?.login && (previous.login.origin !== fields.login.origin || previous.login.username !== fields.login.username))
+          throw inputError(`${name} already holds the login for ${previous.login.username || "no username"} on ${previous.login.origin}.`);
         if (!previous && Object.keys(current.secrets).length >= SECRET_LIMITS.count) throw inputError(`At most ${SECRET_LIMITS.count} secrets.`);
         const version = Math.max(previous?.version ?? 0, current.tombstones[name]?.version ?? 0) + 1;
         const secret = { ...fields, fileName: fields.kind === "file" ? fields.fileName : null, version, changedOn: computerId(), updatedAt: now() };
@@ -262,6 +290,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
         if (!previous) throw inputError(`No secret named ${name}.`);
         const next = { ...previous, ...parsed.data, version: previous.version + 1, changedOn: computerId(), updatedAt: now() };
         if (next.kind === "file" && next.delivery === "ambient") throw inputError("A file secret is given per command, not kept in the environment.");
+        if (next.kind === "login" && next.delivery === "ambient") throw inputError("A login is typed only into its own site, never kept in the environment.");
         if (next.delivery === "ambient" && next.askEachUse) throw inputError(AMBIENT_ASKS);
         await persist({ ...current, secrets: { ...current.secrets, [name]: next } });
         await loadLastUsed();
@@ -314,7 +343,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
           chosen = [];
           for (const name of names) {
             const secret = current.secrets[name];
-            if (!secret || !reach([name, secret])) missing.push(name);
+            if (!secret || !reach([name, secret]) || secret.kind === "login") missing.push(name);
             else chosen.push([name, secret]);
           }
           if (missing.length)
@@ -336,12 +365,21 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
           });
         return chosen.map(([name, secret]) => ({ name, kind: secret.kind, fileName: secret.fileName, value: secret.value }));
       }),
+    /** A login's origin, username and password for the browser to type, if this Chat may use it; the use is logged. */
+    login: ({ name, target, chatId }) =>
+      serial(async () => {
+        const secret = (await read()).secrets[name];
+        if (!secret || secret.kind !== "login" || !secretReaches({ name, ...secret }, target))
+          throw Object.assign(new Error(`No login named ${name} for this Chat. secrets_list shows the logins it may use.`), { code: "secrets-missing" });
+        await record({ at: now(), names: [name], chatId, computer: computerId(), command: null, delivery: "browser" });
+        return { origin: secret.login.origin, username: secret.login.username, password: secret.value };
+      }),
     /** The ambient secrets a turn may hold and their fingerprint, from one read so the two always agree. */
     ambient: ({ target, chatId, record: shouldRecord }) =>
       serial(async () => {
         const current = await read();
         const chosen = Object.entries(current.secrets)
-          .filter(([name, secret]) => secret.delivery === "ambient" && secretReaches({ name, ...secret }, target))
+          .filter(([name, secret]) => secret.delivery === "ambient" && secret.kind !== "login" && secretReaches({ name, ...secret }, target))
           .sort(([a], [b]) => a.localeCompare(b));
         const fingerprint = createHash("sha256")
           .update(chosen.map(([name, secret]) => `${name}:${secret.version}`).join(","))
@@ -366,4 +404,4 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
   };
 }
 
-module.exports = { createSecretsVault, recordSchema, tombstoneSchema };
+module.exports = { createSecretsVault, recordSchema, tombstoneSchema, normalized };

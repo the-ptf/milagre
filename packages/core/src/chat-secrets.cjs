@@ -174,6 +174,7 @@ function createChatSecrets({ directory, send, active, saveAs = null, onValue = n
         () => null,
         (error) => error,
       );
+      if (failure && entry.cancelled) return finish(entry, id, "cancelled", "Secret request cancelled. No secret was saved.");
       if (failure) return finish(entry, id, "answered", oneOffFile(value, `It couldn't be saved as ${name}: ${failure.message}`));
       return finish(
         entry,

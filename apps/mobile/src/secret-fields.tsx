@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Alert02Icon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
-import { SECRETS_COPY, secretFlags, secretScopeText, type SecretDelivery, type SecretKind, type SecretSummary } from "@milagre/shared/secrets";
+import { SECRETS_COPY, loginHost, secretFlags, secretScopeText, type SecretDelivery, type SecretKind, type SecretSummary } from "@milagre/shared/secrets";
 import { ago } from "@milagre/shared/main-sync";
 import { CheckRow, Field, Group, InlineError, pressStyle, useStyles } from "./ui";
 import { Icon } from "./icons";
@@ -18,8 +18,10 @@ export function SecretValueField({
   onChangeText,
   disabled = false,
   onSubmitEditing,
+  placeholder = SECRETS_COPY.valuePlaceholder,
 }: {
   label: string;
+  placeholder?: string;
   value: string;
   onChangeText: (value: string) => void;
   disabled?: boolean;
@@ -31,7 +33,7 @@ export function SecretValueField({
       label={label}
       value={value}
       onChangeText={onChangeText}
-      placeholder={SECRETS_COPY.valuePlaceholder}
+      placeholder={placeholder}
       secureTextEntry={!revealed}
       autoComplete="off"
       textContentType="none"
@@ -127,14 +129,16 @@ export function SecretOptInFields({
           onPress={() => onChange(value.delivery === "ambient" ? { delivery: "on-demand" } : { delivery: "ambient", askEachUse: false })}
         />
       ) : null}
-      <CheckRow
-        kind="checkbox"
-        title={SECRETS_COPY.askEachUse.label}
-        subtitle={SECRETS_COPY.askEachUse.help}
-        checked={value.askEachUse}
-        disabled={disabled}
-        onPress={() => onChange(value.askEachUse ? { askEachUse: false } : { askEachUse: true, delivery: "on-demand" })}
-      />
+      {kind === "login" ? null : (
+        <CheckRow
+          kind="checkbox"
+          title={SECRETS_COPY.askEachUse.label}
+          subtitle={SECRETS_COPY.askEachUse.help}
+          checked={value.askEachUse}
+          disabled={disabled}
+          onPress={() => onChange(value.askEachUse ? { askEachUse: false } : { askEachUse: true, delivery: "on-demand" })}
+        />
+      )}
       <View style={{ paddingBottom: space.md }}>
         <CheckRow
           kind="checkbox"
@@ -179,6 +183,21 @@ export function CodeText({ text, style }: { text: string; style?: object }) {
       )}
     </Text>
   );
+}
+
+/** A login's name in a list and a header: its site. */
+export function loginTitle(secret: SecretSummary) {
+  return secret.login ? loginHost(secret.login.origin) : secret.name;
+}
+
+/** The facts a login row shows under its site: the username, where it reaches, the unattended opt-in and when it was last used. */
+export function loginRowLine(secret: SecretSummary, now: number) {
+  return [
+    secret.login?.username || SECRETS_COPY.logins.nobody,
+    secretScopeText(secret.projects),
+    ...secretFlags(secret),
+    secret.lastUsedAt ? SECRETS_COPY.lastUsed(ago(secret.lastUsedAt, now)) : SECRETS_COPY.neverUsed,
+  ].join(" · ");
 }
 
 /** The facts a row shows under its name: the hint or file, where it reaches, its opt-ins, when it was last used and, when not `here`, the computer that changed it. */
