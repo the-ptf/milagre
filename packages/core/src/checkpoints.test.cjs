@@ -189,13 +189,20 @@ test("handles prototype-like filenames and preserves newer conflicting edits whe
   assert.equal(await f.read("__proto__"), "before");
   assert.equal(await f.read("constructor"), "other Chat");
 });
-test("a task in a shared Worktree blocks preview of another Chat checkpoint", async (t) => {
+test("a task in a shared Worktree blocks preview and undo of another Chat checkpoint, not the files an edit would undo", async (t) => {
   const f = await fixture(t);
-  const first = await f.store.begin({ chatId: f.chatId, roots: [f.root] });
+  const first = await f.store.begin({ chatId: f.chatId, roots: [f.root], messageId: 3 });
   await f.write("a.txt", "first");
   await f.store.finish(f.chatId);
   await f.store.begin({ chatId: f.root + "#2", roots: [f.root] });
   await assert.rejects(f.store.preview(f.chatId, first.id), /running|finish/i);
+  const rewind = await f.store.rewind(f.chatId, 3, [f.root]);
+  assert.deepEqual(
+    rewind.files.map((file) => file.path),
+    ["a.txt"],
+  );
+  await assert.rejects(f.store.restore(f.chatId, { token: rewind.token, decisions: decisions(rewind), approved: true }), /running|finish/i);
+  assert.equal(await f.read("a.txt"), "first");
 });
 test("creates recovery data before any write and can undo the restore after restart", async (t) => {
   const f = await fixture(t);

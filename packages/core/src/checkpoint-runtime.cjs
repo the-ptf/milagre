@@ -33,7 +33,7 @@ function registerCheckpoints(commands, { directory, states, busy, ready, note = 
         for (const session of Object.values(state.sessions)) {
           if (!busy(`${scope}#${session.id}`) && !preparing.has(`${scope}#${session.id}`)) continue;
           const worktrees = session.worktrees?.map((member) => member.worktreePath) ?? [state.worktrees[session.worktree_id]?.path];
-          if (worktrees.some((root) => roots.includes(root))) throw new Error("Wait for running Chats in this Worktree to finish");
+          if (worktrees.some((root) => roots.includes(root))) throw new Error("A Chat is still running in this folder. Undo files once it finishes.");
         }
       }
     },
