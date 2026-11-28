@@ -9,13 +9,13 @@ const { createSecretsAccess } = require("../secrets-access.cjs");
 const { createChatSecrets } = require("../chat-secrets.cjs");
 const { createSecretStream, mapStrings } = require("../secrets-stream.cjs");
 const { originId } = require("@milagre/shared/project-origin");
-const { execFile } = require("node:child_process");
+const git = require("../git/client.cjs").createGit().read;
 
-function currentOrigin(projectPath) {
-  return new Promise((resolve) => {
-    execFile("git", ["-C", projectPath, "remote", "get-url", "origin"], { timeout: 3000 }, (error, stdout) => resolve(error ? null : originId(stdout.trim())));
-  });
-}
+const currentOrigin = (projectPath) =>
+  git.checked(projectPath, ["remote", "get-url", "origin"]).then(
+    ({ stdout }) => originId(stdout),
+    () => null,
+  );
 
 const RETIRED_MS = 24 * 60 * 60 * 1000;
 
@@ -79,6 +79,8 @@ function createSecretsWiring({
     target,
     redactText: (text) => (redactor ? redactor(text) : text),
   });
+  const receive = chats.receive.bind(chats);
+  chats.receive = (chatId, event) => receive(chatId, redactor ? mapStrings(event, redactor) : event);
   vault.onChange(() => void refresh());
   void refresh();
   const chatSecrets = Object.assign(

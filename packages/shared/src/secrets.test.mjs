@@ -70,3 +70,15 @@ test("pending counts the trailing characters that could begin a secret", () => {
   assert.equal(redact.pending("ends with s"), 1);
   assert.equal(secretRedactor([]).pending("anything"), 0);
 });
+
+test("redaction also matches URL-encoded, JSON-escaped, hex and base64url forms", () => {
+  const value = 'p@ss/w+rd "quoted"';
+  const redact = secretRedactor([{ name: "PASS", value }]);
+  for (const form of [
+    encodeURIComponent(value),
+    JSON.stringify(value).slice(1, -1),
+    Buffer.from(value).toString("hex"),
+    Buffer.from(value).toString("base64url"),
+  ])
+    assert.equal(redact(`x ${form} y`), "x [secret PASS] y", form);
+});

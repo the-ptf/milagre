@@ -110,7 +110,12 @@ function needles(secret) {
   };
   add(value);
   if (secret.kind === "file") for (const line of value.split(/\r?\n/)) add(line.trim());
-  add(base64(value).replace(/=+$/, ""));
+  const encoded = base64(value).replace(/=+$/, "");
+  add(encoded);
+  add(encoded.replaceAll("+", "-").replaceAll("/", "_"));
+  add(encodeURIComponent(value));
+  add(JSON.stringify(value).slice(1, -1));
+  add([...new TextEncoder().encode(value)].map((byte) => byte.toString(16).padStart(2, "0")).join(""));
   return [...found];
 }
 

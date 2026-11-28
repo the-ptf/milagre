@@ -15,7 +15,15 @@ function fixture(t, { sessions = { 1: {} } } = {}) {
   fs.chmodSync(dataDir, 0o700);
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const handlers = new Map();
-  const chats = { runs: {}, turns: new Map(), routineTurns: new Set(), receive: async () => {} };
+  const chats = {
+    runs: {},
+    turns: new Map(),
+    routineTurns: new Set(),
+    receiveSpy: [],
+    async receive(chatId, event) {
+      this.receiveSpy.push({ chatId, event });
+    },
+  };
   const key = randomBytes(32);
   const scopeStates = { has: () => true, get: async () => ({ sessions }) };
   const wiring = createSecretsWiring({
@@ -137,4 +145,14 @@ test("a Chat whose Project state can't be read gets nothing", async (t) => {
     throw new Error("chats.db is busy");
   };
   await assert.rejects(wiring.request(token, { action: "list" }), /chats.db is busy/);
+});
+
+test("events the host makes itself are redacted too, not only provider events", async (t) => {
+  const { call, wiring, chats } = fixture(t);
+  const received = [];
+  await call("secrets:set", { name: "VERCEL_TOKEN", value: "vercel-host-made-123", projects: "all" });
+  await wiring.agentEnv(`${PROJECT}#1`, { PATH: "/usr/bin" });
+  chats.receiveSpy = received;
+  await chats.receive(`${PROJECT}#1`, { type: "step-output", id: "setup", text: "token vercel-host-made-123" });
+  assert.equal(received[0].event.text, "token [secret VERCEL_TOKEN]");
 });
