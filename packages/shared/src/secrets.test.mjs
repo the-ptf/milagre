@@ -125,3 +125,15 @@ test("browser exports become logins by their headers, and a login's name is stab
   assert.equal(loginName("https://github.com", "octo"), name);
   assert.notEqual(loginName("https://github.com", "other"), name);
 });
+
+test("parseDotenv drops quotes before a trailing comment and reads escaped backslashes", () => {
+  const text = ['A="abc def" # note', "B='x y' # c", 'C="a\\\\nb"', 'D="a\\nb"', 'E="say \\"hi\\"" # c', 'F="a # b"'].join("\n");
+  assert.deepEqual(parseDotenv(text), [
+    { name: "A", value: "abc def" },
+    { name: "B", value: "x y" },
+    { name: "C", value: "a\\nb" },
+    { name: "D", value: "a\nb" },
+    { name: "E", value: 'say "hi"' },
+    { name: "F", value: "a # b" },
+  ]);
+});
