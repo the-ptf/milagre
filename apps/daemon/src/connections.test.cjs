@@ -92,6 +92,9 @@ test("the paired-desktop policy denies pairing, device management, push, stoppin
     "daemon:stop",
     "linear:connect",
     "linear:disconnect",
+    "secrets:list",
+    "secrets:set",
+    "secrets:log",
   ])
     assert.equal(peerPolicy.denies(method), true, method);
   for (const method of [

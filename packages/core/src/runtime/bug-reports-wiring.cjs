@@ -11,6 +11,7 @@ function createBugReportsForRuntime({
   recentProjects,
   scopeStates,
   projectOrigin,
+  secretValues = async () => [],
   remoteComputers,
 }) {
   const os = require("node:os");
@@ -56,16 +57,20 @@ function createBugReportsForRuntime({
         .slice(0, 200);
       const withOrigin = await Promise.all(projects.map(async (project) => ({ ...project, origin: await quiet(projectOrigin(project.path), null) })));
       const identity = path.isAbsolute(projectPath) ? await quiet(reports.gitIdentity(projectPath), {}) : {};
-      return reports.knownValues({
-        projects: withOrigin,
-        state,
-        computers: [options.hostNetwork?.().name, ...quietList(() => remoteComputers()?.list() ?? []).map((computer) => computer?.name)],
-        hostname: os.hostname(),
-        home: os.homedir(),
-        username: quietList(() => [os.userInfo().username])[0],
-        gitName: identity.name,
-        gitEmail: identity.email,
-      });
+      const secrets = (await quiet(secretValues(), [])).filter((secret) => secret.value.length >= 8).map((secret) => ({ kind: "token", value: secret.value }));
+      return [
+        ...secrets,
+        ...reports.knownValues({
+          projects: withOrigin,
+          state,
+          computers: [options.hostNetwork?.().name, ...quietList(() => remoteComputers()?.list() ?? []).map((computer) => computer?.name)],
+          hostname: os.hostname(),
+          home: os.homedir(),
+          username: quietList(() => [os.userInfo().username])[0],
+          gitName: identity.name,
+          gitEmail: identity.email,
+        }),
+      ];
     },
   });
 }

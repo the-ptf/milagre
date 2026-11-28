@@ -5,7 +5,7 @@ const VERSIONS = ["2025-03-26", "2025-06-18"];
 const MAX_BODY = 1024 * 1024;
 const MAX_DESIGN_BODY = 6 * 1000000 + 64 * 1024;
 
-function createLocalMcpServer({ authenticate, toolsFor, internalConnection }) {
+function createLocalMcpServer({ authenticate, toolsFor, internalConnection, secretsRequest }) {
   const commands = createCommandDispatcher({ definitions: (connection) => (connection.tools ? connection.tools() : toolsFor(connection.id)) });
   let listening;
   let endpoint;
@@ -19,6 +19,8 @@ function createLocalMcpServer({ authenticate, toolsFor, internalConnection }) {
     const authority = endpoint && new URL(endpoint).host;
     if (closing) return reject(503);
     if (request.headers.host !== authority || (request.headers.origin !== undefined && request.headers.origin !== `http://${authority}`)) return reject(403);
+    const secrets = /^\/secrets\/([a-f0-9]{48})$/.exec(request.url ?? "");
+    if (secrets && secretsRequest) return answerSecrets(request, response, secrets[1]);
     const internal = /^\/mcp\/([a-f0-9]{48})$/.exec(request.url ?? "");
     if (request.url !== "/mcp" && !internal) return reject(404);
     let connection;
@@ -102,6 +104,38 @@ function createLocalMcpServer({ authenticate, toolsFor, internalConnection }) {
     });
     if (Number(request.headers["content-length"]) > MAX_DESIGN_BODY) tooLarge(MAX_DESIGN_BODY);
   });
+  function answerSecrets(request, response, token) {
+    const send = (status, body) => {
+      if (!response.destroyed) response.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(body));
+    };
+    if (request.method !== "POST" || request.headers["content-type"]?.split(";")[0].trim() !== "application/json") {
+      request.resume();
+      return send(400, { error: "POST JSON to this address." });
+    }
+    const chunks = [];
+    let bytes = 0;
+    request.on("data", (chunk) => {
+      bytes += chunk.length;
+      if (bytes <= 64 * 1024) chunks.push(chunk);
+    });
+    request.on("end", () => {
+      if (bytes > 64 * 1024) return send(413, { error: "Request too large." });
+      let body;
+      try {
+        body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      } catch {
+        return send(400, { error: "Invalid JSON." });
+      }
+      const work = Promise.resolve()
+        .then(() => secretsRequest(token, body))
+        .then(
+          (result) => send(200, result),
+          (error) => send(error?.status ?? 403, { error: String(error?.message ?? error) }),
+        );
+      active.add(work);
+      void work.finally(() => active.delete(work));
+    });
+  }
   server.requestTimeout = 15000;
   server.headersTimeout = 10000;
   async function answer(connection, message) {

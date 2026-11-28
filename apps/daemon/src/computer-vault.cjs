@@ -175,6 +175,13 @@ function createComputerVault({ dataDir, keyFile = process.env.MILAGRE_COMPUTER_K
         }
         return { publicKey: fromB64url(state.identity.publicKey), secretKey: fromB64url(state.identity.secretKey) };
       }),
+    masterKey: async () => {
+      try {
+        return await loadKey();
+      } catch {
+        return null;
+      }
+    },
     secretsOf: (id) => serial(async () => structuredClone((await read()).computers[id] ?? null)),
     save: (id, secrets) =>
       serial(async () => {

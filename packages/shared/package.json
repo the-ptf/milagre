@@ -240,6 +240,10 @@
       "types": "./src/routine-flows.d.mts",
       "default": "./src/routine-flows.mjs"
     },
+    "./secrets": {
+      "types": "./src/secrets.d.mts",
+      "default": "./src/secrets.mjs"
+    },
     "./babysit": {
       "types": "./src/babysit.d.mts",
       "default": "./src/babysit.mjs"

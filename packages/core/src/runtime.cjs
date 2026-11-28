@@ -44,6 +44,7 @@ const { registerPullRequests } = require("./runtime/pull-requests.cjs");
 const { registerSettingsCommands } = require("./runtime/settings-commands.cjs");
 const { createToolServices } = require("./runtime/tool-services.cjs");
 const { createLocalMcpWiring } = require("./runtime/local-mcp-wiring.cjs");
+const { createSecretsWiring } = require("./runtime/secrets-wiring.cjs");
 const { createShutdown } = require("./runtime/shutdown.cjs");
 const { registerChatLifecycle } = require("./runtime/chat-lifecycle.cjs");
 const { registerProjects } = require("./runtime/projects.cjs");
@@ -424,7 +425,7 @@ function createRuntime(options) {
   let chatEdits = null;
   let babysitWatch = null;
   let autopilot = null;
-  let chatSecrets = null;
+  let secrets = null;
   let bugReports = null;
   let subchatEscalation = null;
   function publishAgentEvent(chatId, event, state, seq) {
@@ -441,7 +442,7 @@ function createRuntime(options) {
       void track(() => checkpoints.finish(chatId).then((changed) => validation?.afterTurn(chatId, event, changed)), background).catch((error) =>
         console.warn("Checkpoint end capture failed:", error.message),
       );
-      chatSecrets?.cancel(chatId);
+      secrets?.chatSecrets.cancel(chatId);
       bugReports?.cancel(chatId);
     }
     options.observeAgentEvent?.(chatId, event);
@@ -494,7 +495,7 @@ function createRuntime(options) {
         return "";
       }
     },
-    send: (chatId, event) => void hold(chats.receive(chatId, event), background),
+    send: (chatId, event) => void hold(chats.receive(chatId, secrets?.redact(event) ?? event), background),
   });
 
   const ports = new PortWatcher({
@@ -577,7 +578,7 @@ function createRuntime(options) {
         prompt: text,
         images,
         command: cli.command,
-        env: cli.env,
+        env: await secrets.agentEnv(request.chatId, cli.env),
         harness: cli.harness,
         args: cli.args,
         accountId: cli.accountId,
@@ -1065,7 +1066,7 @@ function createRuntime(options) {
     btw: () => btw,
     bugReports: () => bugReports,
     canvasChatModes: () => canvasChatModes,
-    chatSecrets: () => chatSecrets,
+    chatSecrets: () => secrets?.chatSecrets,
     linkRuntime: () => linkRuntime,
     linked: () => linked,
     needsUserCount: () => needsUserCount,
@@ -1136,11 +1137,7 @@ function createRuntime(options) {
     read: (chatId) => chats.plan(chatId),
     update: (chatId, change) => chats.updatePlan(chatId, change),
   });
-  chatSecrets = require("./chat-secrets.cjs").createChatSecrets({
-    directory: path.join(dataDir, "chat-secrets"),
-    send: (chatId, event) => chats.receive(chatId, event),
-    active: (chatId) => Boolean(chats.runs[chatId]) && !closing,
-  });
+  secrets = createSecretsWiring({ dataDir, commands, chats, scopeStates, options, origin: (folder) => projectOrigin(folder), mcp: () => localMcp });
   bugReports = require("./runtime/bug-reports-wiring.cjs").createBugReportsForRuntime({
     chats,
     options,
@@ -1151,6 +1148,7 @@ function createRuntime(options) {
     scopeStates,
     isClosing: () => closing,
     projectOrigin: (...args) => projectOrigin(...args),
+    secretValues: () => secrets.values(),
     remoteComputers: () => remoteComputers,
   });
   const remoteDelegation = require("./design-settings.cjs").createDesignSettings(path.join(dataDir, "remote-delegation.json"), {
@@ -1209,7 +1207,7 @@ function createRuntime(options) {
       ...planTools.definitions(chatId),
       ...validation.tools(chatId),
       ...(autopilot?.tools(chatId) ?? []),
-      ...chatSecrets.definitions(chatId),
+      ...secrets.tools(chatId),
       ...bugReports.definitions(chatId),
       ...simulatorToolDefinitions(chatId, simulators),
       ...(simlockSettings.read().enabled
@@ -1467,6 +1465,7 @@ function createRuntime(options) {
   });
   const { localMcp } = createLocalMcpWiring({
     options,
+    secretsRequest: (token, body) => secrets.request(token, body),
     dataDir,
     emit,
     commands,
@@ -1530,7 +1529,7 @@ function createRuntime(options) {
   let routinesStopped;
   let limitResumeStopped;
   shutdown.stop(() => clearInterval(uploadSweepTimer));
-  shutdown.stop(() => chatSecrets?.close());
+  shutdown.stop(() => secrets?.chatSecrets.close());
   shutdown.stop(() => bugReports?.close());
   shutdown.stop(() => void doneSweep.stop());
   shutdown.stop(() => void snoozeSweep.stop());
