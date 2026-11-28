@@ -43,11 +43,17 @@ function idFor(name, taken) {
 const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/;
 const HEADER_MASK = "••••••";
 
+function keepStored(name, item, stored) {
+  if (item !== HEADER_MASK) return String(item);
+  if (!Object.hasOwn(stored, name)) throw new ConnectorError(`Enter the value for ${name} again.`, "invalid");
+  return stored[name];
+}
+
 function connectorHeaders(value, stored = {}) {
   if (value === undefined) return undefined;
   const entries = Object.entries(value && typeof value === "object" ? value : {}).filter(([name, item]) => name && item !== "");
   for (const [name] of entries) if (!HEADER_NAME.test(name)) throw new ConnectorError(`${JSON.stringify(name)} isn't a header name.`, "invalid");
-  return Object.fromEntries(entries.map(([name, item]) => [name, item === HEADER_MASK && Object.hasOwn(stored, name) ? stored[name] : String(item)]));
+  return Object.fromEntries(entries.map(([name, item]) => [name, keepStored(name, item, stored)]));
 }
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
@@ -57,7 +63,7 @@ function connectorEnv(value, stored = {}) {
   if (value === undefined) return undefined;
   const entries = Object.entries(value && typeof value === "object" ? value : {}).filter(([name, item]) => name && item !== "");
   for (const [name] of entries) if (!ENV_NAME.test(name)) throw new ConnectorError(`${JSON.stringify(name)} isn't an environment variable name.`, "invalid");
-  return Object.fromEntries(entries.map(([name, item]) => [name, item === HEADER_MASK && Object.hasOwn(stored, name) ? stored[name] : String(item)]));
+  return Object.fromEntries(entries.map(([name, item]) => [name, keepStored(name, item, stored)]));
 }
 
 function connectorCommand(command, args) {
