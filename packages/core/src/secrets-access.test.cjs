@@ -100,3 +100,39 @@ test("the child's exit code passes through", { skip: process.platform === "win32
   assert.equal((await run(env, ["run", "--with", "A_TOKEN", "--", process.execPath, "-e", "process.exit(7)"])).code, 7);
   assert.equal((await run(env, ["bogus"])).code, 2);
 });
+
+test(
+  "over 50 names is refused before anything runs; file secrets with one name each get their own folder",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const { vault, access } = await fixture(t);
+    await vault.set({ name: "ONE_FILE", value: "first-file-body", kind: "file", fileName: "credentials.json", projects: "all" });
+    await vault.set({ name: "TWO_FILE", value: "second-file-body", kind: "file", fileName: "credentials.json", projects: "all" });
+    const env = { ...(await access.agentEnv("/p#1", { PATH: process.env.PATH })), ELECTRON_RUN_AS_NODE: "1" };
+    const names = Array.from({ length: 51 }, (_, index) => `N_${index}`).join(",");
+    assert.match((await run(env, ["run", "--with", names, "--", "true"])).stderr, /At most 50 secrets/);
+    const script =
+      'const fs = require("fs"); process.stdout.write(fs.readFileSync(process.env.ONE_FILE, "utf8") + "|" + fs.readFileSync(process.env.TWO_FILE, "utf8"))';
+    const both = await run(env, ["run", "--with", "ONE_FILE,TWO_FILE", "--", process.execPath, "-e", script]);
+    assert.equal(both.stdout, "first-file-body|second-file-body", both.stderr);
+  },
+);
+
+test("the use log keeps a command with its secret values redacted", async (t) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-secrets-redact-"));
+  fs.chmodSync(dataDir, 0o700);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const key = randomBytes(32);
+  const vault = createSecretsVault({ dataDir, masterKey: async () => key });
+  await vault.set({ name: "A_TOKEN", value: "visible-token-123456", projects: "all" });
+  const access = createSecretsAccess({
+    vault,
+    dataDir,
+    secretsUrl: async (token) => `http://127.0.0.1:1/secrets/${token}`,
+    target: async () => ({ origin: null, unattended: false }),
+    redactText: (text) => text.replaceAll("visible-token-123456", "[secret A_TOKEN]"),
+  });
+  const token = (await access.agentEnv("/p#1", { PATH: "/bin" })).MILAGRE_SECRETS_URL.split("/").at(-1);
+  await access.request(token, { action: "run", names: ["A_TOKEN"], command: "curl -H Authorization:visible-token-123456 x" });
+  assert.equal((await vault.log())[0].command, "curl -H Authorization:[secret A_TOKEN] x");
+});

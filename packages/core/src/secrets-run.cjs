@@ -40,20 +40,29 @@ async function call(url, body) {
 }
 
 function materialize(secrets) {
-  let folder = null;
+  const folders = [];
+  const cleanup = () => {
+    for (const folder of folders) fs.rmSync(folder, { recursive: true, force: true });
+  };
   const env = {};
-  for (const secret of secrets) {
-    if (secret.kind !== "file") {
-      env[secret.name] = secret.value;
-      continue;
+  try {
+    for (const secret of secrets) {
+      if (secret.kind !== "file") {
+        env[secret.name] = secret.value;
+        continue;
+      }
+      const folder = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-secrets-"));
+      folders.push(folder);
+      fs.chmodSync(folder, 0o700);
+      const file = path.join(folder, path.basename(secret.fileName || secret.name));
+      fs.writeFileSync(file, secret.value, { mode: 0o600, flag: "wx" });
+      env[secret.name] = file;
     }
-    folder ??= fs.mkdtempSync(path.join(os.tmpdir(), "milagre-secrets-"));
-    fs.chmodSync(folder, 0o700);
-    const file = path.join(folder, path.basename(secret.fileName || secret.name));
-    fs.writeFileSync(file, secret.value, { mode: 0o600, flag: "wx" });
-    env[secret.name] = file;
+  } catch (error) {
+    cleanup();
+    throw error;
   }
-  return { env, cleanup: () => folder && fs.rmSync(folder, { recursive: true, force: true }) };
+  return { env, cleanup };
 }
 
 async function main(argv = process.argv.slice(2), { env = process.env, out = process.stdout, err = process.stderr } = {}) {
@@ -84,7 +93,7 @@ async function main(argv = process.argv.slice(2), { env = process.env, out = pro
     const childEnv = { ...env, ...given };
     delete childEnv.MILAGRE_SECRETS_URL;
     return await new Promise((resolve) => {
-      const child = spawn(parsed.command[0], parsed.command.slice(1), { stdio: "inherit", env: childEnv, shell: process.platform === "win32" });
+      const child = spawn(parsed.command[0], parsed.command.slice(1), { stdio: "inherit", env: childEnv });
       const forward = (signal) => child.kill(signal);
       for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, forward);
       const done = (code) => {
@@ -93,7 +102,8 @@ async function main(argv = process.argv.slice(2), { env = process.env, out = pro
         resolve(code);
       };
       child.on("error", (error) => {
-        err.write(`milagre-secrets: ${error.message}\n`);
+        const hint = process.platform === "win32" ? " On Windows, run a .cmd or .bat through `cmd /c`." : "";
+        err.write(`milagre-secrets: ${error.message}.${hint}\n`);
         done(127);
       });
       child.on("exit", (code, signal) => done(code ?? (signal ? 128 + (os.constants.signals[signal] ?? 1) : 1)));

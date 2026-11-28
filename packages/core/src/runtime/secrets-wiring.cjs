@@ -7,25 +7,14 @@ const { SECRET_LIMITS, parseDotenv, secretNameProblem, secretRedactor } = requir
 const { createSecretsVault } = require("../secrets-vault.cjs");
 const { createSecretsAccess } = require("../secrets-access.cjs");
 const { createChatSecrets } = require("../chat-secrets.cjs");
+const { createSecretStream, mapStrings } = require("../secrets-stream.cjs");
+const { originId } = require("@milagre/shared/project-origin");
+const { execFile } = require("node:child_process");
 
-function mapStrings(value, change, depth = 0) {
-  if (typeof value === "string") return change(value);
-  if (!value || typeof value !== "object" || depth > 16) return value;
-  if (Array.isArray(value)) {
-    let changed = false;
-    const next = value.map((item) => {
-      const mapped = mapStrings(item, change, depth + 1);
-      if (mapped !== item) changed = true;
-      return mapped;
-    });
-    return changed ? next : value;
-  }
-  let next = null;
-  for (const [key, item] of Object.entries(value)) {
-    const mapped = mapStrings(item, change, depth + 1);
-    if (mapped !== item) (next ??= { ...value })[key] = mapped;
-  }
-  return next ?? value;
+function currentOrigin(projectPath) {
+  return new Promise((resolve) => {
+    execFile("git", ["-C", projectPath, "remote", "get-url", "origin"], { timeout: 3000 }, (error, stdout) => resolve(error ? null : originId(stdout.trim())));
+  });
 }
 
 /** Turns a person isn't there for: Routine runs and triggers, Heartbeats, babysitting, wakes and Orchestrator tasks. */
@@ -46,30 +35,43 @@ async function readSmallFile(file, what) {
  * Named secrets for agents (issue #1239): the vault, the `milagre-secrets` command and its loopback address, ambient
  * env, `secrets_list`, transcript redaction, the owner's `secrets:*` commands, and `request_secret`'s one-off secrets.
  */
-function createSecretsWiring({ dataDir, commands, chats, scopeStates, options = {}, origin, mcp, computerId = () => os.hostname() }) {
+function createSecretsWiring({ dataDir, commands, chats, scopeStates, options = {}, origin = currentOrigin, mcp, computerId = () => os.hostname() }) {
   const vault = createSecretsVault({ dataDir, masterKey: async () => (await options.remoteComputers?.masterKey?.()) ?? null, computerId });
+  const seen = new Map();
   let redactor = null;
   const refresh = async () => {
-    const values = await vault.values().catch(() => []);
-    redactor = values.length ? secretRedactor(values) : null;
+    for (const secret of await vault.values().catch(() => [])) seen.set(secret.value, secret);
+    for (const token of access.tokens()) seen.set(token, { name: "MILAGRE_SECRETS_URL", value: token });
+    redactor = seen.size ? secretRedactor([...seen.values()]) : null;
   };
-  vault.onChange(() => void refresh());
-  void refresh();
+  const stream = createSecretStream({ redactor: () => redactor });
 
   async function target(chatId) {
     const projectPath = projectOfKey(chatId);
     const state = scopeStates.has(projectPath) ? await scopeStates.get(projectPath).catch(() => null) : null;
     const session = state?.sessions?.[sessionIdFromKey(chatId)];
+    if (state && (!session || session.archived)) throw Object.assign(new Error("This Chat is archived or gone."), { status: 401 });
     const found = isLinkScopeKey(projectPath) || !path.isAbsolute(projectPath) ? null : await Promise.resolve(origin(projectPath)).catch(() => null);
     return { origin: found ?? null, unattended: isUnattended(session, chats, chatId) };
   }
 
-  const access = createSecretsAccess({ vault, dataDir, secretsUrl: (token) => mcp().secretsUrl(token), target });
-  const chatSecrets = createChatSecrets({
-    directory: path.join(dataDir, "chat-secrets"),
-    send: (chatId, event) => chats.receive(chatId, event),
-    active: (chatId) => Boolean(chats.runs[chatId]),
+  const access = createSecretsAccess({
+    vault,
+    dataDir,
+    secretsUrl: (token) => mcp().secretsUrl(token),
+    target,
+    redactText: (text) => (redactor ? redactor(text) : text),
   });
+  vault.onChange(() => void refresh());
+  void refresh();
+  const chatSecrets = Object.assign(
+    createChatSecrets({
+      directory: path.join(dataDir, "chat-secrets"),
+      send: (chatId, event) => chats.receive(chatId, event),
+      active: (chatId) => Boolean(chats.runs[chatId]),
+    }),
+    { forget: (chatId) => access.forget(chatId) },
+  );
 
   commands.handle("secrets:status", () => vault.status());
   commands.handle("secrets:list", () => vault.list());
@@ -124,13 +126,15 @@ function createSecretsWiring({ dataDir, commands, chats, scopeStates, options = 
     chatSecrets,
     request: (token, body) => access.request(token, body),
     agentEnv: async (chatId, env) => {
+      const next = await access.agentEnv(chatId, env);
       await refresh();
-      return access.agentEnv(chatId, env);
+      return next;
     },
+    forward: (chatId, event, deliver) => stream.forward(chatId, event, deliver),
     redact: (event) => (redactor ? mapStrings(event, redactor) : event),
     values: () => vault.values().catch(() => []),
     tools: (chatId) => [...chatSecrets.definitions(chatId), listTool(chatId)],
   };
 }
 
-module.exports = { createSecretsWiring, isUnattended, mapStrings };
+module.exports = { createSecretsWiring, isUnattended };

@@ -495,7 +495,7 @@ function createRuntime(options) {
         return "";
       }
     },
-    send: (chatId, event) => void hold(chats.receive(chatId, secrets?.redact(event) ?? event), background),
+    send: (chatId, event) => secrets.forward(chatId, event, (next) => void hold(chats.receive(chatId, next), background)),
   });
 
   const ports = new PortWatcher({
@@ -1137,7 +1137,7 @@ function createRuntime(options) {
     read: (chatId) => chats.plan(chatId),
     update: (chatId, change) => chats.updatePlan(chatId, change),
   });
-  secrets = createSecretsWiring({ dataDir, commands, chats, scopeStates, options, origin: (folder) => projectOrigin(folder), mcp: () => localMcp });
+  secrets = createSecretsWiring({ dataDir, commands, chats, scopeStates, options, mcp: () => localMcp });
   bugReports = require("./runtime/bug-reports-wiring.cjs").createBugReportsForRuntime({
     chats,
     options,

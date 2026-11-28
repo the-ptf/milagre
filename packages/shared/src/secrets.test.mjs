@@ -62,3 +62,11 @@ test("redaction replaces values, file lines and base64 forms, longest first", ()
   assert.equal(redact(`b64 ${Buffer.from("supersecret-123").toString("base64").replace(/=+$/, "")}`), "b64 [secret TOKEN]");
   assert.equal(secretRedactor([])("anything at all"), "anything at all");
 });
+
+test("pending counts the trailing characters that could begin a secret", () => {
+  const redact = secretRedactor([{ name: "TOKEN", value: "supersecret-123" }]);
+  assert.equal(redact.pending("export TOKEN=supers"), 6);
+  assert.equal(redact.pending("no match here"), 0);
+  assert.equal(redact.pending("ends with s"), 1);
+  assert.equal(secretRedactor([]).pending("anything"), 0);
+});

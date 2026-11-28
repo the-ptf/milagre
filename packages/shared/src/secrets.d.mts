@@ -33,4 +33,6 @@ export function secretNameProblem(name: unknown): string | null;
 export function secretHint(value: unknown): string | null;
 export function secretReaches(secret: SecretScopeTarget, target: { origin: string | null; unattended?: boolean }): boolean;
 export function parseDotenv(text: string): { name: string; value: string }[];
-export function secretRedactor(secrets: { name: string; kind?: SecretKind; value: string }[]): (text: string) => string;
+export function secretRedactor(
+  secrets: { name: string; kind?: SecretKind; value: string }[],
+): ((text: string) => string) & { pending: (text: string) => number };

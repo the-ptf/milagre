@@ -4,12 +4,13 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { randomBytes } = require("node:crypto");
-const { createSecretsWiring, isUnattended, mapStrings } = require("./secrets-wiring.cjs");
+const { createSecretsWiring, isUnattended } = require("./secrets-wiring.cjs");
+const { mapStrings } = require("../secrets-stream.cjs");
 
 const PROJECT = "/work/happiergym";
 const ORIGIN = "github.com/the-ptf/happiergym";
 
-function fixture(t, { sessions = {} } = {}) {
+function fixture(t, { sessions = { 1: {} } } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-secrets-wiring-"));
   fs.chmodSync(dataDir, 0o700);
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
@@ -87,7 +88,7 @@ test("secrets:set reads a file secret from an absolute path; secrets:import take
 });
 
 test("secrets_list shows names in reach, never values, and says when an unattended run gets none", async (t) => {
-  const { call, listTool, chats } = fixture(t, { sessions: { 2: { routine: { routineId: "r", hidden: true } } } });
+  const { call, listTool, chats } = fixture(t, { sessions: { 1: {}, 2: { routine: { routineId: "r", hidden: true } } } });
   await call("secrets:set", { name: "DEPLOY_TOKEN", value: "deploy-value-123456", projects: [ORIGIN], note: "Deploys" });
   await call("secrets:set", { name: "NPM_TOKEN", value: "npm-value-123456", projects: "all", delivery: "ambient" });
   await call("secrets:set", { name: "ELSEWHERE", value: "elsewhere-123456", projects: ["github.com/a/b"] });
@@ -99,4 +100,30 @@ test("secrets_list shows names in reach, never values, and says when an unattend
   assert.equal(listed.includes("deploy-value"), false);
   assert.equal(await listTool(`${PROJECT}#2`).run({}), "No secrets are available to this Chat.");
   assert.equal(chats.routineTurns.size, 0);
+});
+
+test("a replaced value and the Chat's secrets address stay redacted; an archived Chat's address stops working", async (t) => {
+  const { call, wiring } = fixture(t, { sessions: { 1: {}, 3: { archived: true } } });
+  await call("secrets:set", { name: "VERCEL_TOKEN", value: "old-vercel-value-123", projects: "all" });
+  const env = await wiring.agentEnv(`${PROJECT}#1`, { PATH: "/usr/bin" });
+  await call("secrets:set", { name: "VERCEL_TOKEN", value: "new-vercel-value-456", projects: "all" });
+  await wiring.agentEnv(`${PROJECT}#1`, { PATH: "/usr/bin" });
+  const token = env.MILAGRE_SECRETS_URL.split("/").at(-1);
+  const event = wiring.redact({ type: "step-output", text: `old-vercel-value-123 new-vercel-value-456 ${env.MILAGRE_SECRETS_URL}` });
+  assert.equal(event.text.includes("old-vercel-value-123"), false);
+  assert.equal(event.text.includes("new-vercel-value-456"), false);
+  assert.equal(event.text.includes(token), false);
+  const archived = await wiring.agentEnv(`${PROJECT}#3`, { PATH: "/usr/bin" });
+  const archivedToken = archived.MILAGRE_SECRETS_URL.split("/").at(-1);
+  await assert.rejects(wiring.request(archivedToken, { action: "list" }), /archived or gone/);
+  wiring.chatSecrets.forget(`${PROJECT}#1`);
+  await assert.rejects(wiring.request(token, { action: "list" }), /no longer valid/);
+});
+
+test("a file secret can't be ambient", async (t) => {
+  const { call } = fixture(t);
+  await assert.rejects(
+    call("secrets:set", { name: "KEY_FILE", value: "x".repeat(20), kind: "file", fileName: "k.p8", projects: "all", delivery: "ambient" }),
+    /given per command/,
+  );
 });

@@ -1,8 +1,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { randomBytes } = require("node:crypto");
+const { createHash, randomBytes } = require("node:crypto");
 
 const COMMAND = "milagre-secrets";
+const MAX_NAMES = 50;
 
 function shimText(execPath, script, platform) {
   if (platform === "win32") return `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${execPath}" "${script}" %*\r\n`;
@@ -15,7 +16,7 @@ function shimText(execPath, script, platform) {
  * per-Chat token, plus the ambient secrets it opted into. `target(chatId)` says which Project origin and whether the
  * run is unattended; the vault decides what reaches it.
  */
-function createSecretsAccess({ vault, dataDir, secretsUrl, target, execPath = process.execPath, platform = process.platform }) {
+function createSecretsAccess({ vault, dataDir, secretsUrl, target, redactText = (text) => text, execPath = process.execPath, platform = process.platform }) {
   const bin = path.join(dataDir, "secrets-bin");
   const script = path.join(__dirname, "secrets-run.cjs");
   const tokens = new Map();
@@ -62,7 +63,10 @@ function createSecretsAccess({ vault, dataDir, secretsUrl, target, execPath = pr
     }
     if (!(await vault.status()).unlocked) return next;
     try {
-      const ambient = await vault.deliver({ names: null, target: await target(chatId), chatId, delivery: "ambient", record: !ambientLogged.has(chatId) });
+      const where = await target(chatId);
+      const held = (await vault.reachable(where)).secrets.filter((secret) => secret.delivery === "ambient").map((secret) => `${secret.name}:${secret.version}`);
+      next.MILAGRE_SECRETS_AMBIENT = createHash("sha256").update(held.join(",")).digest("hex").slice(0, 16);
+      const ambient = await vault.deliver({ names: null, target: where, chatId, delivery: "ambient", record: !ambientLogged.has(chatId) });
       if (ambient.length) ambientLogged.add(chatId);
       for (const secret of ambient) if (secret.kind === "text") next[secret.name] = secret.value;
     } catch (error) {
@@ -78,18 +82,24 @@ function createSecretsAccess({ vault, dataDir, secretsUrl, target, execPath = pr
     const where = await target(chatId);
     if (body?.action === "list") return vault.reachable(where);
     if (body?.action !== "run") throw Object.assign(new Error("Unknown action."), { status: 400 });
-    const names = Array.isArray(body.names) ? body.names.filter((name) => typeof name === "string").slice(0, 50) : [];
+    const names = Array.isArray(body.names) ? [...new Set(body.names.filter((name) => typeof name === "string"))] : [];
     if (!names.length) throw Object.assign(new Error("Name at least one secret."), { status: 400 });
+    if (names.length > MAX_NAMES) throw Object.assign(new Error(`At most ${MAX_NAMES} secrets per command.`), { status: 400 });
+    const command = typeof body.command === "string" ? redactText(body.command) : null;
     try {
-      return {
-        secrets: await vault.deliver({ names, target: where, chatId, command: typeof body.command === "string" ? body.command : null, delivery: "on-demand" }),
-      };
+      return { secrets: await vault.deliver({ names, target: where, chatId, command, delivery: "on-demand" }) };
     } catch (error) {
       throw Object.assign(error, { status: error.code === "secrets-missing" ? 404 : 500 });
     }
   }
 
-  return { agentEnv, request, binDir: bin, forget: (chatId) => tokens.delete(chatTokens.get(chatId)) && chatTokens.delete(chatId) };
+  function forget(chatId) {
+    tokens.delete(chatTokens.get(chatId));
+    chatTokens.delete(chatId);
+    ambientLogged.delete(chatId);
+  }
+
+  return { agentEnv, request, forget, tokens: () => [...tokens.keys()], binDir: bin };
 }
 
 module.exports = { createSecretsAccess, COMMAND };

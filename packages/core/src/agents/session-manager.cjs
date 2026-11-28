@@ -22,6 +22,8 @@ function streamKey(event) {
 }
 
 // period, and are replaced when they crash or the chat changes provider or working directory.
+
+const sameAmbientSecrets = (before, after) => (before?.MILAGRE_SECRETS_AMBIENT ?? null) === (after?.MILAGRE_SECRETS_AMBIENT ?? null);
 class SessionManager {
   constructor({
     createSession,
@@ -100,7 +102,9 @@ class SessionManager {
     if (
       sameChat &&
       !existing.session.closed &&
-      ((existing.tldrEnabled === tldrEnabled && existing.accountId === accountId) || existing.session.turnActive || busyWithoutTurn(existing))
+      ((existing.tldrEnabled === tldrEnabled && existing.accountId === accountId && sameAmbientSecrets(existing.env, request.env)) ||
+        existing.session.turnActive ||
+        busyWithoutTurn(existing))
     )
       return existing;
     const background = existing && !existing.session.closed ? backgroundCount(existing) : 0;

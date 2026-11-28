@@ -208,6 +208,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
         if (Buffer.byteLength(fields.value, "utf8") > SECRET_LIMITS.valueBytes)
           throw inputError(`A secret holds at most ${SECRET_LIMITS.valueBytes / 1024} KB.`);
         if (fields.kind === "file" && !fields.fileName) throw inputError("A file secret needs a file name.");
+        if (fields.kind === "file" && fields.delivery === "ambient") throw inputError("A file secret is given per command, not kept in the environment.");
         if (fields.fileName && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(fields.fileName))
           throw inputError("A file name uses letters, digits, dots, dashes and underscores.");
         const current = await read();

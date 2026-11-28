@@ -16,24 +16,24 @@ Every change bumps `version` and records `changedOn`; a delete leaves a versione
 
 ## Who gets what
 
-A secret is scoped to Project origins (`originId`, so SSH and HTTPS remotes match on every computer) or `all`. Link Chats and Project-less Chats have no origin and only get `all`.
+A secret is scoped to Project origins (`originId`, so SSH and HTTPS remotes match on every computer) or `all`. The origin is read from Git on every check, not from the Project list's cache, so a checkout pointed at another remote stops getting the old one's secrets at once. Link Chats and Project-less Chats have no origin and only get `all`.
 
 Unattended turns (hidden Routine and Orchestrator Chats, Heartbeat turns, babysit and wake turns: `isUnattended` in `runtime/secrets-wiring.cjs`) get only secrets with `unattended: true`. They read untrusted text with network access, so that is the person's choice per secret.
 
 ## Delivery
 
-- **On demand** (default). Each agent's PATH starts with `<dataDir>/secrets-bin`, holding a `milagre-secrets` shim that runs `secrets-run.cjs` with the host's own Node or Electron. `MILAGRE_SECRETS_URL` carries a per-Chat token for `/secrets/<token>` on the local MCP loopback server. `milagre-secrets run --with A,B -- cmd` asks the host, which checks scope and unattended, logs the use and returns the values; the command alone gets them, file secrets as a temporary 0600 file removed on exit. A missing name refuses the whole command. The token ties a call to its Chat's scope; it isn't a defence against a same-user process.
-- **Ambient** (per-secret opt-in). Added to the agent's environment when its session starts, so MCP servers, hooks and every child see it. A replaced value reaches a running agent only after its session restarts.
+- **On demand** (default). Each agent's PATH starts with `<dataDir>/secrets-bin`, holding a `milagre-secrets` shim that runs `secrets-run.cjs` with the host's own Node or Electron. `MILAGRE_SECRETS_URL` carries a per-Chat token for `/secrets/<token>` on the local MCP loopback server. `milagre-secrets run --with A,B -- cmd` asks the host, which checks scope and unattended, logs the use and returns the values; the command alone gets them, file secrets as a temporary 0600 file removed on exit. A missing name, or more than 50, refuses the whole command. Each file secret gets its own temporary folder. The command runs without a shell (on Windows a `.cmd` needs `cmd /c`), so its arguments reach it as the agent wrote them. The token ties a call to its Chat's scope; it isn't a defence against a same-user process. Retiring the Chat (archive, delete, Worktree removal) revokes it, and an archived Chat's token is refused even before that.
+- **Ambient** (per-secret opt-in, text only). Added to the agent's environment when its session starts, so MCP servers, hooks and every child see it. `MILAGRE_SECRETS_AMBIENT` fingerprints which ambient secrets (name and version) the turn may hold; when it differs from the running session's, the session manager starts a fresh process that resumes the Chat. That is how a replaced value arrives, and how a Heartbeat or Routine turn never inherits a session holding secrets it may not use. A session busy with background work keeps its process, as for any other restart.
 
 Agents learn names from `secrets_list` (names, kinds, notes; never values), pointed to by one line in the system prompt.
 
 ## Use log
 
-`<dataDir>/secrets-log.jsonl`, 0600: time, names, Chat, computer, the command's first 80 characters, delivery. Kept 30 days. Ambient secrets are logged once per Chat per host run.
+`<dataDir>/secrets-log.jsonl`, 0600: time, names, Chat, computer, the command's first 80 characters with known secret values redacted (the agent's shell has already expanded its variables), delivery. Kept 30 days. Ambient secrets are logged once per Chat per host run.
 
 ## Redaction
 
-Provider events are redacted where they enter the host (`send` in `runtime.cjs`, before `ChatHost.receive`), so storage, the phone, Delegation reports and shares see `[secret NAME]`. It matches values of 8+ characters, each line of a file secret and their base64. Bug reports add every value as a known token. Not covered: a person's own typed messages, the Terminal panel, screenshots, advisor result delivery and subagent recovery read from provider files.
+Provider events are redacted where they enter the host (`send` in `runtime.cjs` through `secrets-stream.cjs`, before `ChatHost.receive`), so storage, the phone, Delegation reports and shares see `[secret NAME]`. It matches values of 8+ characters, each line of a file secret, their base64 and every Chat's secrets token. Streamed text and step output arrive in 50 ms chunks, so the end of a chunk that could begin a secret waits for the next chunk of that stream, any other event from the Chat, or one second. Values stay in the matcher after they are replaced or deleted, for as long as the host runs, since a running command may still print the old one. Bug reports add every value as a known token. Not covered: a person's own typed messages, the Terminal panel, screenshots, advisor result delivery and subagent recovery read from provider files.
 
 ## Commands
 

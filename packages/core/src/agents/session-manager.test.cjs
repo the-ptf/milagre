@@ -477,6 +477,20 @@ test("TLDR changes resume the same chat with new instructions between turns", as
   assert.equal(created[2].options.tldrEnabled, true);
 });
 
+test("a change to the ambient secrets a turn may hold starts a fresh process that resumes the chat", async (t) => {
+  const { manager, created } = harness();
+  t.after(() => manager.closeAll());
+  await manager.startTurn(request("1", { env: { MILAGRE_SECRETS_AMBIENT: "attended" } }));
+  created[0].nativeId = "thread-current";
+  await manager.startTurn(request("1", { env: { MILAGRE_SECRETS_AMBIENT: "attended" } }));
+  assert.equal(created.length, 1);
+  await manager.startTurn(request("1", { env: { MILAGRE_SECRETS_AMBIENT: "unattended" } }));
+  assert.equal(created.length, 2);
+  assert.equal(created[0].closed, true);
+  assert.equal(created[1].options.resumeId, "thread-current");
+  assert.equal(created[1].options.env.MILAGRE_SECRETS_AMBIENT, "unattended");
+});
+
 test("TLDR changes leave a running turn alone and apply once it finishes", async (t) => {
   const { manager, created } = harness();
   t.after(() => manager.closeAll());

@@ -133,11 +133,26 @@ export function secretRedactor(secrets) {
   const pairs = [];
   for (const secret of secrets) for (const needle of needles(secret)) pairs.push([needle, `[secret ${secret.name}]`]);
   pairs.sort((a, b) => b[0].length - a[0].length);
-  if (!pairs.length) return (text) => text;
-  return (text) => {
+  if (!pairs.length) return Object.assign((text) => text, { pending: () => 0 });
+  const redact = (text) => {
     if (typeof text !== "string" || text.length < REDACT_MIN_CHARS) return text;
     let out = text;
     for (const [needle, label] of pairs) if (out.includes(needle)) out = out.split(needle).join(label);
     return out;
   };
+  /** How many trailing characters could start a secret: a stream holds them back until the next chunk shows. */
+  const pending = (text) => {
+    let longest = 0;
+    for (const [needle] of pairs) {
+      for (let index = text.indexOf(needle[0], Math.max(0, text.length - needle.length + 1)); index !== -1; index = text.indexOf(needle[0], index + 1)) {
+        if (text.length - index <= longest) break;
+        if (needle.startsWith(text.slice(index))) {
+          longest = text.length - index;
+          break;
+        }
+      }
+    }
+    return longest;
+  };
+  return Object.assign(redact, { pending });
 }

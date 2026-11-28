@@ -333,6 +333,7 @@ function createChatRetirement({
       name: "clear pending questions",
       run: (chatId) => {
         chatSecrets()?.cancel(chatId);
+        chatSecrets()?.forget(chatId);
         bugReports()?.cancel(chatId);
       },
     },
