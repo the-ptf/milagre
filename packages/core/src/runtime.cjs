@@ -1198,7 +1198,7 @@ function createRuntime(options) {
         run: async (input) => {
           const reason = agents.escalationDenial(chatId, { name: tool.name, input, readOnly: tool.readOnly === true });
           if (reason) throw new Error(reason);
-          return tool.run(input);
+          return secrets.redactResult(await tool.run(input));
         },
       })),
     pendingAdvisorResults: async (chatId) =>

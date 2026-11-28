@@ -10,7 +10,8 @@ const LOG_DAYS = 30;
 const DAY = 24 * 60 * 60 * 1000;
 const origin = z.string().min(3).max(300);
 const recordSchema = z.strictObject({
-  kind: z.enum(["text", "file"]),
+  kind: z.enum(["text", "file", "login"]),
+  login: z.strictObject({ origin: z.string().min(8).max(300), username: z.string().max(500) }).optional(),
   value: z.string(),
   fileName: z.string().max(SECRET_LIMITS.fileNameChars).nullable(),
   projects: z.union([z.literal("all"), z.array(origin).min(1).max(SECRET_LIMITS.projects)]),
@@ -28,7 +29,8 @@ const stateSchema = z.strictObject({ secrets: z.record(z.string(), recordSchema)
 const inputSchema = z.strictObject({
   name: z.string(),
   value: z.string().min(1),
-  kind: z.enum(["text", "file"]).default("text"),
+  kind: z.enum(["text", "file", "login"]).default("text"),
+  login: z.strictObject({ origin: z.string().min(8).max(300), username: z.string().max(500) }).optional(),
   fileName: z.string().min(1).max(SECRET_LIMITS.fileNameChars).nullable().default(null),
   projects: z.union([z.literal("all"), z.array(origin).min(1).max(SECRET_LIMITS.projects)]),
   delivery: z.enum(["on-demand", "ambient"]).default("on-demand"),
@@ -47,6 +49,14 @@ const patchSchema = z.strictObject({
 const executableOf = (executable) => {
   const name = typeof executable === "string" ? path.basename(executable.trim().replaceAll("\\", "/")) : "";
   return name ? name.slice(0, 80) : null;
+};
+const loginOrigin = (value) => {
+  try {
+    const url = new URL(value);
+    return url.origin === value && (url.protocol === "https:" || ["localhost", "127.0.0.1"].includes(url.hostname));
+  } catch {
+    return false;
+  }
 };
 const AMBIENT_ASKS = "A secret kept in the environment can't ask before each use: every command already has it.";
 const lockedError = () =>
@@ -195,6 +205,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
   const summary = (name, secret) => ({
     name,
     kind: secret.kind,
+    ...(secret.login ? { login: secret.login } : {}),
     fileName: secret.fileName,
     hint: secretHint(secret.value),
     projects: secret.projects,
@@ -236,6 +247,9 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
         if (Buffer.byteLength(fields.value, "utf8") > SECRET_LIMITS.valueBytes)
           throw inputError(`A secret holds at most ${SECRET_LIMITS.valueBytes / 1024} KB.`);
         if (fields.kind === "file" && !fields.fileName) throw inputError("A file secret needs a file name.");
+        if ((fields.kind === "login") !== Boolean(fields.login)) throw inputError("A login has an origin and a username, and only a login has them.");
+        if (fields.kind === "login" && (fields.delivery === "ambient" || !loginOrigin(fields.login.origin)))
+          throw inputError("A login's origin is an https address (or http on this computer), and a login is never in the environment.");
         if (fields.kind === "file" && fields.delivery === "ambient") throw inputError("A file secret is given per command, not kept in the environment.");
         if (fields.delivery === "ambient" && fields.askEachUse) throw inputError(AMBIENT_ASKS);
         if (fields.fileName && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(fields.fileName))
@@ -314,7 +328,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
           chosen = [];
           for (const name of names) {
             const secret = current.secrets[name];
-            if (!secret || !reach([name, secret])) missing.push(name);
+            if (!secret || !reach([name, secret]) || secret.kind === "login") missing.push(name);
             else chosen.push([name, secret]);
           }
           if (missing.length)
@@ -335,6 +349,15 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
             delivery,
           });
         return chosen.map(([name, secret]) => ({ name, kind: secret.kind, fileName: secret.fileName, value: secret.value }));
+      }),
+    /** A login's origin, username and password for the browser to type, if this Chat may use it; the use is logged. */
+    login: ({ name, target, chatId }) =>
+      serial(async () => {
+        const secret = (await read()).secrets[name];
+        if (!secret || secret.kind !== "login" || !secretReaches({ name, ...secret }, target))
+          throw Object.assign(new Error(`No login named ${name} for this Chat. secrets_list shows the logins it may use.`), { code: "secrets-missing" });
+        await record({ at: now(), names: [name], chatId, computer: computerId(), command: null, delivery: "browser" });
+        return { origin: secret.login.origin, username: secret.login.username, password: secret.value };
       }),
     /** The ambient secrets a turn may hold and their fingerprint, from one read so the two always agree. */
     ambient: ({ target, chatId, record: shouldRecord }) =>

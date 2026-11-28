@@ -49,6 +49,15 @@ Off until the person turns it on per paired computer (Settings › Secrets › S
 - **Turning sharing off** asks that computer to drop what came from here (no tombstones, so sharing again restores it). A push already running checks before each batch and stops, then the removal runs. While the computer is offline or the removal fails, it waits (`pendingRemoval`) and is tried again every minute and on reconnect until it succeeds.
 - **Orchestrator placement** sends a task to another computer only if it holds every unattended secret the task's Project needs, in reach of that Project there: `orchestrator:capacity` lists each unattended secret's name and Projects, and `secretsReaching` checks them against the task's origin.
 
+## Browser logins
+
+A login is a secret of kind `login`: a password, plus the site (`login.origin`, https or http on this computer) and the username it signs in with. It is never ambient and never handed to `milagre-secrets run`; the only way out is the Browser panel.
+
+- **Filling.** `browser_fill` takes `login: { name, field: "username" | "password" }` in place of `text`. The host resolves the login through `vault.login` (the Chat's reach and unattended rules apply, and the use is logged with delivery `browser`), then `browser-login-fill.cjs` checks the field before typing: every frame from the field up to the top must be on the login's own origin (a cross-origin parent reads as unknown and refuses), the field must be an input, a password only goes into a password field and a username into a text, email or tel one, and a form that sends its fields in the address is refused. The value is typed through `Input.insertText`, never put into page script, and the tool's result says only that the field was filled.
+- **Naming.** `loginName(origin, username)` in `@milagre/shared/secrets` gives `LOGIN_<SITE>_<hash>`, so each site and username pair has one name and importing again replaces it.
+- **Importing.** `secrets:import-logins` takes the absolute path of a CSV export from Chrome, Arc, Edge, Safari, Firefox, 1Password or Bitwarden (5 MB at most; columns found by header, one-time-code columns ignored). Rows without https are reported as skipped. The phone can't import, since it can't make the host read one of its files.
+- **Agents** see logins in `secrets_list` with their site, never the username or password.
+
 ## Use log
 
 `<dataDir>/secrets-log.jsonl`, 0600: time, names, Chat, computer, the program's file name only, sent apart from its arguments (they arrive expanded and may hold a credential), delivery. Kept 30 days. Ambient secrets are logged once per Chat per host run.
@@ -59,7 +68,7 @@ Provider events are redacted where they enter the host (`send` in `runtime.cjs` 
 
 ## Commands and Settings
 
-`secrets:status`, `secrets:list`, `secrets:set` (`value`, or `file`: an absolute path the host reads, 64 KB at most), `secrets:update` (scope, delivery, ask-each-use, unattended and note, never the value), `secrets:import` (a `.env` file; reserved and empty names are skipped and reported), `secrets:delete`, `secrets:log`. The CLI exposes them as `milagre secrets <action>`; pass values with `--input -` on stdin, never on the command line.
+`secrets:status`, `secrets:list`, `secrets:set` (`value`, or `file`: an absolute path the host reads, 64 KB at most), `secrets:update` (scope, delivery, ask-each-use, unattended and note, never the value), `secrets:import` (a `.env` file; reserved and empty names are skipped and reported), `secrets:import-logins` (a browser's passwords CSV), `secrets:delete`, `secrets:log`. The CLI exposes them as `milagre secrets <action>`; pass values with `--input -` on stdin, never on the command line.
 
 - **Desktop:** Settings › Secrets (Agents group, after Connectors; palette "Open Secrets" and "Add secret") calls them through the preload bridge (`window.milagre.secrets`, local only), so their contracts are generated from it. A file secret or `.env` import is picked with a file input and sent as its absolute path.
 - **Phone:** Settings › Agents on the computer › Secrets. Its allowlist has every method but `secrets:import`; `mobile-routes.cjs` refuses `secrets:set` with a `file` (the phone can't make the host read one of its files), and drops every `hint`. File secrets show but are replaced on the computer.

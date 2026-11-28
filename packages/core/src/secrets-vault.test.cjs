@@ -191,4 +191,33 @@ test("delivery hands values over only if each is still the revision the caller r
   assert.equal((await vault.deliver({ names: ["DEPLOY_TOKEN"], target, chatId: "c", delivery: "on-demand", expect }))[0].value, "deploy-123456");
   await vault.update("DEPLOY_TOKEN", { askEachUse: true });
   await assert.rejects(vault.deliver({ names: ["DEPLOY_TOKEN"], target, chatId: "c", delivery: "on-demand", expect }), { code: "secrets-changed" });
+test("a login is typed only for a Chat it reaches, never run in a command, and its use is logged as the browser's", async (t) => {
+  const { vault } = fixture(t);
+  await vault.set({
+    name: "LOGIN_GITHUB",
+    kind: "login",
+    login: { origin: "https://github.com", username: "octo" },
+    value: "gh-pass-123456",
+    projects: [ORIGIN],
+  });
+  const target = { origin: ORIGIN, unattended: false };
+  assert.deepEqual(await vault.login({ name: "LOGIN_GITHUB", target, chatId: "c" }), {
+    origin: "https://github.com",
+    username: "octo",
+    password: "gh-pass-123456",
+  });
+  await assert.rejects(vault.login({ name: "LOGIN_GITHUB", target: { origin: "github.com/a/b", unattended: false }, chatId: "c" }), /No login named/);
+  await assert.rejects(vault.login({ name: "LOGIN_GITHUB", target: { origin: ORIGIN, unattended: true }, chatId: "c" }), /No login named/);
+  await assert.rejects(vault.deliver({ names: ["LOGIN_GITHUB"], target, chatId: "c", delivery: "on-demand" }), /Not available/);
+  assert.equal((await vault.log("LOGIN_GITHUB"))[0].delivery, "browser");
+  await assert.rejects(vault.set({ name: "LOGIN_X", kind: "login", value: "x-123456", projects: "all" }), /origin and a username/);
+  await assert.rejects(
+    vault.set({ name: "LOGIN_X", kind: "text", login: { origin: "https://a.com", username: "u" }, value: "x-123456", projects: "all" }),
+    /only a login/,
+  );
+  await assert.rejects(
+    vault.set({ name: "LOGIN_X", kind: "login", login: { origin: "ftp://a.com", username: "u" }, value: "x-123456", projects: "all" }),
+    /https/,
+  );
+  await vault.set({ name: "LOGIN_LOCAL", kind: "login", login: { origin: "http://localhost:3000", username: "dev" }, value: "local-123456", projects: "all" });
 });

@@ -90,3 +90,16 @@ test("redaction also matches URL-encoded, JSON-escaped, hex and base64url forms"
   ])
     assert.equal(redact(`x ${form} y`), "x [secret PASS] y", form);
 });
+
+test("browser exports become logins by their headers, and a login's name is stable and valid", async () => {
+  const { loginName, parseLoginCsv } = await import("./secrets.mjs");
+  const chrome = 'name,url,username,password,note\ngithub.com,https://github.com/login,octo,"pa,ss""1",work\nbad,not a url,x,y,\nempty,https://a.com,u,,\n';
+  assert.deepEqual(parseLoginCsv(chrome), [{ origin: "https://github.com", username: "octo", password: 'pa,ss"1', note: "work" }]);
+  const safari = "Title,URL,Username,Password,Notes,OTPAuth\r\nVercel,https://vercel.com/,me@x.com,secret-pass,,otpauth://x\r\n";
+  assert.deepEqual(parseLoginCsv(safari), [{ origin: "https://vercel.com", username: "me@x.com", password: "secret-pass", note: null }]);
+  const name = loginName("https://github.com", "octo");
+  assert.match(name, /^LOGIN_GITHUB_COM_[0-9A-F]{6}$/);
+  assert.equal(secretNameProblem(name), null);
+  assert.equal(loginName("https://github.com", "octo"), name);
+  assert.notEqual(loginName("https://github.com", "other"), name);
+});

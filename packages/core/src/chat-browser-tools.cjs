@@ -1,3 +1,4 @@
+const { fillLogin } = require("./browser-login-fill.cjs");
 const fs = require("node:fs");
 const path = require("node:path");
 const { z } = require("zod");
@@ -151,6 +152,47 @@ async function uploadable(paths, roots) {
  * @param {{ openInPanel(chatId: string, url: string): void; closePage?(chatId: string, targetId: string): Promise<unknown>; closeAll?(chatId: string): Promise<unknown> }} panel
  * @param {{ roots(): Promise<string[]>; chooserWaitMs?: number }} [uploads] the folders browser_upload may send files from
  */
+function browserFillTool(chatId, on, done) {
+  return {
+    name: "browser_fill",
+    description:
+      "Replace the text of an input or text area by its ref with `text`, firing the input events a framework listens for. To sign in with a saved login, pass `login` instead of `text`: its name from secrets_list and the field (username or password). Milagre types it only into a field on the login's own site and never returns it.",
+    input: {
+      page,
+      ref,
+      text: z.string().max(20000).optional(),
+      login: z.object({ name: z.string().min(1).max(64), field: z.enum(["username", "password"]) }).optional(),
+    },
+    readOnly: false,
+    run: async (input) => {
+      if ((input.text === undefined) === (input.login === undefined)) throw new Error("Give either text or login.");
+      const { target, session, state } = await on(input);
+      const node = backendNode(state, input.ref);
+      if (input.login) {
+        if (!logins) throw new Error("Saved logins aren't available on this computer.");
+        const login = await logins.resolve(chatId, input.login.name);
+        await fillLogin({ session, node, login, field: input.login.field, onElement });
+        return done(target);
+      }
+      await session.send("DOM.focus", { backendNodeId: node }).catch(() => {});
+      await onElement(
+        session,
+        node,
+        `function () {
+        this.focus();
+        if ("value" in this) {
+          const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(this), "value")?.set;
+          if (setter) setter.call(this, ""); else this.value = "";
+          this.dispatchEvent(new Event("input", { bubbles: true }));
+        } else if (this.isContentEditable) this.textContent = "";
+      }`,
+      );
+      if (input.text) await session.send("Input.insertText", { text: input.text });
+      return done(target);
+    },
+  };
+}
+
 function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: async () => [] }) {
   const on = async (input) => {
     const found = await browsers.devtools({ chatId, page: input.page });
@@ -269,31 +311,7 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
         return done(target);
       },
     },
-    {
-      name: "browser_fill",
-      description: "Replace the text of an input or text area by its ref with `text`, firing the input events a framework listens for.",
-      input: { page, ref, text: z.string().max(20000) },
-      readOnly: false,
-      run: async (input) => {
-        const { target, session, state } = await on(input);
-        const node = backendNode(state, input.ref);
-        await session.send("DOM.focus", { backendNodeId: node }).catch(() => {});
-        await onElement(
-          session,
-          node,
-          `function () {
-            this.focus();
-            if ("value" in this) {
-              const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(this), "value")?.set;
-              if (setter) setter.call(this, ""); else this.value = "";
-              this.dispatchEvent(new Event("input", { bubbles: true }));
-            } else if (this.isContentEditable) this.textContent = "";
-          }`,
-        );
-        if (input.text) await session.send("Input.insertText", { text: input.text });
-        return done(target);
-      },
-    },
+    browserFillTool(chatId, on, done),
     {
       name: "browser_upload",
       description:
@@ -540,4 +558,10 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
   ];
 }
 
-module.exports = { browserPageToolDefinitions };
+let logins = null;
+/** Where browser_fill finds saved logins: the secrets wiring registers it once the vault exists. */
+function useLogins(source) {
+  logins = source;
+}
+
+module.exports = { browserPageToolDefinitions, useLogins };

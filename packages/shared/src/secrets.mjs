@@ -1,5 +1,5 @@
 export const SECRET_LIMITS = Object.freeze({ count: 500, valueBytes: 64 * 1024, noteChars: 500, fileNameChars: 128, projects: 100 });
-export const SECRET_KINDS = Object.freeze(["text", "file"]);
+export const SECRET_KINDS = Object.freeze(["text", "file", "login"]);
 export const SECRET_DELIVERIES = Object.freeze(["on-demand", "ambient"]);
 export const REDACT_MIN_CHARS = 8;
 const HINT_MIN_CHARS = 12;
@@ -241,4 +241,76 @@ export function carriesSecretValue(method, args) {
     method === "secrets:set" ||
     (method === "agent:answer-question" && (String(first?.requestId ?? "").startsWith("milagre-secret-") || first?.secretAnswer === true))
   );
+}
+
+function hashText(text) {
+  let hash = 2166136261;
+  for (const char of text) hash = Math.imul(hash ^ char.codePointAt(0), 16777619) >>> 0;
+  return hash.toString(16).toUpperCase().padStart(8, "0").slice(0, 6);
+}
+
+/** The name a login is saved under: the site and a short hash of the site and username, so each pair has one. */
+export function loginName(origin, username) {
+  const host = String(origin)
+    .replace(/^[a-z]+:\/\//i, "")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .toUpperCase()
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+  return `LOGIN_${host || "SITE"}_${hashText(`${origin}\n${username}`)}`;
+}
+
+function csvRows(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let quoted = false;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (quoted) {
+      if (char === '"' && text[index + 1] === '"') {
+        field += '"';
+        index++;
+      } else if (char === '"') quoted = false;
+      else field += char;
+    } else if (char === '"') quoted = true;
+    else if (char === ",") {
+      row.push(field);
+      field = "";
+    } else if (char === "\n" || char === "\r") {
+      if (char === "\r" && text[index + 1] === "\n") index++;
+      row.push(field);
+      if (row.some((cell) => cell !== "")) rows.push(row);
+      row = [];
+      field = "";
+    } else field += char;
+  }
+  row.push(field);
+  if (row.some((cell) => cell !== "")) rows.push(row);
+  return rows;
+}
+
+/**
+ * Logins from a browser's or password manager's CSV export (Chrome, Arc, Edge, Safari, Firefox, 1Password, Bitwarden):
+ * url, username and password columns by header, plus a note when there is one. One-time-code columns are ignored.
+ */
+export function parseLoginCsv(text) {
+  const [header, ...rows] = csvRows(String(text).replace(/^﻿/, ""));
+  if (!header) return [];
+  const column = (...names) => header.findIndex((cell) => names.includes(cell.trim().toLowerCase()));
+  const url = column("url", "login_uri", "website", "web site");
+  const username = column("username", "login_username", "user name", "login");
+  const password = column("password", "login_password");
+  const note = column("note", "notes");
+  if (url < 0 || password < 0) return [];
+  return rows.flatMap((row) => {
+    let origin;
+    try {
+      origin = new URL(row[url]).origin;
+    } catch {
+      return [];
+    }
+    if (!row[password]) return [];
+    return [{ origin, username: username >= 0 ? (row[username] ?? "") : "", password: row[password], note: note >= 0 && row[note] ? row[note] : null }];
+  });
 }

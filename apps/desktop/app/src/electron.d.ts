@@ -585,6 +585,11 @@ export type MilagreBridge = {
       unattended?: boolean;
       note?: string | null;
     }) => Promise<{ imported: string[]; skipped: { name: string; reason: string }[] }>;
+    /** Saves every login of a browser's or password manager's CSV export (Chrome, Arc, Edge, Safari, Firefox, 1Password, Bitwarden) under its site's login name. */
+    importLogins: (request: {
+      file: string;
+      projects?: "all" | string[];
+    }) => Promise<{ imported: string[]; skipped: { name: string; site: string; reason: string }[] }>;
     /** This computer's paired computers and whether its secrets are shared with each. */
     sharing: () => Promise<SecretSharingComputer[]>;
     /** Starts or stops sharing with one paired computer; stopping asks it to drop what came from here. */

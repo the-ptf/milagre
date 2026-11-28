@@ -167,6 +167,7 @@ function secretsBridge(invoke, listen) {
     remove: (request) => invoke("secrets:delete", request),
     log: (request = {}) => invoke("secrets:log", request),
     importEnv: (request) => invoke("secrets:import", request),
+    importLogins: (request) => invoke("secrets:import-logins", request),
     sharing: () => invoke("secrets:sharing"),
     share: (request) => invoke("secrets:share", request),
   };
