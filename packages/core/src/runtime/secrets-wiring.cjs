@@ -17,6 +17,8 @@ function currentOrigin(projectPath) {
   });
 }
 
+const RETIRED_MS = 24 * 60 * 60 * 1000;
+
 /** Turns a person isn't there for: Routine runs and triggers, Heartbeats, babysitting, wakes and Orchestrator tasks. */
 function isUnattended(session, chats, chatId) {
   const hiddenRun = (mark) => Boolean(mark) && mark.hidden !== false;
@@ -35,20 +37,35 @@ async function readSmallFile(file, what) {
  * Named secrets for agents (issue #1239): the vault, the `milagre-secrets` command and its loopback address, ambient
  * env, `secrets_list`, transcript redaction, the owner's `secrets:*` commands, and `request_secret`'s one-off secrets.
  */
-function createSecretsWiring({ dataDir, commands, chats, scopeStates, options = {}, origin = currentOrigin, mcp, computerId = () => os.hostname() }) {
+function createSecretsWiring({
+  dataDir,
+  commands,
+  chats,
+  scopeStates,
+  options = {},
+  origin = currentOrigin,
+  mcp,
+  computerId = () => os.hostname(),
+  now = Date.now,
+}) {
   const vault = createSecretsVault({ dataDir, masterKey: async () => (await options.remoteComputers?.masterKey?.()) ?? null, computerId });
-  const seen = new Map();
+  const retired = new Map();
   let redactor = null;
   const refresh = async () => {
-    for (const secret of await vault.values().catch(() => [])) seen.set(secret.value, secret);
-    for (const token of access.tokens()) seen.set(token, { name: "MILAGRE_SECRETS_URL", value: token });
-    redactor = seen.size ? secretRedactor([...seen.values()]) : null;
+    const live = new Map((await vault.values().catch(() => [])).map((secret) => [`${secret.kind}:${secret.value}`, secret]));
+    for (const [key, entry] of retired) if (live.has(key) || now() - entry.at > RETIRED_MS) retired.delete(key);
+    for (const [key, secret] of lastLive) if (!live.has(key)) retired.set(key, { secret, at: now() });
+    lastLive = live;
+    const tokens = access.tokens().map((token) => ({ name: "MILAGRE_SECRETS_URL", value: token }));
+    const all = [...live.values(), ...[...retired.values()].map((entry) => entry.secret), ...tokens];
+    redactor = all.length ? secretRedactor(all) : null;
   };
+  let lastLive = new Map();
   const stream = createSecretStream({ redactor: () => redactor });
 
   async function target(chatId) {
     const projectPath = projectOfKey(chatId);
-    const state = scopeStates.has(projectPath) ? await scopeStates.get(projectPath).catch(() => null) : null;
+    const state = scopeStates.has(projectPath) ? await scopeStates.get(projectPath) : null;
     const session = state?.sessions?.[sessionIdFromKey(chatId)];
     if (state && (!session || session.archived)) throw Object.assign(new Error("This Chat is archived or gone."), { status: 401 });
     const found = isLinkScopeKey(projectPath) || !path.isAbsolute(projectPath) ? null : await Promise.resolve(origin(projectPath)).catch(() => null);

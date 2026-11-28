@@ -85,7 +85,7 @@ test("delivery: named secrets in reach, refused whole when one is missing, logge
     names: ["ASC_KEY_ID", "ASC_KEY"],
     chatId: "/p#1",
     computer: "mac-1",
-    command: "npx eas-cli submit",
+    command: "npx",
     delivery: "on-demand",
   });
   const listed = await vault.list();
@@ -139,4 +139,17 @@ test("the use log keeps 30 days", async (t) => {
   clock.at += 31 * 24 * 60 * 60 * 1000;
   await vault.deliver({ names: ["A_TOKEN"], target: { origin: null }, chatId: "c", delivery: "on-demand" });
   assert.equal((await make().log("A_TOKEN")).length, 1);
+});
+
+test("one read gives ambient values and their fingerprint; an older ambient file secret loads as per command", async (t) => {
+  const { vault, make, dataDir } = fixture(t);
+  await vault.set({ name: "NPM_TOKEN", value: "npm-value-123456", projects: "all", delivery: "ambient" });
+  const first = await vault.ambient({ target: { origin: null }, chatId: "c", record: false });
+  assert.deepEqual(first.secrets, [{ name: "NPM_TOKEN", value: "npm-value-123456" }]);
+  assert.equal((await vault.ambient({ target: { origin: null, unattended: true }, chatId: "c", record: false })).secrets.length, 0);
+  assert.notEqual((await vault.ambient({ target: { origin: null, unattended: true }, chatId: "c", record: false })).fingerprint, first.fingerprint);
+  assert.equal(fs.existsSync(path.join(dataDir, "secrets-vault.json")), true);
+  const reloaded = make();
+  await vault.set({ name: "KEY_FILE", value: "file-body-123456", kind: "file", fileName: "k.p8", projects: "all" });
+  assert.equal((await reloaded.list()).find((secret) => secret.name === "KEY_FILE").delivery, "on-demand");
 });

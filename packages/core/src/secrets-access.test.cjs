@@ -72,7 +72,7 @@ test(
     const [entry] = await vault.log();
     assert.deepEqual(entry.names, ["DEPLOY_TOKEN", "ASC_KEY"]);
     assert.equal(entry.chatId, "/p#1");
-    assert.match(entry.command, /-e/);
+    assert.equal(entry.command, path.basename(process.execPath));
   },
 );
 
@@ -118,7 +118,7 @@ test(
   },
 );
 
-test("the use log keeps a command with its secret values redacted", async (t) => {
+test("the use log keeps only the executable, never arguments that may hold a credential", async (t) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-secrets-redact-"));
   fs.chmodSync(dataDir, 0o700);
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
@@ -133,6 +133,6 @@ test("the use log keeps a command with its secret values redacted", async (t) =>
     redactText: (text) => text.replaceAll("visible-token-123456", "[secret A_TOKEN]"),
   });
   const token = (await access.agentEnv("/p#1", { PATH: "/bin" })).MILAGRE_SECRETS_URL.split("/").at(-1);
-  await access.request(token, { action: "run", names: ["A_TOKEN"], command: "curl -H Authorization:visible-token-123456 x" });
-  assert.equal((await vault.log())[0].command, "curl -H Authorization:[secret A_TOKEN] x");
+  await access.request(token, { action: "run", names: ["A_TOKEN"], command: "/usr/bin/curl -H Authorization:123456 x" });
+  assert.equal((await vault.log())[0].command, "curl");
 });

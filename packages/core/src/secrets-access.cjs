@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { createHash, randomBytes } = require("node:crypto");
+const { randomBytes } = require("node:crypto");
 
 const COMMAND = "milagre-secrets";
 const MAX_NAMES = 50;
@@ -63,12 +63,10 @@ function createSecretsAccess({ vault, dataDir, secretsUrl, target, redactText = 
     }
     if (!(await vault.status()).unlocked) return next;
     try {
-      const where = await target(chatId);
-      const held = (await vault.reachable(where)).secrets.filter((secret) => secret.delivery === "ambient").map((secret) => `${secret.name}:${secret.version}`);
-      next.MILAGRE_SECRETS_AMBIENT = createHash("sha256").update(held.join(",")).digest("hex").slice(0, 16);
-      const ambient = await vault.deliver({ names: null, target: where, chatId, delivery: "ambient", record: !ambientLogged.has(chatId) });
-      if (ambient.length) ambientLogged.add(chatId);
-      for (const secret of ambient) if (secret.kind === "text") next[secret.name] = secret.value;
+      const { fingerprint, secrets } = await vault.ambient({ target: await target(chatId), chatId, record: !ambientLogged.has(chatId) });
+      next.MILAGRE_SECRETS_AMBIENT = fingerprint;
+      if (secrets.length) ambientLogged.add(chatId);
+      for (const secret of secrets) next[secret.name] = secret.value;
     } catch (error) {
       console.warn("Ambient secrets unavailable:", error.message);
     }

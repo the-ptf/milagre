@@ -17,11 +17,12 @@ function fixture(t, { sessions = { 1: {} } } = {}) {
   const handlers = new Map();
   const chats = { runs: {}, turns: new Map(), routineTurns: new Set(), receive: async () => {} };
   const key = randomBytes(32);
+  const scopeStates = { has: () => true, get: async () => ({ sessions }) };
   const wiring = createSecretsWiring({
     dataDir,
     commands: { handle: (name, run) => handlers.set(name, run) },
     chats,
-    scopeStates: { has: () => true, get: async () => ({ sessions }) },
+    scopeStates,
     options: { remoteComputers: { masterKey: async () => key } },
     origin: async (folder) => (folder === PROJECT ? ORIGIN : null),
     mcp: () => ({ secretsUrl: async (token) => `http://127.0.0.1:1/secrets/${token}` }),
@@ -29,7 +30,7 @@ function fixture(t, { sessions = { 1: {} } } = {}) {
   t.after(() => wiring.chatSecrets.close());
   const call = (name, ...args) => handlers.get(name)({}, ...args);
   const listTool = (chatId) => wiring.tools(chatId).find((tool) => tool.name === "secrets_list");
-  return { dataDir, chats, wiring, call, listTool };
+  return { dataDir, chats, wiring, call, listTool, scopeStates };
 }
 
 test("unattended: hidden Routine and Orchestrator Chats, Heartbeat turns and guarded turns", () => {
@@ -126,4 +127,14 @@ test("a file secret can't be ambient", async (t) => {
     call("secrets:set", { name: "KEY_FILE", value: "x".repeat(20), kind: "file", fileName: "k.p8", projects: "all", delivery: "ambient" }),
     /given per command/,
   );
+});
+
+test("a Chat whose Project state can't be read gets nothing", async (t) => {
+  const { wiring, scopeStates } = fixture(t);
+  const env = await wiring.agentEnv(`${PROJECT}#1`, { PATH: "/usr/bin" });
+  const token = env.MILAGRE_SECRETS_URL.split("/").at(-1);
+  scopeStates.get = async () => {
+    throw new Error("chats.db is busy");
+  };
+  await assert.rejects(wiring.request(token, { action: "list" }), /chats.db is busy/);
 });

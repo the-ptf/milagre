@@ -1,6 +1,6 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { randomBytes, createCipheriv, createDecipheriv } = require("node:crypto");
+const { createHash, randomBytes, createCipheriv, createDecipheriv } = require("node:crypto");
 const { z } = require("zod");
 const { assertPrivate, windowsAcl } = require("./private-files.cjs");
 const { SECRET_LIMITS, secretNameProblem, secretHint, secretReaches } = require("@milagre/shared/secrets");
@@ -34,13 +34,20 @@ const inputSchema = z.strictObject({
   note: z.string().max(SECRET_LIMITS.noteChars).nullable().default(null),
 });
 
+const executableOf = (command) => {
+  const first = typeof command === "string" ? command.trim().split(/\s+/)[0] : "";
+  return first ? path.basename(first).slice(0, 80) : null;
+};
 const lockedError = () =>
   Object.assign(new Error("Secrets are locked: open Milagre on this computer, or set up a computer key for unattended access."), { code: "secrets-locked" });
 const inputError = (message) => Object.assign(new Error(message), { code: "secrets-input" });
 
 function validState(value) {
   const state = stateSchema.parse(value);
-  for (const name of Object.keys(state.secrets)) if (secretNameProblem(name)) throw new Error(`Saved secret ${name} has an invalid name`);
+  for (const [name, secret] of Object.entries(state.secrets)) {
+    if (secretNameProblem(name)) throw new Error(`Saved secret ${name} has an invalid name`);
+    if (secret.kind === "file") secret.delivery = "on-demand";
+  }
   return state;
 }
 
@@ -53,6 +60,50 @@ async function writePrivateFile(file, text) {
   } finally {
     await fs.rm(temporary, { force: true });
   }
+}
+
+/** The use log: one JSON line per use, kept 30 days, plus the latest use of each name. */
+function createUseLog({ dataDir, logFile, now }) {
+  const lastUsed = new Map();
+  let logLoaded = false;
+  async function readLog() {
+    let text = "";
+    try {
+      assertPrivate(logFile);
+      text = await fs.readFile(logFile, "utf8");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    const cutoff = now() - LOG_DAYS * DAY;
+    const entries = [];
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line);
+        if (typeof entry?.at === "number" && entry.at >= cutoff && Array.isArray(entry.names)) entries.push(entry);
+      } catch {}
+    }
+    return entries;
+  }
+  async function loadLastUsed() {
+    if (logLoaded) return;
+    logLoaded = true;
+    for (const entry of await readLog()) for (const name of entry.names) lastUsed.set(name, Math.max(lastUsed.get(name) ?? 0, entry.at));
+  }
+  let appends = 0;
+  async function record(entry) {
+    await fs.mkdir(dataDir, { recursive: true, mode: 0o700 });
+    const handle = await fs.open(logFile, "a", 0o600);
+    try {
+      await handle.write(`${JSON.stringify(entry)}\n`);
+    } finally {
+      await handle.close();
+    }
+    await loadLastUsed();
+    for (const name of entry.names) lastUsed.set(name, entry.at);
+    if (++appends % 200 === 0) await writePrivateFile(logFile, (await readLog()).map((kept) => `${JSON.stringify(kept)}\n`).join(""));
+  }
+  return { readLog, loadLastUsed, record, lastUsed };
 }
 
 /**
@@ -125,45 +176,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
     changed();
   }
 
-  const lastUsed = new Map();
-  let logLoaded = false;
-  async function readLog() {
-    let text = "";
-    try {
-      assertPrivate(logFile);
-      text = await fs.readFile(logFile, "utf8");
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
-    const cutoff = now() - LOG_DAYS * DAY;
-    const entries = [];
-    for (const line of text.split("\n")) {
-      if (!line) continue;
-      try {
-        const entry = JSON.parse(line);
-        if (typeof entry?.at === "number" && entry.at >= cutoff && Array.isArray(entry.names)) entries.push(entry);
-      } catch {}
-    }
-    return entries;
-  }
-  async function loadLastUsed() {
-    if (logLoaded) return;
-    logLoaded = true;
-    for (const entry of await readLog()) for (const name of entry.names) lastUsed.set(name, Math.max(lastUsed.get(name) ?? 0, entry.at));
-  }
-  let appends = 0;
-  async function record(entry) {
-    await fs.mkdir(dataDir, { recursive: true, mode: 0o700 });
-    const handle = await fs.open(logFile, "a", 0o600);
-    try {
-      await handle.write(`${JSON.stringify(entry)}\n`);
-    } finally {
-      await handle.close();
-    }
-    await loadLastUsed();
-    for (const name of entry.names) lastUsed.set(name, entry.at);
-    if (++appends % 200 === 0) await writePrivateFile(logFile, (await readLog()).map((kept) => `${JSON.stringify(kept)}\n`).join(""));
-  }
+  const { readLog, loadLastUsed, record, lastUsed } = createUseLog({ dataDir, logFile, now });
 
   const summary = (name, secret) => ({
     name,
@@ -284,10 +297,25 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
             names: chosen.map(([name]) => name),
             chatId,
             computer: computerId(),
-            command: command ? String(command).slice(0, 80) : null,
+            command: executableOf(command),
             delivery,
           });
         return chosen.map(([name, secret]) => ({ name, kind: secret.kind, fileName: secret.fileName, value: secret.value }));
+      }),
+    /** The ambient secrets a turn may hold and their fingerprint, from one read so the two always agree. */
+    ambient: ({ target, chatId, record: shouldRecord }) =>
+      serial(async () => {
+        const current = await read();
+        const chosen = Object.entries(current.secrets)
+          .filter(([name, secret]) => secret.delivery === "ambient" && secretReaches({ name, ...secret }, target))
+          .sort(([a], [b]) => a.localeCompare(b));
+        const fingerprint = createHash("sha256")
+          .update(chosen.map(([name, secret]) => `${name}:${secret.version}`).join(","))
+          .digest("hex")
+          .slice(0, 16);
+        if (chosen.length && shouldRecord)
+          await record({ at: now(), names: chosen.map(([name]) => name), chatId, computer: computerId(), command: null, delivery: "ambient" });
+        return { fingerprint, secrets: chosen.map(([name, secret]) => ({ name, value: secret.value })) };
       }),
     log: (name) =>
       serial(async () => {

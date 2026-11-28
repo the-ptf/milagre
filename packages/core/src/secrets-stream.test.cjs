@@ -5,9 +5,9 @@ const { createSecretStream, mapStrings } = require("./secrets-stream.cjs");
 
 const VALUE = "supersecret-token-123";
 
-function fixture({ holdMs = 1000 } = {}) {
+function fixture() {
   const redactor = secretRedactor([{ name: "TOKEN", value: VALUE }]);
-  const stream = createSecretStream({ redactor: () => redactor, holdMs });
+  const stream = createSecretStream({ redactor: () => redactor });
   const out = [];
   const send = (event) => stream.forward("c", event, (next) => out.push(next));
   return { stream, out, send };
@@ -45,12 +45,35 @@ test("step output is held per step and flushed before the next event", () => {
   );
 });
 
-test("a held tail that never completes a secret still shows after the hold", async () => {
-  const { out, send } = fixture({ holdMs: 10 });
-  send({ type: "text-delta", text: "the word super" });
-  assert.equal(out.map((event) => event.text).join(""), "the word ");
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  assert.equal(out.map((event) => event.text).join(""), "the word super");
+test("a held tail waits through pauses and other events, and shows or is masked when its stream ends", () => {
+  const { out, send } = fixture();
+  send({ type: "text-delta", text: "the word super", startsMessage: true });
+  send({ type: "step-started", step: { id: "s", title: "ls" } });
+  send({ type: "text-delta", text: "secret-token" });
+  assert.equal(
+    out
+      .filter((event) => event.type === "text-delta")
+      .map((event) => event.text)
+      .join(""),
+    "the word ",
+  );
+  send({ type: "turn-completed" });
+  const shown = out
+    .filter((event) => event.type === "text-delta")
+    .map((event) => event.text)
+    .join("");
+  assert.equal(shown, "the word [secret]");
+  assert.equal(out.at(-1).type, "turn-completed");
+  const short = fixture();
+  short.send({ type: "text-delta", text: "ends with sup", startsMessage: true });
+  short.send({ type: "turn-completed" });
+  assert.equal(
+    short.out
+      .filter((event) => event.type === "text-delta")
+      .map((event) => event.text)
+      .join(""),
+    "ends with sup",
+  );
 });
 
 test("other events are redacted whole, and nothing changes without secrets", () => {

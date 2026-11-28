@@ -1,3 +1,5 @@
+const { REDACT_MIN_CHARS } = require("@milagre/shared/secrets");
+
 const STREAMS = { "text-delta": () => "text", "step-output": (event) => `step:${event.id}` };
 
 function mapStrings(value, change, depth = 0) {
@@ -20,35 +22,39 @@ function mapStrings(value, change, depth = 0) {
   return next ?? value;
 }
 
+const TURN_ENDS = new Set(["turn-completed", "turn-failed", "turn-cancelled"]);
+
+/** Which held streams an event ends: its turn's end ends them all, a finished step ends its output, a new message ends the text. */
+function ends(event, key) {
+  if (TURN_ENDS.has(event?.type)) return true;
+  if (event?.type === "step-completed") return key === `step:${event.id}`;
+  return event?.type === "text-delta" && event.startsMessage === true && key === "text";
+}
+
 /**
  * Redacts a Chat's provider events before they are stored or shown. Streamed text arrives in chunks, so a value can
- * straddle two of them: the end of a chunk that could begin a secret waits for the next chunk of the same stream, or
- * for anything else from that Chat, or for `holdMs`.
+ * straddle two of them: the end of a chunk that could begin a secret waits for the next chunk of the same stream. A
+ * stream that ends while holding such a tail lets it through when it's too short to be a secret, else masks it.
  */
-function createSecretStream({ redactor, holdMs = 1000 }) {
+function createSecretStream({ redactor }) {
   const held = new Map();
 
-  function flush(chatId, deliver) {
-    const entry = held.get(chatId);
-    if (!entry) return;
-    held.delete(chatId);
-    clearTimeout(entry.timer);
-    const redact = redactor();
-    deliver({ ...entry.event, text: redact ? redact(entry.text) : entry.text });
+  function release(id, deliver) {
+    const entry = held.get(id);
+    held.delete(id);
+    const masked = entry.text.length >= REDACT_MIN_CHARS ? "[secret]" : entry.text;
+    deliver({ ...entry.event, text: masked });
   }
 
   function forward(chatId, event, deliver) {
-    const key = STREAMS[event?.type]?.(event) ?? null;
-    const waiting = held.get(chatId);
-    if (waiting && (waiting.key !== key || event.startsMessage)) flush(chatId, deliver);
+    for (const [id, entry] of held) if (entry.chatId === chatId && ends(event, entry.key)) release(id, deliver);
     const redact = redactor();
     if (!redact) return deliver(event);
+    const key = STREAMS[event?.type]?.(event) ?? null;
     if (!key || typeof event.text !== "string") return deliver(mapStrings(event, redact));
-    const prior = held.get(chatId);
-    if (prior) {
-      held.delete(chatId);
-      clearTimeout(prior.timer);
-    }
+    const id = `${chatId}\n${key}`;
+    const prior = held.get(id);
+    held.delete(id);
     const text = redact((prior?.text ?? "") + event.text);
     const keep = redact.pending(text);
     const ready = text.slice(0, text.length - keep);
@@ -56,12 +62,10 @@ function createSecretStream({ redactor, holdMs = 1000 }) {
     if (ready) deliver({ ...mapStrings(base, redact), text: ready });
     if (!keep) return;
     const { startsMessage: _starts, ...continued } = base;
-    const timer = setTimeout(() => flush(chatId, deliver), holdMs);
-    timer.unref?.();
-    held.set(chatId, { key, event: ready ? continued : base, text: text.slice(ready.length), timer });
+    held.set(id, { chatId, key, event: ready ? continued : base, text: text.slice(ready.length) });
   }
 
-  return { forward, flush, mapStrings };
+  return { forward };
 }
 
 module.exports = { createSecretStream, mapStrings };
