@@ -64,7 +64,7 @@ export function CanvasPathLabel({
       ]}
     >
       <Text style={{ color: taken ? colors.greenInk : colors.ink2, fontSize: type.caption2, fontWeight: "600" }}>{name}</Text>
-      <Icon icon={folded ? ArrowRight01Icon : ArrowDown01Icon} tone={taken ? "greenInk" : "ink2"} size={10} />
+      <Icon icon={folded ? ArrowRight01Icon : ArrowDown01Icon} tone={taken ? "greenInk" : "ink2"} size={12} />
     </Pressable>
   );
 }
@@ -160,7 +160,7 @@ export function CanvasCondition({
         }}
       >
         <View style={{ width: 28, height: 28, borderRadius: radius.full, alignItems: "center", justifyContent: "center", backgroundColor: colors.field }}>
-          <Icon icon={SplitIcon} tone="ink2" size={14} />
+          <Icon icon={SplitIcon} tone="ink2" size={16} />
         </View>
         <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink, fontSize: type.subheadline, fontWeight: "600" }}>
           {name}

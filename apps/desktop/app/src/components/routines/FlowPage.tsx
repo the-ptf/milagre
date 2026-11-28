@@ -347,7 +347,7 @@ export function FlowPage({
 
   const canvasBox = twoColumns ? "flex h-[calc(100vh-280px)] min-h-[480px] gap-4" : "space-y-4";
   const canvasPane = twoColumns ? "min-w-0 flex-1" : "h-[440px]";
-  const sidePane = twoColumns ? "w-[340px] shrink-0 overflow-y-auto" : "";
+  const sidePane = twoColumns ? "w-[340px] shrink-0" : "";
   const triggerView = triggerCard(routine.trigger, triggerLabel, steps);
 
   const editView = (
@@ -368,7 +368,7 @@ export function FlowPage({
           siblings={pathLength}
         />
       </div>
-      <div className={sidePane}>
+      <ScrollArea className={sidePane}>
         {selectedStep ? (
           <StepInspector
             key={selectedStep.id}
@@ -395,7 +395,7 @@ export function FlowPage({
         ) : selected === "trigger" ? (
           <TriggerInspector trigger={routine.trigger} text={triggerLabel} onSettings={() => setTab("settings")} />
         ) : null}
-      </div>
+      </ScrollArea>
     </div>
   );
 
@@ -419,7 +419,7 @@ export function FlowPage({
             mark={markOf}
           />
         </div>
-        <div className={sidePane}>
+        <ScrollArea className={sidePane}>
           <RunInspector
             key={`${run.id}:${shownRunStep}`}
             routine={routine}
@@ -429,7 +429,7 @@ export function FlowPage({
             onOpenChat={onOpenChat}
             act={act}
           />
-        </div>
+        </ScrollArea>
       </div>
     </div>
   ) : null;

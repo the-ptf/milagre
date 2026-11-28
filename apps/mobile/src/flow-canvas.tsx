@@ -1,16 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View, type LayoutChangeEvent } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, {
-  Easing,
-  useAnimatedProps,
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-  type SharedValue,
-} from "react-native-reanimated";
+import Animated, { Easing, useAnimatedProps, useAnimatedStyle, useSharedValue, withRepeat, withTiming, type SharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import Svg, { Path } from "react-native-svg";
 import { Add01Icon } from "@hugeicons/core-free-icons";
@@ -19,6 +10,7 @@ import { layoutFlow, runPath, type FlowGraph, type FlowGraphEdge, type FlowPlace
 import { Icon } from "./icons";
 import { hitSlopFor, radius, space, type } from "./design-tokens";
 import { DISABLED_OPACITY, PRESSED_OPACITY, tap } from "./ui";
+import { useMotionScale, useReducedMotion } from "./motion";
 import { useTheme } from "./theme";
 import { CanvasCondition, CanvasPath, CanvasPathLabel, CanvasStep, type CanvasMark, type Spot } from "./flow-canvas-nodes";
 
@@ -29,6 +21,7 @@ const PAD = 32;
 const MIN_ZOOM = 0.35;
 const MAX_ZOOM = 1.6;
 const CORNER = 8;
+const LIVE_LINE_MS = 800;
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 type Camera = {
@@ -81,10 +74,13 @@ function panZoomGesture(camera: Camera, onInteract?: (active: boolean) => void) 
 
 function LiveLine({ d, color }: { d: string; color: string }) {
   const reduced = useReducedMotion();
+  const scale = useMotionScale();
   const offset = useSharedValue(0);
   useEffect(() => {
-    offset.set(withRepeat(withTiming(reduced ? 1 : -12, { duration: 800, easing: reduced ? Easing.steps(2) : Easing.linear }), -1, reduced));
-  }, [offset, reduced]);
+    offset.set(
+      withRepeat(withTiming(reduced ? 1 : -12, { duration: Math.round(LIVE_LINE_MS * scale), easing: reduced ? Easing.steps(2) : Easing.linear }), -1, reduced),
+    );
+  }, [offset, reduced, scale]);
   const props = useAnimatedProps(() =>
     reduced ? { strokeDashoffset: 0, opacity: 1 - offset.get() * (1 - PRESSED_OPACITY) } : { strokeDashoffset: offset.get(), opacity: 1 },
   );
