@@ -50,6 +50,7 @@ const pageSources = [
     "ade-import.ts",
     "auto-update.ts",
     "browser-sign-ins.ts",
+    "canvas.ts",
     "chat-display.ts",
     "device-notes.mjs",
     "linear.ts",

@@ -65,6 +65,7 @@ export interface AppSettings {
   expandReasoning: boolean;
   newChatGlance: boolean;
   workspaceTabs: boolean;
+  canvasChats: boolean;
   showContextSize: boolean;
   compactButtonDisplay: CompactButtonDisplay;
   otherComputers: boolean;
@@ -117,6 +118,7 @@ const DEFAULTS: AppSettings = {
   expandReasoning: false,
   newChatGlance: false,
   workspaceTabs: false,
+  canvasChats: false,
   showContextSize: true,
   compactButtonDisplay: "threshold",
   otherComputers: false,
@@ -171,6 +173,7 @@ function load(): AppSettings {
       expandReasoning: typeof saved.expandReasoning === "boolean" ? saved.expandReasoning : DEFAULTS.expandReasoning,
       newChatGlance: typeof saved.newChatGlance === "boolean" ? saved.newChatGlance : DEFAULTS.newChatGlance,
       workspaceTabs: typeof saved.workspaceTabs === "boolean" ? saved.workspaceTabs : DEFAULTS.workspaceTabs,
+      canvasChats: typeof saved.canvasChats === "boolean" ? saved.canvasChats : DEFAULTS.canvasChats,
       showContextSize: typeof saved.showContextSize === "boolean" ? saved.showContextSize : DEFAULTS.showContextSize,
       compactButtonDisplay: parseCompactButtonDisplay(saved.compactButtonDisplay),
       otherComputers: typeof saved.otherComputers === "boolean" ? saved.otherComputers : DEFAULTS.otherComputers,

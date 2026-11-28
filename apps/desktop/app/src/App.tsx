@@ -64,6 +64,7 @@ import {
   PullRequestActionContext,
   capabilityFor,
   effortFor,
+  runChoices,
   sessionForWorktree,
   sortedWorktrees,
 } from "./model";
@@ -131,6 +132,7 @@ import { useSidebarUsage } from "./components/usage/use-sidebar-usage";
 import { useUsage } from "./components/usage/useUsage";
 import { loadChatPreferences, saveChatPreferences } from "./lib/chat-preferences";
 import { useComposerPreferences } from "./lib/use-composer-preferences";
+import { useCanvasChatActions } from "./components/canvas/use-canvas-chat-actions";
 import { noteComputer, startOfflineCache } from "./lib/offline-cache";
 import { useDisplayNow } from "./lib/display-clock";
 import { computerTone, isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers, useHiddenComputers } from "./lib/computers";
@@ -579,6 +581,7 @@ function App() {
     notificationSchedule,
     floatingInbox,
     routineNudges,
+    canvasChats,
   } = useSettings();
   const chatPins = useChatPins();
   useEffect(() => {
@@ -1480,6 +1483,8 @@ function App() {
     if (!isRemoteKey(projectPath) || !state?.sessions || state.sessions[sessionId]) return;
     noteComputer(projectPath, `${projectPath} opened Chat ${sessionId} from ${source}, which lacks it (${Object.keys(state.sessions).length} Chats)`);
   }
+  const canvasChatActions = useCanvasChatActions(agentRuns, models, capabilities, chatModels, canvasChats);
+
   async function openCanvasChat(projectPath: string, sessionId: number, adopt: Parameters<typeof adoptProject>[1] = {}) {
     if (isLinkScopeKey(projectPath)) {
       await selectLink(projectPath.slice("milagre-link:".length), sessionId, adopt);
@@ -1575,14 +1580,7 @@ function App() {
     const model = selectedModel;
     const options = {
       delivery,
-      provider: model.provider,
-      model: model.id,
-      permissionMode: mode,
-      effort: effortFor(capabilityFor(model, capabilities), effort),
-      ultracode: capabilityFor(model, capabilities).ultracode && ultracode,
-      fastMode: capabilityFor(model, capabilities).fastMode && fastMode,
-      replies: getSettings().claudeReplies,
-      tldrEnabled: getSettings().tldrEnabled,
+      ...runChoices(model, capabilities, { permissionMode: mode, effort, ultracode, fastMode }, getSettings()),
     };
     const firstMessage = Boolean(fresh) || chatCount === 0;
     const submittedDraft = draftStore.get();
@@ -2554,6 +2552,7 @@ function App() {
                     newChatInScope(path);
                   }}
                   onBack={() => setView("chat")}
+                  chatActions={canvasChatActions}
                 />
               )}
               <div

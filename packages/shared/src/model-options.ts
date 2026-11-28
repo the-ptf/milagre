@@ -1,4 +1,4 @@
-import type { ModelOption, ModelCapabilities, ModelCapability, EffortLevel } from "./model.ts";
+import type { ModelOption, ModelCapabilities, ModelCapability, EffortLevel, PermissionMode } from "./model.ts";
 
 // Claude Code 2.1.288 offers fast mode on these; a guess until Claude reports its own list.
 const CLAUDE_FAST_MODELS = new Set(["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8"]);
@@ -54,6 +54,30 @@ export function effortFor(capability: ModelCapability, effort: EffortLevel): Eff
   if (efforts.includes(effort)) return effort;
   if (capability.defaultEffort && efforts.includes(capability.defaultEffort)) return capability.defaultEffort;
   return efforts.includes("high") ? "high" : efforts[Math.floor(efforts.length / 2)];
+}
+
+/**
+ * What a message runs with, from the composer's picks: the model and permission mode as picked, the effort the model
+ * takes, Ultracode and fast mode only where the model has them, and the reply style. The Chat's composer, the
+ * outbox and a Chat open on the canvas all send these the same way.
+ */
+export function runChoices(
+  model: ModelOption,
+  capabilities: ModelCapabilities | null,
+  picks: { permissionMode: PermissionMode; effort: EffortLevel; ultracode: boolean; fastMode: boolean },
+  style: { claudeReplies: "concise" | "normal"; tldrEnabled: boolean },
+) {
+  const capability = capabilityFor(model, capabilities);
+  return {
+    provider: model.provider,
+    model: model.id,
+    permissionMode: picks.permissionMode,
+    effort: effortFor(capability, picks.effort),
+    ultracode: capability.ultracode && picks.ultracode,
+    fastMode: capability.fastMode && picks.fastMode,
+    replies: style.claudeReplies,
+    tldrEnabled: style.tldrEnabled,
+  };
 }
 
 export {
