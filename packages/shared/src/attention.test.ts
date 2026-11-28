@@ -23,6 +23,22 @@ test("a question uses only the chat title and summarizes what it asks", () => {
   });
 });
 
+test("a secret request's notification never names the secret or the command", () => {
+  const use: AgentEvent = {
+    type: "question-request",
+    requestId: "milagre-secret-1",
+    questions: [question("Let the agent use DEPLOY_TOKEN for this command? curl -H x:abc123")],
+  };
+  assert.deepEqual(attentionNotice(use, context), { title: "Split the events table", body: "Claude asks to use a saved secret" });
+  const ask: AgentEvent = {
+    type: "question-request",
+    requestId: "milagre-secret-2",
+    secretRequest: { description: "Deploys to Vercel" },
+    questions: [{ ...question("Vercel token"), secret: true }],
+  };
+  assert.deepEqual(attentionNotice(ask, context), { title: "Split the events table", body: "Claude asks for a secret" });
+});
+
 test("an approval shows the command's first line, or the request's title", () => {
   const command: AgentEvent = {
     type: "permission-request",

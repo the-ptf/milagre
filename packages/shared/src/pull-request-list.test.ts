@@ -57,10 +57,26 @@ test("the search box reads GitHub-style terms and free words", () => {
     labels: ["bug"],
     authors: ["dana"],
     repos: ["web"],
+    notLabels: [],
+    notAuthors: [],
+    notRepos: [],
     draft: true,
   });
   assert.equal(parsePullRequestQuery("-is:draft").draft, false);
   assert.deepEqual(parsePullRequestQuery('label:"needs review"').labels, ["needs review"]);
+});
+
+test("a leading minus excludes labels, authors and repos like GitHub", () => {
+  const query = parsePullRequestQuery("-label:WIP -author:Bot -repo:a/b");
+  assert.deepEqual([query.notLabels, query.notAuthors, query.notRepos], [["wip"], ["bot"], ["a/b"]]);
+  assert.deepEqual([query.labels, query.authors, query.repos], [[], [], []]);
+  const items = [pr(1, { labels: [{ name: "wip", color: "d73a4a" }] }), pr(2, { author: { login: "bot", avatarUrl: null } }), pr(3, { repo: "a/b" }), pr(4)];
+  const numbers = (text: string) => filterPullRequests(items, PULL_REQUEST_FILTER_DEFAULTS, text).map((item) => item.number);
+  assert.deepEqual(numbers("-label:wip"), [2, 3, 4]);
+  assert.deepEqual(numbers("-author:bot"), [1, 3, 4]);
+  assert.deepEqual(numbers("-repo:a/b"), [1, 2, 4]);
+  assert.deepEqual(numbers("-repo:b"), [1, 2, 4]);
+  assert.deepEqual(numbers("-label:wip -author:bot -repo:a/b"), [4]);
 });
 
 test("search matches title, number, author, labels and repo", () => {

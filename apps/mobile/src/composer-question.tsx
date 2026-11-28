@@ -26,11 +26,14 @@ export function ComposerQuestion({
   initialAnswers,
   field,
   submit,
+  bare = false,
 }: {
   request: QuestionRequest;
   busy: boolean;
   initialAnswers: QuestionAnswers;
   field: FieldProps;
+  /** On a sheet's own surface: no glass card or shadow around it. */
+  bare?: boolean;
   submit: (answers: QuestionAnswers | null, summary: string, images?: AnswerImages) => void;
 }) {
   const { colors } = useTheme();
@@ -112,17 +115,21 @@ export function ComposerQuestion({
   return (
     <View
       accessibilityLabel="Agent question"
-      style={{
-        borderRadius: radius.composer,
-        borderCurve: "continuous",
-        paddingTop: 8,
-        paddingHorizontal: 8,
-        paddingBottom: 6,
-        gap: 4,
-        boxShadow: colors.shadowRaised,
-      }}
+      style={
+        bare
+          ? { gap: 4 }
+          : {
+              borderRadius: radius.composer,
+              borderCurve: "continuous",
+              paddingTop: 8,
+              paddingHorizontal: 8,
+              paddingBottom: 6,
+              gap: 4,
+              boxShadow: colors.shadowRaised,
+            }
+      }
     >
-      <ComposerGlass radius={radius.composer} />
+      {!bare && <ComposerGlass radius={radius.composer} />}
       <QuestionHeader request={request} page={page} answered={answered} busy={busy} onSelect={setPage} onSkip={() => submit(null, "")} />
       <QuestionOptions question={question} picked={picked[question.id] ?? []} busy={busy} onChoose={choose} />
       {imagesOf(question).length > 0 && (

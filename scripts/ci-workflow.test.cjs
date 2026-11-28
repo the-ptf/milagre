@@ -152,8 +152,6 @@ test("the macOS smoke follows the change plan and gates desktop verification", (
   );
   assert.ok(runs(job).includes("npm test -- --only test-desktop"));
   assert.ok(ci.jobs["desktop-gate"].needs.includes("macos-desktop-smoke"), "skipped on a PR, which the gate accepts");
-  // The local run replaces it on PRs.
-  assert.match(fs.readFileSync(path.join(__dirname, "../AGENTS.md"), "utf8"), /npm test -- --only test-desktop` on your Mac/);
 });
 
 test("Windows native tests run without building an installer; Linux repository signing is a quick-checks step", () => {

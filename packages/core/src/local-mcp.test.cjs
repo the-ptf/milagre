@@ -662,6 +662,41 @@ test("no other Chat's agent approves or cancels a Milagre bug report, in any mod
     }
 });
 
+test("no other Chat's agent allows a secret's use or answers a secret request, in any mode or family", async (t) => {
+  const use = {
+    requestId: "milagre-secret-1",
+    questions: [
+      {
+        id: "use",
+        header: "Secret",
+        question: "Let the agent use DEPLOY_TOKEN?",
+        options: [{ label: "Allow" }, { label: "Deny" }],
+        multiSelect: false,
+        allowOther: false,
+        secret: false,
+      },
+    ],
+  };
+  const provider = {
+    requestId: "q-secret",
+    questions: [{ id: "pw", header: "Password", question: "Database password", options: [], multiSelect: false, allowOther: true, secret: true }],
+  };
+  for (const mode of ["ask", "auto", "full"])
+    for (const session of [{ parent: 2 }, {}])
+      for (const request of [use, provider]) {
+        const { host, projectPath, chatId, caller, calls } = steeringHost(t, {
+          run: { approvals: [], questions: [request] },
+          session,
+          modes: (root) => ({ [`${root}#2`]: mode }),
+        });
+        await assert.rejects(
+          host.respond({ projectPath, chatId, requestId: request.requestId, answers: { use: ["Allow"], pw: ["x"] } }, caller),
+          /only (the user|they) can/i,
+        );
+        assert.deepEqual(calls, [], `${mode} ${JSON.stringify(session)} ${request.requestId}`);
+      }
+});
+
 test("a sibling in the family goes by the same rules as a parent", async (t) => {
   const { host, projectPath, chatId, caller } = steeringHost(t, {
     run: FAMILY_RUN,
@@ -1050,6 +1085,40 @@ test("out-of-scope Project calls prompt in the caller's Chat, deduplicate concur
     .find((tool) => tool.name === "worktree_list")
     .run({ projectPath: otherPath });
   assert.equal(approvals.length, 3, "persisted Chat grant survives restart");
+});
+
+test("reachProject, which routine tools use for another Project, is the chat tools' gate: in scope, a card, or Full mode", async (t) => {
+  const { createLocalMcp } = require("./local-mcp.cjs");
+  let decision = "deny";
+  const { host, projectPath, otherPath, caller, calls, modes } = steeringHost(t, { approve: async () => decision });
+  const mcp = createLocalMcp({
+    dataDir: fixture(t),
+    host,
+    agentScope: () => ({
+      projects: { projectPaths: [projectPath], capabilities: ["read", "create"] },
+      chats: { projectPaths: [projectPath], capabilities: ["read", "create", "start"] },
+    }),
+  });
+  t.after(() => mcp.close());
+  const cards = () => calls.filter(([kind]) => kind === "approve").length;
+
+  await mcp.reachProject(caller, projectPath);
+  assert.equal(cards(), 0);
+  await assert.rejects(mcp.reachProject(caller, otherPath), /declined access/);
+  assert.equal(cards(), 1);
+  await assert.rejects(mcp.reachProject(caller, path.join(otherPath, "missing")), /outside scope until opened in Milagre/);
+
+  decision = "allow-for-chat";
+  await mcp.reachProject(caller, otherPath);
+  assert.deepEqual(mcp.grantedProjects(caller), [otherPath]);
+  await mcp.reachProject(caller, otherPath);
+  assert.equal(cards(), 2, "a Chat grant from chat_list or worktree_list counts here too");
+
+  const fullCaller = `${projectPath}#1`;
+  modes[fullCaller] = "full";
+  await mcp.reachProject(fullCaller, otherPath);
+  assert.equal(cards(), 2);
+  assert.deepEqual(mcp.grantedProjects(fullCaller), []);
 });
 
 test("project_add validates a Git repo, asks on a card below Full mode, registers the Project, and grants the calling Chat access", async (t) => {

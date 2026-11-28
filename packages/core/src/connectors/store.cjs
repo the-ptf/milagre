@@ -14,6 +14,22 @@ function read(file) {
   }
 }
 
+function readForWrite(file) {
+  let text;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    fs.copyFileSync(file, `${file}.bad`);
+    throw new Error(`${path.basename(file)} is damaged; a copy is at ${path.basename(file)}.bad. Fix or delete it.`);
+  }
+}
+
 const isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const accessKeys = (value) => (Array.isArray(value) ? value.filter((key) => typeof key === "string") : []);
 const validConnector = (value) => isObject(value) && isConnectorId(value.id) && typeof value.name === "string" && typeof value.url === "string";
@@ -39,8 +55,14 @@ function createConnectorStore({ dataDir }) {
     const value = read(listFile);
     return Array.isArray(value?.connectors) ? value.connectors.filter(validConnector) : [];
   }
+  function listForWrite() {
+    const value = readForWrite(listFile);
+    if (value === null) return [];
+    if (!Array.isArray(value?.connectors)) throw new Error("connectors.json isn't a connector list. Fix or delete it.");
+    return value.connectors.filter(validConnector);
+  }
   function save(connector) {
-    const current = list();
+    const current = listForWrite();
     const index = current.findIndex((item) => item.id === connector.id);
     write(listFile, { connectors: index < 0 ? [...current, connector] : current.with(index, connector) });
   }
@@ -49,7 +71,7 @@ function createConnectorStore({ dataDir }) {
     get: (id) => list().find((item) => item.id === id) ?? null,
     save,
     remove(id) {
-      write(listFile, { connectors: list().filter((item) => item.id !== id) });
+      write(listFile, { connectors: listForWrite().filter((item) => item.id !== id) });
       fs.rmSync(secretFile(id), { force: true });
       fs.rmSync(toolsFile(id), { force: true });
     },
@@ -65,7 +87,7 @@ function createConnectorStore({ dataDir }) {
       };
     },
     saveAccess(id, access) {
-      write(builtinFile, { ...read(builtinFile), [id]: access });
+      write(builtinFile, { ...readForWrite(builtinFile), [id]: access });
     },
     /** Everywhere servers moved here automatically that the user hasn't dismissed the note about. */
     readMoved: () => (Array.isArray(read(path.join(root, "moved.json"))) ? read(path.join(root, "moved.json")) : []),
@@ -78,7 +100,8 @@ function createConnectorStore({ dataDir }) {
       return {
         read: () => (isObject(read(file)) ? read(file) : {}),
         update(patch) {
-          const next = { ...(isObject(read(file)) ? read(file) : {}), ...patch };
+          const current = readForWrite(file);
+          const next = { ...(isObject(current) ? current : {}), ...patch };
           for (const [key, value] of Object.entries(next)) if (value === undefined) delete next[key];
           write(file, next);
         },

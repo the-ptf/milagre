@@ -1,7 +1,9 @@
 import { chatSummary } from "./chat-summary.mjs";
 import { chatTitle, isListedChat } from "./chats.mjs";
 import { activityAgo } from "./chat-row.ts";
-import type { ChatMessage, CoordinatorState, DiffStat, ModelProvider } from "./model.ts";
+import { currentActivityStep, runStatusLabel, stepDisplayTitle } from "./tool-activity.mjs";
+import type { AgentRun } from "./agent-runs.mjs";
+import type { ChatMessage, CoordinatorState, DiffStat, ModelProvider, PermissionRequest, QuestionRequest } from "./model.ts";
 
 /** A chat's live state, the same marks the sidebar draws; the first that applies wins. */
 export type CanvasMark = "question" | "waiting" | "delegated" | "running" | "background" | "unread" | "idle";
@@ -100,6 +102,40 @@ export function canvasAttention(chats: readonly Pick<CanvasChat, "mark">[]): "wa
   if (chats.some((chat) => chat.mark === "question")) return "question";
   return undefined;
 }
+
+/** The request a card answers in place: an approval, or a question. `more` wait behind it. */
+export type CanvasPending = { kind: "approval"; request: PermissionRequest; more: number } | { kind: "question"; request: QuestionRequest; more: number };
+
+/** What a card shows of a turn while it runs. */
+export type CanvasLive = {
+  step?: string;
+  pending?: CanvasPending;
+};
+
+/**
+ * A running turn as its card shows it, or undefined with no turn. An approval or question already answered stays in
+ * the run until the agent takes it; the card stops offering it as soon as it is answered.
+ */
+export function canvasLive(run: Pick<AgentRun, "steps" | "approvals" | "questions" | "answered"> | undefined): CanvasLive | undefined {
+  if (!run) return undefined;
+  const approvals = run.approvals.filter((request) => !(request.requestId in run.answered));
+  const questions = run.questions.filter((request) => !(request.requestId in run.answered));
+  const more = approvals.length + questions.length - 1;
+  const pending: CanvasPending | undefined = approvals[0]
+    ? { kind: "approval", request: approvals[0], more }
+    : questions[0]
+      ? { kind: "question", request: questions[0], more }
+      : undefined;
+  const running = run.steps.filter((item) => item.status === "running");
+  const current = currentActivityStep(run.steps);
+  const step = runStatusLabel(run.steps) ?? (running.length > 1 ? `Running ${running.length} calls` : current ? stepDisplayTitle(current, true) : undefined);
+  return { ...(step ? { step } : {}), ...(pending ? { pending } : {}) };
+}
+
+/** Settings › Church: the switch that turns Chats on the canvas on. Desktop only; the phone's canvas keeps opening the full Chat. */
+export const CANVAS_CHATS_LABEL = "Chats on the canvas";
+export const CANVAS_CHATS_HINT =
+  "A click on a Chat on the canvas opens it in a window beside its card, joined by a line, with its transcript, Stop and a reply field. Open as many as you like; each stays until you close it. A closed card shows the step it is on and answers its approval or question in place. Off: a click opens the full Chat.";
 
 export type CanvasFilter = "all" | "needs-you" | "running";
 

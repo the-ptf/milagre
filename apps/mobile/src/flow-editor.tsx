@@ -18,7 +18,7 @@ type Where = { parentId: string | null; branch: "yes" | "otherwise" | null; inde
 
 export const openStep = (routineId: string, stepId: string) => router.push({ pathname: "/flow-step", params: { id: routineId, step: stepId } });
 
-const openAdd = (routineId: string, where: Where) =>
+export const openAdd = (routineId: string, where: Where) =>
   router.push({ pathname: "/flow-add-step", params: { id: routineId, parent: where.parentId ?? "", branch: where.branch ?? "", index: String(where.index) } });
 
 export const unavailableKinds = (triggerKind: string): Set<FlowStepKind> => new Set(triggerKind === "linear" ? [] : (["linear-comment"] as const));

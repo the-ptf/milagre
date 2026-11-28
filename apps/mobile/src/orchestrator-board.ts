@@ -13,10 +13,10 @@ import { chatActivity } from "@milagre/shared/chat-activity";
 import type { BoardPullRequestMark } from "@milagre/shared/pr-blockers";
 import { DONE_DEFAULTS, doneCountdown } from "@milagre/shared/done";
 import type { AgentRun } from "@milagre/shared/agent-runs";
-import type { AgentModels, AgentSession, ChatMessage, ModelProvider } from "@milagre/shared/model";
+import type { AgentModels, AgentSession, ChatMessage, ModelProvider, QuestionRequest } from "@milagre/shared/model";
 import { MODEL_CATALOG } from "@milagre/shared/model-options";
 import { effortCopy } from "@milagre/shared/model-copy";
-import { subchatState } from "@milagre/shared/subchat-states";
+import { pendingAsk, subchatState, type PendingAsk } from "@milagre/shared/subchat-states";
 import { chatMark, type ChatMark } from "./indicators.ts";
 
 export const BOARD_TABS: { id: BoardColumn; label: string }[] = [
@@ -40,6 +40,7 @@ export type BoardItem = {
   pullRequestMark: BoardPullRequestMark | null;
   inSidebar: boolean;
   countdown: string | null;
+  ask: PendingAsk<QuestionRequest> | null;
 };
 
 const NEEDS_YOU = new Set<ChatMark>(["question", "waiting", "interrupted", "failed"]);
@@ -47,6 +48,8 @@ const NEEDS_YOU = new Set<ChatMark>(["question", "waiting", "interrupted", "fail
 function doneItemCountdown(column: BoardColumn, chat: AgentSession, retentionHours: number, now: number): string | null {
   return column === "done" ? doneCountdown(chat, retentionHours, now) : null;
 }
+
+const askUnless = (run: AgentRun | undefined, autopilot: unknown) => (autopilot ? null : pendingAsk(run));
 
 /** `retentionHours`: how long the task's computer keeps a Done Chat before archiving it, for the countdown on Done cards. */
 export function boardItem(
@@ -57,7 +60,7 @@ export function boardItem(
   retentionHours: number = DONE_DEFAULTS.retentionHours,
   pullRequestMark: BoardPullRequestMark | null = null,
 ): BoardItem {
-  const base = { task, pullRequest, pullRequestMark, inSidebar: false, countdown: null };
+  const base = { task, pullRequest, pullRequestMark, inSidebar: false, countdown: null, ask: null };
   if (task.state === "routing") return { ...base, column: "running", kind: "deciding", mark: null, detail: "Deciding where this goes…" };
   if (task.state === "needs-project")
     return { ...base, column: "needs", kind: "needs-project", mark: null, detail: task.reason.project ?? "No Project fits. Pick one to start." };
@@ -89,6 +92,7 @@ export function boardItem(
     column,
     kind: "chat",
     mark: autopilot ? null : mark,
+    ask: askUnless(chat.run, autopilot),
     detail: autopilot
       ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
       : (blocked ?? limit ?? (!needsYou && (column === "needs" || column === "review") ? taskOutcomeDetail(task.outcome, pullRequest) : null) ?? state.detail),

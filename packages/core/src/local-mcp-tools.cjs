@@ -14,6 +14,13 @@ const permissionMode = z.enum(["ask", "auto", "full"]);
 const callerOf = (connectionId) => (connectionId.startsWith("agent:") ? connectionId.slice(6) : undefined);
 const inProjectScope = (scope, projectPath) => scope.projectPaths === "*" || scope.projectPaths.includes(projectPath);
 
+async function reachProject({ host, scope, caller, projectPath, grant }) {
+  if (scope && inProjectScope(scope, projectPath)) return host.validateProject(projectPath);
+  if (!caller || !host.requestProjectScope)
+    throw Error("Project is outside this connection's scope. Grant access to it (or select All Projects) in Milagre Settings > Milagre.");
+  await host.requestProjectScope(caller, projectPath, grant);
+}
+
 function dictationTools(read, act, host) {
   return [
     read("dictation_vocabulary", "List this Project's saved dictation corrections.", projectInput, host.dictationCorrections),
@@ -35,14 +42,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
       const caller = callerOf(connectionId);
       const permit = async (projectPath) => {
         assertActive();
-        if (inProjectScope(currentScope(), projectPath)) {
-          await host.validateProject(projectPath);
-          assertActive();
-          return;
-        }
-        if (!caller || !host.requestProjectScope)
-          throw Error("Project is outside this connection's scope. Grant access to it (or select All Projects) in Milagre Settings > Milagre.");
-        await host.requestProjectScope(caller, projectPath, (granted) => grantChatProject(caller, granted));
+        await reachProject({ host, scope: currentScope(), caller, projectPath, grant: (granted) => grantChatProject(caller, granted) });
         assertActive();
       };
       const read = (name, description, input, run) => ({
@@ -274,4 +274,4 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
     },
   }));
 }
-module.exports = { managementToolGroups };
+module.exports = { managementToolGroups, reachProject };

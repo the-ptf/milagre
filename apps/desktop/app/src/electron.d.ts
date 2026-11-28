@@ -26,6 +26,7 @@ import type { LocalMcpApi } from "@milagre/shared/local-mcp";
 import type { LinearIssue, LinearIssuesResult, LinearStatus } from "@milagre/shared/linear";
 import type { GithubIssuesResult } from "@milagre/shared/github-issue";
 import type { ConnectorInput, ConnectorMovable, ConnectorSummary, ConnectorTool, ConnectorUpdate, EmailConnectInput } from "@milagre/shared/connectors";
+import type { SecretInput, SecretPatch, SecretSharingComputer, SecretSummary, SecretUse } from "@milagre/shared/secrets";
 import type {
   BackgroundTaskOutput,
   ProjectAccountScope,
@@ -563,6 +564,37 @@ export type MilagreBridge = {
     /** Forgets one mailbox. */
     disconnectEmail: (mailbox: string) => Promise<ConnectorSummary | null>;
     onChanged: (callback: (event: { connectors: ConnectorSummary[] }) => void) => () => void;
+  };
+  /** This computer's named secrets for agents (docs/secrets.md). Values go in and never come back out. */
+  secrets: {
+    status: () => Promise<{ unlocked: boolean }>;
+    /** A secret was added, changed or removed on this computer: from Settings, the CLI, the phone or an agent's Save as. */
+    onChanged: (callback: () => void) => () => void;
+    list: () => Promise<SecretSummary[]>;
+    /** Saves a value, or with `file` an absolute path on this computer the host reads as a file secret. */
+    set: (input: SecretInput) => Promise<SecretSummary>;
+    update: (request: { name: string } & SecretPatch) => Promise<SecretSummary>;
+    remove: (request: { name: string }) => Promise<{ removed: boolean }>;
+    log: (request?: { name?: string }) => Promise<SecretUse[]>;
+    /** Saves every entry of a .env file on this computer with the same scope and opt-ins; reserved and empty names are skipped. */
+    importEnv: (request: {
+      file: string;
+      projects: "all" | string[];
+      delivery?: SecretSummary["delivery"];
+      askEachUse?: boolean;
+      unattended?: boolean;
+      note?: string | null;
+    }) => Promise<{ imported: string[]; skipped: { name: string; reason: string }[] }>;
+    /** Saves every login of a browser's or password manager's CSV export (Chrome, Arc, Edge, Safari, Firefox, 1Password, Bitwarden) under its site's login name. */
+    importLogins: (request: {
+      file: string;
+      projects?: "all" | string[];
+      remove?: boolean;
+    }) => Promise<{ imported: string[]; skipped: { name: string; site: string; reason: string }[]; removed: boolean }>;
+    /** This computer's paired computers and whether its secrets are shared with each. */
+    sharing: () => Promise<SecretSharingComputer[]>;
+    /** Starts or stops sharing with one paired computer; stopping asks it to drop what came from here. */
+    share: (request: { computer: string; on: boolean }) => Promise<SecretSharingComputer[]>;
   };
   localMcp: LocalMcpApi;
   /** The Linear switch (Settings › Connectors › Linear) changed, on this Mac or from a phone. */

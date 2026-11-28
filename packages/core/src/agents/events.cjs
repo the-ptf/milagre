@@ -46,7 +46,7 @@ function milagreInstructions(tldrEnabled = true, workspaceInstructions = "", { s
     "Milagre folds your thinking away and the user rarely opens it. Anything they need to read (an answer, findings, the reason behind a question) goes in your reply text, written before you ask a question or end the turn. Never leave a summary or a conclusion meant for the user only in your thinking: if you catch yourself drafting one there, write it as reply text before the next tool call.",
     "When you need the user to choose between options, ask with your question tool if you have one (AskUserQuestion or request_user_input); otherwise ask in your reply as a short numbered list.",
     "The milagre tools named below work only when they are in your tool list. If one is missing, skip the instructions that need it and tell the user what you would have done with it.",
-    "Secrets: use milagre request_secret. Read its file only inside commands; never print it.",
+    "Secrets: milagre secrets_list for saved ones, else request_secret. Never print one.",
     "File Milagre bugs only with milagre report_milagre_bug.",
     "Tasks: for work with several steps, write the plan with milagre tasks_set (nested up to 3 levels), mark each subtask in_progress then completed with task_update as you go, and call phase_set when the work moves to a new phase (start, plan, build, test, review, merge, release, done). The user follows these in the Chat's Tasks pill. Keep one list: use your own todo or plan tool only when the milagre task tools are missing, and the pill shows that list instead.",
     linksInstructions(sharedLink),

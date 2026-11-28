@@ -22,6 +22,13 @@ export const TASK_OUTCOMES = Object.freeze([
 ]);
 export const TASK_OUTCOME_DESCRIPTION =
   "Applies to new tasks. PR created needs a verified PR; PR merged waits for merge. Choose Agent finished for work that needs no PR.";
+export const TASK_PERMISSION_MODES = Object.freeze([
+  { value: "chat", label: "Same as new Chats" },
+  { value: "ask", label: "Ask for approval" },
+  { value: "auto", label: "Auto mode" },
+  { value: "full", label: "Full permissions" },
+]);
+export const TASK_PERMISSION_DESCRIPTION = "Applies to new tasks. Same as new Chats uses the default permission mode of the device you send from.";
 export const MEMORY_GROUPS = Object.freeze(["work", "projects", "tools", "other"]);
 
 const PROVIDER_IDS = new Set(["claude", "codex", "antigravity", "kiro", "pi"]);
@@ -92,6 +99,7 @@ export const ORCHESTRATOR_DEFAULTS = Object.freeze({
   hideTaskChats: true,
   notify: true,
   outcome: "pull-request",
+  permissionMode: "chat",
   mascotColor: "#ffffff",
   name: "Orchestrator",
   boardHidden: false,
@@ -163,6 +171,11 @@ export function normalizeOrchestratorSettings(raw) {
     hideTaskChats: value.hideTaskChats !== false,
     notify: value.notify !== false,
     outcome: normalizeTaskOutcome(value.outcome),
+    permissionMode: oneOf(
+      value.permissionMode,
+      TASK_PERMISSION_MODES.map((option) => option.value),
+      ORCHESTRATOR_DEFAULTS.permissionMode,
+    ),
     mascotColor:
       typeof value.mascotColor === "string" && /^#[0-9a-f]{6}$/i.test(value.mascotColor) ? value.mascotColor.toLowerCase() : ORCHESTRATOR_DEFAULTS.mascotColor,
     name: oneLine(value.name, 40) ?? ORCHESTRATOR_DEFAULTS.name,
@@ -317,6 +330,12 @@ export function activeRoles(roles) {
 export function roleById(roles, id) {
   const active = activeRoles(roles);
   return active.find((role) => role.id === id) ?? active.find((role) => role.id === "build") ?? active[0] ?? null;
+}
+
+/** The mode a new task runs in: the Orchestrator's setting, or the sending device's own default when it says Same as new Chats. */
+export function taskPermissionMode(setting, sent) {
+  if (setting === "ask" || setting === "auto" || setting === "full") return setting;
+  return sent === "ask" || sent === "full" ? sent : "auto";
 }
 
 /** Unknown settings require a PR; a task saved before outcomes existed keeps finishing when its agent does. */

@@ -271,7 +271,16 @@ async function browserChecks() {
     await delay(300);
     assert.deepEqual(
       [...(await switches())].sort(),
-      ["Delegate to other computers", "Device notes", "Floating inbox", "New Chat stats", "Review agent", "Ultracode Fatality", "Workspace tabs"],
+      [
+        "Chats on the canvas",
+        "Delegate to other computers",
+        "Device notes",
+        "Floating inbox",
+        "New Chat stats",
+        "Review agent",
+        "Ultracode Fatality",
+        "Workspace tabs",
+      ],
       "Church keeps Device notes alongside the other betas",
     );
     const reviewAgent = `document.querySelector('main [role="checkbox"][aria-label="Review agent"]')`;

@@ -18,6 +18,7 @@ import {
   tabForDigit,
   tabId,
   tabShortcutDigit,
+  tabStripShown,
   workspaceKey,
   chatCloseAction,
   foldTabbedChats,
@@ -232,4 +233,10 @@ test("a Chat that lives only as a tab always has one; the main Chat, Subchats he
     withLoneChatTabs(set, members, (id) => id !== 6),
     set,
   );
+});
+
+test("a new Chat with no other tab open shows no tabs; one beside open tabs shows them", () => {
+  assert.equal(tabStripShown(EMPTY_TABS, true), false);
+  assert.equal(tabStripShown(EMPTY_TABS, false), true);
+  assert.equal(tabStripShown(openTab(EMPTY_TABS, { kind: "chat", chatId: 3 }), true), true);
 });

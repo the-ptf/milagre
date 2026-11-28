@@ -184,6 +184,38 @@ test("detail pages through more than 100 files", async () => {
   assert.ok(calls[1].includes("after=CUR"));
 });
 
+test("detail pages through more than 100 review threads and 100 checks", async () => {
+  const thread = (id) => ({ id, path: "a.ts", line: 1, diffSide: "RIGHT", isResolved: false, isOutdated: false, comments: { nodes: [] } });
+  const run = (name) => ({ kind: "CheckRun", name, status: "COMPLETED", conclusion: "FAILURE" });
+  const rollup = (nodes, pageInfo) => [{ commit: { statusCheckRollup: { contexts: { nodes, pageInfo } } } }];
+  const { exec, calls } = fakeGh((_args, query) => {
+    if (query.includes("after:$after") && query.includes("reviewThreads")) {
+      return { data: { repository: { pullRequest: { reviewThreads: { nodes: [thread("T_2")], pageInfo: { hasNextPage: false } } } } } };
+    }
+    if (query.includes("after:$after") && query.includes("contexts")) {
+      return { data: { repository: { pullRequest: { checks: { nodes: rollup([run("late")], { hasNextPage: false }) } } } } };
+    }
+    return {
+      data: {
+        repository: {
+          pullRequest: prNode({
+            reviewThreads: { nodes: [thread("T_1")], pageInfo: { hasNextPage: true, endCursor: "TCUR" } },
+            checks: { nodes: rollup([run("early")], { hasNextPage: true, endCursor: "CCUR" }) },
+          }),
+        },
+      },
+    };
+  });
+  const result = await createPullRequestReview({ exec }).detail({ cwd: "/w", number: 7 });
+  assert.deepEqual(
+    result.pr.threads.map((item) => item.id),
+    ["T_1", "T_2"],
+  );
+  assert.deepEqual(result.pr.checks.map((item) => item.name).toSorted(), ["early", "late"]);
+  assert.ok(calls.some((call) => call.includes("after=TCUR")));
+  assert.ok(calls.some((call) => call.includes("after=CCUR")));
+});
+
 test("gh failures come back as the user's next step", async () => {
   const signedOut = Object.assign(new Error("exit 4"), { code: 4, stderr: "To get started with GitHub CLI, please run:  gh auth login" });
   assert.deepEqual(await createPullRequestReview({ exec: fakeGh(() => signedOut).exec }).detail({ cwd: "/w", number: 7 }), { ok: false, message: GH_LOGIN });
@@ -195,6 +227,33 @@ test("gh failures come back as the user's next step", async () => {
     message: "Could not resolve to a PullRequest with the number of 9.",
   });
   assert.equal((await createPullRequestReview({ exec: fakeGh(() => ({})).exec }).detail({ cwd: "/w", number: -1 })).ok, false);
+});
+
+test("GitHub's 5xx: reads ask again, writes don't, and GitHub's error page reads as a timeout", async () => {
+  const noWait = { sleep: async () => {} };
+  const badGateway = Object.assign(new Error("exit 1"), { code: 1, stderr: "gh: HTTP 502\n", stdout: "<!DOCTYPE html><title>Unicorn!</title>" });
+  let failures = 1;
+  const flaky = fakeGh(() => (failures-- > 0 ? badGateway : { data: { repository: { pullRequest: prNode() } } }));
+  assert.equal((await createPullRequestReview({ exec: flaky.exec, retry: noWait }).detail({ cwd: "/w", number: 7 })).ok, true);
+  assert.equal(flaky.calls.length, 2);
+
+  const page = `non-200 OK status code: 504 Gateway Timeout body: "<!DOCTYPE html>\\r\\n<html>\\r\\n <head>\\r\\n <title>Unicorn! &middot; GitHub</title>"`;
+  const timedOut = Object.assign(new Error("exit 1"), { code: 1, stderr: page });
+  const down = fakeGh(() => timedOut);
+  const review = createPullRequestReview({ exec: down.exec, retry: noWait });
+  assert.deepEqual(await review.detail({ cwd: "/w", number: 7 }), { ok: false, message: "GitHub didn't answer in time (HTTP 504). Try again in a moment." });
+  assert.equal(down.calls.length, 3);
+  assert.deepEqual(await review.ready({ cwd: "/w", number: 7 }), { ok: false, message: "GitHub didn't answer in time (HTTP 504). Try again in a moment." });
+  assert.equal(down.calls.length, 4);
+
+  const slowQuery = {
+    errors: [{ message: "Something went wrong while executing your query. This may be the result of a timeout, or it could be a GitHub bug." }],
+  };
+  const slow = Object.assign(new Error("exit 1"), { code: 1, stderr: `gh: ${slowQuery.errors[0].message}`, stdout: JSON.stringify(slowQuery) });
+  assert.deepEqual(await createPullRequestReview({ exec: fakeGh(() => slow).exec, retry: noWait }).detail({ cwd: "/w", number: 7 }), {
+    ok: false,
+    message: "GitHub didn't answer in time. Try again in a moment.",
+  });
 });
 
 test("a line comment joins the pending review, creating it when there is none", async () => {

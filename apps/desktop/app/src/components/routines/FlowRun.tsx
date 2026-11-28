@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Alert02Icon,
+  ArrowLeft02Icon,
   CancelCircleIcon,
   CheckmarkCircle02Icon,
   Copy01Icon,
@@ -17,22 +18,11 @@ import {
 } from "@hugeicons/core-free-icons";
 import type { FlowReceipt, FlowStep, FlowStepRun, RoutineRun } from "@milagre/shared/model";
 import { clock } from "@milagre/shared/routines";
-import {
-  failedStep,
-  flattenSteps,
-  flowRunText,
-  needsAnswer,
-  outputSummary,
-  runRows,
-  stepReads,
-  stepTitle,
-  type FlowRunRow,
-} from "@milagre/shared/routine-flows";
+import { autopilotPlan, failedStep, flattenSteps, flowRunText, needsAnswer, outputSummary, runRows, stepReads, stepTitle } from "@milagre/shared/routine-flows";
 import { Select } from "../primitives/Select";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import type { RoutineWithRuns } from "../../lib/routines";
 import { firstLine, flowStatusLook, runHeadline, runName, tookText, triggerRunText, triggerTitle } from "./flow-look";
-import { FlowCard, PathLabel } from "./FlowSteps";
 import { InspectorCard } from "./FlowInspector";
 
 const primaryButton =
@@ -43,7 +33,7 @@ const textarea = "w-full resize-y rounded-control border border-line-strong bg-s
 
 export type FlowAct = (action: "approve" | "reject" | "pause" | "resume" | "end" | "retry", options?: { reason?: string; note?: string }) => Promise<void>;
 
-function StateIcon({ status }: { status: string }) {
+export function StateIcon({ status }: { status: string }) {
   const icon = (glyph: typeof CheckmarkCircle02Icon, tone: string, label: string) => (
     <span role="img" aria-label={label} data-flow-state={status} className={`flex size-5 shrink-0 items-center justify-center ${tone}`}>
       <HugeiconsIcon icon={glyph} size={16} strokeWidth={1.8} color="currentColor" />
@@ -69,7 +59,7 @@ function StateIcon({ status }: { status: string }) {
   }
 }
 
-function rowText(step: FlowStep, status: string, state: FlowStepRun | null, now: number): { text: string; tone: string } {
+export function rowText(step: FlowStep, status: string, state: FlowStepRun | null, now: number): { text: string; tone: string } {
   const quiet = "text-ink-3";
   if (status === "not-taken") return { text: "Not taken", tone: quiet };
   if (status === "not-run") return { text: "Did not run", tone: quiet };
@@ -80,6 +70,8 @@ function rowText(step: FlowStep, status: string, state: FlowStepRun | null, now:
     return { text: state.startedAt ? `Running for ${tookText(now - state.startedAt)}${own}` : `Running${own}`, tone: "text-accent-ink" };
   }
   if (status === "waiting") {
+    const plan = autopilotPlan(state.approval, now);
+    if (plan) return { text: `Autopilot approves at ${clock(plan.at)}`, tone: "text-orange-ink" };
     if (state.approval && !state.approval.decision) return { text: `Waiting for you since ${clock(state.approval.askedAt)}`, tone: "text-orange-ink" };
     return { text: state.waitUntil ? `Waiting, up to ${clock(state.waitUntil)}` : "Waiting", tone: "text-orange-ink" };
   }
@@ -100,18 +92,29 @@ export function RunBar({
   run,
   draft,
   onPick,
+  onBack,
 }: {
   routine: RoutineWithRuns;
   runs: RoutineRun[];
   run: RoutineRun;
   draft: boolean;
   onPick: (runId: string) => void;
+  onBack: () => void;
 }) {
   const flow = run.flow!;
   const look = flowStatusLook(flow, needsAnswer(run));
   const chip = flow.status === "failed" || flow.status === "paused" ? flowRunText(run) : look.text;
   return (
     <div data-flow-run-bar className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 rounded-card border border-line bg-inset px-3 py-1.5">
+      <button
+        type="button"
+        data-flow-all-runs
+        onClick={onBack}
+        className="-ml-1 inline-flex h-7 shrink-0 items-center gap-1 rounded-control pr-2 pl-1 text-12 font-medium text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink"
+      >
+        <HugeiconsIcon icon={ArrowLeft02Icon} size={14} strokeWidth={1.8} color="currentColor" />
+        All Runs
+      </button>
       <Select
         label="Run"
         variant="chip"
@@ -131,127 +134,6 @@ export function RunBar({
         {`revision ${flow.revision}, started ${clock(run.startedAt)}${draft ? ", your draft is hidden" : ""}`}
         {draft && <HugeiconsIcon icon={LockIcon} size={14} strokeWidth={1.8} color="currentColor" aria-label="The Run keeps its own steps" />}
       </span>
-    </div>
-  );
-}
-
-function Rail({ left, reached }: { left: number; reached: boolean }) {
-  return (
-    <div className="relative h-6">
-      <span aria-hidden className={`absolute top-0 bottom-0 w-px ${reached ? "bg-green" : "bg-line-strong"}`} style={{ left }} />
-    </div>
-  );
-}
-
-const INDENT = 44;
-const RAIL = 27;
-
-export function RunRows({
-  routine,
-  run,
-  selected,
-  now,
-  canOpen,
-  onSelect,
-  onOpenChat,
-}: {
-  routine: RoutineWithRuns;
-  run: RoutineRun;
-  selected: string | null;
-  now: number;
-  canOpen: (chatKey: string) => boolean;
-  onSelect: (id: string) => void;
-  onOpenChat: (chatKey: string) => void;
-}) {
-  const rows = runRows(run.flow);
-  const openChat = (chatId: string | undefined) =>
-    chatId && canOpen(chatId) ? (
-      <button
-        type="button"
-        data-flow-open-chat={chatId}
-        onClick={() => onOpenChat(chatId)}
-        className="inline-flex h-7 shrink-0 items-center rounded-control px-2 text-12 font-medium text-accent-ink transition-colors hover:bg-accent-tint"
-      >
-        Open Chat
-      </button>
-    ) : null;
-  const rails = (depth: number) =>
-    Array.from({ length: depth }, (_, index) => (
-      <span key={index} aria-hidden className="absolute top-0 bottom-0 w-px bg-line-strong" style={{ left: index * INDENT + RAIL }} />
-    ));
-  return (
-    <div data-flow-run-rows={run.id}>
-      <FlowCard
-        kind="trigger"
-        title={triggerTitle(routine.trigger)}
-        subtitle={triggerRunText(routine, run)}
-        selected={selected === "trigger"}
-        onSelect={() => onSelect("trigger")}
-        data-flow-run-step="trigger"
-        menu={<StateIcon status="done" />}
-      />
-      {rows.map((row: FlowRunRow, index) => {
-        if (row.kind === "path") {
-          const text =
-            row.path === "yes"
-              ? row.decided
-                ? row.taken
-                  ? "Yes, taken"
-                  : "Yes, not taken"
-                : "Yes"
-              : row.decided
-                ? row.taken
-                  ? "Otherwise, taken"
-                  : "Otherwise, not taken"
-                : "Otherwise";
-          return (
-            <div
-              key={`${row.parentId}:${row.path}`}
-              className="relative"
-              style={{ paddingLeft: (row.depth - 1) * INDENT }}
-              data-flow-run-path={`${row.parentId}:${row.path}`}
-            >
-              {rails(row.depth)}
-              <PathLabel text={text} tone={row.taken ? "bg-green-tint text-green-ink" : row.decided ? "bg-field text-ink-3" : "bg-field text-ink-2"} />
-            </div>
-          );
-        }
-        const { step, status, run: state, depth } = row;
-        const previous = rows[index - 1];
-        const reached = status !== "pending" && status !== "not-run" && status !== "not-taken";
-        const words = rowText(step, status, state, now);
-        const ring =
-          status === "waiting" && state?.approval && !state.approval.decision ? "ring-2 ring-orange" : status === "failed" ? "ring-2 ring-red" : undefined;
-        return (
-          <div key={step.id} className="relative" style={{ paddingLeft: depth * INDENT }}>
-            {rails(depth)}
-            {previous?.kind !== "path" && <Rail left={RAIL} reached={reached} />}
-            <FlowCard
-              kind={step.kind}
-              title={stepTitle(step)}
-              subtitle={words.text}
-              subtitleTone={words.tone}
-              selected={selected === step.id}
-              ring={ring}
-              dim={!reached}
-              onSelect={() => onSelect(step.id)}
-              data-flow-run-step={step.id}
-              data-flow-run-status={status}
-              menu={
-                <span className="flex items-center gap-1">
-                  {openChat(state?.chatId)}
-                  {state?.receipt && (
-                    <span role="img" aria-label="Receipt kept" className="flex size-5 items-center justify-center text-green-ink">
-                      <HugeiconsIcon icon={Invoice03Icon} size={14} strokeWidth={1.8} color="currentColor" />
-                    </span>
-                  )}
-                  <StateIcon status={status} />
-                </span>
-              }
-            />
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -284,6 +166,8 @@ function Note({ icon, tone = "bg-page text-ink-2", children }: { icon: typeof Sh
 function ApprovalCard({ name, step, state, act }: { name: string; step: FlowStep; state: FlowStepRun; act: FlowAct }) {
   const approval = state.approval!;
   const preview = approval.preview;
+  const [shownAt] = useState(Date.now);
+  const plan = autopilotPlan(approval, shownAt);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -351,6 +235,11 @@ function ApprovalCard({ name, step, state, act }: { name: string; step: FlowStep
             Reject with reason
           </button>
         </div>
+      )}
+      {plan && (
+        <Note icon={Shield01Icon} tone="bg-inset text-ink-2">
+          Autopilot approves at {clock(plan.at)} unless you answer: {plan.summary}.
+        </Note>
       )}
       <p className="text-12 text-ink-3">
         Rejecting ends {name}. No answer by {clock(approval.expiresAt, undefined, true)} ends it too.
@@ -524,6 +413,14 @@ function FailedCard({
   );
 }
 
+function decisionText(state: FlowStepRun) {
+  const approval = state.approval!;
+  const at = approval.decidedAt ? ` at ${clock(approval.decidedAt)}` : "";
+  if (approval.decision === "approved") return approval.by === "autopilot" && state.summary ? state.summary : `Approved${at}`;
+  if (approval.decision === "rejected") return `Rejected${at}${approval.reason ? `: ${approval.reason}` : ""}`;
+  return "No answer in time";
+}
+
 export function RunInspector({
   routine,
   run,
@@ -602,11 +499,7 @@ export function RunInspector({
       {pendingApproval && <ApprovalCard name={name} step={step} state={state!} act={act} />}
       {state?.approval?.decision && (
         <p data-flow-decision={state.approval.decision} className="text-13 text-ink-2">
-          {state.approval.decision === "approved"
-            ? `Approved${state.approval.decidedAt ? ` at ${clock(state.approval.decidedAt)}` : ""}`
-            : state.approval.decision === "rejected"
-              ? `Rejected${state.approval.decidedAt ? ` at ${clock(state.approval.decidedAt)}` : ""}${state.approval.reason ? `: ${state.approval.reason}` : ""}`
-              : "No answer in time"}
+          {decisionText(state)}
         </p>
       )}
       {state?.receipt && <ReceiptCard name={name} receipt={state.receipt} readers={readers} />}

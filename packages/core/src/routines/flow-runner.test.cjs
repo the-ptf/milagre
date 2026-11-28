@@ -1,3 +1,4 @@
+const { flowAutopilot } = require("./flow-autopilot.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -652,4 +653,28 @@ test("idle waits for turn startup and handles a failure while recording its reje
   await waiting;
   await new Promise((resolve) => setImmediate(resolve));
   assert.ok(warnings.mock.calls.some(({ arguments: args }) => args[0] === "[routines] flow work failed" && args[1] === failure));
+});
+
+test("an approval tells autopilot it waits, shows its plan, and records an autopilot answer as autopilot's", async () => {
+  const ctx = setup();
+  const waiting = [];
+  const ports = flowAutopilot({ store: ctx.store, scheduler: ctx.scheduler, changed: () => {}, actions: ctx.flowActions });
+  ports.onApprovalWaiting((event) => waiting.push(event));
+  ctx.scheduler.enqueueEvent(ctx.routine.id, issueEvent());
+  await ctx.tick();
+  ctx.scheduler.flowOutput("chat1", { complexity: "large", area: "relay" });
+  await ctx.turn("chat1");
+  assert.deepEqual(
+    waiting.map((event) => [event.step.id, event.run.flow.state[event.step.id].status]),
+    [["ask", "waiting"]],
+  );
+  const runId = ctx.run().id;
+  assert.equal(ports.autopilotPlan(runId, "ask", { at: ctx.clock.t + 30_000, summary: "the scope is small" }), true);
+  assert.equal(ctx.run().flow.state.ask.approval.autopilot.summary, "the scope is small");
+  await ports.autopilotApprove(runId, "the scope is small");
+  await ctx.settle();
+  const ask = ctx.run().flow.state.ask;
+  assert.equal(ask.approval.by, "autopilot");
+  assert.equal(ask.summary, "Approved by autopilot: the scope is small");
+  assert.equal(ports.autopilotPlan(runId, "ask", { at: 1, summary: "late" }), false, "a decided approval keeps its answer");
 });

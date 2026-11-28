@@ -6,6 +6,7 @@ const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs")
 const { activeWorktrees } = require("../project-identity.cjs");
 
 function createLocalMcpWiring({
+  secretsRequest,
   options,
   dataDir,
   emit,
@@ -98,6 +99,7 @@ function createLocalMcpWiring({
     emit,
     environmentReady,
     clientOptions: options.localMcpClients,
+    secretsRequest,
     designGroup: existsSync(designAdapter) ? require(designAdapter).createDesignToolGroup({ artifacts }) : undefined,
     connectorGroup: integrations.connectorToolGroup,
     agentScope: (chatId) => {

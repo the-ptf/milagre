@@ -12,7 +12,6 @@ const DIRECTIVE = /(?:\/\/|\/\*)\s*((?:eslint|oxlint)-disable(?:-next-line|-line
 
 const UNEXPLAINED_BASELINE = {
   "apps/daemon/src/computers.cjs unicorn/no-useless-spread": 1,
-  "apps/desktop/app/src/components/CanvasView.tsx react-hooks/exhaustive-deps": 1,
   "apps/desktop/app/src/components/agents/CommentPin.tsx react-hooks/exhaustive-deps": 1,
   "apps/desktop/app/src/components/agents/LiveDesignFrame.tsx react-hooks/exhaustive-deps": 1,
   "apps/desktop/app/src/components/changes/DiffComments.tsx react-hooks/exhaustive-deps": 1,

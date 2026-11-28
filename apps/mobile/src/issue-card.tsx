@@ -6,6 +6,11 @@ import { useTheme } from "./theme";
 import { pressStyle } from "./ui";
 import { GithubLogo } from "./icons";
 
+export function openLinearIssue(url: string) {
+  // oxlint-disable-next-line unicorn/prefer-string-starts-ends-with -- the issue comes from the host's JSON, so url may be missing and startsWith would throw
+  if (/^https:\/\//.test(url)) void Linking.openURL(url).catch(() => {});
+}
+
 export function IssueCard({ issue }: { issue: IssueCardView }) {
   const { colors } = useTheme();
   return (

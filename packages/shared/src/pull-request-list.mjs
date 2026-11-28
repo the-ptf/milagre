@@ -68,14 +68,14 @@ const TOKEN = /(-?)(label|author|repo|is):("[^"]*"|\S+)/gi;
 
 /** Splits a search box into free words and `label:`, `author:`, `repo:`, `is:draft` terms, GitHub style. */
 export function parsePullRequestQuery(text) {
-  const query = { words: [], labels: [], authors: [], repos: [], draft: null };
+  const query = { words: [], labels: [], authors: [], repos: [], notLabels: [], notAuthors: [], notRepos: [], draft: null };
   const rest = String(text ?? "").replace(TOKEN, (_all, not, key, raw) => {
     const value = raw.replace(/^"|"$/g, "").toLowerCase();
     if (!value) return " ";
     const kind = key.toLowerCase();
-    if (kind === "label") query.labels.push(value);
-    else if (kind === "author") query.authors.push(value);
-    else if (kind === "repo") query.repos.push(value);
+    if (kind === "label") (not ? query.notLabels : query.labels).push(value);
+    else if (kind === "author") (not ? query.notAuthors : query.authors).push(value);
+    else if (kind === "repo") (not ? query.notRepos : query.repos).push(value);
     else if (value === "draft") query.draft = !not;
     return " ";
   });
@@ -83,13 +83,18 @@ export function parsePullRequestQuery(text) {
   return query;
 }
 
+const repoMatches = (item, repo) => item.repo.toLowerCase() === repo || item.repo.toLowerCase().endsWith(`/${repo}`);
+
 function matchesQuery(item, query) {
   const haystack = `${item.title} #${item.number} ${item.repo} ${item.author?.login ?? ""} ${item.headRefName ?? ""}`.toLowerCase();
   if (!query.words.every((word) => haystack.includes(word))) return false;
   const labels = new Set(item.labels.map((label) => label.name.toLowerCase()));
   if (!query.labels.every((label) => labels.has(label))) return false;
   if (query.authors.length && !query.authors.includes((item.author?.login ?? "").toLowerCase())) return false;
-  if (query.repos.length && !query.repos.some((repo) => item.repo.toLowerCase() === repo || item.repo.toLowerCase().endsWith(`/${repo}`))) return false;
+  if (query.repos.length && !query.repos.some((repo) => repoMatches(item, repo))) return false;
+  if (query.notLabels.some((label) => labels.has(label))) return false;
+  if (query.notAuthors.includes((item.author?.login ?? "").toLowerCase())) return false;
+  if (query.notRepos.some((repo) => repoMatches(item, repo))) return false;
   if (query.draft !== null && item.isDraft !== query.draft) return false;
   return true;
 }

@@ -35,7 +35,7 @@ function setRoom(reserve: string, slide: symbol, room: number | null) {
  * under way (chatSwitching). `width` null lays it out
  * by its own `style` instead (a panel filling the workspace), which only fades. While `resizing`, its width follows the
  * drag without the spring; `handle`, the ResizeHandle on its left edge, sits outside the card so the card's clip keeps
- * it whole.
+ * it whole. `instant` (a Workspace tab bringing it forward or away) shows and hides it at once, without the slide or fade.
  */
 export const DockSlide = forwardRef<
   HTMLDivElement,
@@ -50,10 +50,11 @@ export const DockSlide = forwardRef<
     onEntered?: () => void;
     resizing?: boolean;
     handle?: ReactNode;
+    instant?: boolean;
   } & Omit<React.HTMLAttributes<HTMLDivElement>, "style" | "className" | "children">
->(function DockSlide({ width, reserve, style, className, panelClassName, children, onEntered, resizing = false, handle, ...rest }, ref) {
+>(function DockSlide({ width, reserve, style, className, panelClassName, children, onEntered, resizing = false, handle, instant = false, ...rest }, ref) {
   const scale = useMotionScale();
-  const reduced = scale === 0;
+  const reduced = scale === 0 || instant;
   const presence = useContext(PresenceContext);
   const [landed] = useState(() => reduced || presence?.initial === false || (width !== null && chatSwitching()));
   const shown = useMotionValue(landed || width === null ? (width ?? 0) : 0);
@@ -73,6 +74,7 @@ export const DockSlide = forwardRef<
     if (width === null) {
       setRoom(reserve, slide, null);
       if (isPresent) return;
+      if (reduced) return done();
       const timer = window.setTimeout(done, scaled(180, scale));
       return () => window.clearTimeout(timer);
     }

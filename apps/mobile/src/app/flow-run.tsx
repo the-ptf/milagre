@@ -17,7 +17,7 @@ import {
   TestTube01Icon,
 } from "@hugeicons/core-free-icons";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import { currentStep, findStep, flowRunText, runRows, stepTitle, type FlowRunRow } from "@milagre/shared/routine-flows";
+import { autopilotPlan, currentStep, findStep, flowRunText, runRows, stepTitle, type FlowRunRow } from "@milagre/shared/routine-flows";
 import { canRunNow, clock, dayLabel, runDuration } from "@milagre/shared/routines";
 import type { FlowApproval, FlowReceipt, FlowStep, FlowStepRun, RoutineRun } from "@milagre/shared/model";
 import { useSession } from "../session";
@@ -25,6 +25,8 @@ import { useRoutines, type RoutineWithRuns } from "../use-routines";
 import { useFlowDraft } from "../flow-draft";
 import { openStep } from "../flow-editor";
 import { startTestRun } from "../flow-routine";
+import { FlowCanvas } from "../flow-canvas";
+import { useRunCanvas } from "../flow-canvas-views";
 import { flowRunState, flowRunTitle, outputChips, runName, stepRunLine, stepStateLook, triggerRunLine, triggerTitle } from "../flow-looks";
 import { useActivityClock } from "../chat-row-store";
 import { confirm } from "../confirm-store";
@@ -59,6 +61,8 @@ export default function FlowRunScreen() {
   const now = useActivityClock(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  const [panning, setPanning] = useState(false);
+  const canvas = useRunCanvas(run, now);
 
   if (!routine || !run || !client || !run.flow)
     return (
@@ -163,7 +167,7 @@ export default function FlowRunScreen() {
           </Stack.Toolbar.View>
         )}
       </Stack.Toolbar>
-      <PageScroll style={{ flex: 1 }} contentContainerStyle={{ gap: space.xl }}>
+      <PageScroll scrollEnabled={!panning} style={{ flex: 1 }} contentContainerStyle={{ gap: space.xl }}>
         {routines.error ? <ErrorNotice message={routines.error} retry={() => void routines.refresh()} retryTitle="Reload" /> : null}
         {error ? <ErrorNotice message={error} /> : null}
         <View style={{ gap: space.md }}>
@@ -217,22 +221,50 @@ export default function FlowRunScreen() {
           </View>
         ) : null}
 
-        <View>
-          <TimelineRow
-            icon={<Icon icon={CheckmarkCircle02Icon} tone="green" size={20} />}
-            title={triggerTitle(routine.trigger)}
-            line={triggerRunLine(run)}
-            last={rows.length === 0}
-            depth={0}
-          />
-          {rows.map((row, index) => {
-            const last = index === rows.length - 1;
-            if (row.kind === "path") return <PathRow key={`${row.parentId}:${row.path}`} row={row} last={last} />;
-            return <StepRow key={row.step.id} row={row} last={last} now={now} routine={routine} run={run} busy={busy} onAct={act} onOpenChat={openChat} />;
-          })}
-        </View>
+        <FlowCanvas
+          steps={flow.steps}
+          runState={flow.state}
+          trigger={{ title: triggerTitle(routine.trigger), subtitle: triggerRunLine(run) }}
+          subtitle={() => ""}
+          height={380}
+          mark={canvas.mark}
+          selected={canvas.shown}
+          focus={canvas.shown}
+          onPress={canvas.pick}
+          onInteract={setPanning}
+        />
+        <RunStepDetail row={canvas.shownRow} now={now} routine={routine} run={run} busy={busy} onAct={act} onOpenChat={openChat} />
       </PageScroll>
     </>
+  );
+}
+
+function RunStepDetail({
+  row,
+  now,
+  routine,
+  run,
+  busy,
+  onAct,
+  onOpenChat,
+}: {
+  row: Extract<FlowRunRow, { kind: "step" }> | undefined;
+  now: number;
+  routine: RoutineWithRuns;
+  run: RoutineRun;
+  busy: string;
+  onAct: Act;
+  onOpenChat: (key: string) => void;
+}) {
+  if (row) return <StepRow row={{ ...row, depth: 0 }} last now={now} routine={routine} run={run} busy={busy} onAct={onAct} onOpenChat={onOpenChat} />;
+  return (
+    <TimelineRow
+      icon={<Icon icon={CheckmarkCircle02Icon} tone="green" size={20} />}
+      title={triggerTitle(routine.trigger)}
+      line={triggerRunLine(run)}
+      last
+      depth={0}
+    />
   );
 }
 
@@ -281,25 +313,6 @@ function TimelineRow({
           {line ? <Text style={{ color: lineTone ?? colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{line}</Text> : null}
         </View>
         {children}
-      </View>
-    </View>
-  );
-}
-
-function PathRow({ row, last }: { row: Extract<FlowRunRow, { kind: "path" }>; last: boolean }) {
-  const { colors } = useTheme();
-  const name = row.path === "yes" ? "Yes" : "Otherwise";
-  const text = row.decided ? `${name}, ${row.taken ? "taken" : "not taken"}` : name;
-  return (
-    <View style={{ flexDirection: "row", gap: 12, marginLeft: (row.depth - 1) * 18 }}>
-      <View style={{ width: 22, alignItems: "center" }}>{last ? null : <View style={{ flex: 1, width: 1, backgroundColor: colors.lineStrong }} />}</View>
-      <View style={{ paddingBottom: space.md, paddingLeft: space.xl }}>
-        <Tag
-          label={row.empty && row.taken ? `${text}, nothing to run` : text}
-          tone={row.taken ? "green" : "neutral"}
-          square
-          style={{ alignSelf: "flex-start" }}
-        />
       </View>
     </View>
   );
@@ -429,6 +442,7 @@ function ApprovalCard({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const preview = approval.preview;
+  const plan = autopilotPlan(approval, now);
   const left = Math.max(1, Math.ceil((approval.expiresAt - Math.max(now, approval.askedAt)) / 3_600_000));
   const approveTitle = step.kind === "pull-request" ? (preview?.draft === false ? "Open PR" : "Open draft PR") : "Approve";
   return (
@@ -486,6 +500,7 @@ function ApprovalCard({
           <PillButton title="Reject" variant="tinted" destructive disabled={!!busy} onPress={() => setRejecting(true)} style={{ flex: 1 }} />
         </View>
       )}
+      {plan ? <Text style={styles.caption}>{`Autopilot approves at ${clock(plan.at)} unless you answer: ${plan.summary}.`}</Text> : null}
       <Text style={styles.caption}>{`Reject asks for a reason and ends the Run. No answer in ${left} h ends it too.`}</Text>
     </StepCard>
   );

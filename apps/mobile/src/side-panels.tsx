@@ -780,7 +780,7 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
           </Text>
         </View>
       )}
-      {shownTab === "tabs" && <WorkspaceTabsView screen={screen} onDone={onClose} onPanel={onTab} />}
+      {shownTab === "tabs" && <WorkspaceTabsView screen={screen} onDone={onClose} onPanel={onTab} onArtifact={openTab} />}
       {worktreeId !== undefined && (
         <View style={{ flex: 1, display: file || shownTab !== "changes" ? "none" : "flex" }}>
           <ChangesShownContext.Provider value={visible && !file && shownTab === "changes"}>

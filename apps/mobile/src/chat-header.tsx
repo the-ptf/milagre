@@ -173,6 +173,7 @@ export function chatPaneMenu({
   busy,
   canLink,
   storedIssue,
+  pages = [],
 }: {
   chatsHomeOpen: boolean;
   diff: { added: number; removed: number } | null | undefined;
@@ -186,6 +187,8 @@ export function chatPaneMenu({
   busy: boolean;
   canLink: boolean;
   storedIssue: unknown;
+  /** Paradise and the HTML page, when the Chat has them. */
+  pages?: MenuSection["items"];
 }): MenuSection[] {
   return [
     {
@@ -195,6 +198,7 @@ export function chatPaneMenu({
           : [
               { id: "changes", title: "View changes", systemImage: "doc.text.magnifyingglass", subtitle: diff ? `+${diff.added} −${diff.removed}` : undefined },
             ]),
+        ...pages,
         ...(chat
           ? [
               {

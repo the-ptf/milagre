@@ -1,18 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Alert02Icon,
-  ArrowDown01Icon,
-  ArrowLeft02Icon,
-  Cancel01Icon,
-  Delete02Icon,
-  PauseIcon,
-  PencilEdit02Icon,
-  PlayIcon,
-  StopIcon,
-  TestTube01Icon,
-  WorkflowSquare03Icon,
-} from "@hugeicons/core-free-icons";
+import { Alert02Icon, ArrowLeft02Icon, Cancel01Icon, PauseIcon, PlayIcon, TestTube01Icon, WorkflowSquare03Icon } from "@hugeicons/core-free-icons";
 import type { FlowStep, FlowStepKind, ModelCapabilities, ModelOption, RoutineRun, RoutineTrigger } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { canRunNow, clock, triggerChipText, triggerText } from "@milagre/shared/routines";
@@ -23,17 +11,19 @@ import {
   flattenSteps,
   flowChanges,
   flowProblems,
+  insertStep,
   moveStep,
   needsAnswer,
   newStep,
   removeStep,
   replaceStep,
+  stepSubtitle,
   stepTitle,
 } from "@milagre/shared/routine-flows";
+import type { FlowPlace } from "@milagre/shared/routine-flow-graph";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
-import { Segmented } from "./RoutineChips";
 import { HookUrl, RoutineEditor } from "./RoutineEditor";
 import { RunList } from "./RunList";
 import { routineProblem } from "./RoutineRow";
@@ -42,23 +32,18 @@ import { computerOfRoutine, refreshRoutines, type RoutineWithRuns } from "../../
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { useComputers } from "../../lib/computers";
 import { thisComputer } from "../../lib/shortcut-hints";
-import { runIssueKey, runName, triggerTitle } from "./flow-look";
-import { MenuRow, Popover, usePopover } from "./FlowPopover";
-import { FlowCard, FlowStepList, NextStepTiles, StepMenu } from "./FlowSteps";
+import { runIssueKey, runName } from "./flow-look";
+import { StepMenu } from "./FlowSteps";
+import { FlowCanvas } from "./FlowCanvas";
 import { StepInspector, TriggerInspector } from "./FlowInspector";
-import { RunBar, RunInspector, RunRows, type FlowAct } from "./FlowRun";
+import { RunBar, RunInspector, type FlowAct } from "./FlowRun";
+import { DraftChip, EndRunButton, PublishButton, RunsTabLabel, outlineButton, runMarker, triggerCard } from "./FlowPageParts";
 
 type Tab = "steps" | "runs" | "settings";
-type Mode = "edit" | "run";
 
 const SAVE_DELAY = 600;
 
-const outlineButton =
-  "inline-flex h-8 shrink-0 items-center gap-2 rounded-control border border-line-strong bg-surface px-3 text-13 font-medium text-ink transition-colors hover:bg-hover disabled:opacity-40";
-const primaryButton =
-  "inline-flex h-8 shrink-0 items-center gap-2 rounded-control bg-ink px-3 text-13 font-medium text-surface transition-opacity hover:opacity-90 aria-disabled:opacity-40 aria-disabled:hover:opacity-40";
-
-const lastView = new Map<string, { tab: Tab; mode: Mode; runId: string | null }>();
+const lastView = new Map<string, { tab: Tab; runOpen: boolean; runId: string | null }>();
 
 function triggerSentence(trigger: RoutineTrigger): string {
   if (trigger.kind === "linear") {
@@ -171,204 +156,6 @@ function defaultRunStep(run: RoutineRun | undefined): string {
   return done.at(-1)?.step.id ?? "trigger";
 }
 
-function RunsTabLabel({ count, waiting }: { count: number; waiting: number }) {
-  return (
-    <>
-      Runs <span className="text-ink-3 tabular-nums">{count}</span>
-      {waiting > 0 && (
-        <span data-flow-waiting-badge className="ml-1 inline-flex h-5 items-center rounded-full bg-orange-tint px-2 text-11 font-medium text-orange-ink">
-          {waiting} waiting
-        </span>
-      )}
-    </>
-  );
-}
-
-function DraftChip({ changes, onDiscard }: { changes: string[]; onDiscard: () => void }) {
-  const popover = usePopover(320);
-  const [confirming, setConfirming] = useState(false);
-  useEffect(() => {
-    if (!popover.open) setConfirming(false);
-  }, [popover.open]);
-  return (
-    <>
-      <button
-        ref={popover.trigger}
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={popover.open}
-        data-flow-draft-chip
-        onClick={popover.toggle}
-        className="inline-flex h-6 shrink-0 items-center gap-1 rounded-chip bg-field px-2 text-12 font-medium text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink"
-      >
-        Draft, {changes.length === 1 ? "1 change" : `${changes.length} changes`}
-        <HugeiconsIcon icon={ArrowDown01Icon} size={12} strokeWidth={1.6} color="currentColor" />
-      </button>
-      <Popover state={popover} label="Draft" width={320} role="menu" className="p-1.5" data-flow-draft-menu>
-        <ScrollArea className="max-h-48 px-2 pt-1 pb-2">
-          {changes.map((line) => (
-            <p key={line} className="truncate py-0.5 text-12 text-ink-2">
-              {line}
-            </p>
-          ))}
-        </ScrollArea>
-        {confirming ? (
-          <div className="flex items-center gap-2 border-t border-line px-2 pt-2">
-            <span className="min-w-0 flex-1 text-12 text-ink">Discard the draft and its changes?</span>
-            <button type="button" className={`${outlineButton} h-7 px-2 text-12`} onClick={() => setConfirming(false)}>
-              Keep
-            </button>
-            <button
-              type="button"
-              data-flow-discard-confirm
-              className={`${outlineButton} h-7 border-red/30 px-2 text-12 text-red-ink`}
-              onClick={() => {
-                popover.close();
-                onDiscard();
-              }}
-            >
-              Discard
-            </button>
-          </div>
-        ) : (
-          <MenuRow icon={Delete02Icon} label="Discard draft" danger onSelect={() => setConfirming(true)} data-flow-discard />
-        )}
-      </Popover>
-    </>
-  );
-}
-
-function PublishButton({
-  revision,
-  changes,
-  problem,
-  inProgress,
-  waiting,
-  onPublish,
-}: {
-  revision: number;
-  changes: string[];
-  problem: string | null;
-  inProgress: string[];
-  waiting: boolean;
-  onPublish: () => Promise<boolean>;
-}) {
-  const popover = usePopover(380, "end");
-  const [busy, setBusy] = useState(false);
-  const next = revision + 1;
-  const blocked = problem ?? (revision > 0 && changes.length === 0 ? "No changes to publish" : null);
-  const note =
-    revision === 0
-      ? `New Runs use revision 1 once you turn the flow on.`
-      : inProgress.length > 0
-        ? `${inProgress.join(", ")} ${inProgress.length === 1 ? "keeps" : "keep"} revision ${revision}${waiting ? " and still waits for you" : ""}. New Runs use revision ${next}.`
-        : `Runs in progress keep revision ${revision}. New Runs use revision ${next}.`;
-  const button = (
-    <button
-      ref={popover.trigger}
-      type="button"
-      aria-disabled={blocked !== null}
-      aria-haspopup="dialog"
-      aria-expanded={popover.open}
-      data-flow-publish
-      onClick={() => blocked === null && popover.toggle()}
-      className={primaryButton}
-    >
-      Publish revision {next}
-    </button>
-  );
-  return (
-    <>
-      {blocked ? (
-        <Tooltip label={blocked} side="bottom" align="end" wrap>
-          {button}
-        </Tooltip>
-      ) : (
-        button
-      )}
-      <Popover state={popover} label={`Publish revision ${next}`} width={380} className="p-4" data-flow-publish-dialog>
-        <h3 className="text-15 font-semibold text-ink">Publish revision {next}</h3>
-        <p className="mt-1 text-12 text-ink-3">
-          {revision === 0 ? "The first revision" : `${changes.length === 1 ? "1 change" : `${changes.length} changes`} since revision ${revision}`}
-        </p>
-        <ScrollArea className="mt-3 max-h-48 divide-y divide-line rounded-control bg-field">
-          {changes.map((line) => (
-            <p key={line} className="flex items-center gap-2 px-3 py-2 text-13 text-ink">
-              <HugeiconsIcon icon={PencilEdit02Icon} size={14} strokeWidth={1.8} color="currentColor" className="shrink-0 text-ink-3" />
-              <span className="min-w-0 flex-1 truncate">{line}</span>
-            </p>
-          ))}
-        </ScrollArea>
-        <p className="mt-3 flex items-start gap-2 rounded-control bg-orange-tint px-3 py-2 text-12 text-orange-ink">
-          <HugeiconsIcon icon={Alert02Icon} size={14} strokeWidth={1.8} color="currentColor" className="mt-px shrink-0" />
-          {note}
-        </p>
-        <div className="mt-4 flex justify-end gap-2">
-          <button type="button" className={outlineButton} onClick={() => popover.close()}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            data-flow-publish-confirm
-            aria-disabled={busy}
-            className={primaryButton}
-            onClick={() => {
-              if (busy) return;
-              setBusy(true);
-              void onPublish().then((ok) => {
-                setBusy(false);
-                if (ok) popover.close(false);
-              });
-            }}
-          >
-            {busy ? "Publishing…" : `Publish revision ${next}`}
-          </button>
-        </div>
-      </Popover>
-    </>
-  );
-}
-
-function EndRunButton({ name, onEnd }: { name: string; onEnd: () => void }) {
-  const popover = usePopover(300, "end");
-  return (
-    <>
-      <button
-        ref={popover.trigger}
-        type="button"
-        data-flow-end
-        aria-haspopup="dialog"
-        aria-expanded={popover.open}
-        className={outlineButton}
-        onClick={popover.toggle}
-      >
-        <HugeiconsIcon icon={StopIcon} size={14} strokeWidth={1.8} color="currentColor" />
-        End Run
-      </button>
-      <Popover state={popover} label={`End ${name}`} width={300} className="p-4" data-flow-end-dialog>
-        <h3 className="text-15 font-semibold text-ink">End {name}?</h3>
-        <p className="mt-1 text-12 text-ink-2">It stops where it is. What it already did stays, and its Worktree too.</p>
-        <div className="mt-4 flex justify-end gap-2">
-          <button type="button" className={outlineButton} onClick={() => popover.close()}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            data-flow-end-confirm
-            className={`${outlineButton} border-red/30 text-red-ink`}
-            onClick={() => {
-              popover.close(false);
-              onEnd();
-            }}
-          >
-            End Run
-          </button>
-        </div>
-      </Popover>
-    </>
-  );
-}
-
 export function FlowPage({
   routine,
   models,
@@ -401,7 +188,7 @@ export function FlowPage({
   const waitingRuns = flowRuns.filter((run) => needsAnswer(run));
   const remembered = lastView.get(routine.id);
   const [tab, setTab] = useState<Tab>(remembered?.tab ?? "steps");
-  const [mode, setMode] = useState<Mode>(remembered?.mode ?? "edit");
+  const [runOpen, setRunOpen] = useState(remembered?.runOpen ?? false);
   const [runId, setRunId] = useState<string | null>(remembered?.runId ?? waitingRuns[0]?.id ?? null);
   const [selected, setSelected] = useState<string | null>(() => steps[0]?.id ?? (steps.length ? null : "trigger"));
   const [runStep, setRunStep] = useState<Record<string, string>>({});
@@ -414,8 +201,8 @@ export function FlowPage({
   const { thisMac, computers } = useComputers();
 
   useEffect(() => {
-    lastView.set(routine.id, { tab, mode, runId });
-  }, [routine.id, tab, mode, runId]);
+    lastView.set(routine.id, { tab, runOpen, runId });
+  }, [routine.id, tab, runOpen, runId]);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15_000);
     return () => clearInterval(timer);
@@ -446,8 +233,8 @@ export function FlowPage({
   const bridge = () => bridgeForKey(routine.id);
   const fail = (failure: unknown) => setError(ipcErrorMessage(failure));
   const showRun = (id: string) => {
-    setTab("steps");
-    setMode("run");
+    setTab("runs");
+    setRunOpen(true);
     setRunId(id);
   };
   const act: FlowAct = (action, options) => {
@@ -522,9 +309,14 @@ export function FlowPage({
     draft.change(next);
     if (select !== undefined) setSelected(select ?? next[0]?.id ?? "trigger");
   };
-  const addFirst = (kind: FlowStepKind) => {
+  const addAt = (kind: FlowStepKind, where: FlowPlace) => {
     const step = newStep(kind, steps);
-    edit([...steps, step], step.id);
+    edit(insertStep(steps, where, step), step.id);
+  };
+  const pathLength = (where: FlowPlace) => {
+    if (where.parentId === null) return steps.length;
+    const parent = findStep(steps, where.parentId);
+    return parent?.kind === "if" ? parent[where.branch ?? "yes"].length : 0;
   };
 
   const selectedStep = selected && selected !== "trigger" ? findStep(steps, selected) : null;
@@ -548,45 +340,35 @@ export function FlowPage({
         ? null
         : "edited in this draft";
   const shownRunStep = run ? (runStep[run.id] ?? defaultRunStep(run)) : null;
-  const banner = waitingRuns.find((entry) => !(tab === "steps" && mode === "run" && run?.id === entry.id));
+  const viewingRun = tab === "runs" && runOpen && Boolean(run);
+  const banner = waitingRuns.find((entry) => !(viewingRun && run?.id === entry.id));
   const triggerLabel = triggerChipText(routine.trigger, localZone());
   const twoColumns = !narrow;
 
-  const triggerCard = (
-    <FlowCard
-      kind="trigger"
-      title={triggerTitle(routine.trigger)}
-      subtitle={`Trigger, ${triggerLabel}`}
-      selected={selected === "trigger"}
-      onSelect={() => setSelected("trigger")}
-      data-flow-step="trigger"
-    />
-  );
+  const canvasBox = twoColumns ? "flex h-[calc(100vh-280px)] min-h-[480px] gap-4" : "space-y-4";
+  const canvasPane = twoColumns ? "min-w-0 flex-1" : "h-[440px]";
+  const sidePane = twoColumns ? "w-[340px] shrink-0" : "";
+  const triggerView = triggerCard(routine.trigger, triggerLabel, steps);
 
   const editView = (
-    <div className={twoColumns ? "grid grid-cols-[minmax(0,1fr)_minmax(320px,384px)] items-start gap-6" : "space-y-6"}>
-      <div>
-        {steps.length === 0 ? (
-          <>
-            {triggerCard}
-            <div className="relative h-6">
-              <span aria-hidden className="absolute top-0 bottom-0 left-[27px] w-px bg-line-strong" />
-            </div>
-            <NextStepTiles onAdd={addFirst} />
-          </>
-        ) : (
-          <FlowStepList
-            steps={steps}
-            selectedId={selected}
-            problems={byStep}
-            trigger={triggerCard}
-            modelName={modelName}
-            onSelect={setSelected}
-            onChange={edit}
-          />
-        )}
+    <div className={canvasBox}>
+      <div className={canvasPane}>
+        <FlowCanvas
+          mode="edit"
+          steps={steps}
+          viewKey={`edit:${routine.id}`}
+          selected={selected}
+          select={setSelected}
+          problems={byStep}
+          subtitle={(step) => stepSubtitle(step, { modelName })}
+          trigger={triggerView}
+          add={addAt}
+          move={(id, by) => edit(moveStep(steps, id, by))}
+          remove={(id) => edit(removeStep(steps, id), null)}
+          siblings={pathLength}
+        />
       </div>
-      <div className={twoColumns ? "sticky top-4" : ""}>
+      <ScrollArea className={sidePane}>
         {selectedStep ? (
           <StepInspector
             key={selectedStep.id}
@@ -613,24 +395,31 @@ export function FlowPage({
         ) : selected === "trigger" ? (
           <TriggerInspector trigger={routine.trigger} text={triggerLabel} onSettings={() => setTab("settings")} />
         ) : null}
-      </div>
+      </ScrollArea>
     </div>
   );
 
+  const markOf = runMarker(routine, run, now);
   const runView = run ? (
-    <div className="space-y-4">
-      <RunBar routine={routine} runs={flowRuns} run={run} draft={hasDraft && flow.revision > 0} onPick={setRunId} />
-      <div className={twoColumns ? "grid grid-cols-[minmax(0,1fr)_minmax(320px,384px)] items-start gap-6" : "space-y-6"}>
-        <RunRows
-          routine={routine}
-          run={run}
-          selected={shownRunStep}
-          now={now}
-          canOpen={canOpen}
-          onSelect={(id) => setRunStep((current) => ({ ...current, [run.id]: id }))}
-          onOpenChat={onOpenChat}
-        />
-        <div className={twoColumns ? "sticky top-4" : ""}>
+    <div className="space-y-3">
+      <RunBar routine={routine} runs={flowRuns} run={run} draft={hasDraft && flow.revision > 0} onPick={setRunId} onBack={() => setRunOpen(false)} />
+      <div className={canvasBox}>
+        <div className={canvasPane}>
+          <FlowCanvas
+            mode="run"
+            steps={run.flow!.steps}
+            runState={run.flow!.state}
+            viewKey={`run:${run.id}`}
+            focus={shownRunStep}
+            selected={shownRunStep}
+            select={(id) => setRunStep((current) => ({ ...current, [run.id]: id }))}
+            problems={new Map()}
+            subtitle={(step) => stepSubtitle(step, { modelName })}
+            trigger={triggerView}
+            mark={markOf}
+          />
+        </div>
+        <ScrollArea className={sidePane}>
           <RunInspector
             key={`${run.id}:${shownRunStep}`}
             routine={routine}
@@ -640,16 +429,12 @@ export function FlowPage({
             onOpenChat={onOpenChat}
             act={act}
           />
-        </div>
+        </ScrollArea>
       </div>
     </div>
-  ) : (
-    <p data-flow-no-runs className="text-13 text-ink-2">
-      No Runs yet. {flow.revision === 0 ? "Publish the flow and turn it on, or try a Test run." : "Try a Test run to see how the draft runs."}
-    </p>
-  );
+  ) : null;
 
-  const runActions = run && tab === "steps" && mode === "run" && run.flow && (
+  const runActions = run && viewingRun && run.flow && (
     <>
       {(run.flow.status === "running" || run.flow.status === "waiting") && (
         <button type="button" data-flow-pause className={outlineButton} onClick={() => void act("pause")}>
@@ -672,7 +457,7 @@ export function FlowPage({
       <div
         data-routine-page={routine.id}
         data-flow-page
-        className={`flex w-full flex-1 flex-col pb-10 ${narrow ? "px-3 pt-4" : "mx-auto max-w-[1040px] px-6 pt-14"}`}
+        className={`flex w-full flex-1 flex-col pb-10 ${narrow ? "px-3 pt-4" : `mx-auto px-6 pt-14 ${tab === "settings" || (tab === "runs" && !viewingRun) ? "max-w-[1040px]" : "max-w-[1440px]"}`}`}
       >
         <div>
           <button
@@ -693,7 +478,7 @@ export function FlowPage({
               <HugeiconsIcon icon={WorkflowSquare03Icon} size={12} strokeWidth={1.6} color="currentColor" />
               Flow
             </span>
-            {tab === "steps" && mode === "edit" && flow.revision > 0 && changes.length > 0 && <DraftChip changes={changes} onDiscard={discard} />}
+            {tab === "steps" && flow.revision > 0 && changes.length > 0 && <DraftChip changes={changes} onDiscard={discard} />}
           </div>
           <div data-flow-toolbar className="flex shrink-0 items-center gap-2">
             {canRunNow(routine) && flow.revision > 0 && (
@@ -721,7 +506,7 @@ export function FlowPage({
                 {flow.revision === 0 ? "Off, not published" : `${routine.enabled ? "On" : "Off"}, revision ${flow.revision}`}
               </button>
             </Tooltip>
-            {tab === "steps" && mode === "edit" && (
+            {tab === "steps" && (
               <>
                 {steps.length === 0 || problems.length > 0 ? (
                   <Tooltip label={steps.length === 0 ? "Add at least one step to test or publish" : problems[0]!.message} side="bottom" align="end" wrap>
@@ -768,7 +553,10 @@ export function FlowPage({
                 role="tab"
                 aria-selected={tab === id}
                 data-flow-tab={id}
-                onClick={() => setTab(id)}
+                onClick={() => {
+                  if (id === "runs" && tab === "runs") setRunOpen(false);
+                  setTab(id);
+                }}
                 className={`relative flex h-9 items-center text-13 font-medium transition-colors ${tab === id ? "text-ink" : "text-ink-2 hover:text-ink"}`}
               >
                 {label}
@@ -776,18 +564,6 @@ export function FlowPage({
               </button>
             ))}
           </div>
-          {tab === "steps" && (
-            <Segmented<Mode>
-              label="Steps"
-              value={mode}
-              className="mb-2 shrink-0"
-              options={[
-                { value: "edit", label: "Edit draft", icon: PencilEdit02Icon },
-                { value: "run", label: "Show Run", icon: WorkflowSquare03Icon, disabled: flowRuns.length === 0 },
-              ]}
-              onChange={setMode}
-            />
-          )}
         </div>
 
         {problem && (
@@ -839,9 +615,11 @@ export function FlowPage({
         )}
 
         <div className="mt-5">
-          {tab === "steps" && (mode === "edit" ? editView : runView)}
+          {tab === "steps" && editView}
           {tab === "runs" &&
-            (routine.runs.length > 0 ? (
+            (viewingRun ? (
+              runView
+            ) : routine.runs.length > 0 ? (
               <RunList
                 runs={routine.runs}
                 routineName={routine.name}

@@ -305,3 +305,22 @@ test("diagnostics count a scripted sequence by message type, mark and anomaly, w
   assert.equal(nonZero(fresh.in.messages).length + nonZero(fresh.out.messages).length + nonZero(fresh.anomalies).length, 0);
   assert.deepEqual(fresh.out.marks, { pending: 0, error: 0 });
 });
+
+test("requests through the channel carry this process's sealed marker, and a phone can't send its own", async () => {
+  const { SEALED_HEADER, SEALED_VALUE } = require("./sealed-channel.cjs");
+  const forwarded = [];
+  const h = harness({
+    fetch: async (url, init) => {
+      forwarded.push(init.headers);
+      return answerOk();
+    },
+  });
+  const conn = 314159265358979n;
+  const phone = h.device({ kind: "phone", known: true });
+  h.open(conn);
+  phone.hello(conn);
+  phone.finish();
+  phone.send(conn, { t: "req", id: 1, method: "POST", path: "/rpc", headers: { [SEALED_HEADER]: "forged" }, chunk: "", more: false });
+  await until(() => forwarded.length === 1, "the forwarded request");
+  assert.equal(forwarded[0][SEALED_HEADER], SEALED_VALUE);
+});

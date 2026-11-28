@@ -83,7 +83,16 @@ export type PullRequestFilters = {
   project: string | null;
 };
 export type PullRequestGroupId = "review" | "authored" | "other";
-export type PullRequestQuery = { words: string[]; labels: string[]; authors: string[]; repos: string[]; draft: boolean | null };
+export type PullRequestQuery = {
+  words: string[];
+  labels: string[];
+  authors: string[];
+  repos: string[];
+  notLabels: string[];
+  notAuthors: string[];
+  notRepos: string[];
+  draft: boolean | null;
+};
 type Choice<T extends string> = { id: T; label: string };
 
 export const PULL_REQUEST_STATES: PullRequestListState[];

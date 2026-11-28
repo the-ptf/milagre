@@ -29,6 +29,7 @@ import {
   setBeside,
   tabId,
   tabShortcutDigit,
+  tabStripShown,
   type OpenTab,
   type WorkspaceTab,
 } from "@milagre/shared/workspace-tabs";
@@ -72,9 +73,15 @@ type Props = {
 
 /**
  * The Worktree's Workspace tabs in the top bar, where ChatIdentity sits when the setting is off. Each Chat and Subchat
- * of the Worktree the user opened is a tab; drafting a new Chat shows a New Chat tab at the end until it is sent.
+ * of the Worktree the user opened is a tab; drafting a new Chat shows a New Chat tab at the end until it is sent, unless
+ * no other tab is open.
  */
-export function WorkspaceTabStrip({ workspace, projectPath, panels, sessions, belongs, rows, activeChatId, corner, menu, onOpenChat, onNewChat }: Props) {
+export function WorkspaceTabStrip(props: Props) {
+  const set = useTabSet(props.workspace);
+  return tabStripShown(set, props.activeChatId === null) ? <TabStrip {...props} /> : null;
+}
+
+function TabStrip({ workspace, projectPath, panels, sessions, belongs, rows, activeChatId, corner, menu, onOpenChat, onNewChat }: Props) {
   const set = useTabSet(workspace);
   const chrome = useWindowChrome();
   const anchor = useRef<HTMLSpanElement>(null);

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { BubbleChatIcon, Cancel01Icon, ComputerTerminal01Icon, CornerDownRightIcon, Globe02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { chatTitle, isHiddenRunChat, isHiddenTaskChat } from "@milagre/shared/chats";
@@ -19,12 +19,17 @@ import {
   runningChatCloseMessage,
   subchatAnchor,
   tabId,
+  tabStripShown,
   withLoneChatTabs,
   type OpenTab,
   type TabPlace,
 } from "@milagre/shared/workspace-tabs";
+import { OPEN_ARTIFACT, OPEN_PARADISE } from "./artifact-pages";
+import { useArtifactShortcuts } from "./chat-artifact-shortcuts";
 import { closeTabIntoDone } from "./chat-done";
 import { useHeaderStripWidth } from "./chat-header";
+import type { ChatTab, DesignsTab } from "./panel-tabs";
+import { rightDocks } from "./split-width";
 import { confirm } from "./confirm-store";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { Icon } from "./icons";
@@ -38,12 +43,22 @@ import { tabSet, updateTabSet, useTabSet } from "./workspace-tabs-store";
 
 type Where = { hostId: string; projectPath: string; worktreeId: TabScope };
 
+/** The Chat route's `via` param when a Workspace tab opened it: the Chat swaps in place, without the push animation. */
+export const TAB_SWITCH = "tab";
+
 const placeOf = (where: Where): TabPlace => (where.worktreeId === LINK_TABS ? "link" : "worktree");
 
 const phoneWorkspace = (where: Where) => `${where.hostId}|${scopeKey(where.projectPath, where.worktreeId)}`;
 
 /** Keeps the open Chat's tab in its Worktree's tab set, and drops tabs of Chats that are gone or moved away. */
-export function useWorkspaceTabSync(enabled: boolean, where: Where | null, sessions: Record<string, AgentSession> | undefined, chatId: number | undefined) {
+/** Keeps the Worktree's tabs in step with its Chats; returns where the header shows them, null for a new Chat drafted where no tab is open. */
+export function useWorkspaceTabSync(
+  enabled: boolean,
+  where: Where | null,
+  sessions: Record<string, AgentSession> | undefined,
+  chatId: number | undefined,
+): Where | null {
+  const set = useTabSet(where ? phoneWorkspace(where) : null);
   const hostId = where?.hostId;
   const projectPath = where?.projectPath;
   const worktreeId = where?.worktreeId;
@@ -62,10 +77,12 @@ export function useWorkspaceTabSync(enabled: boolean, where: Where | null, sessi
       return next;
     });
   }, [enabled, hostId, projectPath, worktreeId, sessions, chatId]);
+  return where && tabStripShown(set, chatId === undefined) ? where : null;
 }
 
-function useTabs(where: Where, activeChatId: number | undefined, onDone?: () => void) {
+function useTabs(where: Where, activeChatId: number | undefined, onDone?: () => void, openArtifact?: (target: DesignsTab) => void) {
   const session = useSession();
+  const artifacts = useArtifactShortcuts(session.client, where.projectPath, activeChatId === undefined ? undefined : String(activeChatId), openArtifact);
   const workspace = phoneWorkspace(where);
   const set = useTabSet(workspace);
   const sessions = session.snapshot?.project.path === where.projectPath ? session.snapshot.project.state.sessions : undefined;
@@ -79,19 +96,22 @@ function useTabs(where: Where, activeChatId: number | undefined, onDone?: () => 
     if (tab.kind === "browser") sheet("/browser-sheet", tab.chatId);
     else if (tab.kind === "terminal") sheet("/terminal-sheet", tab.chatId);
     else if (tab.kind === "chat" && tab.chatId !== activeChatId)
-      router.replace({ pathname: "/chat", params: { hostId: where.hostId, projectPath: where.projectPath, id: String(tab.chatId) } });
+      router.replace({ pathname: "/chat", params: { hostId: where.hostId, projectPath: where.projectPath, id: String(tab.chatId), via: TAB_SWITCH } });
   };
   const newChat = () => {
     onDone?.();
     const worktree = scopeWorktree(where.worktreeId, sessions);
     router.replace({
       pathname: "/chat",
-      params: { hostId: where.hostId, projectPath: where.projectPath, ...(worktree === undefined ? {} : { worktreeId: String(worktree) }) },
+      params: { hostId: where.hostId, projectPath: where.projectPath, via: TAB_SWITCH, ...(worktree === undefined ? {} : { worktreeId: String(worktree) }) },
     });
   };
   const launch = (id: string, onPanel?: (tab: "changes" | "pr") => void) => {
     if (id === "chat") newChat();
-    else if ((id === "terminal" || id === "browser") && activeChatId !== undefined) {
+    else if (id === OPEN_PARADISE || id === OPEN_ARTIFACT) {
+      if (!openArtifact) onDone?.();
+      artifacts.select(id);
+    } else if ((id === "terminal" || id === "browser") && activeChatId !== undefined) {
       onDone?.();
       sheet(id === "browser" ? "/browser-sheet" : "/terminal-sheet", activeChatId);
     } else if (id === "changes" || id === "pr") onPanel?.(id);
@@ -166,11 +186,11 @@ function useTabs(where: Where, activeChatId: number | undefined, onDone?: () => 
       unread: Boolean(tab.unread || chat?.unread),
     };
   };
-  return { set, open, launch, close, choose, menu, describe };
+  return { set, open, launch, close, choose, menu, describe, pages: artifacts.items };
 }
 
 /** What + opens in a tab set, as the computer's New tab lists it: a New Chat, the open Chat's Terminal and Browser, and the panels this Chat has. */
-function launcher(place: TabPlace | null, can: { owner: boolean; changes?: boolean; pr?: number }): MenuSection[] {
+function launcher(place: TabPlace | null, can: { owner: boolean; changes?: boolean; pr?: number; pages?: MenuSection["items"] }): MenuSection[] {
   const open = [
     ...(place ? [{ id: "chat", title: newChatTabLabel(place), systemImage: "square.and.pencil" }] : []),
     ...(can.owner
@@ -183,6 +203,7 @@ function launcher(place: TabPlace | null, can: { owner: boolean; changes?: boole
   const panels = [
     ...(can.changes ? [{ id: "changes", title: "Diff", systemImage: "plus.forwardslash.minus" }] : []),
     ...(can.pr !== undefined ? [{ id: "pr", title: `Pull request #${can.pr}`, systemImage: "arrow.triangle.pull" }] : []),
+    ...(can.pages ?? []),
   ];
   return [open, panels].filter((items) => items.length).map((items) => ({ items }));
 }
@@ -200,7 +221,18 @@ function NewTabButton({ sections, onSelect }: { sections: MenuSection[]; onSelec
 
 type PanelScreen = { chatId?: number; worktreeId?: number; pullRequest?: { number: number } };
 
-export function WorkspaceTabsView({ screen, onDone, onPanel }: { screen: PanelScreen; onDone: () => void; onPanel: (tab: "changes" | "pr") => void }) {
+export function WorkspaceTabsView({
+  screen,
+  onDone,
+  onPanel,
+  onArtifact,
+}: {
+  screen: PanelScreen;
+  onDone: () => void;
+  onPanel: (tab: "changes" | "pr") => void;
+  /** Opens Paradise or the Artifact as a tab of this panel where it docks beside the Chat; elsewhere they open full screen. */
+  onArtifact?: (tab: ChatTab) => void;
+}) {
   const { colors } = useTheme();
   const session = useSession();
   const project = session.snapshot?.project;
@@ -216,6 +248,7 @@ export function WorkspaceTabsView({ screen, onDone, onPanel }: { screen: PanelSc
         panels={panels}
         onDone={onDone}
         onPanel={onPanel}
+        onArtifact={onArtifact}
       />
     );
   return (
@@ -235,20 +268,26 @@ function WorkspaceTabsList({
   panels,
   onDone,
   onPanel,
+  onArtifact,
 }: {
   where: Where;
   activeChatId: number | undefined;
   panels: { changes: boolean; pr?: number };
   onDone: () => void;
   onPanel: (tab: "changes" | "pr") => void;
+  onArtifact?: (tab: ChatTab) => void;
 }) {
   const { colors } = useTheme();
-  const tabs = useTabs(where, activeChatId, onDone);
+  const docks = rightDocks(useWindowDimensions().width);
+  const tabs = useTabs(where, activeChatId, onDone, docks && onArtifact ? (target) => onArtifact({ kind: "designs", target }) : undefined);
   return (
     <ScrollView contentContainerStyle={{ padding: space.gutter, gap: space.md }}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingLeft: space.xs }}>
         <Text style={{ flex: 1, color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{`${tabs.set.tabs.length} open`}</Text>
-        <NewTabButton sections={launcher(placeOf(where), { owner: activeChatId !== undefined, ...panels })} onSelect={(id) => tabs.launch(id, onPanel)} />
+        <NewTabButton
+          sections={launcher(placeOf(where), { owner: activeChatId !== undefined, ...panels, pages: tabs.pages })}
+          onSelect={(id) => tabs.launch(id, onPanel)}
+        />
       </View>
       <View
         style={{
@@ -403,7 +442,7 @@ export function WorkspaceTabStrip({ where, activeChatId, actionCount }: { where:
           );
         })}
       </ScrollView>
-      <NewTabButton sections={launcher(placeOf(where), { owner: activeChatId !== undefined })} onSelect={(id) => tabs.launch(id)} />
+      <NewTabButton sections={launcher(placeOf(where), { owner: activeChatId !== undefined, pages: tabs.pages })} onSelect={(id) => tabs.launch(id)} />
     </View>
   );
 }

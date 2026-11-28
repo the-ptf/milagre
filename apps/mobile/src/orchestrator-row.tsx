@@ -1,4 +1,5 @@
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
+import { router } from "expo-router";
 import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { needsYouLine, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { lineHeight, radius, space, type } from "./design-tokens";
@@ -7,12 +8,17 @@ import { Mascot } from "./mascot";
 import { useSession } from "./session";
 import { promptText } from "./text-prompt";
 import { useTheme } from "./theme";
-import { ListRow } from "./ui";
+import { ListRow, pressStyle } from "./ui";
 import { useOrchestrator } from "./use-orchestrator";
 import { columnItems } from "./orchestrator-board";
 import { useOrchestratorBoard } from "./use-orchestrator-board";
 
 const NO_TASKS: OrchestratorTask[] = [];
+const TOWARD_YOU = { x: 0.6, y: 0 };
+
+function openWaiting() {
+  router.push("/orchestrator-waiting");
+}
 
 function Counts({ running, needs }: { running: number; needs: number }) {
   const { colors } = useTheme();
@@ -26,13 +32,58 @@ function Counts({ running, needs }: { running: number; needs: number }) {
         </View>
       )}
       {needs > 0 && (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
-          <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.orange }} />
-          <Text style={[count, { color: colors.orangeInk }]}>{needs}</Text>
-        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Answer ${needs === 1 ? "the task that needs you" : `${needs} waiting tasks`}`}
+          hitSlop={6}
+          onPress={openWaiting}
+          style={({ pressed }) => [
+            { minHeight: 32, justifyContent: "center", paddingHorizontal: space.lg, borderRadius: radius.full, backgroundColor: colors.orangeTint },
+            pressStyle({ pressed }),
+          ]}
+        >
+          <Text style={{ color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600", fontVariant: ["tabular-nums"] }}>
+            {needs === 1 ? "Answer" : `${needs} waiting`}
+          </Text>
+        </Pressable>
       )}
       <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
     </View>
+  );
+}
+
+function WaitingMascot({ name, color, needs }: { name: string; color: string; needs: number }) {
+  const { colors } = useTheme();
+  const mascot = <Mascot size={32} color={color} gaze={needs > 0 ? TOWARD_YOU : null} live={needs > 0} />;
+  if (!needs) return mascot;
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={`Answer what ${name} is asking`} onPress={openWaiting} hitSlop={8}>
+      {mascot}
+      <View
+        style={{
+          position: "absolute",
+          left: 20,
+          top: -9,
+          minWidth: 18,
+          height: 18,
+          paddingHorizontal: space.xs,
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: radius.full,
+          borderBottomLeftRadius: radius.chip,
+          backgroundColor: colors.orange,
+          borderWidth: 2,
+          borderColor: colors.surface,
+        }}
+      >
+        <Text
+          maxFontSizeMultiplier={1.2}
+          style={{ color: colors.onOrange, fontSize: type.caption2, lineHeight: lineHeight.caption2, fontWeight: "600", fontVariant: ["tabular-nums"] }}
+        >
+          {needs > 1 ? needs : "?"}
+        </Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -58,7 +109,7 @@ export function OrchestratorRow({ onOpen }: { onOpen: () => void }) {
             if (next && next !== snapshot.settings.name) void store?.saveSettings({ name: next }).catch(() => {});
           })
         }
-        leading={<Mascot size={32} color={snapshot.settings.mascotColor} />}
+        leading={<WaitingMascot name={snapshot.settings.name} color={snapshot.settings.mascotColor} needs={counts.needs} />}
         trailing={<Counts running={counts.running} needs={counts.needs} />}
       />
     </View>

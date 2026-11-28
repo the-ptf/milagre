@@ -38,12 +38,19 @@ export function attentionTitle(context) {
   return parent ? `${title} · in ${parent}` : title;
 }
 
-/** The notification for an approval or question a turn waits on, or null for any other event. */
+const SECRET_REQUEST_PREFIX = "milagre-secret-";
+
+/**
+ * The notification for an approval or question a turn waits on, or null for any other event. A secret request's text
+ * leaves the computer through push services, so it says only that a secret is wanted, never which or for what command.
+ */
 export function attentionNotice(event, context) {
   if (event.type !== "permission-request" && event.type !== "question-request") return null;
   const agent = context.provider ? providerName(context.provider) : "Agent";
   const title = attentionTitle(context);
 
+  if (event.type === "question-request" && String(event.requestId ?? "").startsWith(SECRET_REQUEST_PREFIX))
+    return { title, body: event.secretRequest ? `${agent} asks for a secret` : `${agent} asks to use a saved secret` };
   if (event.type === "question-request") {
     const [first, ...rest] = event.questions;
     const more = rest.length ? ` (+${rest.length} more)` : "";

@@ -263,7 +263,37 @@ async function waitFor(read, description, timeout = 60000) {
   throw new Error(`timed out waiting for ${description}${last ? ` (last: ${String(last).slice(0, 300)})` : ""}`);
 }
 
+const STALE_RUN_MS = 4 * 60 * 60 * 1000;
+
+function ownedPid(state, pid) {
+  if (!alive(pid)) return false;
+  try {
+    const command = execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" });
+    return command.includes(state.repo) || command.includes(state.scratch);
+  } catch {
+    return false;
+  }
+}
+
+async function reapStaleRuns() {
+  if (!fs.existsSync(runsDir)) return;
+  for (const id of fs.readdirSync(runsDir)) {
+    if (!fs.existsSync(stateFile(id))) continue;
+    try {
+      const state = JSON.parse(fs.readFileSync(stateFile(id), "utf8"));
+      const started = Date.parse(state.startedAt) || fs.statSync(stateFile(id)).mtimeMs;
+      if (Date.now() - started < STALE_RUN_MS && fs.existsSync(state.repo)) continue;
+      state.pids = Object.fromEntries(Object.entries(state.pids).filter(([, pid]) => ownedPid(state, pid)));
+      console.log(`Stopping run ${id} (started ${state.startedAt}): runs older than 4 h or whose checkout is gone are left over.`);
+      await stop(state, { reaping: true });
+    } catch (error) {
+      console.log(`Could not stop run ${id}: ${error.message.split("\n")[0]}`);
+    }
+  }
+}
+
 async function launch(flags) {
+  await reapStaleRuns();
   if (!fs.existsSync(path.join(repo, "node_modules/electron"))) fail("node_modules is missing: run `bun install --frozen-lockfile` (or `npm ci`) first.");
   const id = typeof flags["run-id"] === "string" ? flags["run-id"] : `${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}-${process.pid}`;
   const scratch = path.join(runsDir, id);
@@ -659,7 +689,7 @@ async function stop(state, flags) {
   console.log(left.length ? `STILL ALIVE: ${JSON.stringify(left)}` : "all run processes stopped");
   if (ports.length) console.log(`ports still listening: ${ports.join(", ")}`);
   console.log(`evidence kept at ${state.evidence}`);
-  if (left.length) process.exit(1);
+  if (left.length && !flags.reaping) process.exitCode = 1;
 }
 
 async function snapshot(state, name) {
@@ -767,7 +797,7 @@ async function main() {
       state.pids.phoneHost = spawnLogged(
         process.execPath,
         [path.join(repo, "scripts/mobile-host.cjs"), "--data-dir", hostDir, "--desktop-data-dir", state.profile, "--port", String(port), "--no-qr"],
-        { cwd: state.scratch, env: cleanEnv({}), logFile },
+        { cwd: state.scratch, env: cleanEnv({ MILAGRE_DEV_PLAIN_SECRETS: "1" }), logFile },
       );
       state.phonePort = port;
       saveState(state);

@@ -312,7 +312,7 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
   return (
     <AnimatePresence>
       {section && (
-        <TerminalSlide key="terminals" height={height}>
+        <TerminalSlide key="terminals" height={height} instant={!!staged}>
           {section}
         </TerminalSlide>
       )}

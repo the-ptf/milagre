@@ -154,6 +154,7 @@ export function BrowserPanel({
           panel="browser"
           label="Resize browser"
           width={full ? null : width}
+          instant={!!staged}
           reserve="--browser-dock"
           role="region"
           aria-label="Browser"

@@ -8,8 +8,10 @@ import {
   contextWindowFor,
   familySlug,
   resolveAntigravityModel,
+  runChoices,
   splitModelName,
 } from "./model-options.ts";
+import type { ModelOption } from "./model.ts";
 
 test("Antigravity's per-level models group into one family per name, levels as efforts", () => {
   const families = antigravityFamilies(ANTIGRAVITY_AGENT_OPTIONS);
@@ -121,4 +123,23 @@ test("each model's context window: 1M Claude from Opus 4.7 on, 200K before it, 2
   assert.equal(window("codex", "gpt-6.1-sol"), 272_000);
   assert.equal(window("antigravity", "gemini-3.1-pro"), 1_048_576);
   assert.equal(window("antigravity", "claude-sonnet-4-6"), undefined);
+});
+
+test("a message's run choices: the model and mode as picked, effort, Ultracode and fast mode only where the model has them", () => {
+  const opus = { id: "claude-opus-5-5", provider: "claude", label: "Opus 5.5" } as ModelOption;
+  const haiku = { id: "claude-haiku-5-5", provider: "claude", label: "Haiku 5.5" } as ModelOption;
+  const picks = { permissionMode: "ask", effort: "max", ultracode: true, fastMode: true } as const;
+  const style = { claudeReplies: "concise", tldrEnabled: true } as const;
+  assert.deepEqual(runChoices(opus, null, picks, style), {
+    provider: "claude",
+    model: "claude-opus-5-5",
+    permissionMode: "ask",
+    effort: "max",
+    ultracode: true,
+    fastMode: true,
+    replies: "concise",
+    tldrEnabled: true,
+  });
+  const lean = runChoices(haiku, null, picks, style);
+  assert.deepEqual([lean.effort, lean.ultracode, lean.fastMode], [undefined, false, false]);
 });

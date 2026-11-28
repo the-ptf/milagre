@@ -612,12 +612,7 @@ async function startDesktop() {
     safeStorage,
     invoke: (method, args) => runtime.invoke(method, args),
   });
-  void runtime
-    .invoke("computers:vault-status")
-    .then((status) => {
-      if (status.hasVault || status.needsLegacyImport) return computerUnlock.prepare();
-    })
-    .catch((error) => console.warn("Computer credentials:", error.message));
+  void computerUnlock.prepare().catch((error) => console.warn("Computer credentials:", error.message));
   ipcMain.handle("floating-inbox:snapshot", async () => {
     const listed = (computerId) => (item) => !hiddenChats.isHidden(qualifyKey(computerId, item.key));
     const local = await runtime.invoke("chat:inbox", []);

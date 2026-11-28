@@ -29,10 +29,11 @@ export function activityContent({ chats = [], pending = [], now = Date.now(), mo
       questions.findIndex((q) => !first.answers?.[q.id]?.length),
     );
     const q = questions[index];
+    const secret = Boolean(q?.secret) || String(first.request?.requestId ?? "").startsWith("milagre-secret-");
     const labels = (q?.options ?? []).slice(0, 2).map((option, i) => ({ index: i, label: String(option.label).replace(recommendation, "") }));
     const canAnswer =
       !!q &&
-      !q.secret &&
+      !secret &&
       !q.multiSelect &&
       Array.from(String(q.question ?? "")).length <= 120 &&
       labels.length > 0 &&
@@ -40,7 +41,7 @@ export function activityContent({ chats = [], pending = [], now = Date.now(), mo
     question = {
       target: first.target,
       title: short(first.title, 60) || "Chat",
-      text: first.kind === "approval" ? "Approval needed in Chat" : q?.secret ? "Input needed in Chat" : short(q?.question, 120) || "Input needed in Chat",
+      text: first.kind === "approval" ? "Approval needed in Chat" : secret ? "Input needed in Chat" : short(q?.question, 120) || "Input needed in Chat",
       position: index + 1,
       total: Math.max(1, questions.length),
       choices: canAnswer ? labels : [],

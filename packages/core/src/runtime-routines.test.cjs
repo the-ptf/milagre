@@ -186,6 +186,33 @@ test("a Routine an older app creates or runs with its AI sharing consent version
   assert.equal((await f.list())[0].prompt, "Triage again");
 });
 
+test("an agent in Full permission pauses and resumes a Routine of another Project open in Milagre", async (t) => {
+  const f = await fixture(t);
+  const other = path.join(f.dir, "other");
+  await fs.mkdir(other);
+  execFileSync("git", ["init", "-qb", "main", other]);
+  await f.runtime.openProject(other);
+  const { routine } = await f.runtime.invoke("routines:create", [
+    {
+      name: "Nightly",
+      prompt: "Look",
+      trigger: { kind: "schedule", cron: "0 8 * * *", timezone: "UTC" },
+      target: { kind: "new-chat", projectPath: other, workspace: "worktree" },
+    },
+  ]);
+  assert.equal((await runTool(f.tool("routine_list"), {})).text, "No Routines in this Project.");
+  const listed = await runTool(f.tool("routine_list"), { projectPath: other });
+  assert.match(listed.text, new RegExp(`^${routine.id} · Nightly · `));
+  const paused = await runTool(f.tool("routine_update"), { id: routine.id, projectPath: other, enabled: false });
+  assert.equal(paused.isError, false, paused.text);
+  assert.equal((await f.list())[0].enabled, false);
+  assert.equal((await runTool(f.tool("routine_update"), { id: routine.id, projectPath: other, enabled: true })).isError, false);
+  assert.equal((await f.list())[0].enabled, true);
+  const unknown = await runTool(f.tool("routine_list"), { projectPath: path.join(f.dir, "nowhere") });
+  assert.equal(unknown.isError, true);
+  assert.match(unknown.text, /outside scope until opened in Milagre/);
+});
+
 test("a heartbeat an agent sets fires into its Chat, and a (pass) reply ends quiet", async (t) => {
   const f = await fixture(t);
   const created = await runTool(f.tool("heartbeat_create"), { name: "Babysit", prompt: "Check CI on PR 77", every: "5m" });

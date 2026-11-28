@@ -162,6 +162,7 @@ function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () =>
       if (method === "computers:list") return { ...result, enabled };
       return result;
     },
+    masterKey: () => vault.masterKey(),
     setFocused: (value) => computers.setFocused(value),
     remote: {
       list: () => (enabled ? computers.list().map((computer) => ({ id: computer.id, name: computer.name, online: computer.state === "online" })) : []),

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canvasAttention, canvasFilterCounts, canvasStatus, canvasWorktrees, matchesCanvasFilter, type CanvasMark } from "./canvas.ts";
-import type { AgentSession, CoordinatorState, Worktree } from "./model.ts";
+import { canvasAttention, canvasFilterCounts, canvasLive, canvasStatus, canvasWorktrees, matchesCanvasFilter, type CanvasMark } from "./canvas.ts";
+import type { AgentSession, ChatStep, CoordinatorState, PermissionRequest, QuestionRequest, Worktree } from "./model.ts";
 
 const worktree = (id: number, name: string, extra: Partial<Worktree> = {}): Worktree => ({ id, project_id: 1, path: `/repo/${name}`, name, ...extra });
 const session = (id: number, worktree_id: number, extra: Partial<AgentSession> = {}): AgentSession => ({
@@ -124,4 +124,39 @@ test("the filter keeps chats that need you or are running, and counts them", () 
   assert.equal(matchesCanvasFilter("unread", "running"), false);
   assert.equal(matchesCanvasFilter("idle", "all"), true);
   assert.deepEqual(canvasFilterCounts([chats(["waiting", "idle"]), chats(["running", "question", "delegated"])]), { all: 5, "needs-you": 2, running: 2 });
+});
+
+const step = (id: string, extra: Partial<ChatStep> = {}): ChatStep => ({ id, kind: "read", title: `Read \`${id}.ts\``, status: "done", ...extra });
+const approval = (requestId: string): PermissionRequest => ({ requestId, kind: "command", title: "Run a command?" }) as PermissionRequest;
+const question = (requestId: string): QuestionRequest => ({ requestId, questions: [] }) as unknown as QuestionRequest;
+const live = (extra: Partial<Parameters<typeof canvasLive>[0] & object> = {}) => ({ steps: [], approvals: [], questions: [], answered: {}, ...extra });
+
+test("a card without a turn shows nothing live", () => {
+  assert.equal(canvasLive(undefined), undefined);
+});
+
+test("a running turn shows the step under way, as the Chat's running label says it", () => {
+  const steps = [
+    step("a"),
+    step("think", { kind: "thinking", title: "Thinking" }),
+    step("test", { kind: "shell", title: "Ran `npm test`", status: "running", description: "Running the unit tests" }),
+  ];
+  assert.deepEqual(canvasLive(live({ steps })), { step: "Running the unit tests" });
+  assert.deepEqual(canvasLive(live({ steps: steps.slice(0, 2) })), {});
+});
+
+test("the card waits on the oldest approval, then the oldest question, and counts the rest", () => {
+  const pending = canvasLive(live({ approvals: [approval("p1"), approval("p2")], questions: [question("q1")] }))?.pending;
+  assert.equal(pending?.kind, "approval");
+  assert.equal(pending?.request.requestId, "p1");
+  assert.equal(pending?.more, 2);
+  const asked = canvasLive(live({ questions: [question("q1"), question("q2")] }))?.pending;
+  assert.deepEqual([asked?.kind, asked?.request.requestId, asked?.more], ["question", "q1", 1]);
+});
+
+test("a request already answered, while the agent takes it, is not waiting any more", () => {
+  const run = live({ approvals: [approval("p1")], questions: [question("q1")], answered: { p1: "allow" } });
+  const pending = canvasLive(run)?.pending;
+  assert.deepEqual([pending?.kind, pending?.request.requestId, pending?.more], ["question", "q1", 0]);
+  assert.equal(canvasLive({ ...run, answered: { p1: "allow", q1: "answered" } })?.pending, undefined);
 });

@@ -18,6 +18,7 @@ const { routineTargets } = require("./targets.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
 const { createPullRequestPoller } = require("./pr-poller.cjs");
 const { readPullRequestSnapshot } = require("./pull-request-watch.cjs");
+const { flowAutopilot } = require("./flow-autopilot.cjs");
 const { DEFAULT_SIGNING_HEADER, hookIdOf, newHookSecret, hookUrl, verifySignature, webhookPrompt } = require("./webhook.cjs");
 
 const WEBHOOK_LATER = "Webhook Routines arrive in a later update.";
@@ -406,6 +407,17 @@ function routineChats({
   };
 }
 
+/** `get()`, or null when it throws: an integration that isn't set up yet. */
+function orNull(get) {
+  return () => {
+    try {
+      return get() ?? null;
+    } catch {
+      return null;
+    }
+  };
+}
+
 function createRoutines({
   file,
   chats,
@@ -470,13 +482,7 @@ function createRoutines({
     poller?.sync();
     prPoller?.sync();
   };
-  const hooksNow = () => {
-    try {
-      return getHooks() ?? null;
-    } catch {
-      return null;
-    }
-  };
+  const hooksNow = orNull(getHooks);
   const checkTarget = routineTargets({ projects, openState });
   const routineChatsView = routineChats({
     chats,
@@ -520,13 +526,8 @@ function createRoutines({
     ...(timers.clearInterval ? { clearInterval: timers.clearInterval } : {}),
     onChange: changed,
   });
-  const linearNow = () => {
-    try {
-      return getLinear() ?? null;
-    } catch {
-      return null;
-    }
-  };
+  const autopilotPorts = flowAutopilot({ store, scheduler, changed, actions: flowActions });
+  const linearNow = orNull(getLinear);
   poller = createLinearPoller({
     linear: linearNow,
     store,
@@ -710,20 +711,13 @@ function createRoutines({
   }
 
   return {
-    definitions: (chatId) =>
-      [...tools.definitions(chatId, { babysitOnly: isLinkScopeKey(projectOfKey(chatId)) }), ...(startedByRoutine(chatId) ? [flowOutputTool(chatId)] : [])]
+    definitions: (chatId, reachProject) =>
+      [
+        ...tools.definitions(chatId, { babysitOnly: isLinkScopeKey(projectOfKey(chatId)), reachProject }),
+        ...(startedByRoutine(chatId) ? [flowOutputTool(chatId)] : []),
+      ]
         .filter((tool) => !startedByRoutine(chatId) || !WITHHELD.has(tool.name))
-        .map((tool) => {
-          const { run } = tool;
-          tool.run = async (input) => {
-            try {
-              return await run(input);
-            } finally {
-              if (!tool.readOnly) changed();
-            }
-          };
-          return tool;
-        }),
+        .map((tool) => ({ ...tool, run: (input) => tool.run(input).finally(tool.readOnly ? undefined : changed) })),
     observe(chatId, event) {
       try {
         scheduler.observe(chatId, event);
@@ -815,6 +809,7 @@ function createRoutines({
       changed();
       return { run };
     },
+    ...autopilotPorts,
     async flowTest(id) {
       if (typeof id !== "string" || !id) throw new Error("Choose a Routine.");
       const run = await scheduler.flowTest(id);

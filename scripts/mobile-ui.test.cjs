@@ -631,7 +631,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // Starting from a Linear or GitHub issue (issue-start.mjs, github-issue.mjs) is pure; whether GitHub is offered asks the computer.
       if (["@milagre/shared/issue-start", "@milagre/shared/github-issue"].includes(id) && !(id in modules)) return require(id);
       if (base === "use-github-issues" && !(id in modules)) return { useGithubIssuesAvailable: () => false };
-      if (base === "issue-card" && !(id in modules)) return { IssueCard: "IssueCard" };
+      if (base === "issue-card" && !(id in modules)) return { IssueCard: "IssueCard", openLinearIssue() {} };
+      // Paradise and the Artifact in the ⋯ menu ask the computer for the Chat's pages; UI tests list none.
+      if (base === "chat-artifact-shortcuts" && !(id in modules)) return { useArtifactShortcuts: () => ({ items: [], select: () => false }) };
       if (base === "chat-done" && !(id in modules)) return require("../apps/mobile/src/chat-done.ts");
       // A validation note's card has its own test; the Chat renders it by name and reads labels from plain logic.
       if (id === "@milagre/shared/validation" && !(id in modules)) return require(id);
@@ -664,6 +666,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@milagre/shared/orchestrator" && !(id in modules)) return require("@milagre/shared/orchestrator");
       if (id === "@milagre/shared/provider-capabilities" && !(id in modules)) return require("@milagre/shared/provider-capabilities");
       if (id === "@milagre/shared/providers" && !(id in modules)) return require("@milagre/shared/providers");
+      if (id === "@milagre/shared/secrets" && !(id in modules)) return require("@milagre/shared/secrets");
       // Message search across a computer's Projects: one host request per computer while the sidebar search has text.
       if (base === "host-search" && !(id in modules)) return load("host-search.ts", modules, "", cache);
       // Message search's copy and row details are plain logic shared with the desktop.
@@ -15208,6 +15211,7 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
           ["Usage", ""],
           ["Skills", ""],
           ["Connectors", ""],
+          ["Secrets", ""],
         ],
       ],
       ["Code on Studio", [["Worktrees", ""]]],
@@ -15246,6 +15250,7 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
     "usage",
     "skills",
     "mcp",
+    "secrets",
     "worktrees",
     "phone-sharing",
     "this-mac",

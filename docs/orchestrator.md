@@ -52,6 +52,11 @@ routing, so later settings edits, rerouting, account fallback and placement on a
 requirement. The receiving computer keeps the sender's outcome while using its own autopilot settings. Agents can
 change the default through `orchestrator_outcome`, backed by `orchestrator:settings:save` like both Settings screens.
 
+Completion › Permission mode sets the mode new task Chats run in: Ask, Auto or Full, or **Same as new Chats** (the
+default), which takes the sending device's default and Auto when an agent sends. `send` resolves it once, so a task
+placed on another computer keeps the sender's mode. There is no MCP tool for it: an agent must not raise the mode of
+the tasks it starts.
+
 Every provider receives the outcome in its task prompt. The board verifies PR state through the host's GitHub reads;
 a URL in a reply alone is insufficient. Ending a turn cannot bypass a PR requirement: missing PR evidence puts
 finished work in Needs you, an open PR satisfies PR created but stays In review for PR merged, and a closed, unmerged
@@ -72,7 +77,10 @@ Without available PR evidence (including an unavailable computer), the board can
 
 ## Autopilot
 
-`orchestrator/autopilot.cjs` watches approvals and questions in task Chats only. Anything `isIrreversible` (merging,
+`orchestrator/autopilot.cjs` watches approvals and questions in task Chats and Routine Run Chats, and the approval steps of
+flow Runs (`routines/flow-autopilot.cjs` hooks the flow's "waits for you" notice). In a Run, anything about design or UI waits
+for the owner (`isDesignDecision`, then the router model's `design` verdict), so a flow only stops on taste and on what can't
+be undone. A planned flow approval shows on the step until it lands; the step then says "Approved by autopilot". Anything `isIrreversible` (merging,
 pushing to main or with force, deleting, deploying, publishing, paying, messaging someone) always waits for the owner.
 Otherwise confidence and the owner's trust for that kind of decision pick: answer now, answer after the veto window, or ask.
 A question is answered only with its listed options. The owner stepping in during the veto window cancels the answer and

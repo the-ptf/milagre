@@ -3,13 +3,16 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { browserPageToolDefinitions } = require("./chat-browser-tools.cjs");
+const { browserPageToolDefinitions, useLogins } = require("./chat-browser-tools.cjs");
 const { runTool } = require("./linked-tools.cjs");
 
 const TARGET = { id: `panel-${"a".repeat(24)}:${"A".repeat(32)}`, title: "Checkout", url: "http://localhost:5173/", source: "panel" };
 
+let loaders = 0;
+
 function fakeSession() {
   const sent = [];
+  const page = { loader: `loader-${++loaders}`, context: loaders };
   const listeners = new Set();
   const replies = {
     "Accessibility.getFullAXTree": () => ({
@@ -21,32 +24,52 @@ function fakeSession() {
         { nodeId: "5", parentId: "3", role: { value: "textbox" }, name: { value: "Card number" }, value: { value: "4242" }, backendDOMNodeId: 11 },
       ],
     }),
-    "Runtime.evaluate": (params) =>
-      params.expression.startsWith("JSON.stringify([document.title")
+    "Runtime.evaluate": ({ expression: sent }) => replies.evaluated(sent.replace(/^if \(document\.documentElement[^\n]*\n/, "")),
+    evaluated: (expression) =>
+      expression.startsWith("JSON.stringify([document.title")
         ? { result: { value: JSON.stringify(["Checkout", "http://localhost:5173/"]) } }
-        : params.expression.includes("innerText.includes")
+        : expression.includes("innerText.includes")
           ? { result: { value: true } }
-          : { result: { value: params.expression === "1 + 1" ? 2 : undefined } },
+          : { result: { value: expression === "1 + 1" ? 2 : undefined } },
     "DOM.getBoxModel": () => ({ model: { content: [10, 20, 110, 20, 110, 60, 10, 60], border: [8, 18, 112, 18, 112, 62, 8, 62] } }),
-    "DOM.resolveNode": () => ({ object: { objectId: "obj-1" } }),
-    "Runtime.callFunctionOn": () => ({ result: { value: "Visa" } }),
+    "DOM.getDocument": () => ({ root: { nodeId: 1, backendNodeId: 1 } }),
+    "DOM.resolveNode": (params) => ({ object: { objectId: params.executionContextId === undefined ? "obj-1" : `document-in-${params.executionContextId}` } }),
+    "Runtime.callFunctionOn": (params) =>
+      params.functionDeclaration.includes("this === document")
+        ? { result: { value: params.objectId === `document-in-${page.context}` } }
+        : { result: { value: "Visa" } },
     "Page.captureScreenshot": () => ({ data: "iVBORw0KGgo=" }),
+    "Page.getFrameTree": () => ({ frameTree: { frame: { id: "top", loaderId: page.loader } } }),
     "Page.navigate": () => ({}),
   };
-  return {
+  const session = {
     sent,
+    page,
+    navigate() {
+      session.emit("Runtime.executionContextDestroyed", { executionContextId: page.context });
+      page.loader = `loader-${++loaders}`;
+      page.context = loaders;
+      session.emit("Runtime.executionContextCreated", {
+        context: { id: page.context, uniqueId: `unique-${page.context}`, auxData: { isDefault: true, frameId: "top" } },
+      });
+    },
     closed: false,
     emit: (method, params) => listeners.forEach((listener) => listener(method, params)),
     on: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
     send: async (method, params = {}) => {
       sent.push([method, params]);
+      if (method === "Runtime.enable")
+        session.emit("Runtime.executionContextCreated", {
+          context: { id: page.context, uniqueId: `unique-${page.context}`, auxData: { isDefault: true, frameId: "top" } },
+        });
       return replies[method]?.(params) ?? {};
     },
     close() {},
   };
+  return session;
 }
 
-function fixture({ roots = [], files, listError, listErrorOnCall } = {}) {
+function fixture({ roots = [], files, listError, listErrorOnCall, panel = true } = {}) {
   const session = fakeSession();
   const state = {};
   const opened = [];
@@ -58,7 +81,7 @@ function fixture({ roots = [], files, listError, listErrorOnCall } = {}) {
     devtools: async ({ chatId, page }) => {
       assert.equal(chatId, "/p#1", "tools act for their own Chat only");
       if (page && page !== TARGET.id) throw new Error("That page is not in this Chat.");
-      return { target: TARGET, session, state, ...(files ? { files } : {}) };
+      return { target: TARGET, session, state, panel, ...(files ? { files } : {}) };
     },
     list: async () => {
       listCalls++;
@@ -159,6 +182,24 @@ test("click presses the middle of the element; an unknown ref asks for a new sna
   // A navigation makes every ref stale.
   f.session.emit("Page.frameNavigated", { frame: { id: "main" } });
   assert.match((await f.run("browser_click", { ref: "@e3" })).text, /take a new browser_snapshot/);
+});
+
+test("type sends one character at a time, so a code field split into one box per digit fills every box", async () => {
+  const f = fixture();
+  // Six maxlength=1 boxes; each box's input handler moves the focus to the next one, as sign-in pages do.
+  const boxes = ["", "", "", "", "", ""];
+  let focused = 0;
+  const send = f.session.send;
+  f.session.send = async (method, params) => {
+    if (method === "Input.insertText" && focused < boxes.length) boxes[focused++] = params.text.slice(0, 1);
+    return send(method, params);
+  };
+  await f.run("browser_type", { text: "123456" });
+  assert.deepEqual(boxes, ["1", "2", "3", "4", "5", "6"]);
+  // A character drawn from several code points still reaches the page whole.
+  await f.run("browser_type", { text: "é👍🏽" });
+  const inserted = f.session.sent.filter(([method]) => method === "Input.insertText").map(([, params]) => params.text);
+  assert.deepEqual(inserted.slice(-2), ["é", "👍🏽"]);
 });
 
 test("fill types the text into the field; select picks an option by text", async () => {
@@ -304,4 +345,185 @@ test("a click that opens no picker says so, and stops catching pickers", async (
     f.session.sent.filter(([method]) => method === "Page.setInterceptFileChooserDialog").map(([, params]) => params.enabled),
     [true, false],
   );
+});
+
+test("the agent's script and a filled login never share a page load", async (t) => {
+  useLogins({ resolve: async () => ({ origin: "http://localhost:5173", username: "me", password: "local-pass-123456" }) });
+  t.after(() => useLogins(null));
+  const f = fixture();
+  const send = f.session.send;
+  f.session.send = async (method, params = {}) => {
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 9 };
+    if (method === "Runtime.callFunctionOn" && params.arguments?.length === 3) return { result: { value: { filled: true } } };
+    return send(method, params);
+  };
+  const fill = { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } };
+  await f.run("browser_snapshot");
+  assert.equal((await f.run("browser_evaluate", { expression: "1 + 1" })).text, "2");
+  assert.match((await f.run("browser_fill", fill)).text, /agent's script ran on this page/);
+  f.session.navigate();
+  await f.run("browser_snapshot");
+  assert.doesNotMatch((await f.run("browser_fill", fill)).text, /script ran|couldn't/);
+  assert.match((await f.run("browser_evaluate", { expression: "1 + 1" })).text, /saved login was filled on this page/);
+  f.session.navigate();
+  assert.equal((await f.run("browser_evaluate", { expression: "1 + 1" })).text, "2");
+});
+
+test("a script started while a login is being filled is refused, and a refused fill frees the page again", async (t) => {
+  let resolveLogin;
+  let asked;
+  const resolving = new Promise((resolve) => (asked = resolve));
+  useLogins({
+    resolve: () =>
+      new Promise((resolve) => {
+        resolveLogin = resolve;
+        asked();
+      }),
+  });
+  t.after(() => useLogins(null));
+  const f = fixture();
+  const send = f.session.send;
+  let fills = 0;
+  f.session.send = async (method, params = {}) => {
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 9 };
+    if (method === "Runtime.callFunctionOn" && params.arguments?.length === 3)
+      return { result: { value: ++fills === 1 ? { filled: true } : { problem: "The password goes only into a password field." } } };
+    return send(method, params);
+  };
+  await f.run("browser_snapshot");
+  const filling = f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } });
+  await resolving;
+  assert.match((await f.run("browser_evaluate", { expression: "1 + 1" })).text, /saved login was filled on this page/, "the page is held from the first await");
+  resolveLogin({ origin: "http://localhost:5173", username: "me", password: "local-pass-123456" });
+  await filling;
+  f.session.navigate();
+  await f.run("browser_snapshot");
+  useLogins({ resolve: async () => ({ origin: "http://localhost:5173", username: "me", password: "local-pass-123456" }) });
+  assert.match((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /only into a password field/);
+  assert.equal((await f.run("browser_evaluate", { expression: "1 + 1" })).text, "2", "nothing was filled, so the page is free");
+});
+
+test("a fill that fails never frees a page another fill has filled", async (t) => {
+  let releaseFirst;
+  let firstAsked;
+  const asked = new Promise((resolve) => (firstAsked = resolve));
+  let calls = 0;
+  const login = { origin: "http://localhost:5173", username: "me", password: "local-pass-123456" };
+  useLogins({
+    resolve: () => {
+      if (++calls > 1) return Promise.resolve(login);
+      firstAsked();
+      return new Promise((_resolve, reject) => (releaseFirst = () => reject(new Error("The vault is locked."))));
+    },
+  });
+  t.after(() => useLogins(null));
+  const f = fixture();
+  const send = f.session.send;
+  f.session.send = async (method, params = {}) => {
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 9 };
+    if (method === "Runtime.callFunctionOn" && params.arguments?.length === 3) return { result: { value: { filled: true } } };
+    return send(method, params);
+  };
+  await f.run("browser_snapshot");
+  const first = f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "username" } });
+  await asked;
+  assert.doesNotMatch((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /locked|couldn't/);
+  releaseFirst();
+  assert.match((await first).text, /vault is locked/);
+  assert.match((await f.run("browser_evaluate", { expression: "1 + 1" })).text, /saved login was filled on this page/);
+});
+
+test("a fill whose outcome is unknown counts as filled, and the rule stays with the document across a new debugger connection", async (t) => {
+  useLogins({ resolve: async () => ({ origin: "http://localhost:5173", username: "me", password: "local-pass-123456" }) });
+  t.after(() => useLogins(null));
+  const f = fixture();
+  const send = f.session.send;
+  f.session.send = async (method, params = {}) => {
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 9 };
+    if (method === "Runtime.callFunctionOn" && params.arguments?.length === 3) throw new Error("Runtime.callFunctionOn timed out");
+    return send(method, params);
+  };
+  await f.run("browser_snapshot");
+  assert.match((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /timed out/);
+  assert.match((await f.run("browser_evaluate", { expression: "1 + 1" })).text, /saved login was filled on this page/, "the value may be there");
+  const reconnected = fixture();
+  reconnected.session.page.loader = f.session.page.loader;
+  assert.match(
+    (await reconnected.run("browser_evaluate", { expression: "1 + 1" })).text,
+    /saved login was filled on this page/,
+    "a new connection to the same document",
+  );
+  reconnected.session.navigate();
+  assert.equal((await reconnected.run("browser_evaluate", { expression: "1 + 1" })).text, "2");
+});
+
+test("a script that ends on another document marks that document too, so no login is filled under it", async (t) => {
+  useLogins({ resolve: async () => ({ origin: "http://localhost:5173", username: "me", password: "local-pass-123456" }) });
+  t.after(() => useLogins(null));
+  const f = fixture();
+  const send = f.session.send;
+  f.session.send = async (method, params = {}) => {
+    if (method === "Runtime.evaluate" && params.expression.endsWith("\nlocation.reload()")) {
+      f.session.navigate();
+      return { result: { value: null } };
+    }
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 9 };
+    if (method === "Runtime.callFunctionOn" && params.arguments?.length === 3) return { result: { value: { filled: true } } };
+    return send(method, params);
+  };
+  await f.run("browser_snapshot");
+  await f.run("browser_evaluate", { expression: "location.reload()" });
+  assert.match((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /agent's script ran on this page/);
+  f.session.navigate();
+  await f.run("browser_snapshot");
+  assert.doesNotMatch((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /script|couldn't/);
+});
+
+test("the agent's script refuses by itself, in the same turn, in a document a login was filled in", async () => {
+  const { MARK, FILL } = require("./browser-login-fill.cjs");
+  const f = fixture();
+  await f.run("browser_evaluate", { expression: "1 + 1" });
+  const [, sent] = f.session.sent.findLast(([method]) => method === "Runtime.evaluate");
+  assert.equal(sent.expression.split("\n").at(-1), "1 + 1", "the agent's code runs as written");
+  assert.match(sent.expression.split("\n")[0], new RegExp(`hasAttribute\\("${MARK}"\\)\\) throw`));
+  assert.ok(FILL.includes(MARK), "a fill stamps the top document");
+});
+
+test("a navigation while the agent's script is starting stops it, and it runs only in the context of the document checked", async (t) => {
+  useLogins({ resolve: async () => ({ origin: "http://localhost:5173", username: "me", password: "local-pass-123456" }) });
+  t.after(() => useLogins(null));
+  const f = fixture();
+  const send = f.session.send;
+  let moveOnce = false;
+  f.session.send = async (method, params = {}) => {
+    if (method === "DOM.getDocument" && moveOnce) {
+      moveOnce = false;
+      f.session.navigate();
+    }
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 99 };
+    if (method === "Runtime.callFunctionOn" && params.arguments?.length === 3) return { result: { value: { filled: true } } };
+    return send(method, params);
+  };
+  await f.run("browser_snapshot");
+  assert.equal((await f.run("browser_evaluate", { expression: "1 + 1" })).text, "2");
+  const [, evaluated] = f.session.sent.findLast(([method]) => method === "Runtime.evaluate");
+  assert.equal(evaluated.uniqueContextId, `unique-${f.session.page.context}`, "bound to the checked document's context by its unique id");
+  assert.equal(evaluated.contextId, undefined);
+  moveOnce = true;
+  assert.match((await f.run("browser_evaluate", { expression: "1 + 1" })).text, /page changed while the script was starting/);
+  assert.match(
+    (await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text,
+    /agent's script ran on this page/,
+    "the document it moved to counts as scripted",
+  );
+});
+
+test("a saved login is filled only on a page the Browser panel holds, whatever its id looks like", async (t) => {
+  let resolved = 0;
+  useLogins({ resolve: async () => (resolved++, { origin: "http://localhost:5173", username: "me", password: "local-pass-123456" }) });
+  t.after(() => useLogins(null));
+  const f = fixture({ panel: false });
+  await f.run("browser_snapshot");
+  assert.match((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /only in Milagre's Browser panel/);
+  assert.equal(resolved, 0, "the vault is never asked for a login another browser would get");
 });

@@ -1,3 +1,6 @@
+const { fillLogin, createLoginGuard, REFUSED } = require("./browser-login-fill.cjs");
+
+const loginGuard = createLoginGuard();
 const fs = require("node:fs");
 const path = require("node:path");
 const { z } = require("zod");
@@ -36,8 +39,16 @@ async function prepare(session, state) {
   state.ready = true;
   state.refs = new Map();
   state.console = [];
+  state.contexts = new Map();
   session.on((method, params) => {
-    if (method === "Page.frameNavigated" && !params.frame?.parentId) state.refs = new Map();
+    if (method === "Runtime.executionContextCreated" && params.context?.auxData?.isDefault)
+      state.contexts.set(params.context.auxData.frameId, { id: params.context.id, uniqueId: params.context.uniqueId });
+    if (method === "Runtime.executionContextDestroyed")
+      for (const [frame, context] of state.contexts) if (context.id === params.executionContextId) state.contexts.delete(frame);
+    if (method === "Runtime.executionContextsCleared") state.contexts.clear();
+    if (method === "Page.frameNavigated" && !params.frame?.parentId) {
+      state.refs = new Map();
+    }
     if (method === "Runtime.consoleAPICalled") {
       const text = (params.args ?? []).map((arg) => (arg.value !== undefined ? String(arg.value) : (arg.description ?? arg.type))).join(" ");
       state.console.push(`[${params.type}] ${text.slice(0, 2000)}`);
@@ -118,6 +129,7 @@ async function onElement(session, backendNodeId, fn, args = []) {
 }
 
 const settle = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const MAX_UPLOAD_FILES = 20;
 const CHOOSER_WAIT_MS = 5000;
 
@@ -146,10 +158,60 @@ async function uploadable(paths, roots) {
 
 /**
  * @param {string} chatId
- * @param {{ devtools(request: { chatId: string; page?: string }): Promise<{ target: { id: string; title: string; url: string }; session: any; state: any }>; list(request: { chatId: string }): Promise<{ targets: { id: string; url: string; source: string }[] }> }} browsers
+ * @param {{ devtools(request: { chatId: string; page?: string }): Promise<{ target: { id: string; title: string; url: string }; session: any; state: any; panel?: boolean }>; list(request: { chatId: string }): Promise<{ targets: { id: string; url: string; source: string }[] }> }} browsers
  * @param {{ openInPanel(chatId: string, url: string): void; closePage?(chatId: string, targetId: string): Promise<unknown>; closeAll?(chatId: string): Promise<unknown> }} panel
  * @param {{ roots(): Promise<string[]>; chooserWaitMs?: number }} [uploads] the folders browser_upload may send files from
  */
+function browserFillTool(chatId, on, done) {
+  return {
+    name: "browser_fill",
+    description:
+      "Replace the text of an input or text area by its ref with `text`, firing the input events a framework listens for. To sign in with a saved login, pass `login` instead of `text`: its name from secrets_list and the field (username or password). Milagre fills it only on a Browser panel page, only into a field on the login's own site, and never returns it.",
+    input: {
+      page,
+      ref,
+      text: z.string().max(20000).optional(),
+      login: z.object({ name: z.string().min(1).max(64), field: z.enum(["username", "password"]) }).optional(),
+    },
+    readOnly: false,
+    run: async (input) => {
+      if ((input.text === undefined) === (input.login === undefined)) throw new Error("Give either text or login.");
+      const { target, session, state, panel } = await on(input);
+      const node = backendNode(state, input.ref);
+      if (input.login) {
+        if (!logins) throw new Error("Saved logins aren't available on this computer.");
+        if (panel !== true)
+          throw new Error(
+            "A saved login is filled only in Milagre's Browser panel, which keeps pages from opening windows that could read it. Open the page there with browser_open.",
+          );
+        await loginGuard.fill(session, target, async (unknownOutcome) => {
+          const login = await logins.resolve(chatId, input.login.name);
+          await fillLogin({ session, node, login, field: input.login.field }).catch((error) => {
+            if (error.code !== REFUSED) unknownOutcome();
+            throw error;
+          });
+        });
+        return done(target);
+      }
+      await session.send("DOM.focus", { backendNodeId: node }).catch(() => {});
+      await onElement(
+        session,
+        node,
+        `function () {
+        this.focus();
+        if ("value" in this) {
+          const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(this), "value")?.set;
+          if (setter) setter.call(this, ""); else this.value = "";
+          this.dispatchEvent(new Event("input", { bubbles: true }));
+        } else if (this.isContentEditable) this.textContent = "";
+      }`,
+      );
+      if (input.text) await session.send("Input.insertText", { text: input.text });
+      return done(target);
+    },
+  };
+}
+
 function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: async () => [] }) {
   const on = async (input) => {
     const found = await browsers.devtools({ chatId, page: input.page });
@@ -268,31 +330,7 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
         return done(target);
       },
     },
-    {
-      name: "browser_fill",
-      description: "Replace the text of an input or text area by its ref with `text`, firing the input events a framework listens for.",
-      input: { page, ref, text: z.string().max(20000) },
-      readOnly: false,
-      run: async (input) => {
-        const { target, session, state } = await on(input);
-        const node = backendNode(state, input.ref);
-        await session.send("DOM.focus", { backendNodeId: node }).catch(() => {});
-        await onElement(
-          session,
-          node,
-          `function () {
-            this.focus();
-            if ("value" in this) {
-              const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(this), "value")?.set;
-              if (setter) setter.call(this, ""); else this.value = "";
-              this.dispatchEvent(new Event("input", { bubbles: true }));
-            } else if (this.isContentEditable) this.textContent = "";
-          }`,
-        );
-        if (input.text) await session.send("Input.insertText", { text: input.text });
-        return done(target);
-      },
-    },
+    browserFillTool(chatId, on, done),
     {
       name: "browser_upload",
       description:
@@ -385,12 +423,12 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
     },
     {
       name: "browser_type",
-      description: "Type text into whatever has the keyboard focus on the page (after browser_click on a field).",
+      description: "Type text into whatever has the keyboard focus (after browser_click on a field), one character at a time. Long text: browser_fill.",
       input: { page, text: z.string().max(20000) },
       readOnly: false,
       run: async (input) => {
         const { target, session } = await on(input);
-        await session.send("Input.insertText", { text: input.text });
+        for (const { segment } of GRAPHEMES.segment(input.text)) await session.send("Input.insertText", { text: segment });
         return done(target);
       },
     },
@@ -526,11 +564,13 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
       input: { page, expression: z.string().min(1).max(20000) },
       readOnly: false,
       run: async (input) => {
-        const { session } = await on(input);
-        const { result, exceptionDetails } = await session.send(
-          "Runtime.evaluate",
-          { expression: input.expression, returnByValue: true, awaitPromise: true },
-          30000,
+        const { session, target, state } = await on(input);
+        const { result, exceptionDetails } = await loginGuard.script(session, target, state.contexts, (uniqueContextId) =>
+          session.send(
+            "Runtime.evaluate",
+            { expression: loginGuard.expression(input.expression), uniqueContextId, returnByValue: true, awaitPromise: true },
+            30000,
+          ),
         );
         if (exceptionDetails) throw new Error(String(exceptionDetails.exception?.description ?? exceptionDetails.text ?? "The expression threw."));
         return clip(result?.value === undefined ? String(result?.description ?? "undefined") : JSON.stringify(result.value, null, 2));
@@ -539,4 +579,10 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
   ];
 }
 
-module.exports = { browserPageToolDefinitions };
+let logins = null;
+/** Where browser_fill finds saved logins: the secrets wiring registers it once the vault exists. */
+function useLogins(source) {
+  logins = source;
+}
+
+module.exports = { browserPageToolDefinitions, useLogins };

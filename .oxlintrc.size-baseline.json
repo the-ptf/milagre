@@ -118,7 +118,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 294,
+            "max": 291,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -137,7 +137,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2841,
+            "max": 2839,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -145,7 +145,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2628,
+            "max": 2624,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -252,7 +252,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 322,
+            "max": 302,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -388,29 +388,15 @@
     {
       "files": ["apps/desktop/app/src/components/routines/FlowPage.tsx"],
       "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 859,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
         "max-lines-per-function": [
           "error",
           {
-            "max": 501,
+            "max": 492,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 98]
-      }
-    },
-    {
-      "files": ["apps/desktop/app/src/components/routines/FlowRun.tsx"],
-      "rules": {
-        "complexity": ["error", 43]
+        "complexity": ["error", 96]
       }
     },
     {
@@ -529,7 +515,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 612,
+            "max": 607,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -583,7 +569,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2127,
+            "max": 2125,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -724,21 +710,13 @@
     {
       "files": ["apps/mobile/src/flow-looks.ts"],
       "rules": {
-        "complexity": ["error", 50]
+        "complexity": ["error", 48]
       }
     },
     {
       "files": ["apps/mobile/src/flow-routine.tsx"],
       "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 272,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
-        "complexity": ["error", 49]
+        "complexity": ["error", 43]
       }
     },
     {
@@ -1065,7 +1043,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 388,
+            "max": 366,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1168,7 +1146,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 510,
+            "max": 509,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1194,7 +1172,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 261,
+            "max": 259,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1254,7 +1232,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1098,
+            "max": 1091,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1262,7 +1240,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 419,
+            "max": 402,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1310,7 +1288,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1622,
+            "max": 1621,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1318,7 +1296,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 1534,
+            "max": 1532,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1432,7 +1410,7 @@
         "max-lines": [
           "error",
           {
-            "max": 908,
+            "max": 888,
             "skipBlankLines": true,
             "skipComments": true
           }

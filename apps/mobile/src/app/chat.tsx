@@ -23,7 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
-import { Keyboard, Linking, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Keyboard, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import type { NavigationProp } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -41,7 +41,7 @@ import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { LINK_PR_HINT, type LinearIssue } from "@milagre/shared/linear";
 import { worktreeShared } from "@milagre/shared/archive";
 import type { Client, OpenProject, Snapshot } from "../client";
-import { answeredQuestions, lastUserModel, projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
+import { answeredQuestions, lastUserModel, projectOfKey, secretAnswerFlag, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { pullRequestActionBody, pullRequestActionPrompt, pullRequestActionRequest } from "@milagre/shared/pr-action";
 import { issueChoiceId, issueSendFields, issueStartContext, issueStartMessage, issueWorktreeFields, type PickedIssue } from "@milagre/shared/issue-start";
 import { pickGithubIssue, pickLinearIssue } from "../issue-pickers";
@@ -158,6 +158,8 @@ import { BesideSession, touchPane } from "../beside-session";
 import { SENT_FROM } from "../sent-from";
 import { promptText } from "../text-prompt";
 import { useVisibleRunChatKeys } from "../visible-run-chats";
+import { useArtifactShortcuts } from "../chat-artifact-shortcuts";
+import { openLinearIssue } from "../issue-card";
 import {
   ChatStackOptions,
   ChatToolbar,
@@ -451,6 +453,7 @@ function ChatPane({
   const mentionState = session.snapshot?.project.state;
   const mentionLink = session.snapshot?.project.link;
   const liveRun = useRunShape(params.id && projectPath ? `${projectPath}#${params.id}` : undefined);
+  const { items: pages, select: openPage } = useArtifactShortcuts(session.client, projectPath, params.id);
   useVisibleRunChatKeys(session.client, params.id && projectPath ? [`${projectPath}#${params.id}`] : []);
   const mentionKey = JSON.stringify(mentionState && !mentionLink ? chatMentionChoices(mentionState) : []);
   const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
@@ -670,7 +673,7 @@ function ChatPane({
   const [workspaceTabsOn] = useWorkspaceTabs();
   const tabsProject = targetMatches ? session.snapshot?.project : undefined;
   const tabsWhere = workspaceTabsOn && !secondary ? tabsAt(targetHost, tabsProject, params.id ? Number(params.id) : undefined, params.worktreeId) : null;
-  useWorkspaceTabSync(workspaceTabsOn, tabsWhere, tabsProject?.state.sessions, params.id ? Number(params.id) : undefined);
+  const shownTabs = useWorkspaceTabSync(workspaceTabsOn, tabsWhere, tabsProject?.state.sessions, params.id ? Number(params.id) : undefined);
   const panels = useSidePanels({
     chatId: pending ? (pendingCanonicalId ?? pending.preview.session.id) : params.id ? Number(params.id) : undefined,
     worktreeId: targetMatches && worktreeOf ? panelWorktree(session.snapshot?.project, worktreeOf.id) : undefined,
@@ -1612,10 +1615,6 @@ function ChatPane({
   const agents = (chat?.subagents || []).filter((agent) => !agent.archived);
   const diff = worktree?.diff;
   const linearIssue: LinearIssue | undefined = worktree ? linearIssues[worktree.path] : undefined;
-  function openLinearIssue(url: string) {
-    // oxlint-disable-next-line unicorn/prefer-string-starts-ends-with -- the issue comes from the host's JSON, so url may be missing and startsWith would throw
-    if (/^https:\/\//.test(url)) void Linking.openURL(url).catch(() => {});
-  }
   const canLink =
     linearActive && !!chat && !project.link && !chatsHomeOpen && !!worktree?.path && worktree.path !== project.path && !worktreeShared(project.state, chat.id);
   const storedIssue = linearActive && !chatsHomeOpen ? worktree?.linearIssue : undefined;
@@ -1680,12 +1679,12 @@ function ChatPane({
       {family && <Icon icon={UnfoldMoreIcon} tone="ink3" size={12} />}
     </View>
   );
-  const tabsInHeader = !!tabsWhere && split.widthClass !== "compact";
+  const tabsInHeader = !!shownTabs && split.widthClass !== "compact";
   const header = tabsInHeader ? (
-    <WorkspaceTabStrip where={tabsWhere} activeChatId={chat?.id} actionCount={1 + Number(!!browserShortcut) + Number(!!pr)} />
+    <WorkspaceTabStrip where={shownTabs} activeChatId={chat?.id} actionCount={1 + Number(!!browserShortcut) + Number(!!pr)} />
   ) : (
     <>
-      <HeaderTitleBox actionCount={1 + Number(!!browserShortcut) + Number(!!pr) + Number(!!tabsWhere)}>
+      <HeaderTitleBox actionCount={1 + Number(!!browserShortcut) + Number(!!pr) + Number(!!shownTabs)}>
         {family && chat ? (
           <FamilyTitleMenu
             sessions={project.state.sessions}
@@ -1719,10 +1718,10 @@ function ChatPane({
       </HeaderTitleBox>
     </>
   );
-  const paneMenu = chatPaneMenu({ chatsHomeOpen, diff, chat, run, ownRoutine, ownHeartbeat, linearIssue, linkHint, agents, busy, canLink, storedIssue });
+  const paneMenu = chatPaneMenu({ chatsHomeOpen, diff, chat, run, ownRoutine, ownHeartbeat, linearIssue, linkHint, agents, busy, canLink, storedIssue, pages });
   const headerActions = (
     <HeaderActionGroup>
-      {tabsWhere && !tabsInHeader && <TabCountAction where={tabsWhere} onPress={panels.showTabs} />}
+      {shownTabs && !tabsInHeader && <TabCountAction where={shownTabs} onPress={panels.showTabs} />}
       {browserShortcut && (
         <HeaderAction
           label={browserShortcut.accessibilityLabel}
@@ -1734,12 +1733,12 @@ function ChatPane({
         />
       )}
       {pr && <HeaderAction label={`Pull request #${pr.number}`} icon={GitPullRequestIcon} iconSize={24} onPress={() => headerAction("pr")} />}
-      <PullDown label="Chat actions" sections={paneMenu} onSelect={headerAction}>
+      <PullDown label="Chat actions" sections={paneMenu} onSelect={(id) => void (openPage(id) || headerAction(id))}>
         <HeaderAction label="Chat actions" icon={MoreHorizontalIcon} />
       </PullDown>
     </HeaderActionGroup>
   );
-  const more = <ChatToolbar shape={`${!!browserShortcut}|${!!pr}|${!!tabsWhere}`}>{headerActions}</ChatToolbar>;
+  const more = <ChatToolbar shape={`${!!browserShortcut}|${!!pr}|${!!shownTabs}`}>{headerActions}</ChatToolbar>;
   const paneHeader = paired ? (
     <View
       pointerEvents="box-none"
@@ -1907,7 +1906,7 @@ function ChatPane({
         void action(async () => {
           const uploaded = await prepareAnswerImages(client, projectOfKey(chatId), images);
           const accepted = await client.call("agent:answer-question", [
-            { chatId, requestId: question.requestId, answers, summary, ...(uploaded ? { images: uploaded } : {}) },
+            { chatId, requestId: question.requestId, answers, summary, ...(uploaded ? { images: uploaded } : {}), ...secretAnswerFlag(question) },
           ]);
           if (!accepted) throw new Error("This question is no longer pending. Refresh the Chat.");
         }, true).then((ok) => {

@@ -307,12 +307,15 @@ async function browserChecks() {
       false,
       "New Chat replaces the New tab with a draft",
     );
+    await evaluate(`window.show(null)`);
+    assert.equal((await tabs()).at(-1), "draft*", "drafting a new Chat beside open tabs shows a New Chat tab");
+    await screenshot("draft");
     await evaluate(`window.show(3)`);
     await evaluate(`window.archive(3)`);
     await expectTabs([], "an archived Chat's tab closes, with its pages");
     await evaluate(`window.show(null)`);
-    await expectTabs(["draft*"], "drafting a new Chat shows a New Chat tab");
-    await screenshot("draft");
+    await waitFor(`!document.querySelector("[data-workspace-tabs]")`);
+    assert.equal(await evaluate(`document.querySelector("[data-workspace-tabs]") === null`), true, "a new Chat with no tab open shows no tabs");
     assert.deepEqual(errors, []);
     console.log(
       "PASS: Chat and Subchat tabs open, switch by click and digit, reorder by drag, close by middle click, ask before the main Chat, move a tab-only Chat to Done on close (asking and stopping it while it runs) and give it back its tab when reopened, open a New tab launcher whose pick takes its place, drop archived Chats and show a New Chat draft, keep every button clear of the window drag area, give every tab menu row an icon and paint it over the strip; Browser pages become tabs, unread when the agent opened them, and stage the page in front; a Chat shown again keeps its tab in front instead of its designs",

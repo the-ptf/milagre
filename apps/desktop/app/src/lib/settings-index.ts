@@ -14,11 +14,13 @@ import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import { WORKSPACE_TABS_DESCRIPTION, WORKSPACE_TABS_LABEL } from "@milagre/shared/workspace-tabs";
 import { ORCHESTRATOR_DESCRIPTION } from "./orchestrator-copy.ts";
+import { CANVAS_CHATS_HINT, CANVAS_CHATS_LABEL } from "@milagre/shared/canvas";
 import type { SettingsSearchEntry } from "@milagre/shared/settings-search";
 import type { SettingsSection } from "../components/Settings";
 import { computerNoun } from "./shortcut-hints.ts";
 import { CLEANUP_INTRO, CLEANUP_TITLE } from "@milagre/shared/storage";
 import { IMPORT_INTRO, IMPORT_TITLE } from "@milagre/shared/ade-import";
+import { SECRETS_COPY } from "@milagre/shared/secrets";
 
 export type DesktopSettingsEntry = SettingsSearchEntry<SettingsSection>;
 
@@ -34,6 +36,7 @@ export const SECTION_TITLES: Record<Exclude<SettingsSection, "project" | "comput
   usage: "Usage",
   skills: "Skills",
   mcp: "Connectors",
+  secrets: SECRETS_COPY.title,
   browser: "Browser",
   worktrees: "Worktrees",
   devices: "Phone & sharing",
@@ -55,6 +58,7 @@ export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   models: "default model permission mode compact context replies tldr concise",
   keybindings: "shortcuts keyboard keys hotkeys",
   browser: "links web sign-ins cookies",
+  secrets: "secrets keys api keys tokens passwords credentials env environment variables vault milagre-secrets",
   notifications: "alerts sounds chimes push routines unread runs",
   mcp: "connectors connections integrations linear issues slack sign in servers tools model context protocol milagre mcp",
   devices: "phone pairing computers remote qr published pages share simlock baguette iphone simulators reset access",
@@ -512,6 +516,10 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "connection token custom",
   },
 
+  { page: "secrets", title: SECRETS_COPY.add, description: SECRETS_COPY.intro, keywords: "new key token password credential environment variable" },
+  { page: "secrets", title: SECRETS_COPY.importEnv, keywords: "dotenv env file environment variables keys tokens bulk" },
+  { page: "secrets", title: SECRETS_COPY.sharing.title, description: SECRETS_COPY.sharing.intro, keywords: "share secrets sync paired computers" },
+
   { page: "browser", title: "Links" },
   {
     page: "browser",
@@ -690,6 +698,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   { page: "experimental", title: "Memory", group: "Orchestrator", keywords: "notes" },
   { page: "experimental", title: "Completion", group: "Orchestrator", keywords: "done required outcome pull request PR created merged agent finished" },
   { page: "experimental", title: "Required outcome", group: "Orchestrator", keywords: "completion done pull request PR created merged agent finished" },
+  { page: "experimental", title: "Permission mode", group: "Orchestrator", keywords: "task approval ask auto full permissions default" },
   { page: "experimental", title: "Board", group: "Orchestrator", keywords: "task chats sidebar" },
   { page: "experimental", title: "Turn on the Orchestrator", group: "Orchestrator", keywords: "enable" },
   { page: "experimental", title: "Mascot and shortcut", group: "Orchestrator", keywords: "pebble color shortcut" },
@@ -740,6 +749,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Beta",
     description: WORKSPACE_TABS_DESCRIPTION,
     keywords: "tabs top bar subchats strip",
+  },
+  {
+    page: "experimental",
+    title: CANVAS_CHATS_LABEL,
+    group: "Beta",
+    description: CANVAS_CHATS_HINT,
+    keywords: "canvas window beside card approve reply",
   },
   {
     page: "experimental",

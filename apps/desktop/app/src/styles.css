@@ -650,6 +650,7 @@ a {
 
 [data-sidebar-collapsed="true"] .sidebar-scroll {
   scrollbar-width: none;
+  padding-top: 8px;
 }
 
 .chat-column,
@@ -1245,6 +1246,57 @@ a {
   }
 }
 
+@keyframes waiting-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+@keyframes waiting-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+@keyframes orchestrator-asking {
+  0%,
+  72%,
+  100% {
+    transform: none;
+  }
+  80% {
+    transform: rotate(-9deg);
+  }
+  88% {
+    transform: rotate(3deg);
+  }
+  94% {
+    transform: none;
+  }
+}
+@keyframes orchestrator-bubble {
+  0%,
+  72%,
+  100% {
+    transform: none;
+  }
+  80% {
+    transform: translateY(-2px) scale(1.1);
+  }
+  88% {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .orchestrator-asking {
+    animation: orchestrator-asking 2.6s ease-in-out infinite;
+  }
+  .orchestrator-bubble {
+    transform-origin: bottom left;
+    animation: orchestrator-bubble 2.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+}
+
 @keyframes orchestrator-hop {
   0% {
     transform: scale(1.1, 0.85);
@@ -1778,6 +1830,48 @@ a {
 
 .milagre-canvas-flow {
   --xy-background-color: transparent;
+}
+
+.flow-canvas .react-flow {
+  --xy-background-color: transparent;
+}
+
+.flow-canvas .react-flow__node {
+  cursor: pointer;
+}
+
+.flow-canvas[data-far] .flow-canvas-detail {
+  display: none;
+}
+
+.flow-canvas .flow-add:hover,
+.flow-canvas .flow-add.is-open,
+.flow-canvas .flow-add:focus-visible {
+  color: var(--ink);
+  box-shadow: 0 0 0 1.5px var(--ink);
+  transform: scale(1.25);
+}
+
+/* The line into a running step moves: a running mark, the one loop DESIGN.md allows. */
+.flow-line-live {
+  stroke-dasharray: 6 6;
+  animation: flow-line-live 0.8s linear infinite;
+}
+@keyframes flow-line-live {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flow-line-live {
+    stroke-dasharray: none;
+    animation: flow-line-fade 1.6s steps(2, jump-none) infinite;
+  }
+}
+@keyframes flow-line-fade {
+  50% {
+    opacity: 0.45;
+  }
 }
 
 .milagre-canvas-section {

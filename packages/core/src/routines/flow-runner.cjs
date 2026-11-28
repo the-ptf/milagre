@@ -1,3 +1,4 @@
+const { approvedBy } = require("./flow-autopilot.cjs");
 const { renderRoutinePrompt } = require("@milagre/shared/routine-prompt");
 const { isTurnEnd } = require("@milagre/shared/agent-runs");
 const {
@@ -526,7 +527,7 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
     return flattenSteps(run.flow?.steps ?? []).find((entry) => entry.step.kind === "agent" && run.flow.state[entry.step.id]?.status === "running");
   }
 
-  async function act(runId, action, { reason, note } = {}) {
+  async function act(runId, action, { reason, note, ...answer } = {}) {
     let found = store.getRun(runId);
     if (!found?.run.flow) throw new Error("No such flow Run");
     if (action === "retry") {
@@ -585,8 +586,8 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
         end(runId, "ended", "approval rejected");
         return store.getRun(runId)?.run ?? null;
       }
-      const decided = { ...approval, decision: "approved", decidedAt: at };
-      if (step.kind === "ask") setStep(runId, step.id, { status: "done", endedAt: at, approval: decided, summary: "Approved by you" }, { status: "running" });
+      const { approval: decided, said } = approvedBy(approval, at, answer);
+      if (step.kind === "ask") setStep(runId, step.id, { status: "done", endedAt: at, approval: decided, summary: said }, { status: "running" });
       else setStep(runId, step.id, { status: "pending", approval: decided }, { status: "running" });
       onChange();
       await advance(runId);
