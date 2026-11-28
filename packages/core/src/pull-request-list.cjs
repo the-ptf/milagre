@@ -8,6 +8,9 @@ const { CHECK_ORDER, defaultExec, ghMessage, ghOptions, ghTimeout, retryTransien
 const QUERY_LIMIT = 256;
 // GitHub answers 502 when a query runs past its time limit; 100 rows with check counts each did. A retry asks for half.
 const PAGE = 50;
+// Merged, closed and all stop at a search's newest MAX_ROWS: paging a repository's whole history every minute is what
+// kept GitHub timing out. Open PRs are always read in full.
+const MAX_ROWS = 300;
 const LIST_TTL_MS = 60_000;
 const QUIET_STALE_MS = 5 * 60_000;
 const REPO_TTL_MS = 60 * 60_000;
@@ -177,9 +180,11 @@ function createPullRequestList({ exec = defaultExec, env = process.env, now = Da
     const items = new Map();
     async function collect(rows, connection, next) {
       const cursors = new Set();
+      let seen = 0;
       while (connection) {
         for (const node of connection.nodes ?? []) if (node?.url) rows.set(node.url, node);
-        if (!connection.pageInfo?.hasNextPage) break;
+        seen += connection.nodes?.length ?? 0;
+        if (!connection.pageInfo?.hasNextPage || (state !== "open" && seen >= MAX_ROWS)) break;
         const cursor = connection.pageInfo.endCursor;
         if (!cursor || cursors.has(cursor)) throw new Error("GitHub did not return the next page of pull requests.");
         cursors.add(cursor);

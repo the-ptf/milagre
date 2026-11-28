@@ -220,6 +220,21 @@ test("all open PRs are read across cursors and above GitHub's search result limi
   }
 });
 
+test("merged PRs stop at a search's newest 300 rows, in pages of fifty", async () => {
+  const { exec, calls } = fakeGh((query, q, args) => {
+    if (query.startsWith("query{")) return { data: { r0: { nameWithOwner: "acme/web" } } };
+    const page = Number(args.find((arg) => arg.startsWith("after="))?.slice(6) ?? 0);
+    const nodes = Array.from({ length: 50 }, (_, index) => node(page * 50 + index + 1));
+    return { data: { viewer: { login: "dana" }, search: { issueCount: 1000, nodes, pageInfo: { hasNextPage: page < 19, endCursor: String(page + 1) } } } };
+  });
+  const result = await createPullRequestList({ exec }).list({ projects: [projects[0]], state: "merged" });
+  const searches = calls.filter((call) => call.q);
+  assert.equal(searches.length, 6);
+  assert.ok(searches.every((call) => call.args.includes("first=50")));
+  assert.equal(result.items.length, 300);
+  assert.deepEqual(result.errors, []);
+});
+
 const badGateway = () =>
   Object.assign(new Error("Command failed: gh api graphql"), { code: 1, stderr: "gh: HTTP 502\n", stdout: "<!DOCTYPE html><title>Unicorn! · GitHub</title>" });
 const noWait = { sleep: async () => {} };
