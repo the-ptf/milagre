@@ -1,4 +1,4 @@
-import { useDesignsStage } from "./designs-stage";
+import { useDesignsStage, useOfferDesigns } from "./designs-stage";
 import { HtmlReply } from "./HtmlReply";
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
@@ -601,6 +601,7 @@ export function ArtifactsProvider({
     if (page) value.openAll(page === "canvas" ? designRefs : page === "page" && currentHtml ? [currentHtml] : [], page);
   };
   useSidePanel("artifacts", hasCanvas || hasPage || firstLibrary ? { open: !!opened, toggle: togglePanel } : null);
+  useOfferDesigns(chatId, hasCanvas ? designRefs.length : null, hasPage ? (currentHtml?.title ?? "") : null);
   const onVersion = useCallback(
     (id: string, version: number | null) =>
       setOpenedIn(

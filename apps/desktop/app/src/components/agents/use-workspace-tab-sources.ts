@@ -1,6 +1,15 @@
 import { PARADISE_NAME } from "@milagre/shared/prompt-parts";
 import { useEffect, useRef } from "react";
-import { ComputerTerminal01Icon, FileDiffIcon, Globe02Icon, GitPullRequestIcon, PaintBoardIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import {
+  ComputerTerminal01Icon,
+  File01Icon,
+  FileDiffIcon,
+  Globe02Icon,
+  GitPullRequestIcon,
+  LibraryIcon,
+  PaintBoardIcon,
+  PlusSignIcon,
+} from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
 import {
   chatOf,
@@ -51,7 +60,10 @@ const KIND_ICON: Record<Exclude<OpenTab["kind"], "chat">, IconSvgElement> = {
   pr: GitPullRequestIcon,
 };
 
-export const pageIcon = (tab: OpenTab) => (tab.kind === "chat" ? undefined : KIND_ICON[tab.kind]);
+/** A design page's icon, as the Artifact panel's page menu shows it: Paradise, the Artifact page or the Design library. */
+export const designPageIcon = (page: string): IconSvgElement => (page === "canvas" ? PaintBoardIcon : page === "page" ? File01Icon : LibraryIcon);
+
+export const pageIcon = (tab: OpenTab) => (tab.kind === "chat" ? undefined : tab.kind === "designs" ? designPageIcon(tab.page) : KIND_ICON[tab.kind]);
 
 /** A page tab's name: the Browser page's title or address, the design page, the Terminal, Changes or the PR. */
 export function pageLabel(projectPath: string, tab: OpenTab): string {

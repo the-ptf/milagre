@@ -8,12 +8,12 @@ const fixture = `
 import React, { Activity, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { WorkspaceTabStrip } from "/src/components/agents/WorkspaceTabStrip";
-import { useDesignsStage } from "/src/components/agents/designs-stage";
+import { useDesignsStage, useOfferDesigns } from "/src/components/agents/designs-stage";
+import { useTabMenu } from "/src/components/agents/ChatTopBar";
 import { openBrowserTab } from "/src/lib/browser-panel";
 import { updateSettings } from "/src/lib/settings";
 import { useStage } from "/src/lib/workspace-stage";
 import { tabSet } from "/src/lib/workspace-tabs-store";
-import { FileDiffIcon } from "@hugeicons/core-free-icons";
 import "/src/styles.css";
 window.patched = [];
 window.stopped = [];
@@ -33,6 +33,7 @@ window.activeTab = () => tabSet("/p#wt:1").active;
 window.designsCommits = 0;
 function DesignsProbe({ opened }) {
   useDesignsStage("/p#3", opened, () => {});
+  useOfferDesigns("/p#3", 2, null);
   useEffect(() => {
     window.designsCommits += 1;
   });
@@ -51,6 +52,7 @@ function Harness() {
   window.archive = (id) => setSessions((current) => ({ ...current, [id]: { ...current[id], archived: true } }));
   window.patch = (id, patch) => setSessions((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
   window.addChat = (id, extra) => setSessions((current) => ({ ...current, [id]: session(id, 1, extra) }));
+  const menu = useTabMenu({ changes: { open: false, toggle: () => {} } }, "/p", active);
   const rows = Object.values(sessions).map((chat) => ({ id: String(chat.id), label: chat.title, mark: chat.mark, ...(chat.parent ? { parent: String(chat.parent) } : {}) }));
   return (
     <main style={{ position: "relative", height: 300 }}>
@@ -63,7 +65,7 @@ function Harness() {
         rows={rows}
         activeChatId={active}
         corner={0}
-        menu={[{ key: "diff", title: "Diff", icon: FileDiffIcon, tab: { kind: "diff" }, onSelect: () => {} }]}
+        menu={menu}
         onOpenChat={(id) => { window.opened.push(id); setActive(id); }}
         onNewChat={() => { window.newChats += 1; setActive(null); }}
       />
@@ -282,8 +284,8 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector("[data-stage]").dataset.stage`), "new:null", "the New tab fills the workspace");
     assert.deepEqual(
       await evaluate(`[...document.querySelectorAll("[data-new-tab-launch]")].map((row) => row.dataset.newTabLaunch)`),
-      ["chat", "diff"],
-      "the New tab lists a New Chat, then the strip's entries",
+      ["chat", "diff", "canvas"],
+      "the New tab lists a New Chat, then the strip's entries and the Chat's designs",
     );
     assert.equal(await evaluate(`document.activeElement?.dataset.newTabLaunch`), "chat", "the first row takes the keyboard");
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))`);
@@ -297,6 +299,14 @@ async function browserChecks() {
     await waitFor(`!document.querySelector("[data-new-tab-page]")`);
     assert.equal((await tabs())[blankAt], "diff*", "a pick takes the New tab's place");
     await closeButton("diff");
+    await evaluate(`document.querySelector("[data-workspace-tab-add]").click()`);
+    await waitFor(`document.querySelector('[data-new-tab-launch="canvas"]')`);
+    assert.match(await evaluate(`document.querySelector('[data-new-tab-launch="canvas"]').textContent`), /Paradise.*2 designs/);
+    const canvasAt = (await tabs()).findIndex((tab) => tab.startsWith("new:"));
+    await evaluate(`document.querySelector('[data-new-tab-launch="canvas"]').click()`);
+    await waitFor(`document.querySelector("[data-stage]").dataset.stage === "designs:/p#3"`);
+    assert.equal((await tabs())[canvasAt], "designs:3:canvas*", "Paradise takes the New tab's place and opens the canvas");
+    await closeButton("designs:3:canvas");
     await evaluate(`document.querySelector("[data-workspace-tab-add]").click()`);
     await waitFor(`document.querySelector('[data-new-tab-launch="chat"]')`);
     const drafts = await evaluate(`window.newChats`);
@@ -318,7 +328,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector("[data-workspace-tabs]") === null`), true, "a new Chat with no tab open shows no tabs");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Chat and Subchat tabs open, switch by click and digit, reorder by drag, close by middle click, ask before the main Chat, move a tab-only Chat to Done on close (asking and stopping it while it runs) and give it back its tab when reopened, open a New tab launcher whose pick takes its place, drop archived Chats and show a New Chat draft, keep every button clear of the window drag area, give every tab menu row an icon and paint it over the strip; Browser pages become tabs, unread when the agent opened them, and stage the page in front; a Chat shown again keeps its tab in front instead of its designs",
+      "PASS: Chat and Subchat tabs open, switch by click and digit, reorder by drag, close by middle click, ask before the main Chat, move a tab-only Chat to Done on close (asking and stopping it while it runs) and give it back its tab when reopened, open a New tab launcher that lists the Chat's designs and whose pick takes its place, drop archived Chats and show a New Chat draft, keep every button clear of the window drag area, give every tab menu row an icon and paint it over the strip; Browser pages become tabs, unread when the agent opened them, and stage the page in front; a Chat shown again keeps its tab in front instead of its designs",
     );
     app.exit(0);
   } catch (error) {

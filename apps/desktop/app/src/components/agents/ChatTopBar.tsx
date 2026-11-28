@@ -1,4 +1,5 @@
 import { ComputerTerminal01Icon, FileDiffIcon, Globe02Icon, GitPullRequestIcon } from "@hugeicons/core-free-icons";
+import { PARADISE_NAME } from "@milagre/shared/prompt-parts";
 import { chatBookmark } from "@milagre/shared/subchats";
 import { tabWorktree, workspaceKey } from "@milagre/shared/workspace-tabs";
 import { fullChatTitle } from "../../lib/chat-list";
@@ -8,8 +9,10 @@ import type { AgentSession, ChatMessage } from "../../model";
 import type { SidebarRecent } from "../sidebar/ChatRow";
 import type { SubchatSource } from "../../lib/subchat-track";
 import { ChatIdentity } from "./ChatIdentity";
+import { useDesignOffer } from "./designs-stage";
 import { useSidePanels, type SidePanel } from "./PanelToggles";
 import { SubchatBookmark } from "./SubchatBookmark";
+import { designPageIcon } from "./use-workspace-tab-sources";
 import { WorkspaceTabStrip, type TabMenuEntry } from "./WorkspaceTabStrip";
 
 type Family = Omit<SubchatSource, "parentKey" | "runs"> & {
@@ -53,7 +56,7 @@ export function ChatTopBar({
   tabs: Tabs;
 }) {
   const { workspaceTabs } = useSettings();
-  const menu = useTabMenu(tabs.panels);
+  const menu = useTabMenu(tabs.panels, projectPath, session?.id ?? null);
   if (!shown) return null;
   const worktreeId = session ? session.worktree_id : tabs.worktree;
   if (workspaceTabs && worktreeId !== null && worktreeId !== undefined) {
@@ -90,9 +93,11 @@ export function ChatTopBar({
   return <ChatIdentity title={fullChatTitle(session, messages)} project={project} corner={corner} />;
 }
 
-export function useTabMenu(panels: Tabs["panels"]): TabMenuEntry[] {
+/** What a New tab offers besides a New Chat: the open Chat's Terminal and Browser, the Diff and PR, and its designs. */
+export function useTabMenu(panels: Tabs["panels"], projectPath: string, chatId: number | null): TabMenuEntry[] {
   const shown = useSidePanels();
   const { rules } = useKeybindings();
+  const designs = useDesignOffer(chatId === null ? null : `${projectPath}#${chatId}`);
   const entries: (TabMenuEntry | null)[] = [
     shown.terminal
       ? { key: "terminal", title: "Terminal", icon: ComputerTerminal01Icon, shortcut: shortcutLabel(rules, "terminal.toggle"), onSelect: shown.terminal.toggle }
@@ -118,6 +123,18 @@ export function useTabMenu(panels: Tabs["panels"]): TabMenuEntry[] {
           tab: { kind: "pr", number: panels.pullRequest.number },
           onSelect: panels.pullRequest.toggle,
         }
+      : null,
+    chatId !== null && designs && designs.designs !== null
+      ? {
+          key: "canvas",
+          title: PARADISE_NAME,
+          icon: designPageIcon("canvas"),
+          detail: designs.designs ? `${designs.designs} design${designs.designs === 1 ? "" : "s"}` : undefined,
+          tab: { kind: "designs", chatId, page: "canvas" },
+        }
+      : null,
+    chatId !== null && designs && designs.page !== null
+      ? { key: "page", title: "Artifact", icon: designPageIcon("page"), detail: designs.page || undefined, tab: { kind: "designs", chatId, page: "page" } }
       : null,
   ];
   return entries.filter((entry): entry is TabMenuEntry => entry !== null);

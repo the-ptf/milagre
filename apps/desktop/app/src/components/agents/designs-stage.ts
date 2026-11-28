@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { sessionIdFromKey } from "../../lib/agent-runs";
 import { requestClose, requestTab, useStage, useWorkspaceTabsOn } from "../../lib/workspace-stage";
 import type { DockPage } from "./dock-feedback";
@@ -53,3 +53,37 @@ type DesignsStage = {
   takesRoom: (chatShown: boolean) => boolean;
   close: (closePanel: () => void, page: DockPage) => () => void;
 };
+
+/** What a Chat's designs offer as a Workspace tab: Paradise with its design count, and the Artifact page's title. */
+export type DesignOffer = { designs: number | null; page: string | null };
+
+const offers = new Map<string, DesignOffer>();
+const offerListeners = new Set<() => void>();
+const onOffers = (listener: () => void) => {
+  offerListeners.add(listener);
+  return () => offerListeners.delete(listener);
+};
+const publishOffer = (chatKey: string, offer: DesignOffer | null) => {
+  const before = offers.get(chatKey);
+  if (offer ? before?.designs === offer.designs && before.page === offer.page : !before) return;
+  if (offer) offers.set(chatKey, offer);
+  else offers.delete(chatKey);
+  offerListeners.forEach((listener) => listener());
+};
+
+/** The shown Chat's designs telling the New tab what it can open; withdrawn when the Chat hides or has none. */
+export function useOfferDesigns(chatKey: string | null, designs: number | null, page: string | null) {
+  const offered = designs !== null || page !== null;
+  useEffect(() => {
+    if (!chatKey || !offered) return;
+    publishOffer(chatKey, { designs, page });
+  }, [chatKey, offered, designs, page]);
+  useEffect(() => {
+    if (!chatKey || !offered) return;
+    return () => publishOffer(chatKey, null);
+  }, [chatKey, offered]);
+}
+
+export function useDesignOffer(chatKey: string | null): DesignOffer | undefined {
+  return useSyncExternalStore(onOffers, () => (chatKey ? offers.get(chatKey) : undefined));
+}
