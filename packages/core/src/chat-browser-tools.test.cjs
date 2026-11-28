@@ -8,8 +8,11 @@ const { runTool } = require("./linked-tools.cjs");
 
 const TARGET = { id: `panel-${"a".repeat(24)}:${"A".repeat(32)}`, title: "Checkout", url: "http://localhost:5173/", source: "panel" };
 
+let loaders = 0;
+
 function fakeSession() {
   const sent = [];
+  const page = { loader: `loader-${++loaders}` };
   const listeners = new Set();
   const replies = {
     "Accessibility.getFullAXTree": () => ({
@@ -31,10 +34,13 @@ function fakeSession() {
     "DOM.resolveNode": () => ({ object: { objectId: "obj-1" } }),
     "Runtime.callFunctionOn": () => ({ result: { value: "Visa" } }),
     "Page.captureScreenshot": () => ({ data: "iVBORw0KGgo=" }),
+    "Page.getFrameTree": () => ({ frameTree: { frame: { id: "top", loaderId: page.loader } } }),
     "Page.navigate": () => ({}),
   };
   return {
     sent,
+    page,
+    navigate: () => (page.loader = `loader-${++loaders}`),
     closed: false,
     emit: (method, params) => listeners.forEach((listener) => listener(method, params)),
     on: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
@@ -330,7 +336,6 @@ test("the agent's script and a filled login never share a page load", async (t) 
   const f = fixture();
   const send = f.session.send;
   f.session.send = async (method, params = {}) => {
-    if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "top" } } };
     if (method === "Page.createIsolatedWorld") return { executionContextId: 9 };
     if (method === "Runtime.callFunctionOn" && params.objectId === "obj-1" && params.arguments?.length === 3) return { result: { value: { filled: true } } };
     return send(method, params);
@@ -339,11 +344,11 @@ test("the agent's script and a filled login never share a page load", async (t) 
   await f.run("browser_snapshot");
   assert.equal((await f.run("browser_evaluate", { expression: "1 + 1" })).text, "2");
   assert.match((await f.run("browser_fill", fill)).text, /agent's script ran on this page/);
-  f.session.emit("Page.frameNavigated", { frame: { id: "top" } });
+  f.session.navigate();
   await f.run("browser_snapshot");
   assert.doesNotMatch((await f.run("browser_fill", fill)).text, /script ran|couldn't/);
   assert.match((await f.run("browser_evaluate", { expression: "1 + 1" })).text, /saved login was filled on this page/);
-  f.session.emit("Page.frameNavigated", { frame: { id: "top" } });
+  f.session.navigate();
   assert.equal((await f.run("browser_evaluate", { expression: "1 + 1" })).text, "2");
 });
 
@@ -363,7 +368,6 @@ test("a script started while a login is being filled is refused, and a refused f
   const send = f.session.send;
   let fills = 0;
   f.session.send = async (method, params = {}) => {
-    if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "top" } } };
     if (method === "Page.createIsolatedWorld") return { executionContextId: 9 };
     if (method === "Runtime.callFunctionOn" && params.arguments?.length === 3)
       return { result: { value: ++fills === 1 ? { filled: true } : { problem: "The password goes only into a password field." } } };
@@ -375,7 +379,7 @@ test("a script started while a login is being filled is refused, and a refused f
   assert.match((await f.run("browser_evaluate", { expression: "1 + 1" })).text, /saved login was filled on this page/, "the page is held from the first await");
   resolveLogin({ origin: "http://localhost:5173", username: "me", password: "local-pass-123456" });
   await filling;
-  f.session.emit("Page.frameNavigated", { frame: { id: "top" } });
+  f.session.navigate();
   await f.run("browser_snapshot");
   useLogins({ resolve: async () => ({ origin: "http://localhost:5173", username: "me", password: "local-pass-123456" }) });
   assert.match((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /only into a password field/);
@@ -399,7 +403,6 @@ test("a fill that fails never frees a page another fill has filled", async (t) =
   const f = fixture();
   const send = f.session.send;
   f.session.send = async (method, params = {}) => {
-    if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "top" } } };
     if (method === "Page.createIsolatedWorld") return { executionContextId: 9 };
     if (method === "Runtime.callFunctionOn" && params.arguments?.length === 3) return { result: { value: { filled: true } } };
     return send(method, params);
@@ -411,4 +414,28 @@ test("a fill that fails never frees a page another fill has filled", async (t) =
   releaseFirst();
   assert.match((await first).text, /vault is locked/);
   assert.match((await f.run("browser_evaluate", { expression: "1 + 1" })).text, /saved login was filled on this page/);
+});
+
+test("a fill whose outcome is unknown counts as filled, and the rule stays with the document across a new debugger connection", async (t) => {
+  useLogins({ resolve: async () => ({ origin: "http://localhost:5173", username: "me", password: "local-pass-123456" }) });
+  t.after(() => useLogins(null));
+  const f = fixture();
+  const send = f.session.send;
+  f.session.send = async (method, params = {}) => {
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 9 };
+    if (method === "Runtime.callFunctionOn" && params.arguments?.length === 3) throw new Error("Runtime.callFunctionOn timed out");
+    return send(method, params);
+  };
+  await f.run("browser_snapshot");
+  assert.match((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /timed out/);
+  assert.match((await f.run("browser_evaluate", { expression: "1 + 1" })).text, /saved login was filled on this page/, "the value may be there");
+  const reconnected = fixture();
+  reconnected.session.page.loader = f.session.page.loader;
+  assert.match(
+    (await reconnected.run("browser_evaluate", { expression: "1 + 1" })).text,
+    /saved login was filled on this page/,
+    "a new connection to the same document",
+  );
+  reconnected.session.navigate();
+  assert.equal((await reconnected.run("browser_evaluate", { expression: "1 + 1" })).text, "2");
 });

@@ -1,4 +1,6 @@
-const { fillLogin } = require("./browser-login-fill.cjs");
+const { fillLogin, createLoginGuard, REFUSED } = require("./browser-login-fill.cjs");
+
+const loginGuard = createLoginGuard();
 const fs = require("node:fs");
 const path = require("node:path");
 const { z } = require("zod");
@@ -40,8 +42,6 @@ async function prepare(session, state) {
   session.on((method, params) => {
     if (method === "Page.frameNavigated" && !params.frame?.parentId) {
       state.refs = new Map();
-      state.loginFilled = false;
-      state.scripted = false;
     }
     if (method === "Runtime.consoleAPICalled") {
       const text = (params.args ?? []).map((arg) => (arg.value !== undefined ? String(arg.value) : (arg.description ?? arg.type))).join(" ");
@@ -174,15 +174,13 @@ function browserFillTool(chatId, on, done) {
       const node = backendNode(state, input.ref);
       if (input.login) {
         if (!logins) throw new Error("Saved logins aren't available on this computer.");
-        if (state.scripted)
-          throw new Error("The agent's script ran on this page, so a saved login isn't filled until the page loads again. Reload or navigate first.");
-        state.fillsPending = (state.fillsPending ?? 0) + 1;
-        try {
-          await fillLogin({ session, node, login: await logins.resolve(chatId, input.login.name), field: input.login.field });
-          state.loginFilled = true;
-        } finally {
-          state.fillsPending--;
-        }
+        await loginGuard.fill(session, target, async (unknownOutcome) => {
+          const login = await logins.resolve(chatId, input.login.name);
+          await fillLogin({ session, node, login, field: input.login.field }).catch((error) => {
+            if (error.code !== REFUSED) unknownOutcome();
+            throw error;
+          });
+        });
         return done(target);
       }
       await session.send("DOM.focus", { backendNodeId: node }).catch(() => {});
@@ -556,12 +554,8 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
       input: { page, expression: z.string().min(1).max(20000) },
       readOnly: false,
       run: async (input) => {
-        const { session, state } = await on(input);
-        if (state.loginFilled || state.fillsPending > 0)
-          throw new Error(
-            "A saved login was filled on this page, so its script can't be read until the page loads another document. Use browser_snapshot, or navigate first.",
-          );
-        state.scripted = true;
+        const { session, target } = await on(input);
+        await loginGuard.script(session, target);
         const { result, exceptionDetails } = await session.send(
           "Runtime.evaluate",
           { expression: input.expression, returnByValue: true, awaitPromise: true },
