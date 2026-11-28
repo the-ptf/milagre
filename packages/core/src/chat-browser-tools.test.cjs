@@ -24,12 +24,13 @@ function fakeSession() {
         { nodeId: "5", parentId: "3", role: { value: "textbox" }, name: { value: "Card number" }, value: { value: "4242" }, backendDOMNodeId: 11 },
       ],
     }),
-    "Runtime.evaluate": (params) =>
-      params.expression.startsWith("JSON.stringify([document.title")
+    "Runtime.evaluate": ({ expression: sent }) => replies.evaluated(sent.replace(/^if \(document\.documentElement[^\n]*\n/, "")),
+    evaluated: (expression) =>
+      expression.startsWith("JSON.stringify([document.title")
         ? { result: { value: JSON.stringify(["Checkout", "http://localhost:5173/"]) } }
-        : params.expression.includes("innerText.includes")
+        : expression.includes("innerText.includes")
           ? { result: { value: true } }
-          : { result: { value: params.expression === "1 + 1" ? 2 : undefined } },
+          : { result: { value: expression === "1 + 1" ? 2 : undefined } },
     "DOM.getBoxModel": () => ({ model: { content: [10, 20, 110, 20, 110, 60, 10, 60], border: [8, 18, 112, 18, 112, 62, 8, 62] } }),
     "DOM.resolveNode": () => ({ object: { objectId: "obj-1" } }),
     "Runtime.callFunctionOn": () => ({ result: { value: "Visa" } }),
@@ -446,7 +447,7 @@ test("a script that ends on another document marks that document too, so no logi
   const f = fixture();
   const send = f.session.send;
   f.session.send = async (method, params = {}) => {
-    if (method === "Runtime.evaluate" && params.expression === "location.reload()") {
+    if (method === "Runtime.evaluate" && params.expression.endsWith("\nlocation.reload()")) {
       f.session.navigate();
       return { result: { value: null } };
     }
@@ -460,4 +461,14 @@ test("a script that ends on another document marks that document too, so no logi
   f.session.navigate();
   await f.run("browser_snapshot");
   assert.doesNotMatch((await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text, /script|couldn't/);
+});
+
+test("the agent's script refuses by itself, in the same turn, in a document a login was filled in", async () => {
+  const { MARK, FILL } = require("./browser-login-fill.cjs");
+  const f = fixture();
+  await f.run("browser_evaluate", { expression: "1 + 1" });
+  const [, sent] = f.session.sent.findLast(([method]) => method === "Runtime.evaluate");
+  assert.equal(sent.expression.split("\n").at(-1), "1 + 1", "the agent's code runs as written");
+  assert.match(sent.expression.split("\n")[0], new RegExp(`hasAttribute\\("${MARK}"\\)\\) throw`));
+  assert.ok(FILL.includes(MARK), "a fill stamps the top document");
 });

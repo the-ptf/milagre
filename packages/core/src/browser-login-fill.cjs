@@ -1,4 +1,5 @@
 const WORLD = "milagre-login";
+const MARK = "data-milagre-login";
 
 /**
  * Runs in Milagre's isolated world of the field's own frame, where the page's scripts can't replace a prototype or a
@@ -49,6 +50,10 @@ const FILL = `function (expected, field, value) {
   if (problem) return { problem };
   if (formMethod === "get") Element.prototype.setAttribute.call(form, "method", "post");
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(this, value);
+  try {
+    const top = Object.getOwnPropertyDescriptor(Document.prototype, "documentElement").get.call(window.top.document);
+    Element.prototype.setAttribute.call(top, "${MARK}", "");
+  } catch {}
   this.dispatchEvent(new Event("input", { bubbles: true }));
   this.dispatchEvent(new Event("change", { bubbles: true }));
   return { filled: true };
@@ -143,6 +148,14 @@ function createLoginGuard() {
         busy.fills--;
       }
     },
+    /**
+     * The agent's script with a first statement that refuses, in the same turn, in a document where a login was filled,
+     * whichever document a navigation brought back between the check and the call. No eval, so a page's CSP doesn't
+     * matter; the script's last value is still the result. A declaration that shadows `document` or `Error` stops the
+     * script before its own code runs.
+     */
+    expression: (expression) =>
+      `if (document.documentElement && document.documentElement.hasAttribute(${JSON.stringify(MARK)})) throw new Error(${JSON.stringify(FILLED)});\n${expression}`,
     async script(session, target, run) {
       const busy = tab(target);
       busy.scripts++;
@@ -165,4 +178,4 @@ function createLoginGuard() {
   };
 }
 
-module.exports = { fillLogin, refusal, FILL, createLoginGuard, REFUSED };
+module.exports = { fillLogin, refusal, FILL, createLoginGuard, REFUSED, MARK };
