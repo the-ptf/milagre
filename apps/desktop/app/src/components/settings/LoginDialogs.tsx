@@ -8,6 +8,7 @@ import { FormActions, fieldsOf, NO_OPT_INS, useSaving } from "./SecretDialogs";
 import {
   EMPTY_SOURCE,
   FieldBlock,
+  OptIn,
   OptInsField,
   ScopeField,
   SourceField,
@@ -101,7 +102,7 @@ export function AddLoginDialog({ choices, onClose, onSaved }: { choices: ScopeCh
   );
 }
 
-type LoginImport = { imported: string[]; skipped: { name: string; site: string; reason: string }[] };
+type LoginImport = { imported: string[]; skipped: { name: string; site: string; reason: string }[]; removed: boolean };
 
 export function ImportLoginsDialog({
   file,
@@ -115,13 +116,14 @@ export function ImportLoginsDialog({
   onImported: () => void;
 }) {
   const [scope, setScope] = useState<SecretScope>("all");
+  const [remove, setRemove] = useState(true);
   const [result, setResult] = useState<LoginImport | null>(null);
   const saving = useSaving(onImported);
   const ready = scopeReady(scope);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!ready || saving.busy) return;
-    void saving.run(async () => setResult(await window.milagre.secrets.importLogins({ file: file.path, projects: scope })));
+    void saving.run(async () => setResult(await window.milagre.secrets.importLogins({ file: file.path, projects: scope, remove })));
   };
   if (result)
     return (
@@ -147,7 +149,7 @@ export function ImportLoginsDialog({
             </ul>
           </section>
         )}
-        <p className="text-12 text-ink-3">{SECRETS_COPY.logins.deleteExport}</p>
+        <p className="text-12 text-ink-3">{result.removed ? SECRETS_COPY.logins.exportDeleted : SECRETS_COPY.logins.deleteExport}</p>
       </Dialog>
     );
   return (
@@ -164,7 +166,7 @@ export function ImportLoginsDialog({
       className="grid gap-5 pt-4"
     >
       <ScopeField scope={scope} onChange={setScope} choices={choices} />
-      <p className="text-12 text-ink-3">{SECRETS_COPY.logins.deleteExport}</p>
+      <OptIn data="remove-export" label={SECRETS_COPY.logins.removeExport} help={SECRETS_COPY.logins.deleteExport} checked={remove} onChange={setRemove} />
       <InlineError size={12}>{saving.error}</InlineError>
     </Dialog>
   );

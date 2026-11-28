@@ -200,7 +200,7 @@ export function ScopeField({ scope, onChange, choices }: { scope: SecretScope; o
   );
 }
 
-function OptIn({
+export function OptIn({
   label,
   help,
   checked,

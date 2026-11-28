@@ -223,3 +223,23 @@ test("a login is typed only for a Chat it reaches, never run in a command, and i
   );
   await vault.set({ name: "LOGIN_LOCAL", kind: "login", login: { origin: "http://localhost:3000", username: "dev" }, value: "local-123456", projects: "all" });
 });
+
+test("a login never reaches the environment, shows no hint and keeps its own name", async (t) => {
+  const { vault } = fixture(t);
+  const login = { origin: "https://github.com", username: "octo" };
+  const saved = await vault.set({ name: "LOGIN_GITHUB", kind: "login", login, value: "gh-pass-123456", projects: "all", unattended: true });
+  assert.equal(saved.hint, null);
+  await assert.rejects(vault.update("LOGIN_GITHUB", { delivery: "ambient" }), /never kept in the environment/);
+  assert.deepEqual((await vault.ambient({ target: { origin: ORIGIN, unattended: true }, chatId: "c" })).secrets, []);
+  await assert.rejects(
+    vault.set({
+      name: "LOGIN_GITHUB",
+      kind: "login",
+      login: { origin: "https://github.com", username: "someone-else" },
+      value: "other-123456",
+      projects: "all",
+    }),
+    /already holds the login for octo/,
+  );
+  await vault.set({ name: "LOGIN_GITHUB", kind: "login", login, value: "gh-new-pass-123456", projects: "all" });
+});

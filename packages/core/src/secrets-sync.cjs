@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { SECRET_LIMITS, secretNameProblem } = require("@milagre/shared/secrets");
-const { recordSchema, tombstoneSchema } = require("./secrets-vault.cjs");
+const { recordSchema, tombstoneSchema, normalized } = require("./secrets-vault.cjs");
 
 const BATCH = 20;
 const RETRY_MS = 60_000;
@@ -52,8 +52,7 @@ function merge(state, entries, from) {
     const incoming = secret?.success ? secret.data : tombstone?.success ? tombstone.data : null;
     if (!incoming || !newer(incoming, state.secrets[name] ?? state.tombstones[name])) continue;
     if (secret?.success) {
-      if (!acceptable(state, name, incoming)) continue;
-      if (incoming.kind === "file" || incoming.askEachUse) incoming.delivery = "on-demand";
+      if (!acceptable(state, name, incoming) || !normalized(incoming)) continue;
       state.secrets[name] = { ...incoming, fileName: incoming.kind === "file" ? incoming.fileName : null, from };
       delete state.tombstones[name];
     } else {

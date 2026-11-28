@@ -66,11 +66,23 @@ const sameRevision = (secret, expected) =>
 const pick = (object, keys) => Object.fromEntries(keys.map((key) => [key, object[key]]));
 const inputError = (message) => Object.assign(new Error(message), { code: "secrets-input" });
 
+/**
+ * A record as every path keeps it (save, update, load, sync), or null when it can't be one: only a login has a site
+ * and username, a login's site is https (or http on this computer), and a file, a login or an ask-each-use secret is
+ * never in the environment.
+ */
+function normalized(secret) {
+  if ((secret.kind === "login") !== Boolean(secret.login)) return null;
+  if (secret.kind === "login" && !loginOrigin(secret.login.origin)) return null;
+  if (secret.kind === "file" || secret.kind === "login" || secret.askEachUse) secret.delivery = "on-demand";
+  return secret;
+}
+
 function validState(value) {
   const state = stateSchema.parse(value);
   for (const [name, secret] of Object.entries(state.secrets)) {
     if (secretNameProblem(name)) throw new Error(`Saved secret ${name} has an invalid name`);
-    if (secret.kind === "file" || secret.askEachUse) secret.delivery = "on-demand";
+    if (!normalized(secret)) throw new Error(`Saved secret ${name} is malformed`);
   }
   return state;
 }
@@ -207,7 +219,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
     kind: secret.kind,
     ...(secret.login ? { login: secret.login } : {}),
     fileName: secret.fileName,
-    hint: secretHint(secret.value),
+    hint: secret.kind === "login" ? null : secretHint(secret.value),
     projects: secret.projects,
     delivery: secret.delivery,
     askEachUse: secret.askEachUse,
@@ -258,6 +270,8 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
         const previous = current.secrets[name];
         if (expect !== undefined && !sameRevision(previous, expect)) throw inputError(`${name} changed while the card was open.`);
         if (keepPolicy && previous) Object.assign(fields, pick(previous, ["delivery", "askEachUse", "unattended", "note"]));
+        if (fields.login && previous?.login && (previous.login.origin !== fields.login.origin || previous.login.username !== fields.login.username))
+          throw inputError(`${name} already holds the login for ${previous.login.username || "no username"} on ${previous.login.origin}.`);
         if (!previous && Object.keys(current.secrets).length >= SECRET_LIMITS.count) throw inputError(`At most ${SECRET_LIMITS.count} secrets.`);
         const version = Math.max(previous?.version ?? 0, current.tombstones[name]?.version ?? 0) + 1;
         const secret = { ...fields, fileName: fields.kind === "file" ? fields.fileName : null, version, changedOn: computerId(), updatedAt: now() };
@@ -276,6 +290,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
         if (!previous) throw inputError(`No secret named ${name}.`);
         const next = { ...previous, ...parsed.data, version: previous.version + 1, changedOn: computerId(), updatedAt: now() };
         if (next.kind === "file" && next.delivery === "ambient") throw inputError("A file secret is given per command, not kept in the environment.");
+        if (next.kind === "login" && next.delivery === "ambient") throw inputError("A login is typed only into its own site, never kept in the environment.");
         if (next.delivery === "ambient" && next.askEachUse) throw inputError(AMBIENT_ASKS);
         await persist({ ...current, secrets: { ...current.secrets, [name]: next } });
         await loadLastUsed();
@@ -364,7 +379,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
       serial(async () => {
         const current = await read();
         const chosen = Object.entries(current.secrets)
-          .filter(([name, secret]) => secret.delivery === "ambient" && secretReaches({ name, ...secret }, target))
+          .filter(([name, secret]) => secret.delivery === "ambient" && secret.kind !== "login" && secretReaches({ name, ...secret }, target))
           .sort(([a], [b]) => a.localeCompare(b));
         const fingerprint = createHash("sha256")
           .update(chosen.map(([name, secret]) => `${name}:${secret.version}`).join(","))
@@ -389,4 +404,4 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
   };
 }
 
-module.exports = { createSecretsVault, recordSchema, tombstoneSchema };
+module.exports = { createSecretsVault, recordSchema, tombstoneSchema, normalized };

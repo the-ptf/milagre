@@ -210,7 +210,8 @@ export const SECRETS_COPY = Object.freeze({
   changedOn: (name) => `Changed on ${name}`,
   logins: {
     title: "Logins",
-    intro: "A saved login is typed into its own site in the Browser panel, and only there. Agents never see the username or the password.",
+    intro:
+      "A saved login is filled only into its own site in the Browser panel. Agents never get the password back, and can't read that page's script until it moves on.",
     empty: "No logins yet. Add one, or import your browser's passwords on a computer.",
     add: "Add login",
     importPasswords: "Import passwords…",
@@ -225,6 +226,8 @@ export const SECRETS_COPY = Object.freeze({
     exportHelp:
       "Export from Chrome, Arc or Edge in Settings › Passwords › Export, Safari in File › Export › Passwords, Firefox in Passwords › Export. 1Password and Bitwarden export as CSV.",
     deleteExport: "The file holds every password in plain text. Delete it once the import is done.",
+    removeExport: "Delete the file after importing",
+    exportDeleted: "The exported file is deleted.",
     phoneImport: "Import passwords from Milagre on your computer.",
     imported: (count) => `Imported ${count} ${count === 1 ? "login" : "logins"}.`,
     removeConfirm: (site, username) => `Delete the login for ${username ? `${username} on ` : ""}${site}? Agents can't sign in there from their next command.`,
@@ -327,6 +330,7 @@ function csvRows(text) {
       field = "";
     } else field += char;
   }
+  if (quoted) throw new Error("The file has a quote that never closes, so it wasn't imported.");
   row.push(field);
   if (row.some((cell) => cell !== "")) rows.push(row);
   return rows;
@@ -334,25 +338,30 @@ function csvRows(text) {
 
 /**
  * Logins from a browser's or password manager's CSV export (Chrome, Arc, Edge, Safari, Firefox, 1Password, Bitwarden):
- * url, username and password columns by header, plus a note when there is one. One-time-code columns are ignored.
+ * url, username and password columns by header, plus a note when there is one. One-time-code columns are ignored. A
+ * row that can't be a login is reported with its line, never dropped silently; a broken file throws.
  */
 export function parseLoginCsv(text) {
   const [header, ...rows] = csvRows(String(text).replace(/^﻿/, ""));
-  if (!header) return [];
+  if (!header) return { logins: [], skipped: [] };
   const column = (...names) => header.findIndex((cell) => names.includes(cell.trim().toLowerCase()));
   const url = column("url", "login_uri", "website", "web site");
   const username = column("username", "login_username", "user name", "login");
   const password = column("password", "login_password");
   const note = column("note", "notes");
-  if (url < 0 || password < 0) return [];
-  return rows.flatMap((row) => {
-    let origin;
+  if (url < 0 || password < 0) throw new Error("The file has no url and password columns, so it isn't a passwords export.");
+  const logins = [];
+  const skipped = [];
+  rows.forEach((row, index) => {
+    const line = index + 2;
+    let origin = null;
     try {
       origin = new URL(row[url]).origin;
-    } catch {
-      return [];
-    }
-    if (!row[password]) return [];
-    return [{ origin, username: username >= 0 ? (row[username] ?? "") : "", password: row[password], note: note >= 0 && row[note] ? row[note] : null }];
+    } catch {}
+    if (!origin || origin === "null") skipped.push({ row: line, site: row[url] ?? "", reason: "The address isn't a web address." });
+    else if (!row[password]) skipped.push({ row: line, site: origin, reason: "No password." });
+    else
+      logins.push({ origin, username: username >= 0 ? (row[username] ?? "") : "", password: row[password], note: note >= 0 && row[note] ? row[note] : null });
   });
+  return { logins, skipped };
 }

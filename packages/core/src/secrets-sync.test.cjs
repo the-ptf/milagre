@@ -132,12 +132,22 @@ test("a reserved or malformed entry from another computer is dropped, never stor
         { name: "HUGE_TOKEN", secret: { ...record, value: "x".repeat(64 * 1024 + 1) } },
         { name: "BAD_FILE", secret: { ...record, kind: "file", fileName: "../k.p8" } },
         { name: "FILE_KEY", secret: { ...record, kind: "file", fileName: "k.p8" } },
+        { name: "LOGIN_NO_SITE", secret: { ...record, kind: "login" } },
+        { name: "LOGIN_PLAIN", secret: { ...record, kind: "login", login: { origin: "http://evil.example", username: "u" } } },
+        { name: "LOGIN_OK", secret: { ...record, kind: "login", login: { origin: "https://github.com", username: "u" } } },
       ],
     },
     "evil-key",
   );
-  assert.deepEqual(result.applied, ["FILE_KEY"]);
-  assert.equal((await studio.vault.list())[0].delivery, "on-demand", "a file secret is never ambient, even if sent so");
+  assert.deepEqual(result.applied, ["FILE_KEY", "LOGIN_OK"]);
+  assert.deepEqual(
+    (await studio.vault.list()).map((secret) => [secret.name, secret.delivery]),
+    [
+      ["FILE_KEY", "on-demand"],
+      ["LOGIN_OK", "on-demand"],
+    ],
+    "a file secret or a login is never ambient, even if sent so",
+  );
   await assert.rejects(studioSync.receive({ entries: [] }), /Only a paired computer/);
   await assert.rejects(studioSync.forgetFrom({}), /Only a paired computer/);
 });

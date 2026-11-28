@@ -35,11 +35,15 @@ async function readSmallFile(file, what, limit = SECRET_LIMITS.valueBytes) {
   return fs.readFile(file, "utf8");
 }
 
-/** Saves each login of a browser's or password manager's CSV export under its site's login name; a row that fails is reported. */
-async function importLogins(vault, { file, projects = "all" } = {}) {
+/**
+ * Saves each login of a browser's or password manager's CSV export under its site's login name; a row that fails is
+ * reported. With `remove`, the export (every password in plain text) is deleted once its logins are saved.
+ */
+async function importLogins(vault, { file, projects = "all", remove = false } = {}) {
+  const parsed = parseLoginCsv(await readSmallFile(file, "The passwords file", LOGIN_CSV_BYTES));
   const imported = [];
-  const skipped = [];
-  for (const row of parseLoginCsv(await readSmallFile(file, "The passwords file", LOGIN_CSV_BYTES))) {
+  const skipped = parsed.skipped.map(({ row, site, reason }) => ({ name: `row ${row}`, site, reason }));
+  for (const row of parsed.logins) {
     const name = loginName(row.origin, row.username);
     try {
       await vault.set({ name, kind: "login", login: { origin: row.origin, username: row.username }, value: row.password, note: row.note, projects });
@@ -48,7 +52,13 @@ async function importLogins(vault, { file, projects = "all" } = {}) {
       skipped.push({ name, site: row.origin, reason: error.message });
     }
   }
-  return { imported, skipped };
+  const removed = remove
+    ? await fs.rm(file).then(
+        () => true,
+        () => false,
+      )
+    : false;
+  return { imported, skipped, removed };
 }
 
 /**

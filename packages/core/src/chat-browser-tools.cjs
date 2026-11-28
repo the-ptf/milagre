@@ -38,7 +38,10 @@ async function prepare(session, state) {
   state.refs = new Map();
   state.console = [];
   session.on((method, params) => {
-    if (method === "Page.frameNavigated" && !params.frame?.parentId) state.refs = new Map();
+    if (method === "Page.frameNavigated" && !params.frame?.parentId) {
+      state.refs = new Map();
+      state.loginFilled = false;
+    }
     if (method === "Runtime.consoleAPICalled") {
       const text = (params.args ?? []).map((arg) => (arg.value !== undefined ? String(arg.value) : (arg.description ?? arg.type))).join(" ");
       state.console.push(`[${params.type}] ${text.slice(0, 2000)}`);
@@ -171,7 +174,8 @@ function browserFillTool(chatId, on, done) {
       if (input.login) {
         if (!logins) throw new Error("Saved logins aren't available on this computer.");
         const login = await logins.resolve(chatId, input.login.name);
-        await fillLogin({ session, node, login, field: input.login.field, onElement });
+        await fillLogin({ session, node, login, field: input.login.field });
+        state.loginFilled = true;
         return done(target);
       }
       await session.send("DOM.focus", { backendNodeId: node }).catch(() => {});
@@ -545,7 +549,11 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
       input: { page, expression: z.string().min(1).max(20000) },
       readOnly: false,
       run: async (input) => {
-        const { session } = await on(input);
+        const { session, state } = await on(input);
+        if (state.loginFilled)
+          throw new Error(
+            "A saved login was filled on this page, so its script can't be read until the page loads another document. Use browser_snapshot, or navigate first.",
+          );
         const { result, exceptionDetails } = await session.send(
           "Runtime.evaluate",
           { expression: input.expression, returnByValue: true, awaitPromise: true },

@@ -187,14 +187,16 @@ test("a browser's passwords file becomes logins by site, shown to the agent by s
   const csv = path.join(dataDir, "Chrome Passwords.csv");
   fs.writeFileSync(
     csv,
-    "name,url,username,password,note\nvercel,https://vercel.com/login,me@x.com,vercel-pass-123456,\nold,http://intranet.example/login,me,intranet-pass-123456,\n",
+    "name,url,username,password,note\nvercel,https://vercel.com/login,me@x.com,vercel-pass-123456,\nold,http://intranet.example/login,me,intranet-pass-123456,\nbroken,nowhere,me,pass-123456,\n",
   );
-  const result = await call("secrets:import-logins", { file: csv });
+  const result = await call("secrets:import-logins", { file: csv, remove: true });
+  assert.equal(result.removed, true);
+  assert.equal(fs.existsSync(csv), false, "the plain-text export is gone once its logins are saved");
   assert.equal(result.imported.length, 1);
   assert.match(result.imported[0], /^LOGIN_VERCEL_COM_/);
   assert.deepEqual(
     result.skipped.map((entry) => entry.site),
-    ["http://intranet.example"],
+    ["nowhere", "http://intranet.example"],
     "a login without https is never saved",
   );
   const [login] = await call("secrets:list");

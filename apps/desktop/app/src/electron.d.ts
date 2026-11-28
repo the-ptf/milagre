@@ -589,7 +589,8 @@ export type MilagreBridge = {
     importLogins: (request: {
       file: string;
       projects?: "all" | string[];
-    }) => Promise<{ imported: string[]; skipped: { name: string; site: string; reason: string }[] }>;
+      remove?: boolean;
+    }) => Promise<{ imported: string[]; skipped: { name: string; site: string; reason: string }[]; removed: boolean }>;
     /** This computer's paired computers and whether its secrets are shared with each. */
     sharing: () => Promise<SecretSharingComputer[]>;
     /** Starts or stops sharing with one paired computer; stopping asks it to drop what came from here. */
