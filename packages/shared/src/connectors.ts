@@ -1,4 +1,7 @@
-import { MCP_CATALOG, MCP_SECRET_MASK, type McpCatalogEntry, type McpProvider } from "./mcp.ts";
+import { MCP_SECRET_MASK, type McpProvider } from "./mcp.ts";
+import { CONNECTOR_PRESETS, type ConnectorCategory, type ConnectorPreset } from "./connector-catalog.ts";
+
+export * from "./connector-catalog.ts";
 import { providerName } from "./providers.mjs";
 
 /** `signed-in` has a saved sign-in Milagre hasn't used yet this run; `connected` answered a tool list. */
@@ -72,105 +75,68 @@ export type ConnectorTool = {
 
 export const CONNECTORS_TITLE = "Connectors";
 export const CONNECTORS_HINT = "Sign in once. Chats on every provider and account you allow use these tools.";
-export const CONNECTOR_CALLBACK_URL = "http://localhost:47616/connectors/callback";
 export const CONNECTOR_SIGNING_IN = "Finish signing in in your browser, then come back.";
 export const CONNECTOR_ON_COMPUTER = "Add connectors and sign in from Milagre on the computer.";
 export const CONNECTOR_SECRET_MASK = MCP_SECRET_MASK;
 
-/** A catalog service as a connector. `app`: the server has no dynamic registration, so the user makes an app and pastes its client ID and secret. */
-/** `email`: Milagre's own Email connector, which signs in to a mailbox over IMAP with an app password instead of adding an MCP server. */
-export type ConnectorPreset = Omit<McpCatalogEntry, "auth"> & { auth: McpCatalogEntry["auth"] | "app" | "email"; appUrl?: string; appSteps?: string };
-
-const SLACK_SCOPES = [
-  "search:read.public",
-  "search:read.private",
-  "search:read.mpim",
-  "search:read.im",
-  "search:read.files",
-  "search:read.users",
-  "emoji:read",
-  "files:read",
-  "files:write",
-  "chat:write",
-  "channels:history",
-  "groups:history",
-  "mpim:history",
-  "im:history",
-  "channels:read",
-  "groups:read",
-  "mpim:read",
-  "im:read",
-  "channels:write",
-  "groups:write",
-  "im:write",
-  "mpim:write",
-  "reactions:read",
-  "reactions:write",
-  "canvases:read",
-  "canvases:write",
-  "users:read",
-  "users:read.email",
-  "lists:read",
-  "lists:write",
-];
-
-/** The Slack app every workspace needs until Milagre's own app is in the Slack Marketplace: user scopes only, PKCE, rotating tokens. */
-export const SLACK_APP_MANIFEST = {
-  display_information: { name: "Milagre" },
-  oauth_config: { redirect_urls: [CONNECTOR_CALLBACK_URL], scopes: { user: SLACK_SCOPES }, pkce_enabled: true },
-  settings: { org_deploy_enabled: false, socket_mode_enabled: false, token_rotation_enabled: true, is_mcp_enabled: true },
-};
-
-export const SLACK_PRESET: ConnectorPreset = {
-  id: "slack",
-  name: "Slack",
-  description: "Messages, channels, canvases, and search.",
-  url: "https://mcp.slack.com/mcp",
-  auth: "app",
-  docsUrl: "https://docs.slack.dev/ai/slack-mcp-server",
-  appUrl: `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(SLACK_APP_MANIFEST))}`,
-  appSteps:
-    "Slack only lets its own apps use this server. Create one for your workspace with the button, check that Agents › Slack Model Context Protocol (MCP) Server is on, then paste its Client ID and Client Secret from Basic Information.",
-  iconPath:
-    "M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z",
-};
-
-export const EMAIL_PRESET: ConnectorPreset = {
-  id: "email",
-  name: "Email",
-  description: "Sign-in codes and links from your inbox, read-only.",
-  url: "imap://",
-  auth: "email",
-  docsUrl: "https://milagre.dev/docs",
-  iconPath: "",
-};
-
-export const CONNECTOR_PRESETS: readonly ConnectorPreset[] = [EMAIL_PRESET, SLACK_PRESET, ...MCP_CATALOG];
-
-export function searchConnectorPresets(query: string): readonly ConnectorPreset[] {
+export function searchConnectorPresets(query: string, category?: ConnectorCategory): readonly ConnectorPreset[] {
   const words = query.trim().toLowerCase().split(/\s+/);
-  return CONNECTOR_PRESETS.filter((preset) => words.every((word) => `${preset.name} ${preset.description}`.toLowerCase().includes(word)));
+  return CONNECTOR_PRESETS.filter(
+    (preset) => (!category || preset.category === category) && words.every((word) => `${preset.name} ${preset.description}`.toLowerCase().includes(word)),
+  );
 }
 
-/** The preset a saved connector came from, by address. */
-export const connectorPreset = (connector: Pick<ConnectorSummary, "url">): ConnectorPreset | null =>
-  CONNECTOR_PRESETS.find((preset) => preset.url.replace(/\/$/, "") === connector.url.replace(/\/$/, "")) ?? null;
+const sameUrl = (a: string, b: string) => a.replace(/\/$/, "") === b.replace(/\/$/, "");
+const commandPackage = (preset: ConnectorPreset) => preset.url.slice("command:".length);
 
-/** What a preset sends to `connectors:add`. A token becomes a bearer header; an app sends its client ID and secret. */
+/** The preset a saved connector came from: by address (any region's) or, for a command connector, by the package it runs. */
+export function connectorPreset(connector: Pick<ConnectorSummary, "url" | "command" | "args">): ConnectorPreset | null {
+  if (connector.command)
+    return CONNECTOR_PRESETS.find((preset) => preset.command && (connector.args ?? []).some((arg) => arg === commandPackage(preset))) ?? null;
+  if (!connector.url) return null;
+  return (
+    CONNECTOR_PRESETS.find(
+      (preset) => !preset.command && (sameUrl(preset.url, connector.url) || preset.regions?.some((region) => sameUrl(region.url, connector.url))),
+    ) ?? null
+  );
+}
+
+export type ConnectorPresetValues = { name: string; token?: string; clientId?: string; clientSecret?: string; region?: string; env?: Record<string, string> };
+
+/** What a preset sends to `connectors:add`. A token becomes a bearer header; an app sends its client ID and secret; a command its environment. */
 export function connectorPresetInput(
   preset: ConnectorPreset,
-  { name, token = "", clientId = "", clientSecret = "" }: { name: string; token?: string; clientId?: string; clientSecret?: string },
+  { name, token = "", clientId = "", clientSecret = "", region, env = {} }: ConnectorPresetValues,
 ): ConnectorInput {
+  const url = preset.regions?.find((item) => item.label === region)?.url ?? preset.url;
+  if (preset.command) {
+    const values: Record<string, string> = {};
+    for (const field of preset.command.env) {
+      const value = (env[field.name] ?? "").trim();
+      if (!value) throw new Error(`Enter the ${field.label.toLowerCase()}.`);
+      values[field.name] = value;
+    }
+    return { name, command: preset.command.command, args: [...preset.command.args], env: { ...values, ...preset.command.fixedEnv } };
+  }
   if (preset.auth === "token") {
     const value = token.trim().replace(/^Bearer(?:\s+|$)/i, "");
-    if (!value || /\s/.test(value)) throw new Error("Enter a valid personal access token.");
-    return { name, url: preset.url, headers: { Authorization: `Bearer ${value}` } };
+    if (!value || /\s/.test(value)) throw new Error("Enter a valid access token.");
+    return { name, url, headers: { Authorization: `Bearer ${value}` } };
   }
   if (preset.auth === "app") {
     if (!clientId.trim()) throw new Error(`Paste the Client ID of your ${preset.name} app.`);
-    return { name, url: preset.url, clientId: clientId.trim(), ...(clientSecret.trim() ? { clientSecret: clientSecret.trim() } : {}) };
+    return { name, url, clientId: clientId.trim(), ...(clientSecret.trim() ? { clientSecret: clientSecret.trim() } : {}) };
   }
-  return { name, url: preset.url };
+  return { name, url };
+}
+
+/** How a preset signs in, in the words its gallery tile uses. */
+export function connectorSignInLabel(preset: Pick<ConnectorPreset, "auth">): string {
+  if (preset.auth === "token") return "Access token";
+  if (preset.auth === "app") return "Your own app";
+  if (preset.auth === "email") return "App password";
+  if (preset.auth === "command") return "Runs on your computer";
+  return "Sign in with browser";
 }
 
 export const connectorAccessKey = (provider: McpProvider, accountId: string) => `${provider}:${accountId}`;

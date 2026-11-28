@@ -2,7 +2,6 @@ import { AUTO_UPDATE_HINT, AUTO_UPDATE_TITLE } from "@milagre/shared/auto-update
 import { CHAT_LIST_TITLE } from "@milagre/shared/chat-display";
 import { CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
 import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL } from "@milagre/shared/device-notes";
-import { EMAIL_CONFIGURE_HINT } from "@milagre/shared/email";
 import { LINEAR_HINT, LINEAR_MOVE_TO_STARTED_HINT, LINEAR_MOVE_TO_STARTED_TITLE, LINEAR_TITLE } from "@milagre/shared/linear";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { IMPORT_INTRO, IMPORT_TITLE } from "@milagre/shared/ade-import";
@@ -455,7 +454,7 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   },
 
   { page: "mcp", title: LINEAR_TITLE, description: LINEAR_HINT, keywords: "issues tracker" },
-  { page: "mcp", title: "Set up email", description: EMAIL_CONFIGURE_HINT, keywords: "mail inbox imap gmail icloud sign-in code otp app password" },
+  { page: "mcp", title: "Browse services", keywords: "add connector catalog email mail notion sentry stripe datadog mcp server" },
   {
     page: "mcp",
     title: LINEAR_MOVE_TO_STARTED_TITLE,

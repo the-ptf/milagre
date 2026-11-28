@@ -50,6 +50,8 @@ export default function SettingsLayout() {
       <Stack.Screen name="skill" options={{ title: "Skill" }} />
       <Stack.Screen name="mcp" options={{ title: "MCP" }} />
       <Stack.Screen name="mcp-server" />
+      <Stack.Screen name="connector" options={{ title: "" }} />
+      <Stack.Screen name="connector-gallery" options={{ title: "Browse services" }} />
       <Stack.Screen name="experimental" options={{ title: "Church" }} />
       <Stack.Screen name="babysit-prs" options={{ title: "Babysit PRs" }} />
       <Stack.Screen name="orchestrator-settings" options={{ title: "Orchestrator" }} />

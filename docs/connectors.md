@@ -39,13 +39,26 @@ Milagre's own Email connector (id `email`, reserved) lets agents read sign-in co
 - **Configure for me** (in Add mailbox on desktop, Set up email in the phone's Connectors) opens a Chat without a Project with `emailSetupPrompt` ready to send. Its agent opens the provider's app password page in the user's signed-in browser (computer use when on, else the Browser panel), creates an app password named Milagre, asks for it with `request_secret` and calls `email_connect`. `email_connect` is offered to every Chat; it takes the address and the `request_secret` file, never a password, refuses any file outside `<dataDir>/chat-secrets` (so an agent can't send another file to a mail server) and deletes the file once the mailbox is saved. It follows the Chat's permission mode.
 - `email:disconnect` forgets one mailbox; Remove on the row (`connectors:remove email`) forgets all of them. Adding a mailbox carries a password, so it runs only on the computer, like `connectors:add`; the phone and paired desktops list mailboxes, change Available to and forget them.
 
+## Catalog
+
+Services already ship MCP servers, so new ones join as presets in `CONNECTOR_PRESETS` (`packages/shared/src/connector-catalog.ts`), not as built-ins. Each preset has a category (Built in, Team, Developer, Observability, Search and web, Business, Design, Email) and one way to sign in:
+
+- `browser`: OAuth with dynamic client registration. A server joins only after Milagre's own sign-in code registers against it and its authorize page accepts the loopback callback; run that check again when adding one. Presets with `regions` (Datadog, Axiom, Honeycomb, PagerDuty) pick their address from a region switch, and `connectorPreset` finds a saved connector by any region's address.
+- `token`: a bearer header (Render, Terraform, GitHub).
+- `app`: the server takes no dynamic registration, so the user creates an OAuth app with the redirect URL the form shows (Slack, Asana, HubSpot, Box, PagerDuty).
+- `command`: a local stdio server with its environment (Email MCP server, Microsoft 365 mail). `fixedEnv` holds settings Milagre forces, such as the Email MCP server's read-only mode and clipboard copy off. A saved command connector matches its preset by package name.
+- `email`: Milagre's own IMAP connector, above.
+
+Icons are simple-icons paths (CC0); a preset without one draws its first letter. Servers that only allowlisted clients can use (Figma, Google Workspace, Microsoft 365's hosted server) and ones with 15-minute tokens (Plaid) stay out.
+
 ## Settings
 
 Settings › Connectors (the `mcp` section) is one page with a **Connectors | MCP servers** switch, on desktop and phone.
 
-- **Connectors** lists each Connector with its state, tool count and reach ("All accounts", "2 of 3 accounts"). A row opens **Available to**, one checkbox per provider Account, plus Sign in again, Sign out, Edit and Remove (Linear shows its own settings instead; a command connector has Edit and Remove). Edit changes the name, the OAuth app, headers, or a command's arguments and environment; secrets show masked and stay as they are unless retyped. The address can't change: add a new connector. Add connector offers the presets in `CONNECTOR_PRESETS` (`packages/shared/src/connectors.ts`), Email first, an address with optional headers or an OAuth app's client ID and secret, or a command with arguments and environment.
+- **Connectors** lists each Connector with its address or command, reach ("All accounts", "By workspace") and state, under a note when one needs you to sign in. A row opens a drawer (a page on the phone) with what it needs (Sign in, Add app, Retry), Email's mailboxes or Linear's settings, **Agents that can use it** (one checkbox per provider Account, per mailbox or workspace), the tool prefix, and Edit, Sign in again, Sign out and Remove. Edit changes the name, the OAuth app, headers, or a command's arguments and environment; secrets show masked and stay as they are unless retyped. The address can't change: add a new connector.
+- **Add connector** is a gallery: a category rail, search, Built into Milagre first, tiles marked Added and labelled with how they sign in, and Custom (an address with optional headers or OAuth app, or a command). Picking a tile shows its setup in place.
 - **MCP servers** is read-only: the servers each Account's own config, Projects, plugins and claude.ai load, with their per-Account checkboxes and sign-in. New servers go in Connectors. The daemon keeps `mcp:save`, `mcp:saveUrl` and `mcp:remove` for the CLI and older apps.
-- The phone shows the same switch. It lists Connectors, changes Available to, signs out and removes; adding and signing in say to use the computer, because the browser returns to its loopback callback.
+- The phone lists Connectors, opens each on its own page (Available to, Sign out, Remove, Email's mailboxes) and browses the same catalog. Email sets itself up through Configure for me; the rest say to finish on the computer, because the browser returns to its loopback callback.
 
 ## Who can do what
 

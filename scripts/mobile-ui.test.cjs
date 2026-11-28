@@ -15407,38 +15407,55 @@ test("mobile Connectors edits provider access for one Linear workspace at a time
       throw new Error(`unexpected ${method}`);
     },
   };
-  const { ConnectorsSection } = load("connectors-section.tsx", {
+  const opened = [];
+  const shared = {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": { View: "View", Text: "Text" },
     "react-native-svg": { default: "Svg", Path: "Path" },
-    "expo-router": { router: { dismissAll() {}, replace() {} }, useFocusEffect: (fn) => focused.push(fn) },
+    "expo-router": { router: { back() {}, dismissAll() {}, replace() {}, push: (to) => opened.push(to) }, useFocusEffect: (fn) => focused.push(fn) },
     "@hugeicons/core-free-icons": {},
     "@milagre/shared/connectors": require("../packages/shared/src/connectors.ts"),
     "@milagre/shared/email": require("../packages/shared/src/email.mjs"),
     "./confirm-store": {},
+    "./connector-tile": { ConnectorTile: "ConnectorTile" },
+    "./design-tokens": { radius: { card: 14 }, space: { md: 8, lg: 12 } },
     "./linear-section": { LinearSection: "LinearSection" },
     "./icons": { Icon: "Icon" },
     "./session": { useSession: () => ({ client }) },
-    "./theme": {},
+    "./theme": { useTheme: () => ({ colors: {} }) },
     "./ui": { Group: "Group", ListRow: "ListRow", InlineError: "InlineError", useStyles: () => ({}) },
-  });
-  const render = () => {
+  };
+  const { useConnectors } = load("use-connectors.ts", shared);
+  const { ConnectorsSection } = load("connectors-section.tsx", { ...shared, "./use-connectors": { useConnectors } });
+  const { ConnectorDetail } = load("connector-detail.tsx", { ...shared, "./use-connectors": { useConnectors } });
+  const renderList = () => {
     react.begin();
     return ConnectorsSection();
   };
+  const render = () => {
+    react.begin();
+    return ConnectorDetail({ id: "linear" });
+  };
   const toggle = (tree, name) => find(tree, (node) => node.props?.toggle?.label === `${name} for Codex · Work`).props.toggle;
+  renderList();
+  focused.at(-1)();
+  await new Promise(setImmediate);
+  find(renderList(), (node) => node.type === "ListRow" && node.props.title === "Linear").props.onPress();
+  assert.equal(JSON.stringify(opened), JSON.stringify([{ pathname: "/connector", params: { id: "linear" } }]));
   render();
   focused.at(-1)();
   await new Promise(setImmediate);
-  find(render(), (node) => node.type === "ListRow" && node.props.title === "Linear").props.onPress();
   toggle(render(), "RDPlus").onChange();
   await new Promise(setImmediate);
   const tree = render();
   assert.deepEqual(changes, [["linear", "codex", "work", false, "rdplus"]]);
   assert.equal(toggle(tree, "Urbis").value, true);
   assert.equal(toggle(tree, "RDPlus").value, false);
-  assert.match(find(tree, (node) => node.type === "ListRow" && node.props.title === "Linear").props.subtitle, /By workspace/);
+  renderList();
+  focused.at(-1)();
+  await new Promise(setImmediate);
+  assert.match(find(renderList(), (node) => node.type === "ListRow" && node.props.title === "Linear").props.subtitle, /By workspace/);
 });
 
 test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the Mac and rolled back when refused", async () => {
