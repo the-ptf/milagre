@@ -21,6 +21,7 @@ const recordSchema = z.strictObject({
   version: z.number().int().positive(),
   changedOn: z.string().max(128),
   updatedAt: z.number(),
+  from: z.string().max(128).optional(),
 });
 const tombstoneSchema = z.strictObject({ version: z.number().int().positive(), changedOn: z.string().max(128), updatedAt: z.number() });
 const stateSchema = z.strictObject({ secrets: z.record(z.string(), recordSchema), tombstones: z.record(z.string(), tombstoneSchema) });
@@ -340,6 +341,13 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
           await record({ at: now(), names: chosen.map(([name]) => name), chatId, computer: computerId(), command: null, delivery: "ambient" });
         return { fingerprint, secrets: chosen.map(([name, secret]) => ({ name, value: secret.value })) };
       }),
+    /** Read, change and seal the whole state in one step, for sync. `change` gets a copy and returns the next state, or null. */
+    transact: (change) =>
+      serial(async () => {
+        const next = await change(structuredClone(await read()));
+        if (next) await persist(next);
+        return next;
+      }),
     log: (name) =>
       serial(async () => {
         const entries = await readLog();
@@ -348,4 +356,4 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
   };
 }
 
-module.exports = { createSecretsVault };
+module.exports = { createSecretsVault, recordSchema, tombstoneSchema };

@@ -14,7 +14,7 @@ const PROJECTS = [
   { path: "/p/rdfood", name: "rdfood" },
 ];
 
-function setup(t, { reply = null, enabled = true, remote = undefined } = {}) {
+function setup(t, { reply = null, enabled = true, remote = undefined, extraPorts = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-orchestrator-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const events = [];
@@ -49,6 +49,7 @@ function setup(t, { reply = null, enabled = true, remote = undefined } = {}) {
     capacity: async () => ({ cpu: 0.7, memoryFree: 0.2, agents: 3 }),
     withTimeout: (promise) => promise,
     wait: async () => {},
+    ...extraPorts,
   };
   const orchestrator = createOrchestrator({ store, ports, now: () => 1000 });
   return { orchestrator, store, calls, events, ports, dir };
@@ -230,6 +231,35 @@ test("the router falls back to keywords when the model is unavailable or vague",
     call: async () => JSON.stringify({ project: "/p/elsewhere", role: "build", title: "x", reason: "y", confidence: 0.3 }),
   });
   assert.equal(invented.projectPath, "/p/happiergym", "a Project outside the list is ignored");
+});
+
+test("a task stays here when the roomier computer lacks a secret its unattended run needs", async (t) => {
+  const asked = [];
+  const remote = {
+    enabled: () => true,
+    list: () => [{ id: "studio-id", name: "Studio" }],
+    invoke: async (id, method) => {
+      asked.push(method);
+      if (method === "orchestrator:capacity")
+        return {
+          cpu: 0.1,
+          memoryFree: 0.8,
+          agents: 0,
+          secrets: [],
+          projects: [{ path: "/Users/s/happiergym", name: "happiergym", origin: "git@github.com:me/happiergym" }],
+        };
+      return { id: "remote-task", state: "routing" };
+    },
+  };
+  const { orchestrator, store } = setup(t, {
+    remote,
+    extraPorts: { requiredSecrets: async () => ["ASC_KEY_ID"] },
+    reply: { project: "/p/happiergym", role: "build", title: "Fix the rest timer", reason: "Mentions the gym app", confidence: 0.9 },
+  });
+  const task = await orchestrator.send("the rest timer in my gym app skips");
+  await settled(orchestrator, task.id);
+  assert.equal(store.task(task.id).computer ?? null, null);
+  assert.equal(asked.includes("orchestrator:start-here"), false);
 });
 
 test("a task goes to the paired computer with the most room when its Project is there too", async (t) => {

@@ -6,6 +6,7 @@ const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const { SECRET_LIMITS, parseDotenv, secretNameProblem, secretRedactor } = require("@milagre/shared/secrets");
 const { createSecretsVault } = require("../secrets-vault.cjs");
 const { createSecretsAccess } = require("../secrets-access.cjs");
+const { createSecretsSync } = require("../secrets-sync.cjs");
 const { createChatSecrets } = require("../chat-secrets.cjs");
 const { createSecretStream, mapStrings } = require("../secrets-stream.cjs");
 const { originId } = require("@milagre/shared/project-origin");
@@ -117,6 +118,12 @@ function createSecretsWiring({
   });
   void refresh();
 
+  const sync = createSecretsSync({ vault, remote: options.remoteComputers, dataDir, self: computerId });
+  commands.handle("secrets:digest", () => sync.digest());
+  commands.handle("secrets:push", (_context, request) => sync.receive(request));
+  commands.handle("secrets:forget-from", (_context, request) => sync.forgetFrom(request));
+  commands.handle("secrets:sharing", () => sync.sharing());
+  commands.handle("secrets:share", (_context, request) => sync.share(request));
   commands.handle("secrets:status", () => vault.status());
   commands.handle("secrets:list", () => vault.list());
   commands.handle("secrets:log", (_context, request = {}) => vault.log(request?.name ?? null));

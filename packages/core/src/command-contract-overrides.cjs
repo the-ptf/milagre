@@ -149,4 +149,9 @@ module.exports = {
   "desktop:register": request({ methods: array(s) }),
   "desktop:respond": request({ id: s, result: any, error: object({ message: s, code: s }, ["message"]) }, ["id"]),
   "desktop:invoke": request({ method: s, args: array(any) }),
+  "secrets:digest": [],
+  "secrets:push": request({ from: s, entries: array(any) }),
+  "secrets:forget-from": request({ from: s }),
+  "secrets:sharing": [],
+  "secrets:share": request({ computer: s, on: b }),
 };

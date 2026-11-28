@@ -9,11 +9,15 @@ function createPlacement({ store, ports, settings, projectList, addTask, imagesO
     const origin = await ports.originOf(route.projectPath).catch(() => null);
     if (!origin) return null;
     const here = await ports.capacity();
+    const required = (await ports.requiredSecrets?.(origin).catch(() => [])) ?? [];
+    const holdsSecrets = (capacity) => required.every((name) => capacity?.secrets?.includes(name));
     const answers = await Promise.all(
       remote.list().map(async (computer) => {
         const capacity = await ports.withTimeout(remote.invoke(computer.id, "orchestrator:capacity", []), 4000).catch(() => null);
         const project = capacity?.projects?.find((entry) => entry.origin === origin);
-        return project ? { ...capacity, id: computer.id, name: computer.name, local: false, online: true, projectPath: project.path } : null;
+        return project && holdsSecrets(capacity)
+          ? { ...capacity, id: computer.id, name: computer.name, local: false, online: true, projectPath: project.path }
+          : null;
       }),
     );
     const candidates = [{ ...here, id: "local", name: null, local: true, online: true }, ...answers.filter(Boolean)];

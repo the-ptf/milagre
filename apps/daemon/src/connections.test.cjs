@@ -95,8 +95,12 @@ test("the paired-desktop policy denies pairing, device management, push, stoppin
     "secrets:list",
     "secrets:set",
     "secrets:log",
+    "secrets:share",
+    "secrets:sharing",
   ])
     assert.equal(peerPolicy.denies(method), true, method);
+  for (const method of ["secrets:digest", "secrets:push", "secrets:forget-from"])
+    assert.equal(peerPolicy.denies(method), false, `${method} is how paired computers share secrets`);
   for (const method of [
     "daemon:status",
     "daemon:snapshot",

@@ -36,6 +36,16 @@ Unattended turns (hidden Routine and Orchestrator Chats, Heartbeat turns, babysi
 
 Agents learn names from `secrets_list` (names, kinds, notes; never values), pointed to by one line in the system prompt.
 
+## Sharing between computers
+
+Off until the person turns it on per paired computer (Settings › Secrets › Share with; `secrets:share`, kept in `secrets-sharing.json`). `secrets-sync.cjs` then pushes over the end-to-end computer link: it asks the other computer for a digest (names, versions, who changed them, never values), sends what it lacks or holds older in batches of 20 (`secrets:push`), and does it again on every change and whenever that computer comes online.
+
+- **Push only.** Paired computers may call `secrets:digest`, `secrets:push` and `secrets:forget-from` and no other `secrets:` method, so none can read a value back.
+- **Conflicts.** The higher version wins, then the higher computer name, the same on every computer. A deleted secret travels as a tombstone with its version, so a stale computer can't bring it back.
+- **Received entries** are checked like local ones: reserved names and malformed records are dropped, and a file secret is never ambient. Each keeps `from`, the computer that sent it.
+- **Turning sharing off** asks that computer to drop what came from here (no tombstones, so sharing again restores it). While it is offline the request waits (`pendingRemoval`) and runs when it reconnects.
+- **Orchestrator placement** sends a task to another computer only if it holds every unattended secret in reach of the task's Project (`orchestrator:capacity` lists names, `requiredSecrets`).
+
 ## Use log
 
 `<dataDir>/secrets-log.jsonl`, 0600: time, names, Chat, computer, the program's file name only, sent apart from its arguments (they arrive expanded and may hold a credential), delivery. Kept 30 days. Ambient secrets are logged once per Chat per host run.
