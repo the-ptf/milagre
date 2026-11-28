@@ -39,7 +39,13 @@ async function prepare(session, state) {
   state.ready = true;
   state.refs = new Map();
   state.console = [];
+  state.contexts = new Map();
   session.on((method, params) => {
+    if (method === "Runtime.executionContextCreated" && params.context?.auxData?.isDefault)
+      state.contexts.set(params.context.auxData.frameId, params.context.id);
+    if (method === "Runtime.executionContextDestroyed")
+      for (const [frame, id] of state.contexts) if (id === params.executionContextId) state.contexts.delete(frame);
+    if (method === "Runtime.executionContextsCleared") state.contexts.clear();
     if (method === "Page.frameNavigated" && !params.frame?.parentId) {
       state.refs = new Map();
     }
@@ -554,9 +560,9 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
       input: { page, expression: z.string().min(1).max(20000) },
       readOnly: false,
       run: async (input) => {
-        const { session, target } = await on(input);
-        const { result, exceptionDetails } = await loginGuard.script(session, target, () =>
-          session.send("Runtime.evaluate", { expression: loginGuard.expression(input.expression), returnByValue: true, awaitPromise: true }, 30000),
+        const { session, target, state } = await on(input);
+        const { result, exceptionDetails } = await loginGuard.script(session, target, state.contexts, (contextId) =>
+          session.send("Runtime.evaluate", { expression: loginGuard.expression(input.expression), contextId, returnByValue: true, awaitPromise: true }, 30000),
         );
         if (exceptionDetails) throw new Error(String(exceptionDetails.exception?.description ?? exceptionDetails.text ?? "The expression threw."));
         return clip(result?.value === undefined ? String(result?.description ?? "undefined") : JSON.stringify(result.value, null, 2));

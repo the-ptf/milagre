@@ -12,7 +12,7 @@ let loaders = 0;
 
 function fakeSession() {
   const sent = [];
-  const page = { loader: `loader-${++loaders}` };
+  const page = { loader: `loader-${++loaders}`, context: loaders };
   const listeners = new Set();
   const replies = {
     "Accessibility.getFullAXTree": () => ({
@@ -32,25 +32,37 @@ function fakeSession() {
           ? { result: { value: true } }
           : { result: { value: expression === "1 + 1" ? 2 : undefined } },
     "DOM.getBoxModel": () => ({ model: { content: [10, 20, 110, 20, 110, 60, 10, 60], border: [8, 18, 112, 18, 112, 62, 8, 62] } }),
-    "DOM.resolveNode": () => ({ object: { objectId: "obj-1" } }),
-    "Runtime.callFunctionOn": () => ({ result: { value: "Visa" } }),
+    "DOM.getDocument": () => ({ root: { nodeId: 1, backendNodeId: 1 } }),
+    "DOM.resolveNode": (params) => ({ object: { objectId: params.executionContextId === undefined ? "obj-1" : `document-in-${params.executionContextId}` } }),
+    "Runtime.callFunctionOn": (params) =>
+      params.functionDeclaration.includes("this === document")
+        ? { result: { value: params.objectId === `document-in-${page.context}` } }
+        : { result: { value: "Visa" } },
     "Page.captureScreenshot": () => ({ data: "iVBORw0KGgo=" }),
     "Page.getFrameTree": () => ({ frameTree: { frame: { id: "top", loaderId: page.loader } } }),
     "Page.navigate": () => ({}),
   };
-  return {
+  const session = {
     sent,
     page,
-    navigate: () => (page.loader = `loader-${++loaders}`),
+    navigate() {
+      session.emit("Runtime.executionContextDestroyed", { executionContextId: page.context });
+      page.loader = `loader-${++loaders}`;
+      page.context = loaders;
+      session.emit("Runtime.executionContextCreated", { context: { id: page.context, auxData: { isDefault: true, frameId: "top" } } });
+    },
     closed: false,
     emit: (method, params) => listeners.forEach((listener) => listener(method, params)),
     on: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
     send: async (method, params = {}) => {
       sent.push([method, params]);
+      if (method === "Runtime.enable")
+        session.emit("Runtime.executionContextCreated", { context: { id: page.context, auxData: { isDefault: true, frameId: "top" } } });
       return replies[method]?.(params) ?? {};
     },
     close() {},
   };
+  return session;
 }
 
 function fixture({ roots = [], files, listError, listErrorOnCall } = {}) {
@@ -338,7 +350,7 @@ test("the agent's script and a filled login never share a page load", async (t) 
   const send = f.session.send;
   f.session.send = async (method, params = {}) => {
     if (method === "Page.createIsolatedWorld") return { executionContextId: 9 };
-    if (method === "Runtime.callFunctionOn" && params.objectId === "obj-1" && params.arguments?.length === 3) return { result: { value: { filled: true } } };
+    if (method === "Runtime.callFunctionOn" && params.arguments?.length === 3) return { result: { value: { filled: true } } };
     return send(method, params);
   };
   const fill = { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } };
@@ -471,4 +483,32 @@ test("the agent's script refuses by itself, in the same turn, in a document a lo
   assert.equal(sent.expression.split("\n").at(-1), "1 + 1", "the agent's code runs as written");
   assert.match(sent.expression.split("\n")[0], new RegExp(`hasAttribute\\("${MARK}"\\)\\) throw`));
   assert.ok(FILL.includes(MARK), "a fill stamps the top document");
+});
+
+test("a navigation while the agent's script is starting stops it, and it runs only in the context of the document checked", async (t) => {
+  useLogins({ resolve: async () => ({ origin: "http://localhost:5173", username: "me", password: "local-pass-123456" }) });
+  t.after(() => useLogins(null));
+  const f = fixture();
+  const send = f.session.send;
+  let moveOnce = false;
+  f.session.send = async (method, params = {}) => {
+    if (method === "DOM.getDocument" && moveOnce) {
+      moveOnce = false;
+      f.session.navigate();
+    }
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 99 };
+    if (method === "Runtime.callFunctionOn" && params.arguments?.length === 3) return { result: { value: { filled: true } } };
+    return send(method, params);
+  };
+  await f.run("browser_snapshot");
+  assert.equal((await f.run("browser_evaluate", { expression: "1 + 1" })).text, "2");
+  const [, evaluated] = f.session.sent.findLast(([method]) => method === "Runtime.evaluate");
+  assert.equal(evaluated.contextId, f.session.page.context, "bound to the checked document's context");
+  moveOnce = true;
+  assert.match((await f.run("browser_evaluate", { expression: "1 + 1" })).text, /page changed while the script was starting/);
+  assert.match(
+    (await f.run("browser_fill", { ref: "e2", login: { name: "LOGIN_LOCAL", field: "password" } })).text,
+    /agent's script ran on this page/,
+    "the document it moved to counts as scripted",
+  );
 });

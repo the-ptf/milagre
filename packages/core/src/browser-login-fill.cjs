@@ -109,6 +109,23 @@ async function fillLogin({ session, node, login, field }) {
 }
 
 const REFUSED = "login-refused";
+const MOVED = "The page changed while the script was starting, so it didn't run. Try again.";
+
+/** Whether a main-world context holds the frame's current document, read in that context where `document` can't be replaced. */
+async function holdsDocument(session, context) {
+  const { root } = await session.send("DOM.getDocument", { depth: 0 });
+  const resolved = await session.send("DOM.resolveNode", { backendNodeId: root.backendNodeId, executionContextId: context }).catch(() => null);
+  if (!resolved?.object?.objectId) return false;
+  const checked = await session
+    .send("Runtime.callFunctionOn", {
+      objectId: resolved.object.objectId,
+      functionDeclaration: "function () { return this === document; }",
+      returnByValue: true,
+    })
+    .catch(() => null);
+  return checked?.result?.value === true;
+}
+
 const SCRIPTED = "The agent's script ran on this page, so a saved login isn't filled until the page loads again. Reload or navigate first.";
 const FILLED =
   "A saved login was filled on this page, so its script can't be read until the page loads another document. Use browser_snapshot, or navigate first.";
@@ -130,7 +147,7 @@ function createLoginGuard() {
   };
   const documentOf = async (session, target) => {
     const { frameTree } = await session.send("Page.getFrameTree");
-    return `${target.id}:${frameTree.frame.loaderId ?? frameTree.frame.id}`;
+    return { key: `${target.id}:${frameTree.frame.loaderId ?? frameTree.frame.id}`, frame: frameTree.frame.id };
   };
   return {
     async fill(session, target, run) {
@@ -140,7 +157,7 @@ function createLoginGuard() {
         if (unknown.has(target.id))
           throw new Error("Milagre couldn't tell which page the agent's script ended on, so this tab takes no saved login. Open the page in a new tab.");
         if (busy.scripts) throw new Error(SCRIPTED);
-        const key = await documentOf(session, target);
+        const { key } = await documentOf(session, target);
         if (scripted.has(key)) throw new Error(SCRIPTED);
         await run(() => filled.add(key));
         filled.add(key);
@@ -156,19 +173,29 @@ function createLoginGuard() {
      */
     expression: (expression) =>
       `if (document.documentElement && document.documentElement.hasAttribute(${JSON.stringify(MARK)})) throw new Error(${JSON.stringify(FILLED)});\n${expression}`,
-    async script(session, target, run) {
+    /**
+     * Runs the agent's script bound to the main-world context of the document the guard checked: the context is
+     * confirmed to hold the current document, the document is read again around that check, and the script runs only
+     * in that context, so a navigation makes the call fail instead of landing it in another document.
+     */
+    async script(session, target, contexts, run) {
       const busy = tab(target);
       busy.scripts++;
       try {
         if (busy.fills) throw new Error(FILLED);
-        const key = await documentOf(session, target);
-        if (filled.has(key)) throw new Error(FILLED);
-        scripted.add(key);
+        const before = await documentOf(session, target);
+        if (filled.has(before.key)) throw new Error(FILLED);
+        scripted.add(before.key);
+        const context = contexts?.get(before.frame);
+        const bound = context !== undefined && (await holdsDocument(session, context));
+        const after = await documentOf(session, target);
+        scripted.add(after.key);
+        if (!bound || after.key !== before.key) throw new Error(MOVED);
         try {
-          return await run();
+          return await run(context);
         } finally {
-          const after = await documentOf(session, target).catch(() => null);
-          if (after) scripted.add(after);
+          const ended = await documentOf(session, target).catch(() => null);
+          if (ended) scripted.add(ended.key);
           else unknown.add(target.id);
         }
       } finally {
