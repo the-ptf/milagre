@@ -219,3 +219,68 @@ test("all open PRs are read across cursors and above GitHub's search result limi
     assert.equal(calls.length, count > 1000 ? 4 : 3);
   }
 });
+
+const badGateway = () =>
+  Object.assign(new Error("Command failed: gh api graphql"), { code: 1, stderr: "gh: HTTP 502\n", stdout: "<!DOCTYPE html><title>Unicorn! · GitHub</title>" });
+const noWait = { sleep: async () => {} };
+
+test("GitHub's 5xx asks again with half the page, then keeps the last rows quietly for five minutes", async () => {
+  let at = 0;
+  let down = () => false;
+  const { exec, calls } = fakeGh((query, q, args) => {
+    if (query.startsWith("query{")) return { data: { r0: { nameWithOwner: "acme/web" } } };
+    if (down(args)) return badGateway();
+    return { data: { viewer: { login: "dana" }, search: { nodes: [node(1)] } } };
+  });
+  const list = createPullRequestList({ exec, now: () => at, retry: noWait });
+  const only = [projects[0]];
+  const pages = () => calls.filter((call) => call.q).map((call) => call.args.find((arg) => arg.startsWith("first=")));
+
+  down = (args) => args.includes("first=50");
+  const retried = await list.list({ projects: only });
+  assert.deepEqual(pages(), ["first=50", "first=25"]);
+  assert.deepEqual(retried.errors, []);
+  assert.deepEqual(
+    retried.items.map((item) => item.number),
+    [1],
+  );
+
+  down = () => true;
+  at = 61_000;
+  const quiet = await list.list({ projects: only });
+  assert.deepEqual(pages().slice(2), ["first=50", "first=25", "first=12"]);
+  assert.deepEqual(quiet.errors, []);
+  assert.equal(quiet.viewer, "dana");
+  assert.deepEqual(
+    quiet.items.map((item) => item.number),
+    [1],
+  );
+
+  at = 6 * 60_000;
+  const noted = await list.list({ projects: only, force: true });
+  assert.deepEqual(noted.errors, ["GitHub didn't answer in time (HTTP 502). Showing the last pull requests loaded."]);
+  assert.equal(noted.items.length, 1);
+
+  const fresh = await createPullRequestList({ exec, now: () => at, retry: noWait }).list({ projects: only });
+  assert.deepEqual(fresh.errors, ["GitHub didn't answer in time (HTTP 502). Try again in a moment."]);
+  assert.deepEqual(fresh.items, []);
+});
+
+test("a 5xx resolving repositories keeps last hour's names, and says GitHub timed out when there are none", async () => {
+  let at = 0;
+  let down = false;
+  const { exec, calls } = fakeGh((query) => {
+    if (query.startsWith("query{")) return down ? badGateway() : { data: { r0: { nameWithOwner: "acme/web" } } };
+    return { data: { viewer: { login: "dana" }, search: { nodes: [node(1)] } } };
+  });
+  const list = createPullRequestList({ exec, now: () => at, retry: noWait });
+  await list.list({ projects: [projects[0]] });
+  down = true;
+  at = 2 * 60 * 60_000;
+  const stale = await list.list({ projects: [projects[0]] });
+  assert.deepEqual(stale.repos, ["acme/web"]);
+  assert.equal(calls.at(-1).q, "repo:acme/web is:pr is:open sort:updated-desc");
+  await assert.rejects(createPullRequestList({ exec, retry: noWait }).list({ projects: [projects[0]] }), {
+    message: "GitHub didn't answer in time (HTTP 502). Try again in a moment.",
+  });
+});
