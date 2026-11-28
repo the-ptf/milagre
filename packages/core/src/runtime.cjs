@@ -1253,7 +1253,7 @@ function createRuntime(options) {
       ...artifactCommentToolDefinitions(chatId, artifacts),
       ...require("./advisor-tools.cjs").advisorToolDefinitions(chatId, advisors),
       ...require("./link-worktree-tools.cjs").linkWorktreeToolDefinitions(chatId, createLinkWorktree),
-      ...routines.definitions(chatId),
+      ...routines.definitions(chatId, (projectPath) => localMcp.reachProject(chatId, projectPath)),
       ...integrations.tools(context ?? agents.sessions.get(chatId)),
     ],
     createMcpServer: ({ toolsFor }) => ({ url: (chatId) => localMcp.chatUrl(chatId, toolsFor), close: async () => {} }),

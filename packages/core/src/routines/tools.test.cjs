@@ -13,7 +13,7 @@ const CHAT = "/code/app#s1";
 const OTHER_CHAT = "/code/other#s9";
 const SETTINGS = { provider: "claude", model: "opus", permissionMode: "default" };
 
-function setup({ settings = SETTINGS, timezone = "UTC", workspaces = ["acme"], keepChat } = {}) {
+function setup({ settings = SETTINGS, timezone = "UTC", workspaces = ["acme"], keepChat, reachProject } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-tools-"));
   const clock = { t: START };
   let n = 0;
@@ -36,7 +36,7 @@ function setup({ settings = SETTINGS, timezone = "UTC", workspaces = ["acme"], k
   });
   const call = (name, args, chatId = CHAT) =>
     runTool(
-      tools.definitions(chatId).find((tool) => tool.name === name),
+      tools.definitions(chatId, reachProject ? { reachProject } : {}).find((tool) => tool.name === name),
       args,
     );
   return { store, call, clock, ran, tools };
@@ -229,6 +229,81 @@ test("update, delete and run now are limited to the caller's Project", async () 
   const missing = await call("routine_delete", { id: "nope" });
   assert.equal(missing.isError, true);
   assert.match(missing.text, /not found/);
+});
+
+test("with projectPath, a Chat lists and pauses another Project's Routines once it may reach that Project", async () => {
+  const reached = [];
+  const { store, call, ran } = setup({ reachProject: async (projectPath) => void reached.push(projectPath) });
+  await call("heartbeat_create", { name: "mine", prompt: "p", every: "1h" });
+  await call("heartbeat_create", { name: "nightly", prompt: "p", every: "1h" }, OTHER_CHAT);
+  await call("routine_create", { name: "triage", prompt: "p", trigger: "schedule", every: "2h" }, OTHER_CHAT);
+
+  const listed = await call("routine_list", { projectPath: "/code/other" });
+  assert.equal(listed.isError, false, listed.text);
+  assert.deepEqual(
+    listed.text.split("\n").map((line) => line.split(" · ")[1]),
+    ["nightly", "triage"],
+  );
+  assert.equal((await call("routine_list", { projectPath: "/code/empty" })).text, "No Routines in empty.");
+
+  const paused = await call("routine_update", { id: "id2", projectPath: "/code/other", enabled: false });
+  assert.equal(paused.isError, false, paused.text);
+  assert.match(paused.text, /^Updated "nightly": every 1 h, paused/);
+  assert.equal(store.get("id2").enabled, false);
+  assert.equal((await call("routine_update", { id: "id2", projectPath: "/code/other", enabled: true })).isError, false);
+  assert.equal(store.get("id2").enabled, true);
+  assert.equal((await call("routine_run_now", { id: "id3", projectPath: "/code/other" })).isError, false);
+  assert.deepEqual(ran, ["id3"]);
+  assert.equal((await call("routine_delete", { id: "id3", projectPath: "/code/other" })).isError, false);
+  assert.equal(store.get("id3"), null);
+  assert.deepEqual(reached, ["/code/other", "/code/empty", "/code/other", "/code/other", "/code/other", "/code/other"]);
+
+  // The id has to be in the Project named: this Chat's own Routine isn't found under another Project's path.
+  const wrong = await call("routine_update", { id: "id1", projectPath: "/code/other", enabled: false });
+  assert.equal(wrong.isError, true);
+  assert.match(wrong.text, /not found in \/code\/other/);
+  assert.equal(store.get("id1").enabled, true);
+});
+
+test("a Project the Chat may not reach is refused, and nothing in it changes", async () => {
+  const { store, call, ran } = setup({
+    reachProject: async () => {
+      throw new Error("The user declined access to that Project.");
+    },
+  });
+  await call("heartbeat_create", { name: "nightly", prompt: "p", every: "1h" }, OTHER_CHAT);
+  for (const [name, args] of [
+    ["routine_list", {}],
+    ["routine_update", { id: "id1", enabled: false }],
+    ["routine_delete", { id: "id1" }],
+    ["routine_run_now", { id: "id1" }],
+  ]) {
+    const result = await call(name, { ...args, projectPath: "/code/other" });
+    assert.equal(result.isError, true, name);
+    assert.match(result.text, /declined access/, name);
+  }
+  assert.equal(store.get("id1").enabled, true);
+  assert.deepEqual(ran, []);
+
+  // Without the gate wired in, another Project is out of reach.
+  const { call: bare } = setup();
+  const refused = await bare("routine_list", { projectPath: "/code/other" });
+  assert.equal(refused.isError, true);
+  assert.match(refused.text, /other Projects are unavailable/);
+});
+
+test("without projectPath, or with this Chat's own, no access is asked for", async () => {
+  const reached = [];
+  const { store, call } = setup({ reachProject: async (projectPath) => void reached.push(projectPath) });
+  await call("heartbeat_create", create);
+  await call("heartbeat_create", { name: "elsewhere", prompt: "p", every: "1h" }, OTHER_CHAT);
+  assert.equal((await call("routine_list", {})).text.split("\n").length, 1);
+  assert.equal((await call("routine_list", { projectPath: "/code/app" })).text.split("\n").length, 1);
+  assert.equal((await call("routine_update", { id: "id1", enabled: false })).isError, false);
+  assert.equal(store.get("id1").enabled, false);
+  const elsewhere = await call("routine_update", { id: "id2", enabled: false });
+  assert.match(elsewhere.text, /not found: id2\. For one in another Project, give its projectPath\./);
+  assert.deepEqual(reached, []);
 });
 
 test("routine_delete removes a Routine in the Project", async () => {

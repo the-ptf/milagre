@@ -4,7 +4,7 @@ const { createLocalMcpStore, configurationSchema, privateJson } = require("./loc
 const { createLocalMcpRegistry } = require("./local-mcp-registry.cjs");
 const { createLocalMcpOperations } = require("./local-mcp-operations.cjs");
 const { createLocalMcpServer } = require("./local-mcp-server.cjs");
-const { managementToolGroups } = require("./local-mcp-tools.cjs");
+const { managementToolGroups, reachProject } = require("./local-mcp-tools.cjs");
 
 function createLocalMcp({
   dataDir,
@@ -125,6 +125,10 @@ function createLocalMcp({
     forgetProjectGrants,
     agentTools(chatId) {
       return registry.toolsFor(`agent:${chatId}`);
+    },
+    reachProject(chatId, projectPath) {
+      const { chats: scope } = connection(`agent:${chatId}`).grants;
+      return reachProject({ host, scope, caller: chatId, projectPath, grant: (granted) => grantChatProject(chatId, granted) });
     },
     async secretsUrl(token) {
       return `${new URL(await listen()).origin}/secrets/${token}`;

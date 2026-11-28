@@ -21,6 +21,15 @@ const everyField = z
 const timezoneField = z.string().max(64).describe("IANA timezone, e.g. America/Sao_Paulo. Defaults to the computer's timezone.");
 const maxRunsField = z.number().int().min(1).max(1000).describe("End the Heartbeat after this many Runs.");
 const expiresInField = z.string().max(10).describe('End the Heartbeat after this long: a number and m, h or d, e.g. "12h" or "3d". At most 30d.');
+const projectPathField = z
+  .string()
+  .min(1)
+  .max(8192)
+  .optional()
+  .describe(
+    "Another Project on this computer, by its path from project_list. Left out, this Chat's Project. Unless this Chat runs in Full permission or already has access to it, the user approves first on a card in this Chat: wait for its result.",
+  );
+const OUTSIDE_REFUSED = "Routines in other Projects are unavailable here.";
 
 function expiresInMs(value) {
   const match = /^(\d+)([mhd])$/.exec(value);
@@ -106,32 +115,51 @@ function createRoutineTools({
   keepChat = async () => {},
   now = Date.now,
 }) {
-  function definitions(chatId, { babysitOnly = false } = {}) {
+  function definitions(
+    chatId,
+    {
+      babysitOnly = false,
+      reachProject = async () => {
+        throw new Error(OUTSIDE_REFUSED);
+      },
+    } = {},
+  ) {
     const project = projectOfKey(chatId);
-    const inProject = (routine) =>
-      babysitOnly
-        ? routine.trigger.kind === "pull-request" && routine.target?.chatId === chatId
-        : routine.target?.kind === "chat"
-          ? projectOfKey(routine.target.chatId) === project
-          : routine.target?.kind === "new-chat" && routine.target.projectPath === project;
+    const inProjectOf = (projectPath) => (routine) =>
+      routine.target?.kind === "chat"
+        ? projectOfKey(routine.target.chatId) === projectPath
+        : routine.target?.kind === "new-chat" && routine.target.projectPath === projectPath;
+    const inProject = babysitOnly ? (routine) => routine.trigger.kind === "pull-request" && routine.target?.chatId === chatId : inProjectOf(project);
     if (babysitOnly && !store.list().some((routine) => !routine.completedAt && inProject(routine))) return [];
-    const own = (id) => {
+    const reached = async (projectPath) => {
+      if (projectPath === undefined || projectPath === project) return inProject;
+      await reachProject(projectPath);
+      return inProjectOf(projectPath);
+    };
+    const notFound = (id, projectPath) => {
+      if (projectPath !== undefined) return `Routine not found in ${projectPath}: ${id}`;
+      return babysitOnly ? `Routine not found: ${id}` : `Routine not found: ${id}. For one in another Project, give its projectPath.`;
+    };
+    const own = async (id, projectPath) => {
       const routine = store.get(id);
-      if (!routine || !inProject(routine)) throw new Error(`Routine not found: ${id}`);
+      if (!routine || !(await reached(projectPath))(routine)) throw new Error(notFound(id, projectPath));
       return routine;
     };
+    const elsewhere = babysitOnly ? {} : { projectPath: projectPathField };
     const tools = [
       {
         name: ROUTINE_LIST,
-        description: "List the Routines (Heartbeats and triggers) in this Chat's Project: id, name, trigger, next run and whether it is enabled.",
-        input: {},
+        description:
+          "List the Routines (Heartbeats and triggers) in this Chat's Project, or in another Project with projectPath: id, name, trigger, next run and whether it is enabled.",
+        input: { ...elsewhere },
         readOnly: true,
-        run: async () => {
+        run: async ({ projectPath }) => {
           const lines = store
             .list()
-            .filter(inProject)
+            .filter(await reached(projectPath))
             .map((routine) => [routine.id, routine.name, triggerText(routine.trigger), nextText(routine), routine.enabled ? "enabled" : "paused"].join(" · "));
-          return lines.length ? lines.join("\n") : "No Routines in this Project.";
+          if (lines.length) return lines.join("\n");
+          return projectPath === undefined || projectPath === project ? "No Routines in this Project." : `No Routines in ${path.basename(projectPath)}.`;
         },
       },
       {
@@ -240,9 +268,10 @@ function createRoutineTools({
       {
         name: ROUTINE_UPDATE,
         description:
-          "Change a Routine in this Chat's Project: its name, prompt, schedule (cron or every), timezone, end (maxRuns or expiresIn), a Linear trigger's linearEvent, team, label or state, the fallback model a failed Run retries on, or pause it with enabled false. A Linear trigger keeps the filters you don't give; label-added needs a label and state needs a state.",
+          "Change a Routine in this Chat's Project, or in another Project with projectPath: its name, prompt, schedule (cron or every), timezone, end (maxRuns or expiresIn), a Linear trigger's linearEvent, team, label or state, the fallback model a failed Run retries on, or pause it with enabled false. A Linear trigger keeps the filters you don't give; label-added needs a label and state needs a state.",
         input: {
           id: z.string().min(1).max(64),
+          ...elsewhere,
           name: z.string().min(1).max(80).optional(),
           prompt: z.string().min(1).max(4000).optional(),
           cron: cronField.optional(),
@@ -258,8 +287,8 @@ function createRoutineTools({
           ...fallbackFields(true),
         },
         readOnly: false,
-        run: async ({ id, every, expiresIn, linearEvent, team, label, state, fallbackProvider, fallbackModel, fallbackEffort, ...rest }) => {
-          const current = own(id);
+        run: async ({ id, projectPath, every, expiresIn, linearEvent, team, label, state, fallbackProvider, fallbackModel, fallbackEffort, ...rest }) => {
+          const current = await own(id, projectPath);
           const fallback = fallbackOf({ fallbackProvider, fallbackModel, fallbackEffort });
           if (rest.cron !== undefined && every !== undefined) throw new Error("Give cron or every, not both.");
           if (rest.timezone !== undefined) checkTimezone(rest.timezone);
@@ -276,22 +305,23 @@ function createRoutineTools({
       },
       {
         name: ROUTINE_DELETE,
-        description: "Delete a Routine in this Chat's Project, such as a Heartbeat whose work is done. This may need the user's approval.",
-        input: { id: z.string().min(1).max(64) },
+        description: `Delete a Routine in this Chat's Project${babysitOnly ? "" : ", or in another Project with projectPath"}, such as a Heartbeat whose work is done. This may need the user's approval.`,
+        input: { id: z.string().min(1).max(64), ...elsewhere },
         readOnly: false,
-        run: async ({ id }) => {
-          const routine = own(id);
+        run: async ({ id, projectPath }) => {
+          const routine = await own(id, projectPath);
           remove(id, { byChat: chatId });
           return `Deleted "${routine.name}".`;
         },
       },
       {
         name: ROUTINE_RUN_NOW,
-        description: "Run a Routine in this Chat's Project now, outside its schedule, and report how the Run went.",
-        input: { id: z.string().min(1).max(64) },
+        description:
+          "Run a Routine now, outside its schedule, and report how the Run went: one in this Chat's Project, or in another Project with projectPath.",
+        input: { id: z.string().min(1).max(64), ...elsewhere },
         readOnly: false,
-        run: async ({ id }) => {
-          const routine = own(id);
+        run: async ({ id, projectPath }) => {
+          const routine = await own(id, projectPath);
           const run = await scheduler.runNow(id);
           const detail = run?.error ?? run?.summary;
           return `Ran "${routine.name}": ${run?.status ?? "unknown"}.${detail ? ` ${detail}` : ""}`;

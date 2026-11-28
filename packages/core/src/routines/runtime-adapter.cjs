@@ -711,20 +711,13 @@ function createRoutines({
   }
 
   return {
-    definitions: (chatId) =>
-      [...tools.definitions(chatId, { babysitOnly: isLinkScopeKey(projectOfKey(chatId)) }), ...(startedByRoutine(chatId) ? [flowOutputTool(chatId)] : [])]
+    definitions: (chatId, reachProject) =>
+      [
+        ...tools.definitions(chatId, { babysitOnly: isLinkScopeKey(projectOfKey(chatId)), reachProject }),
+        ...(startedByRoutine(chatId) ? [flowOutputTool(chatId)] : []),
+      ]
         .filter((tool) => !startedByRoutine(chatId) || !WITHHELD.has(tool.name))
-        .map((tool) => {
-          const { run } = tool;
-          tool.run = async (input) => {
-            try {
-              return await run(input);
-            } finally {
-              if (!tool.readOnly) changed();
-            }
-          };
-          return tool;
-        }),
+        .map((tool) => ({ ...tool, run: (input) => tool.run(input).finally(tool.readOnly ? undefined : changed) })),
     observe(chatId, event) {
       try {
         scheduler.observe(chatId, event);
