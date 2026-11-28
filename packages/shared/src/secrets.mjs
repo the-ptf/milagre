@@ -161,3 +161,84 @@ export function secretRedactor(secrets) {
   };
   return Object.assign(redact, { pending });
 }
+
+export const SECRETS_COPY = Object.freeze({
+  title: "Secrets",
+  intro: "Save a key once and agents use it one command at a time. After you save a value, Milagre never shows it again.",
+  usage: "Agents run commands with milagre-secrets run --with NAME -- <command>. Every use is logged.",
+  locked: "Secrets are locked on this computer. Open Milagre on it, or set up a computer key for unattended access.",
+  empty: "No secrets yet. Add one here, or save one when an agent asks for it.",
+  add: "Add secret",
+  importEnv: "Import .env file",
+  replace: "Replace value",
+  remove: "Delete",
+  removeConfirm: (name) => `Delete ${name}? Agents lose it from their next command.`,
+  name: "Name",
+  value: "Value",
+  file: "File",
+  note: "Note",
+  projects: "Projects",
+  allProjects: "All Projects",
+  chosenProjects: "Chosen Projects",
+  noProjects: "Choose at least one Project.",
+  ambient: {
+    label: "Keep in agents' environment",
+    help: "Every command, MCP server and hook the agent starts can read it. Only for tools that need a variable all the time, like NPM_TOKEN.",
+  },
+  askEachUse: { label: "Ask before each use", help: "You allow or deny each command, on desktop or phone." },
+  unattended: {
+    label: "Allow unattended runs",
+    help: "Routines, Heartbeats, babysitting and Orchestrator tasks can use it with nobody watching. They read issues, PRs and web pages, so allow only what they need.",
+  },
+  log: "Recent uses",
+  noUses: "Not used in the last 30 days.",
+  neverUsed: "Never used",
+  lastUsed: (when) => `Used ${when}`,
+  open: "Open Secrets",
+  edit: "Edit",
+  chooseFile: "Choose file…",
+  valuePlaceholder: "Paste or type the secret",
+  imported: (count) => `Imported ${count} ${count === 1 ? "secret" : "secrets"}.`,
+  skipped: "Skipped",
+  saveAs: {
+    label: (name) => `Save as ${name}`,
+    project: "This Project",
+    all: "All Projects",
+    none: "Don't save",
+    replaces: (name) => `Replaces the saved ${name}.`,
+  },
+  changedOn: (name) => `Changed on ${name}`,
+  sharing: {
+    title: "Share with",
+    intro: "Secrets you save here are sent to the computers you pick, over the encrypted link between your computers. They can't read values back.",
+    empty: "Pair another computer in Phone & sharing to share secrets with it.",
+    online: "Online",
+    offline: "Offline",
+    removing: (name) => `Removing from ${name} when it's back online`,
+  },
+});
+
+/** Where a secret reaches, in a few words: "All Projects", one origin, or a count. */
+export function secretScopeText(projects) {
+  if (projects === "all") return SECRETS_COPY.allProjects;
+  if (!Array.isArray(projects) || !projects.length) return SECRETS_COPY.noProjects;
+  return projects.length === 1 ? projects[0] : `${projects.length} Projects`;
+}
+
+/** The opt-ins a secret has, as short labels for a row. */
+export function secretFlags(secret) {
+  return [
+    secret.delivery === "ambient" ? "In environment" : null,
+    secret.askEachUse ? "Asks each use" : null,
+    secret.unattended ? "Unattended runs" : null,
+  ].filter(Boolean);
+}
+
+/** Whether a phone call carries a secret value: it may only travel over the end-to-end channel or loopback. */
+export function carriesSecretValue(method, args) {
+  const first = Array.isArray(args) ? args[0] : undefined;
+  return (
+    method === "secrets:set" ||
+    (method === "agent:answer-question" && (String(first?.requestId ?? "").startsWith("milagre-secret-") || first?.secretAnswer === true))
+  );
+}

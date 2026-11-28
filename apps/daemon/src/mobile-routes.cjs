@@ -1,5 +1,8 @@
+const { isSealed } = require("./sealed-channel.cjs");
+const { isSecretRequest } = require("@milagre/core/chat-secrets");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const { chatsNeedingAttention } = require("@milagre/shared/attention");
+const { secretAnswerFlag } = require("@milagre/shared/agent-runs");
 const { METHODS } = require("./mobile-methods.cjs");
 const {
   failure,
@@ -44,6 +47,10 @@ async function readJsonBody(req, limit) {
 }
 
 function withoutHiddenArgs(request) {
+  if (request.method === "agent:answer-question" && request.args[0] && typeof request.args[0] === "object" && "secretAnswer" in request.args[0]) {
+    const { secretAnswer: _secret, ...rest } = request.args[0];
+    return [rest, ...request.args.slice(1)];
+  }
   return (request.method === "link:update" || request.method === "link:create") &&
     request.args[0] &&
     typeof request.args[0] === "object" &&
@@ -60,8 +67,11 @@ function withoutHiddenArgs(request) {
 }
 
 /** What the phone gets back from an RPC: the Mac's hidden flags left out, and opened Projects reduced to what it reads next. */
+const withoutHint = (secret) => (secret && typeof secret === "object" && "hint" in secret ? { ...secret, hint: null } : secret);
+
 function phoneReply(method, value) {
   let result = value;
+  if (method.startsWith("secrets:")) return Array.isArray(result) ? result.map(withoutHint) : withoutHint(result);
   if ((method === "project:recent" || method === "project:forget" || method === "link:list") && Array.isArray(result))
     result = result.map((item) => {
       if (!item || typeof item !== "object" || !("hidden" in item)) return item;
@@ -77,6 +87,32 @@ function phoneReply(method, value) {
   if (method === "link:open" && result?.link) result = { id: result.link.id, name: result.link.name };
   if (method === "worktree:create" && result?.project?.state) result = { ...result, project: forNewWorktree(result.project, result.worktreeId) };
   return result;
+}
+
+const masked = (question) => isSecretRequest(question?.requestId) || Boolean(secretAnswerFlag(question).secretAnswer);
+const plainSecretsAllowed = (req) => isSealed(req) || process.env.MILAGRE_DEV_PLAIN_SECRETS === "1";
+
+/** Turns as a phone on this connection may see them: off the sealed channel, a question whose answer is a secret is left out, so no tunnel or proxy carries the answer. */
+function runsFor(req, all) {
+  if (plainSecretsAllowed(req)) return all;
+  const runs = Object.entries(all?.runs ?? {}).map(([key, run]) =>
+    run?.questions?.some(masked) ? [key, { ...run, questions: run.questions.filter((question) => !masked(question)) }] : [key, run],
+  );
+  return { ...all, runs: Object.fromEntries(runs) };
+}
+
+const masksAnswer = (runs, chatId, requestId) =>
+  Boolean(runs?.[chatId]?.questions?.some((question) => question.requestId === requestId && secretAnswerFlag(question).secretAnswer));
+
+/**
+ * A secret value in a phone call: every bridge takes it only through the sealed channel, unless a development host opts
+ * out. A masked question is known by the question this computer holds, whatever the phone says about it.
+ */
+async function carriesSecret(request, hostRuns) {
+  if (request.method === "secrets:set") return true;
+  if (request.method !== "agent:answer-question") return false;
+  const { chatId, requestId, secretAnswer } = request.args[0] ?? {};
+  return isSecretRequest(requestId) || secretAnswer === true || masksAnswer((await hostRuns.read()).runs, chatId, requestId);
 }
 
 function createMobileRoutes({
@@ -100,7 +136,8 @@ function createMobileRoutes({
     },
     "/snapshot": async ({ target, req, reply }) => {
       const projectPath = target.searchParams.get("projectPath");
-      const [held, runs] = await Promise.all([readScope(projectPath), hostRuns.read()]);
+      const [held, all] = await Promise.all([readScope(projectPath), hostRuns.read()]);
+      const runs = runsFor(req, all);
       if (!held.link && target.searchParams.get("view") === "chats") {
         const { project } = await withMessages(projectPath, held, { marks: true });
         reply(200, { result: forChatList(project, projectRuns(runs, projectPath)) }, { etag: true });
@@ -115,7 +152,7 @@ function createMobileRoutes({
       else reply(200, { result: numberSnapshot(pages ? `${projectPath}#pages` : projectPath, result, since) });
       return;
     },
-    "/chat-lists": async ({ target, reply }) => {
+    "/chat-lists": async ({ target, req, reply }) => {
       let paths;
       try {
         paths = JSON.parse(target.searchParams.get("paths") ?? "");
@@ -125,7 +162,7 @@ function createMobileRoutes({
       if (!Array.isArray(paths) || !paths.length || !paths.every((item) => typeof item === "string"))
         throw failure(400, "Choose the Projects as a JSON list of paths");
       if (paths.length > MAX_CHAT_LISTS) throw failure(400, `Choose at most ${MAX_CHAT_LISTS} Projects`);
-      const runs = await hostRuns.read();
+      const runs = runsFor(req, await hostRuns.read());
       const projects = [...new Set(paths)];
       const result = {};
       const read = async (projectPath) => {
@@ -167,12 +204,12 @@ function createMobileRoutes({
       reply(200, { result: confine ? await confine.filterResult("chats:search", found) : found });
       return;
     },
-    "/runs": async ({ target, reply }) => {
+    "/runs": async ({ target, req, reply }) => {
       const projectPath = target.searchParams.get("projectPath");
       if (!validScope(projectPath)) throw failure(400, "Choose a valid Project or Link");
       await confine?.check(projectPath);
       const chats = requestedRunChats(target.searchParams);
-      reply(200, { result: projectRunsForPhone(await hostRuns.read(), projectPath, chats) }, { etag: true });
+      reply(200, { result: projectRunsForPhone(runsFor(req, await hostRuns.read()), projectPath, chats) }, { etag: true });
       return;
     },
     "/attention": async ({ reply }) => {
@@ -220,6 +257,9 @@ function createMobileRoutes({
         result = await phoneRoutes(request.args[0]?.phoneKey);
       } else {
         if (!METHODS.has(request.method)) throw failure(403, "Command is not available from mobile");
+        if (request.method === "secrets:set" && request.args[0]?.file !== undefined) throw failure(403, "The phone can't read files on this computer");
+        if (!plainSecretsAllowed(req) && (await carriesSecret(request, hostRuns)))
+          throw failure(403, "Secrets travel only over Milagre's encrypted connection (relay, local network or Tailscale), not through a tunnel or proxy.");
         const args = withoutHiddenArgs(request);
         if (confine) {
           const decided = await confine.checkCall(request.method, args);
@@ -233,4 +273,4 @@ function createMobileRoutes({
   return { get, post };
 }
 
-module.exports = { createMobileRoutes, phoneReply };
+module.exports = { createMobileRoutes, phoneReply, carriesSecret, runsFor };

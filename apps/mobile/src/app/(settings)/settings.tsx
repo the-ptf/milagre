@@ -25,6 +25,7 @@ import {
   SecurityCheckIcon,
   UserCircleIcon,
   KeyboardIcon,
+  Key01Icon,
   SwatchIcon,
 } from "@hugeicons/core-free-icons";
 import { chatListLabel } from "@milagre/shared/chat-display";
@@ -320,6 +321,7 @@ export function SettingsView({
             <Row title="Usage" icon={ChartColumnIcon} selected={selected === "usage"} onPress={() => onOpen("usage")} />
             <Row title="Skills" icon={BookOpen01Icon} selected={selected === "skills"} onPress={() => onOpen("skills")} />
             <Row title="Connectors" icon={Plug01Icon} selected={selected === "mcp"} onPress={() => onOpen("mcp")} />
+            <Row title="Secrets" icon={Key01Icon} selected={selected === "secrets"} onPress={() => onOpen("secrets")} />
           </Group>
           <Group title={`Code on ${macName}`}>
             <Row title="Worktrees" icon={FolderTreeIcon} selected={selected === "worktrees"} onPress={() => onOpen("worktrees")} />

@@ -99,6 +99,10 @@ class SessionManager {
       existing.cwd === cwd &&
       JSON.stringify(existing.workspaceRoots) === JSON.stringify(workspaceRoots) &&
       existing.workspaceInstructions === request.workspaceInstructions;
+    const busy = existing && !existing.session.closed && (existing.session.turnActive || busyWithoutTurn(existing));
+    const background = existing && !existing.session.closed ? backgroundCount(existing) : 0;
+    if ((busy || background) && !sameAmbientSecrets(existing.env, request.env) && request.env?.MILAGRE_SECRETS_UNATTENDED)
+      throw new Error("This Chat's agent is still running work that holds secrets this run may not use. It runs once that work ends.");
     if (
       sameChat &&
       !existing.session.closed &&
@@ -107,7 +111,6 @@ class SessionManager {
         busyWithoutTurn(existing))
     )
       return existing;
-    const background = existing && !existing.session.closed ? backgroundCount(existing) : 0;
     if (background && existing.provider === provider && existing.cwd === cwd) return existing;
     if (background) throw new Error(backgroundBusyMessage(existing.provider === provider ? "move" : "switch", background, providerName(provider)));
     const resumeId = sameChat && !existing.session.closed ? (existing.session.nativeId ?? request.resumeId) : request.resumeId;

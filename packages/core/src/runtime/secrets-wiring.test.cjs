@@ -156,3 +156,28 @@ test("events the host makes itself are redacted too, not only provider events", 
   await chats.receive(`${PROJECT}#1`, { type: "step-output", id: "setup", text: "token vercel-host-made-123" });
   assert.equal(received[0].event.text, "token [secret VERCEL_TOKEN]");
 });
+
+test("Save as over an existing secret keeps its policy, and a card opened before a change saves nothing", async (t) => {
+  const { call, wiring, chats } = fixture(t);
+  const chatId = `${PROJECT}#1`;
+  chats.runs[chatId] = {};
+  await call("secrets:set", { name: "DEPLOY_TOKEN", value: "old-value-123456", projects: "all", askEachUse: true, note: "Vercel" });
+  const ask = async () => {
+    const result = wiring.chatSecrets.definitions(chatId)[0].run({ title: "Token", description: "Deploys.", name: "DEPLOY_TOKEN" });
+    await new Promise((resolve) => setImmediate(resolve));
+    return { result, request: chats.receiveSpy.at(-1).event };
+  };
+  const first = await ask();
+  assert.deepEqual(first.request.secretRequest.saveAs, { name: "DEPLOY_TOKEN", project: true, replaces: true, version: 1 });
+  await wiring.chatSecrets.answer(chatId, first.request.requestId, { secret: ["new-value-123456"], save: ["all"] });
+  assert.equal(JSON.parse(await first.result).saved, "DEPLOY_TOKEN");
+  const [kept] = await call("secrets:list");
+  assert.deepEqual([kept.askEachUse, kept.note, kept.version], [true, "Vercel", 2]);
+  const stale = await ask();
+  await call("secrets:update", { name: "DEPLOY_TOKEN", note: "changed meanwhile" });
+  await wiring.chatSecrets.answer(chatId, stale.request.requestId, { secret: ["stale-value-123456"], save: ["all"] });
+  const reply = JSON.parse(await stale.result);
+  assert.match(reply.saved, /changed while the card was open/);
+  assert.ok(reply.path, "the value still reaches the agent as a one-off file");
+  assert.equal((await wiring.values()).find((secret) => secret.name === "DEPLOY_TOKEN").value, "new-value-123456");
+});

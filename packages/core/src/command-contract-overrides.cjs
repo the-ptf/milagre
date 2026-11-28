@@ -22,16 +22,6 @@ const mcpServer = {
   ],
 };
 const mcpPrevious = nullable(object({ name: s, target: mcpTarget }));
-const secretFields = {
-  name: s,
-  value: s,
-  kind: { enum: ["text", "file"] },
-  fileName: s,
-  projects: { anyOf: [{ const: "all" }, array(s)] },
-  delivery: { enum: ["on-demand", "ambient"] },
-  unattended: b,
-  note: nullable(s),
-};
 const scope = [p("scope")],
   project = [p("projectPath")];
 module.exports = {
@@ -159,13 +149,7 @@ module.exports = {
   "desktop:register": request({ methods: array(s) }),
   "desktop:respond": request({ id: s, result: any, error: object({ message: s, code: s }, ["message"]) }, ["id"]),
   "desktop:invoke": request({ method: s, args: array(any) }),
-  "secrets:status": [],
-  "secrets:list": [],
-  "secrets:log": [p("request", object({ name: s }, []), true)],
-  "secrets:delete": request({ name: s }),
-  "secrets:set": request({ ...secretFields, file: s }, ["name", "projects"]),
-  "secrets:import": request({ file: s, projects: secretFields.projects, delivery: secretFields.delivery, unattended: b, note: nullable(s) }, [
-    "file",
-    "projects",
-  ]),
+  "secrets:digest": [],
+  "secrets:push": request({ from: s, entries: array(any) }),
+  "secrets:forget-from": request({ from: s }),
 };

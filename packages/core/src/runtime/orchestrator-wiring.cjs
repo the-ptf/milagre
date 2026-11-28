@@ -1,3 +1,5 @@
+const { secretReaches } = require("@milagre/shared/secrets");
+const { originId } = require("@milagre/shared/project-origin");
 const os = require("node:os");
 const path = require("node:path");
 const { chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
@@ -139,12 +141,31 @@ function registerOrchestrator(
             .get("computer:resources:read")({}, {})
             .catch(() => null)
         )?.memory;
+        const secrets = await commands
+          .get("secrets:list")({})
+          .then((list) => list.filter((secret) => secret.unattended).map(({ name, projects }) => ({ name, projects })))
+          .catch(() => null);
         return {
           cpu: Math.min(1, load),
           memoryFree: memory?.total ? memory.available / memory.total : os.freemem() / os.totalmem(),
           agents: chats.busyChats?.().size ?? 0,
+          ...(secrets ? { secrets } : {}),
         };
       },
+      requiredSecrets: async (origin) =>
+        (
+          await commands
+            .get("secrets:list")({})
+            .catch(() => [])
+        )
+          .filter((secret) => secret.unattended && secretReaches(secret, { origin: originId(origin), unattended: true }))
+          .map((secret) => secret.name),
+      secretsReaching: (secrets, origin) =>
+        (Array.isArray(secrets) ? secrets : [])
+          .filter(
+            (secret) => secret && typeof secret === "object" && secretReaches({ ...secret, unattended: true }, { origin: originId(origin), unattended: true }),
+          )
+          .map((secret) => secret.name),
       wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms).unref()),
       withTimeout,
     },

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseDotenv, secretHint, secretNameProblem, secretReaches, secretRedactor } from "./secrets.mjs";
+import { parseDotenv, secretFlags, secretHint, secretNameProblem, secretReaches, secretRedactor, secretScopeText } from "./secrets.mjs";
 
 test("names are env-style and refuse what changes how programs, Git or agents run", () => {
   for (const name of ["ASC_KEY_ID", "VERCEL_TOKEN", "A", "X1_2"]) assert.equal(secretNameProblem(name), null, name);
@@ -69,6 +69,14 @@ test("pending counts the trailing characters that could begin a secret", () => {
   assert.equal(redact.pending("no match here"), 0);
   assert.equal(redact.pending("ends with s"), 1);
   assert.equal(secretRedactor([]).pending("anything"), 0);
+});
+
+test("scope text and flags read the same on desktop and phone", () => {
+  assert.equal(secretScopeText("all"), "All Projects");
+  assert.equal(secretScopeText(["github.com/a/b"]), "github.com/a/b");
+  assert.equal(secretScopeText(["github.com/a/b", "github.com/a/c"]), "2 Projects");
+  assert.deepEqual(secretFlags({ delivery: "ambient", askEachUse: true, unattended: false }), ["In environment", "Asks each use"]);
+  assert.deepEqual(secretFlags({ delivery: "on-demand", askEachUse: false, unattended: true }), ["Unattended runs"]);
 });
 
 test("redaction also matches URL-encoded, JSON-escaped, hex and base64url forms", () => {

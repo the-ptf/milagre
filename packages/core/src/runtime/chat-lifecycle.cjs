@@ -132,7 +132,7 @@ function registerChatControls({
   commands.handle("agent:answer-question", (_event, request = {}) => answerQuestion(request));
   async function answerQuestion({ chatId, requestId, answers, summary, images, suggestionId }, sender = null) {
     if (require("../chat-secrets.cjs").isSecretRequest(requestId)) {
-      const accepted = chatSecrets().answer(chatId, requestId, answers);
+      const accepted = await chatSecrets().answer(chatId, requestId, answers);
       if (accepted) noteHumanActed(chatId);
       return accepted;
     }

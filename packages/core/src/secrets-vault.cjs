@@ -15,11 +15,13 @@ const recordSchema = z.strictObject({
   fileName: z.string().max(SECRET_LIMITS.fileNameChars).nullable(),
   projects: z.union([z.literal("all"), z.array(origin).min(1).max(SECRET_LIMITS.projects)]),
   delivery: z.enum(["on-demand", "ambient"]),
+  askEachUse: z.boolean().default(false),
   unattended: z.boolean(),
   note: z.string().max(SECRET_LIMITS.noteChars).nullable(),
   version: z.number().int().positive(),
   changedOn: z.string().max(128),
   updatedAt: z.number(),
+  from: z.string().max(128).optional(),
 });
 const tombstoneSchema = z.strictObject({ version: z.number().int().positive(), changedOn: z.string().max(128), updatedAt: z.number() });
 const stateSchema = z.strictObject({ secrets: z.record(z.string(), recordSchema), tombstones: z.record(z.string(), tombstoneSchema) });
@@ -30,23 +32,35 @@ const inputSchema = z.strictObject({
   fileName: z.string().min(1).max(SECRET_LIMITS.fileNameChars).nullable().default(null),
   projects: z.union([z.literal("all"), z.array(origin).min(1).max(SECRET_LIMITS.projects)]),
   delivery: z.enum(["on-demand", "ambient"]).default("on-demand"),
+  askEachUse: z.boolean().default(false),
   unattended: z.boolean().default(false),
   note: z.string().max(SECRET_LIMITS.noteChars).nullable().default(null),
 });
 
+const patchSchema = z.strictObject({
+  projects: z.union([z.literal("all"), z.array(origin).min(1).max(SECRET_LIMITS.projects)]).optional(),
+  delivery: z.enum(["on-demand", "ambient"]).optional(),
+  askEachUse: z.boolean().optional(),
+  unattended: z.boolean().optional(),
+  note: z.string().max(SECRET_LIMITS.noteChars).nullable().optional(),
+});
 const executableOf = (executable) => {
   const name = typeof executable === "string" ? path.basename(executable.trim().replaceAll("\\", "/")) : "";
   return name ? name.slice(0, 80) : null;
 };
+const AMBIENT_ASKS = "A secret kept in the environment can't ask before each use: every command already has it.";
 const lockedError = () =>
   Object.assign(new Error("Secrets are locked: open Milagre on this computer, or set up a computer key for unattended access."), { code: "secrets-locked" });
+const sameRevision = (secret, expected) =>
+  expected ? Boolean(secret) && secret.version === expected.version && secret.changedOn === expected.changedOn : !secret;
+const pick = (object, keys) => Object.fromEntries(keys.map((key) => [key, object[key]]));
 const inputError = (message) => Object.assign(new Error(message), { code: "secrets-input" });
 
 function validState(value) {
   const state = stateSchema.parse(value);
   for (const [name, secret] of Object.entries(state.secrets)) {
     if (secretNameProblem(name)) throw new Error(`Saved secret ${name} has an invalid name`);
-    if (secret.kind === "file") secret.delivery = "on-demand";
+    if (secret.kind === "file" || secret.askEachUse) secret.delivery = "on-demand";
   }
   return state;
 }
@@ -185,6 +199,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
     hint: secretHint(secret.value),
     projects: secret.projects,
     delivery: secret.delivery,
+    askEachUse: secret.askEachUse,
     unattended: secret.unattended,
     note: secret.note,
     version: secret.version,
@@ -211,7 +226,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
           .map(([name, secret]) => summary(name, secret))
           .sort((a, b) => a.name.localeCompare(b.name));
       }),
-    set: (input) =>
+    set: (input, { expect, keepPolicy = false } = {}) =>
       serial(async () => {
         const parsed = inputSchema.safeParse(input);
         if (!parsed.success) throw inputError(parsed.error.issues[0]?.message ?? "Invalid secret");
@@ -222,10 +237,13 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
           throw inputError(`A secret holds at most ${SECRET_LIMITS.valueBytes / 1024} KB.`);
         if (fields.kind === "file" && !fields.fileName) throw inputError("A file secret needs a file name.");
         if (fields.kind === "file" && fields.delivery === "ambient") throw inputError("A file secret is given per command, not kept in the environment.");
+        if (fields.delivery === "ambient" && fields.askEachUse) throw inputError(AMBIENT_ASKS);
         if (fields.fileName && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(fields.fileName))
           throw inputError("A file name uses letters, digits, dots, dashes and underscores.");
         const current = await read();
         const previous = current.secrets[name];
+        if (expect !== undefined && !sameRevision(previous, expect)) throw inputError(`${name} changed while the card was open.`);
+        if (keepPolicy && previous) Object.assign(fields, pick(previous, ["delivery", "askEachUse", "unattended", "note"]));
         if (!previous && Object.keys(current.secrets).length >= SECRET_LIMITS.count) throw inputError(`At most ${SECRET_LIMITS.count} secrets.`);
         const version = Math.max(previous?.version ?? 0, current.tombstones[name]?.version ?? 0) + 1;
         const secret = { ...fields, fileName: fields.kind === "file" ? fields.fileName : null, version, changedOn: computerId(), updatedAt: now() };
@@ -234,6 +252,20 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
         await persist({ secrets: { ...current.secrets, [name]: secret }, tombstones });
         await loadLastUsed();
         return summary(name, secret);
+      }),
+    update: (name, patch) =>
+      serial(async () => {
+        const parsed = patchSchema.safeParse(patch);
+        if (!parsed.success) throw inputError(parsed.error.issues[0]?.message ?? "Invalid change");
+        const current = await read();
+        const previous = current.secrets[name];
+        if (!previous) throw inputError(`No secret named ${name}.`);
+        const next = { ...previous, ...parsed.data, version: previous.version + 1, changedOn: computerId(), updatedAt: now() };
+        if (next.kind === "file" && next.delivery === "ambient") throw inputError("A file secret is given per command, not kept in the environment.");
+        if (next.delivery === "ambient" && next.askEachUse) throw inputError(AMBIENT_ASKS);
+        await persist({ ...current, secrets: { ...current.secrets, [name]: next } });
+        await loadLastUsed();
+        return summary(name, next);
       }),
     remove: (name) =>
       serial(async () => {
@@ -269,9 +301,11 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
      * Values for one use. `names` null means every ambient secret in reach (an agent's environment at start). Refuses
      * the whole request if any named secret is missing or out of reach, so a command never runs half-configured.
      */
-    deliver: ({ names, target, chatId, command = null, delivery, record: shouldRecord = true }) =>
+    deliver: ({ names, target, chatId, command = null, delivery, record: shouldRecord = true, expect = null }) =>
       serial(async () => {
         const current = await read();
+        if (expect && Object.entries(expect).some(([name, revision]) => !sameRevision(current.secrets[name], revision)))
+          throw Object.assign(new Error("These secrets changed while waiting for approval. Run the command again."), { code: "secrets-changed" });
         const reach = ([name, secret]) => secretReaches({ name, ...secret }, target);
         let chosen;
         if (names === null) chosen = Object.entries(current.secrets).filter((entry) => entry[1].delivery === "ambient" && reach(entry));
@@ -317,6 +351,13 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
           await record({ at: now(), names: chosen.map(([name]) => name), chatId, computer: computerId(), command: null, delivery: "ambient" });
         return { fingerprint, secrets: chosen.map(([name, secret]) => ({ name, value: secret.value })) };
       }),
+    /** Read, change and seal the whole state in one step, for sync. `change` gets a copy and returns the next state, or null. */
+    transact: (change) =>
+      serial(async () => {
+        const next = await change(structuredClone(await read()));
+        if (next) await persist(next);
+        return next;
+      }),
     log: (name) =>
       serial(async () => {
         const entries = await readLog();
@@ -325,4 +366,4 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
   };
 }
 
-module.exports = { createSecretsVault };
+module.exports = { createSecretsVault, recordSchema, tombstoneSchema };

@@ -11,7 +11,7 @@ const { createLocalMcpServer } = require("./local-mcp-server.cjs");
 
 const ORIGIN = "github.com/the-ptf/happiergym";
 
-async function fixture(t, { targets = {} } = {}) {
+async function fixture(t, { targets = {}, approve } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-secrets-access-"));
   fs.chmodSync(dataDir, 0o700);
   const key = randomBytes(32);
@@ -24,6 +24,7 @@ async function fixture(t, { targets = {} } = {}) {
     dataDir,
     secretsUrl: async (token) => `${new URL(endpoint).origin}/secrets/${token}`,
     target: async (chatId) => targets[chatId] ?? { origin: ORIGIN, unattended: false },
+    ...(approve ? { approve } : {}),
   });
   t.after(async () => {
     await server.close();
@@ -135,4 +136,53 @@ test("the use log keeps only the executable, never arguments that may hold a cre
   const token = (await access.agentEnv("/p#1", { PATH: "/bin" })).MILAGRE_SECRETS_URL.split("/").at(-1);
   await access.request(token, { action: "run", names: ["A_TOKEN"], command: "/usr/bin/curl -H Authorization:123456 x" });
   assert.equal((await vault.log())[0].command, "curl");
+});
+
+test("a secret that asks each use runs only after Allow, and the prompt names the command", { skip: process.platform === "win32" }, async (t) => {
+  const asked = [];
+  let answer = false;
+  const { vault, access } = await fixture(t, { approve: async (chatId, request) => (asked.push({ chatId, ...request }), answer) });
+  await vault.set({ name: "DEPLOY_TOKEN", value: "deploy-value-123456", projects: "all", askEachUse: true });
+  await vault.set({ name: "PLAIN_TOKEN", value: "plain-value-123456", projects: "all" });
+  const env = { ...(await access.agentEnv("/p#1", { PATH: process.env.PATH })), ELECTRON_RUN_AS_NODE: "1" };
+  assert.equal((await run(env, ["run", "--with", "PLAIN_TOKEN", "--", "true"])).code, 0);
+  assert.equal(asked.length, 0);
+  const denied = await run(env, ["run", "--with", "DEPLOY_TOKEN,PLAIN_TOKEN", "--", "true"]);
+  assert.match(denied.stderr, /didn't allow DEPLOY_TOKEN/);
+  assert.deepEqual(asked[0], { chatId: "/p#1", names: ["DEPLOY_TOKEN"], command: "true" });
+  answer = true;
+  assert.equal((await run(env, ["run", "--with", "DEPLOY_TOKEN", "--", "true"])).code, 0);
+  assert.deepEqual(
+    (await vault.log()).map((entry) => entry.names.join()),
+    ["DEPLOY_TOKEN", "PLAIN_TOKEN"],
+  );
+});
+
+test("the ambient fingerprint changes when an ambient secret is replaced, so the session restarts", async (t) => {
+  const { vault, access } = await fixture(t);
+  const before = (await access.agentEnv("/p#1", { PATH: "/bin" })).MILAGRE_SECRETS_AMBIENT;
+  await vault.set({ name: "NPM_TOKEN", value: "npm-value-123456", projects: "all", delivery: "ambient" });
+  const added = (await access.agentEnv("/p#1", { PATH: "/bin" })).MILAGRE_SECRETS_AMBIENT;
+  await vault.set({ name: "PLAIN_TOKEN", value: "plain-value-123456", projects: "all" });
+  assert.equal((await access.agentEnv("/p#1", { PATH: "/bin" })).MILAGRE_SECRETS_AMBIENT, added);
+  await vault.set({ name: "NPM_TOKEN", value: "npm-value-654321", projects: "all", delivery: "ambient" });
+  const replaced = (await access.agentEnv("/p#1", { PATH: "/bin" })).MILAGRE_SECRETS_AMBIENT;
+  assert.notEqual(before, added);
+  assert.notEqual(added, replaced);
+});
+
+test("a secret that changes while its approval waits isn't released under the old answer", { skip: process.platform === "win32" }, async (t) => {
+  let vaultRef;
+  const { vault, access } = await fixture(t, {
+    approve: async () => {
+      await vaultRef.set({ name: "DEPLOY_TOKEN", value: "rotated-value-123456", projects: "all", askEachUse: true });
+      return true;
+    },
+  });
+  vaultRef = vault;
+  await vault.set({ name: "DEPLOY_TOKEN", value: "deploy-value-123456", projects: "all", askEachUse: true });
+  const env = { ...(await access.agentEnv("/p#1", { PATH: process.env.PATH })), ELECTRON_RUN_AS_NODE: "1" };
+  const result = await run(env, ["run", "--with", "DEPLOY_TOKEN", "--", "true"]);
+  assert.match(result.stderr, /changed while waiting for approval/);
+  assert.deepEqual(await vault.log(), []);
 });

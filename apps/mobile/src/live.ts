@@ -13,7 +13,8 @@ export type LiveSignal =
   | "pulls"
   | "library"
   | "orchestrator"
-  | "provider-updates";
+  | "provider-updates"
+  | "secrets";
 export const isLiveSignal = (type: unknown): type is LiveSignal =>
   type === "btw" ||
   type === "runs" ||
@@ -29,7 +30,8 @@ export const isLiveSignal = (type: unknown): type is LiveSignal =>
   type === "pulls" ||
   type === "library" ||
   type === "orchestrator" ||
-  type === "provider-updates";
+  type === "provider-updates" ||
+  type === "secrets";
 type LiveEvents = { open: unknown; message: { data?: unknown }; error: { message?: string }; close: unknown };
 export type LiveSocket = {
   addEventListener<K extends keyof LiveEvents>(type: K, listener: (event: LiveEvents[K]) => void): void;

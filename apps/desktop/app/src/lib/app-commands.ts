@@ -5,6 +5,8 @@ import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { UI_COPY } from "@milagre/shared/model-copy";
 import { GITHUB_ISSUE_TITLE } from "@milagre/shared/github-issue";
 import { requestGithubIssuePicker } from "./issue-picker-request";
+import { SECRETS_COPY } from "@milagre/shared/secrets";
+import { requestAddSecret } from "./secrets-intent";
 import type { SettingsSection } from "../components/Settings";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
 import type { AgentSession, OpenProject } from "../model";
@@ -202,6 +204,25 @@ function actionCommands(ctx: AppCommandContext): Command[] {
       icon: "settings",
       keywords: "theme preferences",
       run: () => actions.openSettingsAt("appearance"),
+    },
+    {
+      id: "secrets",
+      label: SECRETS_COPY.open,
+      group: "Actions",
+      icon: "settings",
+      keywords: "secrets keys api keys tokens passwords credentials env vault",
+      run: () => actions.openSettingsAt("secrets"),
+    },
+    {
+      id: "secrets-add",
+      label: SECRETS_COPY.add,
+      group: "Actions",
+      icon: "add",
+      keywords: "secret key api key token password credential env environment variable",
+      run: () => {
+        actions.openSettingsAt("secrets");
+        requestAddSecret();
+      },
     },
     {
       id: "toggle-theme",

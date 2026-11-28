@@ -147,6 +147,18 @@ test("the use log keeps 30 days", async (t) => {
   assert.equal((await make().log("A_TOKEN")).length, 1);
 });
 
+test("update changes scope and opt-ins without the value, and bumps the version", async (t) => {
+  const { vault } = fixture(t);
+  await vault.set({ name: "A_TOKEN", value: "value-123456789", projects: "all" });
+  const changed = await vault.update("A_TOKEN", { projects: [ORIGIN], askEachUse: true, note: "Deploys" });
+  assert.deepEqual([changed.projects, changed.askEachUse, changed.note, changed.version, changed.hint], [[ORIGIN], true, "Deploys", 2, "6789"]);
+  assert.equal((await vault.values())[0].value, "value-123456789");
+  await assert.rejects(vault.update("MISSING", { note: "x" }), /No secret named MISSING/);
+  await assert.rejects(vault.update("A_TOKEN", { value: "sneaky" }), /Unrecognized key/);
+  await vault.set({ name: "KEY_FILE", value: "file-body-123456", kind: "file", fileName: "k.p8", projects: "all" });
+  await assert.rejects(vault.update("KEY_FILE", { delivery: "ambient" }), /given per command/);
+});
+
 test("one read gives ambient values and their fingerprint; an older ambient file secret loads as per command", async (t) => {
   const { vault, make, dataDir } = fixture(t);
   await vault.set({ name: "NPM_TOKEN", value: "npm-value-123456", projects: "all", delivery: "ambient" });
@@ -158,4 +170,25 @@ test("one read gives ambient values and their fingerprint; an older ambient file
   const reloaded = make();
   await vault.set({ name: "KEY_FILE", value: "file-body-123456", kind: "file", fileName: "k.p8", projects: "all" });
   assert.equal((await reloaded.list()).find((secret) => secret.name === "KEY_FILE").delivery, "on-demand");
+});
+
+test("a secret can't both live in the environment and ask before each use", async (t) => {
+  const { vault } = fixture(t);
+  await assert.rejects(
+    vault.set({ name: "A_TOKEN", value: "value-123456789", projects: "all", delivery: "ambient", askEachUse: true }),
+    /can't ask before each use/,
+  );
+  await vault.set({ name: "A_TOKEN", value: "value-123456789", projects: "all", delivery: "ambient" });
+  await assert.rejects(vault.update("A_TOKEN", { askEachUse: true }), /can't ask before each use/);
+  assert.equal((await vault.update("A_TOKEN", { askEachUse: true, delivery: "on-demand" })).askEachUse, true);
+});
+
+test("delivery hands values over only if each is still the revision the caller read, including a policy change", async (t) => {
+  const { vault } = fixture(t);
+  const saved = await vault.set({ name: "DEPLOY_TOKEN", value: "deploy-123456", projects: "all" });
+  const target = { origin: ORIGIN, unattended: false };
+  const expect = { DEPLOY_TOKEN: { version: saved.version, changedOn: saved.changedOn } };
+  assert.equal((await vault.deliver({ names: ["DEPLOY_TOKEN"], target, chatId: "c", delivery: "on-demand", expect }))[0].value, "deploy-123456");
+  await vault.update("DEPLOY_TOKEN", { askEachUse: true });
+  await assert.rejects(vault.deliver({ names: ["DEPLOY_TOKEN"], target, chatId: "c", delivery: "on-demand", expect }), { code: "secrets-changed" });
 });

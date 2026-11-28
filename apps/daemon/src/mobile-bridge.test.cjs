@@ -2117,3 +2117,68 @@ test("/runs validates Chat selections, keeps legacy responses, and preserves sco
     assert.equal((await get(path.join(path.dirname(project), "outside"))).status, 403);
   }
 });
+
+test("a provider's masked question counts as a secret by the question this computer holds, not by the phone's flag", async () => {
+  const { carriesSecret } = require("./mobile-routes.cjs");
+  const masked = { requestId: "q-1", questions: [{ question: "API key?", secret: true }] };
+  const plain = { requestId: "q-2", questions: [{ question: "Which branch?" }] };
+  const hostRuns = { read: async () => ({ runs: { "/p#1": { questions: [masked, plain] } } }) };
+  const answer = (requestId, extra = {}) => ({ method: "agent:answer-question", args: [{ chatId: "/p#1", requestId, answers: {}, ...extra }] });
+  assert.equal(await carriesSecret(answer("q-1", { chatId: "/p#2" }), hostRuns), false, "a question is looked up in its own Chat");
+  assert.equal(await carriesSecret(answer("q-1"), hostRuns), true, "an older phone that sends no flag still goes through the sealed check");
+  assert.equal(await carriesSecret(answer("q-2"), hostRuns), false);
+  assert.equal(await carriesSecret(answer("q-2", { secretAnswer: true }), hostRuns), true);
+  assert.equal(await carriesSecret({ method: "secrets:list", args: [] }, hostRuns), false);
+});
+
+test("off the sealed channel a phone never sees a question whose answer is a secret, so it can't send one through a tunnel", () => {
+  const { runsFor } = require("./mobile-routes.cjs");
+  const { SEALED_HEADER, SEALED_VALUE } = require("./sealed-channel.cjs");
+  const plain = { requestId: "q-2", questions: [{ question: "Which branch?" }] };
+  const all = {
+    seq: 3,
+    runs: {
+      "/p#1": { questions: [{ requestId: "q-1", questions: [{ question: "API key?", secret: true }] }, plain] },
+      "/p#2": { questions: [{ requestId: "milagre-secret-x", questions: [{ question: "Token" }] }] },
+    },
+  };
+  const tunneled = runsFor({ headers: {} }, all);
+  assert.deepEqual(tunneled.runs["/p#1"].questions, [plain]);
+  assert.deepEqual(tunneled.runs["/p#2"].questions, []);
+  assert.equal(tunneled.seq, 3);
+  assert.equal(runsFor({ headers: { [SEALED_HEADER]: SEALED_VALUE } }, all), all);
+});
+
+test("every bridge takes a secret value only through the sealed channel, never through a tunnel or proxy", async (t) => {
+  const { SEALED_HEADER, SEALED_VALUE } = require("./sealed-channel.cjs");
+  const keys = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-sealed-key-"));
+  await fs.chmod(keys, 0o700);
+  const keyFile = path.join(keys, "computer.key");
+  await fs.writeFile(keyFile, randomBytes(32), { mode: 0o600 });
+  const before = process.env.MILAGRE_COMPUTER_KEY_FILE;
+  process.env.MILAGRE_COMPUTER_KEY_FILE = keyFile;
+  t.after(async () => {
+    if (before === undefined) delete process.env.MILAGRE_COMPUTER_KEY_FILE;
+    else process.env.MILAGRE_COMPUTER_KEY_FILE = before;
+    await fs.rm(keys, { recursive: true, force: true });
+  });
+  const { request } = await fixture(t);
+  const call = (method, args, headers = {}) =>
+    request("/rpc", { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ v: 1, method, args }) });
+  const secret = { name: "DEPLOY_TOKEN", value: "tunnel-value-123456", projects: "all" };
+  const tunneled = await call("secrets:set", [secret]);
+  assert.equal(tunneled.status, 403);
+  assert.match(JSON.stringify(await tunneled.json()), /encrypted connection/);
+  const answer = await call("agent:answer-question", [{ chatId: "/p#1", requestId: "milagre-secret-x", answers: { secret: ["v"] } }]);
+  assert.equal(answer.status, 403);
+  assert.equal((await call("secrets:set", [secret], { [SEALED_HEADER]: "forged" })).status, 403);
+  const sealed = await call("secrets:set", [secret], { [SEALED_HEADER]: SEALED_VALUE });
+  assert.equal(sealed.status, 200);
+  const listed = await call("secrets:list", []);
+  assert.equal(listed.status, 200, "reading names needs no sealed channel");
+  assert.deepEqual(
+    (await listed.json()).result.map((item) => [item.name, item.hint]),
+    [["DEPLOY_TOKEN", null]],
+    "a phone never gets part of a value",
+  );
+});

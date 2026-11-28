@@ -7,6 +7,7 @@ import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { IMPORT_INTRO, IMPORT_TITLE } from "@milagre/shared/ade-import";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import { WORKSPACE_TABS_DESCRIPTION, WORKSPACE_TABS_LABEL } from "@milagre/shared/workspace-tabs";
+import { SECRETS_COPY } from "@milagre/shared/secrets";
 import { searchSettings, type SettingsSearchEntry, type SettingsSearchHit } from "@milagre/shared/settings-search";
 import { DESIGN_SECTIONS, DESIGN_SYSTEM_GROUPS } from "./design-system-catalogue.ts";
 
@@ -31,6 +32,7 @@ export const SETTINGS_PAGES = {
   "token-usage": { title: "Token usage", needs: "computer" },
   skills: { title: "Skills", needs: "computer" },
   mcp: { title: "Connectors", needs: "computer" },
+  secrets: { title: "Secrets", needs: "computer" },
   worktrees: { title: "Worktrees", needs: "computer" },
   "babysit-prs": { title: "Babysit PRs", needs: "computer" },
   "orchestrator-settings": { title: "Orchestrator", needs: "computer" },
@@ -462,6 +464,9 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     description: LINEAR_MOVE_TO_STARTED_HINT,
     keywords: "linear status started",
   },
+
+  { page: "secrets", title: SECRETS_COPY.add, keywords: "api key token password credential environment variable env" },
+  { page: "secrets", title: SECRETS_COPY.sharing.title, keywords: "share secrets sync paired computers other computer send push" },
 
   {
     page: "phone-sharing",

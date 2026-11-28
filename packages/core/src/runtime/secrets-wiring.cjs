@@ -6,6 +6,7 @@ const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const { SECRET_LIMITS, parseDotenv, secretNameProblem, secretRedactor } = require("@milagre/shared/secrets");
 const { createSecretsVault } = require("../secrets-vault.cjs");
 const { createSecretsAccess } = require("../secrets-access.cjs");
+const { createSecretsSync } = require("../secrets-sync.cjs");
 const { createChatSecrets } = require("../chat-secrets.cjs");
 const { createSecretStream, mapStrings } = require("../secrets-stream.cjs");
 const { originId } = require("@milagre/shared/project-origin");
@@ -45,7 +46,7 @@ function createSecretsWiring({
   options = {},
   origin = currentOrigin,
   mcp,
-  computerId = () => os.hostname(),
+  computerId = () => options.remoteComputers?.thisMac?.() || os.hostname(),
   now = Date.now,
 }) {
   const vault = createSecretsVault({ dataDir, masterKey: async () => (await options.remoteComputers?.masterKey?.()) ?? null, computerId });
@@ -72,22 +73,28 @@ function createSecretsWiring({
     return { origin: found ?? null, unattended: isUnattended(session, chats, chatId) };
   }
 
-  const access = createSecretsAccess({
-    vault,
-    dataDir,
-    secretsUrl: (token) => mcp().secretsUrl(token),
-    target,
-    redactText: (text) => (redactor ? redactor(text) : text),
-  });
-  const receive = chats.receive.bind(chats);
-  chats.receive = (chatId, event) => receive(chatId, redactor ? mapStrings(event, redactor) : event);
-  vault.onChange(() => void refresh());
-  void refresh();
   const chatSecrets = Object.assign(
     createChatSecrets({
       directory: path.join(dataDir, "chat-secrets"),
       send: (chatId, event) => chats.receive(chatId, event),
       active: (chatId) => Boolean(chats.runs[chatId]),
+      onValue: (value) => {
+        retired.set(`text:${value}`, { secret: { name: "SECRET", kind: "text", value }, at: now() });
+        void refresh();
+      },
+      saveAs: {
+        offer: async (chatId, name) => {
+          if (!(await vault.status()).unlocked) return null;
+          const { origin: found } = await target(chatId);
+          const existing = (await vault.list()).find((secret) => secret.name === name);
+          return { name, project: Boolean(found), replaces: Boolean(existing), version: existing?.version ?? 0, changedOn: existing?.changedOn ?? null };
+        },
+        save: async (chatId, { name, value, scope, expect }) => {
+          const where = await target(chatId);
+          if (scope === "project" && !where.origin) throw new Error("This Chat's Project has no Git origin.");
+          await vault.set({ name, value, projects: scope === "project" ? [where.origin] : "all" }, { expect, keepPolicy: true });
+        },
+      },
     }),
     {
       forget: (chatId) => {
@@ -96,10 +103,35 @@ function createSecretsWiring({
       },
     },
   );
+  const access = createSecretsAccess({
+    vault,
+    dataDir,
+    secretsUrl: (token) => mcp().secretsUrl(token),
+    target,
+    redactText: (text) => (redactor ? redactor(text) : text),
+    approve: (chatId, request) => chatSecrets.approveUse(chatId, request),
+  });
+  const receive = chats.receive.bind(chats);
+  chats.receive = (chatId, event) => receive(chatId, redactor ? mapStrings(event, redactor) : event);
+  vault.onChange(() => {
+    void refresh();
+    options.emit?.("secrets:changed", {});
+  });
+  void refresh();
 
+  const sync = createSecretsSync({ vault, remote: options.remoteComputers, dataDir });
+  commands.handle("secrets:digest", () => sync.digest());
+  commands.handle("secrets:push", (context, request) => sync.receive(request, context?.peerKey));
+  commands.handle("secrets:forget-from", (context, request) => sync.forgetFrom(request, context?.peerKey));
+  commands.handle("secrets:sharing", () => sync.sharing());
+  commands.handle("secrets:share", (_context, request) => sync.share(request));
   commands.handle("secrets:status", () => vault.status());
   commands.handle("secrets:list", () => vault.list());
   commands.handle("secrets:log", (_context, request = {}) => vault.log(request?.name ?? null));
+  commands.handle("secrets:update", (_context, request = {}) => {
+    const { name, ...patch } = request ?? {};
+    return vault.update(String(name ?? ""), patch);
+  });
   commands.handle("secrets:delete", (_context, request) => vault.remove(String(request?.name ?? "")));
   commands.handle("secrets:set", async (_context, request = {}) => {
     const { file, ...rest } = request ?? {};

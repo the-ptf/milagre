@@ -4,11 +4,15 @@ import { motion, useReducedMotion } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Clock01Icon, LockKeyIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
 import { formatCountdown } from "@milagre/shared/display-clock";
+import { SECRETS_COPY } from "@milagre/shared/secrets";
+import { Segmented } from "../primitives/Segmented";
 import { useDisplayNow } from "../../lib/display-clock";
 import { SPRING_SWAP } from "../../lib/ease";
 import type { QuestionAnswers, QuestionRequest } from "../../model";
 
 const URGENT_MS = 60_000;
+
+type SaveScope = "project" | "all" | "none";
 
 export function SecretCard({
   request,
@@ -27,6 +31,8 @@ export function SecretCard({
   const inputId = useId();
   const deadline = request.secretRequest?.expiresAt;
   const description = request.secretRequest?.description.trim();
+  const saveAs = request.secretRequest?.saveAs;
+  const [save, setSave] = useState<SaveScope>(saveAs?.project ? "project" : "none");
   const now = useDisplayNow(1000, deadline !== undefined && !busy);
   const expired = deadline !== undefined && now >= deadline;
   const urgent = deadline !== undefined && deadline - now <= URGENT_MS;
@@ -48,7 +54,8 @@ export function SecretCard({
       className={`grid gap-3 ${card ? "rounded-card border border-line bg-surface p-4 shadow-overlay" : "mt-4"}`}
       onSubmit={(event) => {
         event.preventDefault();
-        if (!busy && value.trim() && (deadline === undefined || Date.now() < deadline)) submit({ secret: [value] });
+        if (!busy && value.trim() && (deadline === undefined || Date.now() < deadline))
+          submit(saveAs ? { secret: [value], save: [save] } : { secret: [value] });
       }}
     >
       <div className="grid gap-1">
@@ -64,6 +71,24 @@ export function SecretCard({
           </ScrollArea>
         )}
       </div>
+      {saveAs && (
+        <div data-secret-save-as className="grid gap-1.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span className="text-12 font-medium text-ink-2">{SECRETS_COPY.saveAs.label(saveAs.name)}</span>
+            <Segmented<SaveScope>
+              label={SECRETS_COPY.saveAs.label(saveAs.name)}
+              value={save}
+              onChange={setSave}
+              options={[
+                ...(saveAs.project ? [{ value: "project" as const, label: SECRETS_COPY.saveAs.project }] : []),
+                { value: "all", label: SECRETS_COPY.saveAs.all },
+                { value: "none", label: SECRETS_COPY.saveAs.none },
+              ]}
+            />
+          </div>
+          {saveAs.replaces && save !== "none" && <p className="text-12 text-ink-3">{SECRETS_COPY.saveAs.replaces(saveAs.name)}</p>}
+        </div>
+      )}
       <div className="flex flex-wrap items-start gap-x-2 gap-y-3">
         <div className="min-w-0 flex-[1_1_240px]">
           <div className="relative">

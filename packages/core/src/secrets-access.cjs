@@ -16,7 +16,16 @@ function shimText(execPath, script, platform) {
  * per-Chat token, plus the ambient secrets it opted into. `target(chatId)` says which Project origin and whether the
  * run is unattended; the vault decides what reaches it.
  */
-function createSecretsAccess({ vault, dataDir, secretsUrl, target, redactText = (text) => text, execPath = process.execPath, platform = process.platform }) {
+function createSecretsAccess({
+  vault,
+  dataDir,
+  secretsUrl,
+  target,
+  redactText = (text) => text,
+  approve = async () => false,
+  execPath = process.execPath,
+  platform = process.platform,
+}) {
   const bin = path.join(dataDir, "secrets-bin");
   const script = path.join(__dirname, "secrets-run.cjs");
   const tokens = new Map();
@@ -63,7 +72,9 @@ function createSecretsAccess({ vault, dataDir, secretsUrl, target, redactText = 
     }
     if (!(await vault.status()).unlocked) return next;
     try {
-      const { fingerprint, secrets } = await vault.ambient({ target: await target(chatId), chatId, record: !ambientLogged.has(chatId) });
+      const where = await target(chatId);
+      if (where.unattended) next.MILAGRE_SECRETS_UNATTENDED = "1";
+      const { fingerprint, secrets } = await vault.ambient({ target: where, chatId, record: !ambientLogged.has(chatId) });
       next.MILAGRE_SECRETS_AMBIENT = fingerprint;
       if (secrets.length) ambientLogged.add(chatId);
       for (const secret of secrets) next[secret.name] = secret.value;
@@ -84,11 +95,36 @@ function createSecretsAccess({ vault, dataDir, secretsUrl, target, redactText = 
     if (!names.length) throw Object.assign(new Error("Name at least one secret."), { status: 400 });
     if (names.length > MAX_NAMES) throw Object.assign(new Error(`At most ${MAX_NAMES} secrets per command.`), { status: 400 });
     const command = typeof body.command === "string" ? redactText(body.command) : null;
+    const policy = async (at) => {
+      const named = (await vault.reachable(at)).secrets.filter((secret) => names.includes(secret.name));
+      return {
+        at,
+        asking: named.filter((secret) => secret.askEachUse).map((secret) => secret.name),
+        expect: Object.fromEntries(named.map((secret) => [secret.name, { version: secret.version, changedOn: secret.changedOn }])),
+      };
+    };
+    const before = await policy(where);
+    const unknown = names.filter((name) => !(name in before.expect));
+    if (unknown.length)
+      throw Object.assign(
+        new Error(
+          `Not available to this Chat: ${unknown.join(", ")}.${where.unattended ? " Unattended runs only get secrets that allow them." : ""} Ask the person with request_secret.`,
+        ),
+        { status: 404 },
+      );
+    let release = before;
+    if (before.asking.length) {
+      if (!(await approve(chatId, { names: before.asking, command })))
+        throw Object.assign(new Error(`The person didn't allow ${before.asking.join(", ")} for this command.`), { status: 403 });
+      release = await policy(await target(chatId));
+      if (release.at.origin !== where.origin || release.at.unattended !== where.unattended || JSON.stringify(release.expect) !== JSON.stringify(before.expect))
+        throw Object.assign(new Error("These secrets or this Chat's Project changed while waiting for approval. Run the command again."), { status: 409 });
+    }
     try {
       const executable = typeof body.executable === "string" ? body.executable : (command?.trim().split(/\s+/)[0] ?? null);
-      return { secrets: await vault.deliver({ names, target: where, chatId, command: executable, delivery: "on-demand" }) };
+      return { secrets: await vault.deliver({ names, target: release.at, chatId, command: executable, delivery: "on-demand", expect: release.expect }) };
     } catch (error) {
-      throw Object.assign(error, { status: error.code === "secrets-missing" ? 404 : 500 });
+      throw Object.assign(error, { status: error.code === "secrets-missing" ? 404 : error.code === "secrets-changed" ? 409 : 500 });
     }
   }
 
