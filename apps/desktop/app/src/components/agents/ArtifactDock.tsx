@@ -126,7 +126,7 @@ export function ArtifactDock(props: DockProps) {
   const sharingAvailable = useDesignSharingAvailable(chatId);
   const area = useDockArea();
   const reduced = useReducedMotion();
-  const [entered, setEntered] = useState(!!reduced);
+  const [entered, setEntered] = useState(!!reduced || !!props.staged);
   const resize = usePanelWidth("artifacts");
   const fits = area ? Math.min(resize.width, area.width - area.simulator - area.browser - 12 - MIN_CHAT_WIDTH) : resize.width;
   const cramped = !!area && fits < Math.min(resize.width, resize.reset);
@@ -180,6 +180,7 @@ export function ArtifactDock(props: DockProps) {
       panel="artifacts"
       label="Resize the Artifact panel"
       width={full ? null : dockWidth}
+      instant={!!props.staged}
       reserve="--artifact-dock"
       onEntered={() => setEntered(true)}
       role="dialog"
