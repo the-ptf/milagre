@@ -48,18 +48,23 @@ function createChatSecrets({ directory, send, active, saveAs = null, onValue = n
     if (match) expire(path.join(directory, name), Number(match[1]));
   }
 
-  function settle(id, outcome, result) {
+  function claim(id) {
     const entry = pending.get(id);
-    if (!entry) return false;
+    if (!entry) return null;
     pending.delete(id);
     clearTimeout(entry.timer);
-    void send(entry.chatId, {
-      type: "question-resolved",
-      requestId: id,
-      outcome,
-    });
+    return entry;
+  }
+
+  function finish(entry, id, outcome, result) {
+    void send(entry.chatId, { type: "question-resolved", requestId: id, outcome });
     entry.resolve(result);
     return true;
+  }
+
+  function settle(id, outcome, result) {
+    const entry = claim(id);
+    return entry ? finish(entry, id, outcome, result) : false;
   }
 
   async function request(chatId, { title, description, name }) {
@@ -153,25 +158,29 @@ function createChatSecrets({ directory, send, active, saveAs = null, onValue = n
     )
       throw new Error("Enter a secret of at most 10,000 characters.");
     const value = answers.secret[0];
+    claim(id);
     onValue?.(value);
-    if (save !== "none") {
+    try {
+      if (save === "none") return finish(entry, id, "answered", oneOffFile(value));
       const name = entry.offer.name;
-      const failure = await saveAs.save(chatId, { name, value, scope: save }).then(
+      const failure = await saveAs.save(chatId, { name, value, scope: save, expectVersion: entry.offer.version ?? 0 }).then(
         () => null,
         (error) => error,
       );
-      if (!failure)
-        return settle(
-          id,
-          "answered",
-          JSON.stringify({
-            saved: name,
-            instructions: `Saved as ${name}; no file was written. Run the command that needs it with \`milagre-secrets run --with ${name} -- <command>\`. Never print it.`,
-          }),
-        );
-      return settle(id, "answered", oneOffFile(value, `It couldn't be saved as ${name}: ${failure.message}`));
+      if (failure) return finish(entry, id, "answered", oneOffFile(value, `It couldn't be saved as ${name}: ${failure.message}`));
+      return finish(
+        entry,
+        id,
+        "answered",
+        JSON.stringify({
+          saved: name,
+          instructions: `Saved as ${name}; no file was written. Run the command that needs it with \`milagre-secrets run --with ${name} -- <command>\`. Never print it.`,
+        }),
+      );
+    } catch (error) {
+      finish(entry, id, "cancelled", `The secret couldn't be stored: ${error.message}`);
+      throw error;
     }
-    return settle(id, "answered", oneOffFile(value));
   }
 
   function oneOffFile(value, saved) {

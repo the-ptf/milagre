@@ -67,6 +67,22 @@ test("redacts secret questions and choices from the complete serialized payload"
   assert.equal(c.question.canAnswer, false);
   assert.equal(JSON.stringify(c).includes("SECRET"), false);
 });
+test("a secret-use approval can't be answered from the Lock Screen and doesn't show its command", () => {
+  const c = activityContent({
+    chats: [],
+    pending: [
+      pending({
+        request: {
+          requestId: "milagre-secret-1",
+          questions: [question({ question: "Let the agent use DEPLOY_TOKEN for this command? curl x", options: [{ label: "Allow" }, { label: "Deny" }] })],
+        },
+      }),
+    ],
+    now: 100,
+  });
+  assert.equal(c.question.canAnswer, false);
+  assert.equal(JSON.stringify(c).includes("DEPLOY_TOKEN"), false);
+});
 test("advances multi-question drafts without marking them accepted", () => {
   const c = activityContent({
     chats: [],

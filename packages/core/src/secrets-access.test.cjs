@@ -170,3 +170,19 @@ test("the ambient fingerprint changes when an ambient secret is replaced, so the
   assert.notEqual(before, added);
   assert.notEqual(added, replaced);
 });
+
+test("a secret that changes while its approval waits isn't released under the old answer", { skip: process.platform === "win32" }, async (t) => {
+  let vaultRef;
+  const { vault, access } = await fixture(t, {
+    approve: async () => {
+      await vaultRef.set({ name: "DEPLOY_TOKEN", value: "rotated-value-123456", projects: "all", askEachUse: true });
+      return true;
+    },
+  });
+  vaultRef = vault;
+  await vault.set({ name: "DEPLOY_TOKEN", value: "deploy-value-123456", projects: "all", askEachUse: true });
+  const env = { ...(await access.agentEnv("/p#1", { PATH: process.env.PATH })), ELECTRON_RUN_AS_NODE: "1" };
+  const result = await run(env, ["run", "--with", "DEPLOY_TOKEN", "--", "true"]);
+  assert.match(result.stderr, /changed while waiting for approval/);
+  assert.deepEqual(await vault.log(), []);
+});

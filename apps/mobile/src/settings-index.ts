@@ -466,6 +466,7 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   },
 
   { page: "secrets", title: SECRETS_COPY.add, keywords: "api key token password credential environment variable env" },
+  { page: "secrets", title: SECRETS_COPY.sharing.title, keywords: "share secrets sync paired computers other computer send push" },
 
   {
     page: "phone-sharing",

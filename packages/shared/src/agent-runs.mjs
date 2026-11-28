@@ -463,3 +463,9 @@ export function answeredQuestions(request, answers) {
   });
   return answered.length ? answered : null;
 }
+
+/** The flag an answer carries when its request asks for a secret, so the phone sends it only over the end-to-end channel. */
+export function secretAnswerFlag(request) {
+  const secret = Boolean(request?.secretRequest) || Boolean(request?.questions?.some((question) => question.secret));
+  return secret ? { secretAnswer: true } : {};
+}

@@ -6,11 +6,13 @@ import { SettingsScroll } from "../../settings-find";
 import { ErrorNotice, Group, ListRow, useStyles } from "../../ui";
 import { Icon } from "../../icons";
 import { CodeText, secretRowLine } from "../../secret-fields";
-import { useSecrets } from "../../use-secrets";
+import { SecretSharingSection } from "../../secret-sharing-section";
+import { useSecrets, useThisComputerName } from "../../use-secrets";
 
 export default function SecretsScreen() {
   const styles = useStyles();
   const { client, loaded, error, reload } = useSecrets();
+  const here = useThisComputerName();
   const add = () => router.push("/secret-form");
   return (
     <>
@@ -44,7 +46,7 @@ export default function SecretsScreen() {
                       key={secret.name}
                       title={secret.name}
                       titleLines={1}
-                      subtitle={[secret.note, secretRowLine(secret, loaded.at)].filter(Boolean).join("\n")}
+                      subtitle={[secret.note, secretRowLine(secret, loaded.at, here)].filter(Boolean).join("\n")}
                       subtitleLines={3}
                       onPress={() => router.push({ pathname: "/secret", params: { name: secret.name } })}
                     />
@@ -54,6 +56,7 @@ export default function SecretsScreen() {
                 <Text style={[styles.muted, { paddingHorizontal: 4 }]}>{SECRETS_COPY.empty}</Text>
               )}
               {error ? <ErrorNotice message={error} retry={reload} retryTitle="Try again" /> : null}
+              <SecretSharingSection />
             </>
           )}
         </View>

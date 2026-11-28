@@ -227,14 +227,14 @@ export function OptInsField({ value, onChange, file }: { value: SecretOptIns; on
         help={SECRETS_COPY.ambient.help}
         checked={value.ambient}
         disabled={file}
-        onChange={(ambient) => onChange({ ...value, ambient })}
+        onChange={(ambient) => onChange({ ...value, ambient, askEachUse: ambient ? false : value.askEachUse })}
       />
       <OptIn
         data="ask-each-use"
         label={SECRETS_COPY.askEachUse.label}
         help={SECRETS_COPY.askEachUse.help}
         checked={value.askEachUse}
-        onChange={(askEachUse) => onChange({ ...value, askEachUse })}
+        onChange={(askEachUse) => onChange({ ...value, askEachUse, ambient: askEachUse ? false : value.ambient })}
       />
       <OptIn
         data="unattended"

@@ -6,7 +6,7 @@ import { ago } from "@milagre/shared/main-sync";
 import { ErrorNotice, Field, Group, PageScroll, PillButton, SectionLabel, Tag, useStyles } from "../../ui";
 import { confirm } from "../../confirm-store";
 import { SecretOptInFields, SecretScopeFields, SecretValueField, secretRowLine } from "../../secret-fields";
-import { useSecretLog, useSecrets } from "../../use-secrets";
+import { useSecretLog, useSecrets, useThisComputerName } from "../../use-secrets";
 
 const FILE_FROM_COMPUTER = "A file secret's value is replaced on the computer that holds the file.";
 
@@ -55,9 +55,11 @@ function SecretDetail({
 }) {
   const styles = useStyles();
   const log = useSecretLog(secret.name);
+  const here = useThisComputerName();
   const [value, setValue] = useState("");
   const [note, setNote] = useState(secret.note ?? "");
-  const [projects, setProjects] = useState(secret.projects);
+  const [scopeDraft, setScopeDraft] = useState<string[] | null>(null);
+  const projects = scopeDraft ?? secret.projects;
   const [busy, setBusy] = useState<"value" | "settings" | "delete" | null>(null);
   const [error, setError] = useState("");
   const [replaced, setReplaced] = useState(false);
@@ -76,8 +78,9 @@ function SecretDetail({
   };
   const change = (patch: SecretPatch) => void run("settings", () => update(secret.name, patch));
   const changeScope = (next: "all" | string[]) => {
-    setProjects(next);
-    if (next === "all" || next.length) change({ projects: next });
+    if (next !== "all" && !next.length) return setScopeDraft(next);
+    setScopeDraft(null);
+    change({ projects: next });
   };
   const saveNote = () => {
     const next = note.trim() || null;
@@ -118,7 +121,7 @@ function SecretDetail({
             <Tag key={flag} label={flag} tone={flag === UNATTENDED_FLAG ? "orange" : "neutral"} />
           ))}
         </View>
-        <Text style={styles.caption}>{secretRowLine(secret, now)}</Text>
+        <Text style={styles.caption}>{secretRowLine(secret, now, here)}</Text>
       </View>
 
       <View style={{ gap: 8 }}>

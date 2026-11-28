@@ -40,6 +40,7 @@ Agents learn names from `secrets_list` (names, kinds, notes; never values), poin
 
 Off until the person turns it on per paired computer (Settings › Secrets › Share with; `secrets:share`, kept in `secrets-sharing.json`). `secrets-sync.cjs` then pushes over the end-to-end computer link: it asks the other computer for a digest (names, versions, who changed them, never values), sends what it lacks or holds older in batches of 20 (`secrets:push`), and does it again on every change and whenever that computer comes online.
 
+- **Settings** shows one checkbox per paired computer under Share with, on desktop and on the phone (`secrets:sharing` and `secrets:share` carry no values, so the phone may call them). A secret another computer changed last says "Changed on <name>": `changedOn` is the name paired computers know that computer by.
 - **Push only.** Paired computers may call `secrets:digest`, `secrets:push` and `secrets:forget-from` and no other `secrets:` method, so none can read a value back.
 - **Conflicts.** The higher version wins, then the higher computer name, the same on every computer. A deleted secret travels as a tombstone with its version, so a stale computer can't bring it back.
 - **Received entries** are checked like local ones: reserved names and malformed records are dropped, and a file secret is never ambient. Each keeps `from`, the computer that sent it.

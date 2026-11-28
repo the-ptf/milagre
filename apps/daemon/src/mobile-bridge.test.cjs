@@ -2118,7 +2118,7 @@ test("/runs validates Chat selections, keeps legacy responses, and preserves sco
   }
 });
 
-test("the daemon's bridge takes a secret value only through the sealed channel, never through a tunnel or proxy", async (t) => {
+test("every bridge takes a secret value only through the sealed channel, never through a tunnel or proxy", async (t) => {
   const { SEALED_HEADER, SEALED_VALUE } = require("./sealed-channel.cjs");
   const keys = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-sealed-key-"));
   await fs.chmod(keys, 0o700);
@@ -2131,7 +2131,7 @@ test("the daemon's bridge takes a secret value only through the sealed channel, 
     else process.env.MILAGRE_COMPUTER_KEY_FILE = before;
     await fs.rm(keys, { recursive: true, force: true });
   });
-  const { request } = await fixture(t, { bridgeOptions: { phoneRoutes: async () => ({}) } });
+  const { request } = await fixture(t);
   const call = (method, args, headers = {}) =>
     request("/rpc", { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ v: 1, method, args }) });
   const secret = { name: "DEPLOY_TOKEN", value: "tunnel-value-123456", projects: "all" };

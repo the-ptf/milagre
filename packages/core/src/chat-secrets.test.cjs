@@ -155,7 +155,7 @@ test("a named request offers Save as; the chosen scope saves it and the agent is
   assert.deepEqual(secretRequest.saveAs, { name: "VERCEL_TOKEN", project: true, replaces: false });
   await assert.rejects(secrets.answer("chat", requestId, { secret: ["v-123456789"], save: ["elsewhere"] }), /Choose where to save/);
   assert.equal(await secrets.answer("chat", requestId, { secret: ["v-123456789"], save: ["project"] }), true);
-  assert.deepEqual(saves, [{ chatId: "chat", name: "VERCEL_TOKEN", value: "v-123456789", scope: "project" }]);
+  assert.deepEqual(saves, [{ chatId: "chat", name: "VERCEL_TOKEN", value: "v-123456789", scope: "project", expectVersion: 0 }]);
   assert.deepEqual(values, ["v-123456789"], "the value joins redaction");
   assert.deepEqual(
     fs.readdirSync(directory).filter((name) => name.endsWith(".secret")),
@@ -199,4 +199,28 @@ test("approveUse asks Allow or Deny; only Allow lets the command run, and nothin
   assert.equal(await cancelled, false);
   running = false;
   assert.equal(await secrets.approveUse("chat", { names: ["DEPLOY_TOKEN"], command: "x" }), false);
+});
+
+test("the first answer claims the request: a second answer while Save as is writing gets nothing", async (t) => {
+  let release;
+  const writes = [];
+  const { secrets, events } = fixture(t, {
+    saveAs: {
+      offer: async (_chatId, name) => ({ name, project: false, replaces: false, version: 0 }),
+      save: (chatId, input) => new Promise((resolve) => ((release = resolve), writes.push(input))),
+    },
+  });
+  const result = secrets.definitions("chat")[0].run({ title: "Token", description: "Deploys.", name: "A_TOKEN" });
+  await new Promise((resolve) => setImmediate(resolve));
+  const { requestId } = events.at(-1).event;
+  const first = secrets.answer("chat", requestId, { secret: ["first-123456"], save: ["all"] });
+  assert.equal(await secrets.answer("chat", requestId, { secret: ["second-123456"], save: ["all"] }), false);
+  secrets.cancel("chat");
+  release();
+  assert.equal(await first, true);
+  assert.equal(JSON.parse(await result).saved, "A_TOKEN");
+  assert.deepEqual(
+    writes.map((input) => input.value),
+    ["first-123456"],
+  );
 });

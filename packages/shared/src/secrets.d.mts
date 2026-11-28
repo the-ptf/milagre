@@ -71,7 +71,18 @@ export declare const SECRETS_COPY: Readonly<{
   imported: (count: number) => string;
   skipped: string;
   saveAs: { label: (name: string) => string; project: string; all: string; none: string; replaces: (name: string) => string };
+  changedOn: (name: string) => string;
+  sharing: { title: string; intro: string; empty: string; online: string; offline: string; removing: (name: string) => string };
 }>;
+
+/** A paired computer and whether this computer shares its secrets with it: `secrets:sharing`, `secrets:share`. */
+export interface SecretSharingComputer {
+  id: string;
+  name: string;
+  online: boolean;
+  shared: boolean;
+  pendingRemoval: boolean;
+}
 
 /** One use from the log: `secrets:log`. */
 export interface SecretUse {
@@ -102,3 +113,5 @@ export type SecretPatch = Partial<Pick<SecretSummary, "projects" | "delivery" | 
 
 export function secretScopeText(projects: "all" | string[]): string;
 export function secretFlags(secret: Pick<SecretSummary, "delivery" | "askEachUse" | "unattended">): string[];
+
+export function carriesSecretValue(method: string, args: unknown[]): boolean;

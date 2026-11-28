@@ -207,6 +207,15 @@ export const SECRETS_COPY = Object.freeze({
     none: "Don't save",
     replaces: (name) => `Replaces the saved ${name}.`,
   },
+  changedOn: (name) => `Changed on ${name}`,
+  sharing: {
+    title: "Share with",
+    intro: "Secrets you save here are sent to the computers you pick, over the encrypted link between your computers. They can't read values back.",
+    empty: "Pair another computer in Phone & sharing to share secrets with it.",
+    online: "Online",
+    offline: "Offline",
+    removing: (name) => `Removing from ${name} when it's back online`,
+  },
 });
 
 /** Where a secret reaches, in a few words: "All Projects", one origin, or a count. */
@@ -223,4 +232,13 @@ export function secretFlags(secret) {
     secret.askEachUse ? "Asks each use" : null,
     secret.unattended ? "Unattended runs" : null,
   ].filter(Boolean);
+}
+
+/** Whether a phone call carries a secret value: it may only travel over the end-to-end channel or loopback. */
+export function carriesSecretValue(method, args) {
+  const first = Array.isArray(args) ? args[0] : undefined;
+  return (
+    method === "secrets:set" ||
+    (method === "agent:answer-question" && (String(first?.requestId ?? "").startsWith("milagre-secret-") || first?.secretAnswer === true))
+  );
 }

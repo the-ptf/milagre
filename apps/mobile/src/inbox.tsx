@@ -3,7 +3,7 @@ import { AppState, Pressable, Text, View, Keyboard, type ScrollViewInstance } fr
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaFrame, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
-import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
+import { projectOfKey, secretAnswerFlag, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { prepareAnswerImages } from "./attachments";
 import { providerName } from "@milagre/shared/providers";
 import type { InboxItem, InboxSnapshot, InboxStatus } from "@milagre/shared/attention";
@@ -373,6 +373,7 @@ function PhoneInboxCard({
                   answers,
                   summary,
                   ...(uploaded ? { images: uploaded } : {}),
+                  ...secretAnswerFlag(item.question),
                 },
               ]);
             })

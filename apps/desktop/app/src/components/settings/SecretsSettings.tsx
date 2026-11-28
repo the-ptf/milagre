@@ -3,6 +3,7 @@ import { Clock01Icon, Delete02Icon, Edit02Icon, Key01Icon, LockKeyIcon } from "@
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ago } from "@milagre/shared/main-sync";
 import { SECRETS_COPY, secretFlags, secretScopeText, type SecretSummary } from "@milagre/shared/secrets";
+import { useComputers } from "../../lib/computers";
 import { useAddSecretRequest } from "../../lib/secrets-intent";
 import type { RecentProject } from "../../lib/project-list";
 import { Button, IconButton } from "../primitives/Button";
@@ -12,6 +13,7 @@ import { InlineError } from "../primitives/InlineError";
 import { Skeleton } from "../primitives/Skeleton";
 import { AddSecretDialog, DeleteSecretDialog, EditSecretDialog, ImportSecretsDialog, ReplaceSecretDialog, SecretLogDialog } from "./SecretDialogs";
 import { useFilePicker, type ScopeChoice } from "./SecretFields";
+import { SecretSharing } from "./SecretSharing";
 import { Group } from "./SettingsGroup";
 
 type Open =
@@ -70,7 +72,19 @@ function Badge({ children, warning = false }: { children: string; warning?: bool
   );
 }
 
-function SecretRow({ secret, choices, now, onOpen }: { secret: SecretSummary; choices: ScopeChoice[]; now: number; onOpen: (open: Open) => void }) {
+function SecretRow({
+  secret,
+  choices,
+  now,
+  here,
+  onOpen,
+}: {
+  secret: SecretSummary;
+  choices: ScopeChoice[];
+  now: number;
+  here: string;
+  onOpen: (open: Open) => void;
+}) {
   const flags = secretFlags(secret);
   const unattended = secretFlags({ delivery: "on-demand", askEachUse: false, unattended: true })[0];
   const scope = scopeText(secret, choices);
@@ -92,6 +106,7 @@ function SecretRow({ secret, choices, now, onOpen }: { secret: SecretSummary; ch
         {secret.note && <p className="break-words text-12 text-ink-2">{secret.note}</p>}
         <p className="truncate text-12 text-ink-3">
           <span title={secret.projects === "all" ? undefined : secret.projects.join("\n")}>{scope}</span> · {used}
+          {secret.changedOn !== here && <> · {SECRETS_COPY.changedOn(secret.changedOn)}</>}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
@@ -113,6 +128,7 @@ function SecretRow({ secret, choices, now, onOpen }: { secret: SecretSummary; ch
 /** Settings › Secrets: this computer's named secrets for agents (docs/secrets.md). Values go in and never come back. */
 export function SecretsSettings() {
   const { unlocked, secrets, projects, error, reload } = useSecrets();
+  const { thisMac } = useComputers();
   const [open, setOpen] = useState<Open | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const choices = useMemo(() => scopeChoices(projects), [projects]);
@@ -159,7 +175,7 @@ export function SecretsSettings() {
           ) : (
             <ul data-secrets-list className="divide-y divide-line">
               {secrets.map((secret) => (
-                <SecretRow key={secret.name} secret={secret} choices={choices} now={now} onOpen={setOpen} />
+                <SecretRow key={secret.name} secret={secret} choices={choices} now={now} here={thisMac} onOpen={setOpen} />
               ))}
             </ul>
           )}
@@ -168,6 +184,7 @@ export function SecretsSettings() {
       <InlineError size={12} className="mt-2 px-1">
         {error}
       </InlineError>
+      {!locked && <SecretSharing />}
       {picker.element}
       {open?.kind === "add" && unlocked && <AddSecretDialog choices={choices} existing={secrets ?? []} onClose={close} onSaved={saved} />}
       {open?.kind === "import" && <ImportSecretsDialog file={open.file} choices={choices} onClose={close} onImported={() => void reload()} />}

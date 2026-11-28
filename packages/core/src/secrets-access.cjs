@@ -72,7 +72,9 @@ function createSecretsAccess({
     }
     if (!(await vault.status()).unlocked) return next;
     try {
-      const { fingerprint, secrets } = await vault.ambient({ target: await target(chatId), chatId, record: !ambientLogged.has(chatId) });
+      const where = await target(chatId);
+      if (where.unattended) next.MILAGRE_SECRETS_UNATTENDED = "1";
+      const { fingerprint, secrets } = await vault.ambient({ target: where, chatId, record: !ambientLogged.has(chatId) });
       next.MILAGRE_SECRETS_AMBIENT = fingerprint;
       if (secrets.length) ambientLogged.add(chatId);
       for (const secret of secrets) next[secret.name] = secret.value;
@@ -93,12 +95,26 @@ function createSecretsAccess({
     if (!names.length) throw Object.assign(new Error("Name at least one secret."), { status: 400 });
     if (names.length > MAX_NAMES) throw Object.assign(new Error(`At most ${MAX_NAMES} secrets per command.`), { status: 400 });
     const command = typeof body.command === "string" ? redactText(body.command) : null;
-    const asking = (await vault.reachable(where)).secrets.filter((secret) => secret.askEachUse && names.includes(secret.name)).map((secret) => secret.name);
-    if (asking.length && !(await approve(chatId, { names: asking, command })))
-      throw Object.assign(new Error(`The person didn't allow ${asking.join(", ")} for this command.`), { status: 403 });
+    const policy = async (at) => {
+      const named = (await vault.reachable(at)).secrets.filter((secret) => names.includes(secret.name));
+      return {
+        at,
+        asking: named.filter((secret) => secret.askEachUse).map((secret) => secret.name),
+        key: JSON.stringify(named.map((secret) => [secret.name, secret.version])),
+      };
+    };
+    const before = await policy(where);
+    let release = before;
+    if (before.asking.length) {
+      if (!(await approve(chatId, { names: before.asking, command })))
+        throw Object.assign(new Error(`The person didn't allow ${before.asking.join(", ")} for this command.`), { status: 403 });
+      release = await policy(await target(chatId));
+      if (release.at.origin !== where.origin || release.at.unattended !== where.unattended || release.key !== before.key)
+        throw Object.assign(new Error("These secrets or this Chat's Project changed while waiting for approval. Run the command again."), { status: 409 });
+    }
     try {
       const executable = typeof body.executable === "string" ? body.executable : (command?.trim().split(/\s+/)[0] ?? null);
-      return { secrets: await vault.deliver({ names, target: where, chatId, command: executable, delivery: "on-demand" }) };
+      return { secrets: await vault.deliver({ names, target: release.at, chatId, command: executable, delivery: "on-demand" }) };
     } catch (error) {
       throw Object.assign(error, { status: error.code === "secrets-missing" ? 404 : 500 });
     }

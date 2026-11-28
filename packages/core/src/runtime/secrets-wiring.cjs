@@ -46,7 +46,7 @@ function createSecretsWiring({
   options = {},
   origin = currentOrigin,
   mcp,
-  computerId = () => os.hostname(),
+  computerId = () => options.remoteComputers?.thisMac?.() || os.hostname(),
   now = Date.now,
 }) {
   const vault = createSecretsVault({ dataDir, masterKey: async () => (await options.remoteComputers?.masterKey?.()) ?? null, computerId });
@@ -86,12 +86,16 @@ function createSecretsWiring({
         offer: async (chatId, name) => {
           if (!(await vault.status()).unlocked) return null;
           const { origin: found } = await target(chatId);
-          return { name, project: Boolean(found), replaces: (await vault.list()).some((secret) => secret.name === name) };
+          const existing = (await vault.list()).find((secret) => secret.name === name);
+          return { name, project: Boolean(found), replaces: Boolean(existing), version: existing?.version ?? 0 };
         },
-        save: async (chatId, { name, value, scope }) => {
+        save: async (chatId, { name, value, scope, expectVersion }) => {
           const where = await target(chatId);
           if (scope === "project" && !where.origin) throw new Error("This Chat's Project has no Git origin.");
-          await vault.set({ name, value, projects: scope === "project" ? [where.origin] : "all" });
+          const existing = (await vault.list()).find((secret) => secret.name === name);
+          if ((existing?.version ?? 0) !== expectVersion) throw new Error(`${name} changed while the card was open.`);
+          const kept = existing ? { delivery: existing.delivery, askEachUse: existing.askEachUse, unattended: existing.unattended, note: existing.note } : {};
+          await vault.set({ ...kept, name, value, projects: scope === "project" ? [where.origin] : "all" });
         },
       },
     }),

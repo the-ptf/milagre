@@ -48,6 +48,7 @@ const executableOf = (executable) => {
   const name = typeof executable === "string" ? path.basename(executable.trim().replaceAll("\\", "/")) : "";
   return name ? name.slice(0, 80) : null;
 };
+const AMBIENT_ASKS = "A secret kept in the environment can't ask before each use: every command already has it.";
 const lockedError = () =>
   Object.assign(new Error("Secrets are locked: open Milagre on this computer, or set up a computer key for unattended access."), { code: "secrets-locked" });
 const inputError = (message) => Object.assign(new Error(message), { code: "secrets-input" });
@@ -56,7 +57,7 @@ function validState(value) {
   const state = stateSchema.parse(value);
   for (const [name, secret] of Object.entries(state.secrets)) {
     if (secretNameProblem(name)) throw new Error(`Saved secret ${name} has an invalid name`);
-    if (secret.kind === "file") secret.delivery = "on-demand";
+    if (secret.kind === "file" || secret.askEachUse) secret.delivery = "on-demand";
   }
   return state;
 }
@@ -233,6 +234,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
           throw inputError(`A secret holds at most ${SECRET_LIMITS.valueBytes / 1024} KB.`);
         if (fields.kind === "file" && !fields.fileName) throw inputError("A file secret needs a file name.");
         if (fields.kind === "file" && fields.delivery === "ambient") throw inputError("A file secret is given per command, not kept in the environment.");
+        if (fields.delivery === "ambient" && fields.askEachUse) throw inputError(AMBIENT_ASKS);
         if (fields.fileName && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(fields.fileName))
           throw inputError("A file name uses letters, digits, dots, dashes and underscores.");
         const current = await read();
@@ -255,6 +257,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
         if (!previous) throw inputError(`No secret named ${name}.`);
         const next = { ...previous, ...parsed.data, version: previous.version + 1, changedOn: computerId(), updatedAt: now() };
         if (next.kind === "file" && next.delivery === "ambient") throw inputError("A file secret is given per command, not kept in the environment.");
+        if (next.delivery === "ambient" && next.askEachUse) throw inputError(AMBIENT_ASKS);
         await persist({ ...current, secrets: { ...current.secrets, [name]: next } });
         await loadLastUsed();
         return summary(name, next);

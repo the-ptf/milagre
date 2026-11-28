@@ -518,6 +518,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
 
   { page: "secrets", title: SECRETS_COPY.add, description: SECRETS_COPY.intro, keywords: "new key token password credential environment variable" },
   { page: "secrets", title: SECRETS_COPY.importEnv, keywords: "dotenv env file environment variables keys tokens bulk" },
+  { page: "secrets", title: SECRETS_COPY.sharing.title, description: SECRETS_COPY.sharing.intro, keywords: "share secrets sync paired computers" },
 
   { page: "browser", title: "Links" },
   {

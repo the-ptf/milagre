@@ -99,6 +99,9 @@ class SessionManager {
       existing.cwd === cwd &&
       JSON.stringify(existing.workspaceRoots) === JSON.stringify(workspaceRoots) &&
       existing.workspaceInstructions === request.workspaceInstructions;
+    const busy = existing && !existing.session.closed && (existing.session.turnActive || busyWithoutTurn(existing));
+    if (sameChat && busy && !sameAmbientSecrets(existing.env, request.env) && request.env?.MILAGRE_SECRETS_UNATTENDED)
+      throw new Error("This Chat's agent is still running work that holds secrets this run may not use. It runs once that work ends.");
     if (
       sameChat &&
       !existing.session.closed &&

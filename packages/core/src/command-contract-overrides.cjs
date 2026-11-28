@@ -152,6 +152,4 @@ module.exports = {
   "secrets:digest": [],
   "secrets:push": request({ from: s, entries: array(any) }),
   "secrets:forget-from": request({ from: s }),
-  "secrets:sharing": [],
-  "secrets:share": request({ computer: s, on: b }),
 };

@@ -62,6 +62,8 @@ const METHODS = new Set([
   "secrets:update",
   "secrets:delete",
   "secrets:log",
+  "secrets:sharing",
+  "secrets:share",
   "computer:resources:read",
   "storage:worktrees",
   "storage:remove-worktree",

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useFocusEffect } from "expo-router";
-import type { SecretInput, SecretPatch, SecretSummary, SecretUse } from "@milagre/shared/secrets";
+import type { SecretInput, SecretPatch, SecretSharingComputer, SecretSummary, SecretUse } from "@milagre/shared/secrets";
 import { useSession } from "./session";
 
 /** `at` is when it was read: the clock relative times count from. */
@@ -77,6 +77,64 @@ export function useSecrets() {
     [client, put],
   );
   return { client, loaded, error, reload, ...actions };
+}
+
+/** The connected computer's name, as its secrets' `changedOn` names it. */
+export function useThisComputerName() {
+  const session = useSession();
+  const host = session.client ? session.hosts.find((saved) => saved.id === session.client?.url) : undefined;
+  return session.hostName || host?.name || "";
+}
+
+/** The connected computer's paired computers and whether its secrets go to each: read on focus and on every secrets change. */
+export function useSecretSharing() {
+  const client = useSession().client;
+  const [list, setList] = useState<SecretSharingComputer[] | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      if (!client) return;
+      let live = true;
+      const read = () =>
+        client.call<SecretSharingComputer[]>("secrets:sharing", []).then(
+          (value) => {
+            if (!live) return undefined;
+            setList(value);
+            setError("");
+            return undefined;
+          },
+          (failure) => live && setError(message(failure, "Could not read which computers get these secrets.")),
+        );
+      void read();
+      const socket = client.live("", {
+        onSignal: (signal) => {
+          if (signal === "secrets") void read();
+        },
+        onStatus: () => {},
+      });
+      return () => {
+        live = false;
+        socket.close();
+      };
+    }, [client]),
+  );
+  const share = useCallback(
+    async (computer: string, on: boolean) => {
+      if (!client) return;
+      setBusy(computer);
+      setError("");
+      try {
+        setList(await client.call<SecretSharingComputer[]>("secrets:share", [{ computer, on }]));
+      } catch (failure) {
+        setError(message(failure, "Could not change sharing on your computer."));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [client],
+  );
+  return { list, error, busy, share };
 }
 
 /** A secret's recent uses, newest first. */

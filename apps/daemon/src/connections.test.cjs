@@ -99,6 +99,8 @@ test("the paired-desktop policy denies pairing, device management, push, stoppin
     "secrets:sharing",
   ])
     assert.equal(peerPolicy.denies(method), true, method);
+  assert.equal(peerPolicy.denies("agent:answer-question", [{ requestId: "milagre-secret-1" }]), true, "only the person answers a secret request");
+  assert.equal(peerPolicy.denies("agent:answer-question", [{ requestId: "q-1" }]), false);
   for (const method of ["secrets:digest", "secrets:push", "secrets:forget-from"])
     assert.equal(peerPolicy.denies(method), false, `${method} is how paired computers share secrets`);
   for (const method of [

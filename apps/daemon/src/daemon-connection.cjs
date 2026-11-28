@@ -171,7 +171,7 @@ function acceptConnectionWith(deps, { send, end, destroy, isClosed, requireAuthe
       fail("CLOSING", "The daemon is closing");
       return true;
     }
-    if (policy?.denies(request.method)) {
+    if (policy?.denies(request.method, request.args)) {
       fail("NOT_AVAILABLE_REMOTELY", "Not available on a remote computer");
       return true;
     }

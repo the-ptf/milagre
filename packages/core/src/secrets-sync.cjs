@@ -42,7 +42,7 @@ function merge(state, entries, from) {
     const incoming = secret?.success ? secret.data : tombstone?.success ? tombstone.data : null;
     if (!incoming || !newer(incoming, state.secrets[name] ?? state.tombstones[name])) continue;
     if (secret?.success) {
-      if (incoming.kind === "file") incoming.delivery = "on-demand";
+      if (incoming.kind === "file" || incoming.askEachUse) incoming.delivery = "on-demand";
       state.secrets[name] = { ...incoming, from };
       delete state.tombstones[name];
     } else {

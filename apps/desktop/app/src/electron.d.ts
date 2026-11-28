@@ -26,7 +26,7 @@ import type { LocalMcpApi } from "@milagre/shared/local-mcp";
 import type { LinearIssue, LinearIssuesResult, LinearStatus } from "@milagre/shared/linear";
 import type { GithubIssuesResult } from "@milagre/shared/github-issue";
 import type { ConnectorInput, ConnectorMovable, ConnectorSummary, ConnectorTool, ConnectorUpdate, EmailConnectInput } from "@milagre/shared/connectors";
-import type { SecretInput, SecretPatch, SecretSummary, SecretUse } from "@milagre/shared/secrets";
+import type { SecretInput, SecretPatch, SecretSharingComputer, SecretSummary, SecretUse } from "@milagre/shared/secrets";
 import type {
   BackgroundTaskOutput,
   ProjectAccountScope,
@@ -585,6 +585,10 @@ export type MilagreBridge = {
       unattended?: boolean;
       note?: string | null;
     }) => Promise<{ imported: string[]; skipped: { name: string; reason: string }[] }>;
+    /** This computer's paired computers and whether its secrets are shared with each. */
+    sharing: () => Promise<SecretSharingComputer[]>;
+    /** Starts or stops sharing with one paired computer; stopping asks it to drop what came from here. */
+    share: (request: { computer: string; on: boolean }) => Promise<SecretSharingComputer[]>;
   };
   localMcp: LocalMcpApi;
   /** The Linear switch (Settings › Connectors › Linear) changed, on this Mac or from a phone. */

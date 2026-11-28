@@ -67,6 +67,14 @@ function chatTools(chat, invoke, steering) {
   };
 }
 
+/** Requests no other Chat's agent may answer, in any mode or family: what it would say instead, or null. */
+function onlyTheUserAnswers(requestId, question) {
+  if (isBugReportRequest(requestId)) return "Only the user can approve or cancel a Milagre bug report, after reading its exact text. Tell them it is waiting.";
+  if (isSecretRequest(requestId) || question.questions.some((item) => item.secret))
+    return "Only the user can give this secret or allow its use. Tell them it is waiting.";
+  return null;
+}
+
 function createLocalMcpHost({
   invoke,
   projects,
@@ -442,8 +450,7 @@ function createLocalMcpHost({
       const approval = approvals.find((item) => item.requestId === requestId);
       const question = questions.find((item) => item.requestId === requestId);
       if (!approval && !question) throw Error("Nothing with that requestId is waiting in this Chat. chat_read lists what is.");
-      if (question && isBugReportRequest(requestId))
-        throw Error("Only the user can approve or cancel a Milagre bug report, after reading its exact text. Tell them it is waiting.");
+      if (question && onlyTheUserAnswers(requestId, question)) throw Error(onlyTheUserAnswers(requestId, question));
       const kin = kinOf(state, caller, chatId);
       if (suggest && !kin) throw Error("suggest is for a question in this Chat's own family of Subchats.");
       if (kin) return familyResponse({ chatId, requestId, state, approval, question, answers, suggest }, caller);

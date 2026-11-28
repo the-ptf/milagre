@@ -171,3 +171,14 @@ test("one read gives ambient values and their fingerprint; an older ambient file
   await vault.set({ name: "KEY_FILE", value: "file-body-123456", kind: "file", fileName: "k.p8", projects: "all" });
   assert.equal((await reloaded.list()).find((secret) => secret.name === "KEY_FILE").delivery, "on-demand");
 });
+
+test("a secret can't both live in the environment and ask before each use", async (t) => {
+  const { vault } = fixture(t);
+  await assert.rejects(
+    vault.set({ name: "A_TOKEN", value: "value-123456789", projects: "all", delivery: "ambient", askEachUse: true }),
+    /can't ask before each use/,
+  );
+  await vault.set({ name: "A_TOKEN", value: "value-123456789", projects: "all", delivery: "ambient" });
+  await assert.rejects(vault.update("A_TOKEN", { askEachUse: true }), /can't ask before each use/);
+  assert.equal((await vault.update("A_TOKEN", { askEachUse: true, delivery: "on-demand" })).askEachUse, true);
+});

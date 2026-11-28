@@ -46,6 +46,10 @@ async function readJsonBody(req, limit) {
 }
 
 function withoutHiddenArgs(request) {
+  if (request.method === "agent:answer-question" && request.args[0] && typeof request.args[0] === "object" && "secretAnswer" in request.args[0]) {
+    const { secretAnswer: _secret, ...rest } = request.args[0];
+    return [rest, ...request.args.slice(1)];
+  }
   return (request.method === "link:update" || request.method === "link:create") &&
     request.args[0] &&
     typeof request.args[0] === "object" &&
@@ -84,9 +88,10 @@ function phoneReply(method, value) {
   return result;
 }
 
-/** A secret value in a phone call. The daemon's bridge (the one with `phoneRoutes`) takes it only through the sealed channel. */
+/** A secret value in a phone call: every bridge takes it only through the sealed channel, unless a development host opts out. */
 const carriesSecret = (request) =>
-  request.method === "secrets:set" || (request.method === "agent:answer-question" && isSecretRequest(request.args[0]?.requestId));
+  request.method === "secrets:set" ||
+  (request.method === "agent:answer-question" && (isSecretRequest(request.args[0]?.requestId) || request.args[0]?.secretAnswer === true));
 
 function createMobileRoutes({
   readScope,
@@ -230,7 +235,7 @@ function createMobileRoutes({
       } else {
         if (!METHODS.has(request.method)) throw failure(403, "Command is not available from mobile");
         if (request.method === "secrets:set" && request.args[0]?.file !== undefined) throw failure(403, "The phone can't read files on this computer");
-        if (phoneRoutes && carriesSecret(request) && !isSealed(req))
+        if (carriesSecret(request) && !isSealed(req) && process.env.MILAGRE_DEV_PLAIN_SECRETS !== "1")
           throw failure(403, "Secrets travel only over Milagre's encrypted connection (relay, local network or Tailscale), not through a tunnel or proxy.");
         const args = withoutHiddenArgs(request);
         if (confine) {

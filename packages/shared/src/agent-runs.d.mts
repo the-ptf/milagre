@@ -66,3 +66,4 @@ export function recordAnswers<T extends TranscriptState>(
   images?: ImageAttachment[],
 ): { state: T; runs: AgentRuns; messageId: number | null };
 export function answeredQuestions(request: QuestionRequest | undefined, answers: QuestionAnswers | null): AnsweredQuestion[] | null;
+export function secretAnswerFlag(request: { secretRequest?: unknown; questions?: { secret?: boolean }[] } | null | undefined): { secretAnswer?: true };

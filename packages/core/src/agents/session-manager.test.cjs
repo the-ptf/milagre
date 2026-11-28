@@ -491,6 +491,22 @@ test("a change to the ambient secrets a turn may hold starts a fresh process tha
   assert.equal(created[1].options.env.MILAGRE_SECRETS_AMBIENT, "unattended");
 });
 
+test("an unattended turn never runs in a busy process holding secrets it may not use", async (t) => {
+  const { manager, created } = harness();
+  t.after(() => manager.closeAll());
+  await manager.startTurn(request("1", { env: { MILAGRE_SECRETS_AMBIENT: "attended" } }));
+  created[0].nativeId = "thread-current";
+  manager.sessions.get("1").backgroundTasks = new Set(["build"]);
+  await assert.rejects(
+    manager.startTurn(request("1", { env: { MILAGRE_SECRETS_AMBIENT: "unattended", MILAGRE_SECRETS_UNATTENDED: "1" } })),
+    /holds secrets this run may not use/,
+  );
+  assert.equal(created.length, 1);
+  manager.sessions.get("1").backgroundTasks.clear();
+  await manager.startTurn(request("1", { env: { MILAGRE_SECRETS_AMBIENT: "unattended", MILAGRE_SECRETS_UNATTENDED: "1" } }));
+  assert.equal(created.length, 2, "an idle process restarts with the narrower secrets instead");
+});
+
 test("TLDR changes leave a running turn alone and apply once it finishes", async (t) => {
   const { manager, created } = harness();
   t.after(() => manager.closeAll());

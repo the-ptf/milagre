@@ -124,7 +124,7 @@ export function SecretOptInFields({
           subtitle={SECRETS_COPY.ambient.help}
           checked={value.delivery === "ambient"}
           disabled={disabled}
-          onPress={() => onChange({ delivery: value.delivery === "ambient" ? "on-demand" : "ambient" })}
+          onPress={() => onChange(value.delivery === "ambient" ? { delivery: "on-demand" } : { delivery: "ambient", askEachUse: false })}
         />
       ) : null}
       <CheckRow
@@ -133,7 +133,7 @@ export function SecretOptInFields({
         subtitle={SECRETS_COPY.askEachUse.help}
         checked={value.askEachUse}
         disabled={disabled}
-        onPress={() => onChange({ askEachUse: !value.askEachUse })}
+        onPress={() => onChange(value.askEachUse ? { askEachUse: false } : { askEachUse: true, delivery: "on-demand" })}
       />
       <View style={{ paddingBottom: space.md }}>
         <CheckRow
@@ -181,13 +181,14 @@ export function CodeText({ text, style }: { text: string; style?: object }) {
   );
 }
 
-/** The facts a row shows under its name: the hint or file, where it reaches, its opt-ins and when it was last used. */
-export function secretRowLine(secret: SecretSummary, now: number) {
+/** The facts a row shows under its name: the hint or file, where it reaches, its opt-ins, when it was last used and, when not `here`, the computer that changed it. */
+export function secretRowLine(secret: SecretSummary, now: number, here: string) {
   return [
     secret.kind === "file" ? [SECRETS_COPY.file, secret.fileName].filter(Boolean).join(" ") : secret.hint ? `…${secret.hint}` : null,
     secretScopeText(secret.projects),
     ...secretFlags(secret),
     secret.lastUsedAt ? SECRETS_COPY.lastUsed(ago(secret.lastUsedAt, now)) : SECRETS_COPY.neverUsed,
+    here && secret.changedOn !== here ? SECRETS_COPY.changedOn(secret.changedOn) : null,
   ]
     .filter(Boolean)
     .join(" · ");

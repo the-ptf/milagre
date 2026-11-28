@@ -889,3 +889,28 @@ test("runs URLs distinguish legacy, summaries only and sorted deduplicated detai
   assert.equal(urls[2]?.href, urls[3]?.href);
   assert.deepEqual(chats, [3, 1, 3]);
 });
+
+test("a secret value never leaves over a route that ends TLS before the computer", async () => {
+  const sent: string[] = [];
+  const fetcher = async (_url: unknown, init?: RequestInit) => {
+    sent.push(String(init?.body));
+    return new Response(JSON.stringify({ v: 1, result: { ok: true } }));
+  };
+  const tunnel = createClient({ address: "https://mac.example.com", token: "token", access: { id: "id", secret: "s" } }, fetcher);
+  await assert.rejects(tunnel.call("secrets:set", [{ name: "A_TOKEN", value: "value-123456", projects: "all" }]), /encrypted connection/);
+  await assert.rejects(
+    tunnel.call("agent:answer-question", [{ chatId: "c", requestId: "milagre-secret-1", answers: { secret: ["x"] } }]),
+    /encrypted connection/,
+  );
+  await assert.rejects(
+    tunnel.call("agent:answer-question", [{ chatId: "c", requestId: "q1", answers: { pw: ["x"] }, secretAnswer: true }]),
+    /encrypted connection/,
+  );
+  assert.deepEqual(sent, [], "nothing reached the tunnel");
+  await tunnel.call("secrets:list", []);
+  await tunnel.call("agent:answer-question", [{ chatId: "c", requestId: "q1", answers: { k: ["yes"] } }]);
+  assert.equal(sent.length, 2, "names and ordinary answers still go");
+  const loopback = createClient({ address: "http://127.0.0.1:8787", token: "token" }, fetcher);
+  await loopback.call("secrets:set", [{ name: "A_TOKEN", value: "value-123456", projects: "all" }]);
+  assert.equal(sent.length, 3, "a development host on this machine takes it");
+});
