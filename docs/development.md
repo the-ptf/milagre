@@ -14,9 +14,11 @@ Useful checks:
 ```bash
 npm run typecheck
 npm run build
-npm test -- --unit
+npm test -- --only <name>
 npm run release:preview
 ```
+
+CI runs the whole unit suite and the Electron checks on every PR. Don't run them all before opening one: several agents doing that at once freezes a laptop.
 
 `npm test -- --changed origin/main` runs only the unit tests and Electron checks that import, directly or through other files, something your branch changed (committed, uncommitted or untracked); CI compares PRs with their merge base and pushes to main with the previous tip. Site-only and mobile-only changes also run that workspace's unit tests. The merge queue and a nightly run verify the whole suite. A nightly failure opens a GitHub issue. A change to a package manifest, the lockfile, a build or TypeScript config, the test runner or `ci.yml` runs everything. `node scripts/affected-tests.cjs --base origin/main` prints what a PR would run.
 

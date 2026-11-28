@@ -15,10 +15,10 @@ npm install
 npm run dev
 npm run typecheck
 npm run build
-npm test
-npm test -- --unit
 npm test -- --only <name>
 ```
+
+CI runs the full suite on every PR; locally, run only the test you are changing.
 
 Use `npm run dev` for visual work. Keep the renderer and Electron process boundaries explicit:
 
