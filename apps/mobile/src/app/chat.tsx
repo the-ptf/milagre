@@ -23,7 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
-import { Keyboard, Linking, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Keyboard, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import type { NavigationProp } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -158,6 +158,8 @@ import { BesideSession, touchPane } from "../beside-session";
 import { SENT_FROM } from "../sent-from";
 import { promptText } from "../text-prompt";
 import { useVisibleRunChatKeys } from "../visible-run-chats";
+import { useArtifactShortcuts } from "../chat-artifact-shortcuts";
+import { openLinearIssue } from "../issue-card";
 import {
   ChatStackOptions,
   ChatToolbar,
@@ -451,6 +453,7 @@ function ChatPane({
   const mentionState = session.snapshot?.project.state;
   const mentionLink = session.snapshot?.project.link;
   const liveRun = useRunShape(params.id && projectPath ? `${projectPath}#${params.id}` : undefined);
+  const { items: pages, select: openPage } = useArtifactShortcuts(session.client, projectPath, params.id);
   useVisibleRunChatKeys(session.client, params.id && projectPath ? [`${projectPath}#${params.id}`] : []);
   const mentionKey = JSON.stringify(mentionState && !mentionLink ? chatMentionChoices(mentionState) : []);
   const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
@@ -1612,10 +1615,6 @@ function ChatPane({
   const agents = (chat?.subagents || []).filter((agent) => !agent.archived);
   const diff = worktree?.diff;
   const linearIssue: LinearIssue | undefined = worktree ? linearIssues[worktree.path] : undefined;
-  function openLinearIssue(url: string) {
-    // oxlint-disable-next-line unicorn/prefer-string-starts-ends-with -- the issue comes from the host's JSON, so url may be missing and startsWith would throw
-    if (/^https:\/\//.test(url)) void Linking.openURL(url).catch(() => {});
-  }
   const canLink =
     linearActive && !!chat && !project.link && !chatsHomeOpen && !!worktree?.path && worktree.path !== project.path && !worktreeShared(project.state, chat.id);
   const storedIssue = linearActive && !chatsHomeOpen ? worktree?.linearIssue : undefined;
@@ -1719,7 +1718,7 @@ function ChatPane({
       </HeaderTitleBox>
     </>
   );
-  const paneMenu = chatPaneMenu({ chatsHomeOpen, diff, chat, run, ownRoutine, ownHeartbeat, linearIssue, linkHint, agents, busy, canLink, storedIssue });
+  const paneMenu = chatPaneMenu({ chatsHomeOpen, diff, chat, run, ownRoutine, ownHeartbeat, linearIssue, linkHint, agents, busy, canLink, storedIssue, pages });
   const headerActions = (
     <HeaderActionGroup>
       {shownTabs && !tabsInHeader && <TabCountAction where={shownTabs} onPress={panels.showTabs} />}
@@ -1734,7 +1733,7 @@ function ChatPane({
         />
       )}
       {pr && <HeaderAction label={`Pull request #${pr.number}`} icon={GitPullRequestIcon} iconSize={24} onPress={() => headerAction("pr")} />}
-      <PullDown label="Chat actions" sections={paneMenu} onSelect={headerAction}>
+      <PullDown label="Chat actions" sections={paneMenu} onSelect={(id) => void (openPage(id) || headerAction(id))}>
         <HeaderAction label="Chat actions" icon={MoreHorizontalIcon} />
       </PullDown>
     </HeaderActionGroup>

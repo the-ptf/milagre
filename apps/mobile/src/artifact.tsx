@@ -301,7 +301,7 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
 }
 
 /** Opens a page of a Chat's Artifact (its canvas, or its HTML page) in the right panel docked beside it on an iPad, full screen on a phone. */
-function openDesigns(openTab: ReturnType<typeof usePanelTabs>, target: DesignsTab) {
+export function openDesigns(openTab: ReturnType<typeof usePanelTabs>, target: DesignsTab) {
   if (openTab) {
     openTab({ kind: "designs", target });
     return;

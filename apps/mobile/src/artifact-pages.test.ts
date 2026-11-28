@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   artifactPageSections,
   artifactRouteParams,
+  artifactShortcuts,
   lastArtifactPage,
   pageEntries,
   readPageChoice,
@@ -104,5 +105,24 @@ test("the Project library's pages come after the Chat's own, and a design's vers
       ["Version 2", true],
       ["Version 1", false],
     ],
+  );
+});
+
+test("the Chat menu offers Paradise once the Chat has designs and the Artifact once it has an HTML page", () => {
+  assert.deepEqual(artifactShortcuts(0, null), []);
+  assert.deepEqual(
+    artifactShortcuts(1, null).map((item) => [item.title, item.subtitle]),
+    [["Paradise", "1 design"]],
+  );
+  assert.deepEqual(
+    artifactShortcuts(3, { title: "Release notes" }).map((item) => [item.id, item.title, item.subtitle]),
+    [
+      ["open-paradise", "Paradise", "3 designs"],
+      ["open-artifact", "Artifact", "Release notes"],
+    ],
+  );
+  assert.deepEqual(
+    artifactShortcuts(0, { title: "Report" }).map((item) => item.title),
+    ["Artifact"],
   );
 });
