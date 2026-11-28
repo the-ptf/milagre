@@ -388,29 +388,15 @@
     {
       "files": ["apps/desktop/app/src/components/routines/FlowPage.tsx"],
       "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 859,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
         "max-lines-per-function": [
           "error",
           {
-            "max": 501,
+            "max": 492,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 98]
-      }
-    },
-    {
-      "files": ["apps/desktop/app/src/components/routines/FlowRun.tsx"],
-      "rules": {
-        "complexity": ["error", 43]
+        "complexity": ["error", 96]
       }
     },
     {
@@ -724,21 +710,13 @@
     {
       "files": ["apps/mobile/src/flow-looks.ts"],
       "rules": {
-        "complexity": ["error", 50]
+        "complexity": ["error", 48]
       }
     },
     {
       "files": ["apps/mobile/src/flow-routine.tsx"],
       "rules": {
-        "max-lines-per-function": [
-          "error",
-          {
-            "max": 272,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
-        "complexity": ["error", 49]
+        "complexity": ["error", 43]
       }
     },
     {
@@ -1262,7 +1240,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 419,
+            "max": 409,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1432,7 +1410,7 @@
         "max-lines": [
           "error",
           {
-            "max": 908,
+            "max": 888,
             "skipBlankLines": true,
             "skipComments": true
           }

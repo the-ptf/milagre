@@ -17,6 +17,8 @@ import type { CheckpointRestoreContext } from "./checkpoint-restore.mjs";
 
 import type { HandoffContext } from "./handoff.mjs";
 import type { MessageEditContext } from "./message-edit.mjs";
+import type { FlowApproval, FlowPullRequestPreview, FlowReceipt } from "./model-flow-approval.ts";
+export type { FlowApproval, FlowPullRequestPreview, FlowReceipt } from "./model-flow-approval.ts";
 export type { ChatEditRequest, MessageEditContext } from "./message-edit.mjs";
 export type { HandoffContext, CheckpointRestoreContext, GithubIssueContext, LinearIssueContext, ValidationContext };
 
@@ -536,32 +538,6 @@ export interface RoutineFlow {
   steps: FlowStep[];
   publishedAt: number;
   draft?: { steps: FlowStep[]; updatedAt: number };
-}
-
-export type FlowReceipt =
-  | { kind: "pull-request"; url: string; number: number; branch: string; draft: boolean; matched: boolean; at: number }
-  | { kind: "linear-comment"; issue: string; url?: string; at: number };
-
-export interface FlowPullRequestPreview {
-  repository?: string;
-  /** Commit shown for approval, checked again before publishing the branch. */
-  head?: string;
-  branch: string;
-  base: string;
-  title: string;
-  body: string;
-  draft: boolean;
-  changes?: string;
-}
-
-export interface FlowApproval {
-  askedAt: number;
-  expiresAt: number;
-  message: string;
-  preview?: FlowPullRequestPreview;
-  decision?: "approved" | "rejected" | "expired";
-  decidedAt?: number;
-  reason?: string;
 }
 
 export type FlowStepStatus = "pending" | "running" | "waiting" | "done" | "failed" | "skipped" | "not-run";

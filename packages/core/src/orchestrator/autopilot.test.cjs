@@ -8,8 +8,9 @@ const { createAutopilot } = require("./autopilot.cjs");
 const { normalizeOrchestratorSettings } = require("@milagre/shared/orchestrator");
 
 const CHAT = "/p/app#7";
+const RUN_CHAT = "/p/app#9";
 
-function setup(t, { autopilot = "answer", vetoSeconds = 30, trust = {}, reply = null } = {}) {
+function setup(t, { autopilot = "answer", vetoSeconds = 30, trust = {}, reply = null, flowReply = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-autopilot-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const store = createOrchestratorStore({ file: path.join(dir, "orchestrator.json") });
@@ -18,12 +19,18 @@ function setup(t, { autopilot = "answer", vetoSeconds = 30, trust = {}, reply = 
     tasks: [{ id: "task", prompt: "fix the rest timer", title: "Fix the rest timer", state: "started", projectPath: "/p/app", sessionId: 7, createdAt: 1 }],
     memory: { ...current.memory, trust },
   }));
-  const calls = { permissions: [], answers: [], notes: [] };
+  const calls = { permissions: [], answers: [], notes: [], approved: [], planned: [] };
+  const approvals = {};
   const timers = [];
   const pilot = createAutopilot({
     store,
     ports: {
-      sessionOf: (chatId) => (chatId === CHAT ? { orchestrator: { taskId: "task", hidden: true } } : { title: "plain chat" }),
+      sessionOf: (chatId) =>
+        chatId === CHAT
+          ? { orchestrator: { taskId: "task", hidden: true } }
+          : chatId === RUN_CHAT
+            ? { routine: { routineId: "r", runId: "run" } }
+            : { title: "plain chat" },
       respondPermission: async (request) => {
         calls.permissions.push(request);
         return true;
@@ -34,6 +41,10 @@ function setup(t, { autopilot = "answer", vetoSeconds = 30, trust = {}, reply = 
       },
       note: (chatId, body) => calls.notes.push(body),
       questionCall: () => (reply === null ? null : async () => JSON.stringify(reply)),
+      flowCall: () => (flowReply === null ? null : async () => JSON.stringify(flowReply)),
+      flowApproval: (runId, stepId) => approvals[`${runId}:${stepId}`] ?? null,
+      approveFlow: async (runId, summary) => calls.approved.push({ runId, summary }),
+      planFlow: (runId, stepId, plan) => calls.planned.push({ runId, stepId, ...plan }),
     },
     schedule: (run, ms) => {
       timers.push({ run, ms });
@@ -43,7 +54,7 @@ function setup(t, { autopilot = "answer", vetoSeconds = 30, trust = {}, reply = 
       timers[id - 1].cancelled = true;
     },
   });
-  return { pilot, store, calls, timers };
+  return { pilot, store, calls, timers, approvals };
 }
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -105,4 +116,62 @@ test("reading a file counts as a read even when the provider calls it another to
   pilot.observe(CHAT, { type: "permission-request", requestId: "r9", kind: "other", tool: "Read", title: "Use Read?" });
   await settle();
   assert.deepEqual(calls.permissions, [{ chatId: CHAT, requestId: "r9", decision: "allow" }]);
+});
+
+const waitingRun = (step, message) => ({
+  id: "run",
+  flow: { steps: [step], state: { [step.id]: { status: "waiting", approval: { askedAt: 1, expiresAt: 99, message } } } },
+});
+
+test("approves a flow's engineering approval after the veto window and says why", async (t) => {
+  const { pilot, calls, timers } = setup(t, { flowReply: { design: false, approve: true, confidence: 0.6, summary: "the plan matches the issue" } });
+  const step = { id: "scope", name: "Check the scope", kind: "ask" };
+  pilot.considerFlow({ routine: { name: "Backlog fixes" }, run: waitingRun(step, "Refactor the retry loop into a helper?"), step });
+  await settle();
+  assert.equal(calls.planned[0].stepId, "scope");
+  assert.equal(calls.planned[0].summary, "the plan matches the issue");
+  assert.equal(timers.length, 1);
+  await timers[0].run();
+  await settle();
+  assert.deepEqual(calls.approved, [{ runId: "run", summary: "the plan matches the issue" }]);
+});
+
+test("leaves design and UI approvals, and the ones the model calls design, to the owner", async (t) => {
+  const { pilot, calls, timers } = setup(t, { flowReply: { design: true, approve: true, confidence: 1, summary: "x" } });
+  const looks = { id: "look", name: "Approve the new layout", kind: "ask" };
+  pilot.considerFlow({ routine: { name: "Backlog fixes" }, run: waitingRun(looks, "Ship the settings screen redesign?"), step: looks });
+  const quiet = { id: "quiet", name: "Go on", kind: "ask" };
+  pilot.considerFlow({ routine: { name: "Backlog fixes" }, run: waitingRun(quiet, "Use the second option?"), step: quiet });
+  await settle();
+  assert.equal(calls.planned.length + calls.approved.length + timers.length, 0);
+});
+
+test("an owner who answers during the veto window decides, and a rejection teaches trust", async (t) => {
+  const { pilot, store, calls, timers, approvals } = setup(t, { flowReply: { design: false, approve: true, confidence: 0.6, summary: "ok" } });
+  const step = { id: "scope", name: "Check the scope", kind: "ask" };
+  pilot.considerFlow({ routine: { name: "Backlog fixes" }, run: waitingRun(step, "Go ahead?"), step });
+  await settle();
+  approvals["run:scope"] = { decision: "rejected" };
+  await timers[0].run();
+  await settle();
+  assert.equal(calls.approved.length, 0);
+  assert.equal(store.read().memory.trust["flow:ask"].corrected, 1);
+});
+
+test("answers a Run Chat's question but leaves a design question waiting", async (t) => {
+  const reply = { answers: { q: ["Yes"] }, confidence: 0.95, summary: "yes" };
+  const { pilot, calls } = setup(t, { reply, trust: { question: { answered: 9, corrected: 0 } } });
+  const ask = (requestId, question) => ({
+    type: "question-request",
+    requestId,
+    questions: [{ id: "q", question, options: [{ label: "Yes" }, { label: "No" }] }],
+  });
+  pilot.observe(RUN_CHAT, ask("a", "Run the migration tests too?"));
+  pilot.observe(RUN_CHAT, ask("b", "Should the button colour match the header?"));
+  await settle();
+  await settle();
+  assert.deepEqual(
+    calls.answers.map((answer) => answer.requestId),
+    ["a"],
+  );
 });

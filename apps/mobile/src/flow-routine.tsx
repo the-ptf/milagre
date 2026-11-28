@@ -18,7 +18,7 @@ import type { ModelProvider, RoutineRun } from "@milagre/shared/model";
 import { useSession } from "./session";
 import { useRoutines, type RoutineWithRuns } from "./use-routines";
 import { useFlowDraft } from "./flow-draft";
-import { FlowSteps } from "./flow-editor";
+import { FlowStepsTab } from "./flow-canvas-views";
 import { FlowRunList } from "./flow-runs";
 import { runName } from "./flow-looks";
 import { routineIcon } from "./routine-rows";
@@ -57,6 +57,7 @@ export function FlowRoutineScreen({ routine, initialTab = "steps" }: { routine: 
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [footerHeight, setFooterHeight] = useState(0);
+  const [panning, setPanning] = useState(false);
   const now = useActivityClock(true);
   const flow = routine.flow!;
   const revision = flow.revision;
@@ -166,6 +167,7 @@ export function FlowRoutineScreen({ routine, initialTab = "steps" }: { routine: 
         )}
       </Stack.Toolbar>
       <PageScroll
+        scrollEnabled={!panning}
         style={{ flex: 1 }}
         contentContainerStyle={{ gap: 12, paddingBottom: footer ? footerHeight + 24 : 36 }}
         scrollIndicatorInsets={footer ? { bottom: footerHeight } : undefined}
@@ -231,7 +233,15 @@ export function FlowRoutineScreen({ routine, initialTab = "steps" }: { routine: 
           onChange={(value) => setTab(value as FlowTab)}
         />
         {tab === "steps" ? (
-          <FlowSteps routine={routine} routines={routines.routines} draft={draft} modelName={modelName} onTrigger={edit} />
+          <FlowStepsTab
+            routine={routine}
+            routines={routines.routines}
+            draft={draft}
+            modelName={modelName}
+            reserved={footerHeight + 300}
+            onTrigger={edit}
+            onInteract={setPanning}
+          />
         ) : tab === "runs" ? (
           <FlowRunList
             routine={routine}
@@ -240,40 +250,7 @@ export function FlowRoutineScreen({ routine, initialTab = "steps" }: { routine: 
             resuming={busy.startsWith("resume:") ? busy.slice(7) : ""}
           />
         ) : (
-          <View style={{ gap: 12 }}>
-            <View style={[styles.card, { flexDirection: "row", alignItems: "center", gap: 12 }]}>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>
-                  {routine.enabled ? "On" : "Off"}
-                </Text>
-                <Text style={styles.footnote}>
-                  {revision === 0
-                    ? "Publish the flow to turn it on."
-                    : routine.enabled
-                      ? `New Runs use revision ${revision}.`
-                      : "The trigger starts no Runs while it is off."}
-                </Text>
-              </View>
-              <RowCheckbox label={`${routine.name} on`} selected={routine.enabled} disabled={revision === 0} onPress={flip} />
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={{ marginHorizontal: -space.gutter }}
-              contentContainerStyle={{ gap: space.md, paddingHorizontal: space.gutter }}
-            >
-              <Tag icon={routineIcon(routine)} label={triggerChipText(routine.trigger, deviceZone())} />
-              <Tag
-                icon={routine.target.kind === "new-chat" && routine.target.workspace === "worktree" ? GitBranchIcon : Folder01Icon}
-                label={routineWhereText(routine.target)}
-              />
-            </ScrollView>
-            {times ? <Text style={[styles.footnote, { paddingHorizontal: space.xs }]}>{times}</Text> : null}
-            <Text style={[styles.footnote, { paddingHorizontal: space.xs }]}>
-              Each step picks its own model and permissions. Runs in progress keep the revision they started on.
-            </Text>
-            <PillButton title="Edit settings" variant="tinted" icon={PencilEdit02Icon} onPress={edit} />
-          </View>
+          <FlowSettingsTab routine={routine} revision={revision} times={times} onFlip={flip} onEdit={edit} />
         )}
       </PageScroll>
       {footer ? (
@@ -318,6 +295,57 @@ export function FlowRoutineScreen({ routine, initialTab = "steps" }: { routine: 
           </View>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+function FlowSettingsTab({
+  routine,
+  revision,
+  times,
+  onFlip,
+  onEdit,
+}: {
+  routine: RoutineWithRuns;
+  revision: number;
+  times: string | null;
+  onFlip: () => void;
+  onEdit: () => void;
+}) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  return (
+    <View style={{ gap: 12 }}>
+      <View style={[styles.card, { flexDirection: "row", alignItems: "center", gap: 12 }]}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>{routine.enabled ? "On" : "Off"}</Text>
+          <Text style={styles.footnote}>
+            {revision === 0
+              ? "Publish the flow to turn it on."
+              : routine.enabled
+                ? `New Runs use revision ${revision}.`
+                : "The trigger starts no Runs while it is off."}
+          </Text>
+        </View>
+        <RowCheckbox label={`${routine.name} on`} selected={routine.enabled} disabled={revision === 0} onPress={onFlip} />
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ marginHorizontal: -space.gutter }}
+        contentContainerStyle={{ gap: space.md, paddingHorizontal: space.gutter }}
+      >
+        <Tag icon={routineIcon(routine)} label={triggerChipText(routine.trigger, deviceZone())} />
+        <Tag
+          icon={routine.target.kind === "new-chat" && routine.target.workspace === "worktree" ? GitBranchIcon : Folder01Icon}
+          label={routineWhereText(routine.target)}
+        />
+      </ScrollView>
+      {times ? <Text style={[styles.footnote, { paddingHorizontal: space.xs }]}>{times}</Text> : null}
+      <Text style={[styles.footnote, { paddingHorizontal: space.xs }]}>
+        Each step picks its own model and permissions. Runs in progress keep the revision they started on.
+      </Text>
+      <PillButton title="Edit settings" variant="tinted" icon={PencilEdit02Icon} onPress={onEdit} />
     </View>
   );
 }

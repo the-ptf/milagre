@@ -1832,6 +1832,48 @@ a {
   --xy-background-color: transparent;
 }
 
+.flow-canvas .react-flow {
+  --xy-background-color: transparent;
+}
+
+.flow-canvas .react-flow__node {
+  cursor: pointer;
+}
+
+.flow-canvas[data-far] .flow-canvas-detail {
+  display: none;
+}
+
+.flow-canvas .flow-add:hover,
+.flow-canvas .flow-add.is-open,
+.flow-canvas .flow-add:focus-visible {
+  color: var(--ink);
+  box-shadow: 0 0 0 1.5px var(--ink);
+  transform: scale(1.25);
+}
+
+/* The line into a running step moves: a running mark, the one loop DESIGN.md allows. */
+.flow-line-live {
+  stroke-dasharray: 6 6;
+  animation: flow-line-live 0.8s linear infinite;
+}
+@keyframes flow-line-live {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flow-line-live {
+    stroke-dasharray: none;
+    animation: flow-line-fade 1.6s steps(2, jump-none) infinite;
+  }
+}
+@keyframes flow-line-fade {
+  50% {
+    opacity: 0.45;
+  }
+}
+
 .milagre-canvas-section {
   background: color-mix(in srgb, var(--section) 5%, transparent);
   border: 1px solid color-mix(in srgb, var(--section) 20%, transparent);
