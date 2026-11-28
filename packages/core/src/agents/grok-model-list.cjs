@@ -1,7 +1,7 @@
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { grokModels } = require("@milagre/shared/grok-models");
+const { grokModels, grokOptionsFrom } = require("@milagre/shared/grok-models");
 const { AcpRpc } = require("./acp-rpc.cjs");
 const { grokAcp } = require("./grok-acp.cjs");
 const { readConfigOptions } = require("./acp-events.cjs");
@@ -27,6 +27,8 @@ async function listGrokModels({ command, args, env, clientVersion = "0.0.0", cre
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
     });
     const session = await request("session/new", { cwd, mcpServers: [] });
+    const options = grokOptionsFrom(session?.models?.availableModels);
+    if (options.length) return grokModels(options);
     const state = {};
     readConfigOptions(session?.configOptions, state);
     return state.models?.length ? grokModels(state.models) : null;
