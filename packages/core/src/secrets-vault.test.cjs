@@ -191,6 +191,8 @@ test("delivery hands values over only if each is still the revision the caller r
   assert.equal((await vault.deliver({ names: ["DEPLOY_TOKEN"], target, chatId: "c", delivery: "on-demand", expect }))[0].value, "deploy-123456");
   await vault.update("DEPLOY_TOKEN", { askEachUse: true });
   await assert.rejects(vault.deliver({ names: ["DEPLOY_TOKEN"], target, chatId: "c", delivery: "on-demand", expect }), { code: "secrets-changed" });
+});
+
 test("a login is typed only for a Chat it reaches, never run in a command, and its use is logged as the browser's", async (t) => {
   const { vault } = fixture(t);
   await vault.set({

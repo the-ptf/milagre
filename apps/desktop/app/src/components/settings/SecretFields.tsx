@@ -43,12 +43,13 @@ export function FieldBlock({ label, htmlFor, children }: { label: string; htmlFo
 }
 
 /** A hidden file input behind a button; hands back the picked file's absolute path on this computer. */
-export function useFilePicker(onPick: (path: string, fileName: string) => void) {
+export function useFilePicker(onPick: (path: string, fileName: string) => void, accept?: string) {
   const input = useRef<HTMLInputElement>(null);
   const element = (
     <input
       ref={input}
       type="file"
+      accept={accept}
       hidden
       data-secret-file-input
       onChange={(event) => {
@@ -64,7 +65,17 @@ export function useFilePicker(onPick: (path: string, fileName: string) => void) 
 }
 
 /** The value, masked while typed (several lines allowed), or a file to read it from. */
-export function SourceField({ source, onChange, allowFile = true }: { source: SecretSource; onChange: (source: SecretSource) => void; allowFile?: boolean }) {
+export function SourceField({
+  source,
+  onChange,
+  allowFile = true,
+  label,
+}: {
+  source: SecretSource;
+  onChange: (source: SecretSource) => void;
+  allowFile?: boolean;
+  label?: string;
+}) {
   const id = useId();
   const [revealed, setRevealed] = useState(false);
   const picker = useFilePicker((path, fileName) => onChange({ mode: "file", path, fileName }));
@@ -72,7 +83,7 @@ export function SourceField({ source, onChange, allowFile = true }: { source: Se
     <div className="grid gap-1.5">
       <div className="flex items-center justify-between gap-3">
         <label htmlFor={source.mode === "value" ? id : undefined} className={FIELD_LABEL}>
-          {source.mode === "value" ? SECRETS_COPY.value : SECRETS_COPY.file}
+          {source.mode === "value" ? (label ?? SECRETS_COPY.value) : SECRETS_COPY.file}
         </label>
         {allowFile && (
           <Segmented<SecretSource["mode"]>
@@ -96,7 +107,7 @@ export function SourceField({ source, onChange, allowFile = true }: { source: Se
             data-secret-value
             rows={3}
             value={source.value}
-            placeholder={SECRETS_COPY.valuePlaceholder}
+            placeholder={label ? undefined : SECRETS_COPY.valuePlaceholder}
             autoComplete="off"
             autoCapitalize="none"
             autoCorrect="off"
@@ -218,24 +229,38 @@ function OptIn({
 }
 
 /** The three opt-ins, each off by default; a file secret can't be kept in the environment. */
-export function OptInsField({ value, onChange, file }: { value: SecretOptIns; onChange: (value: SecretOptIns) => void; file: boolean }) {
+export function OptInsField({
+  value,
+  onChange,
+  file,
+  login = false,
+}: {
+  value: SecretOptIns;
+  onChange: (value: SecretOptIns) => void;
+  file: boolean;
+  login?: boolean;
+}) {
   return (
     <div className="grid gap-3">
-      <OptIn
-        data="ambient"
-        label={SECRETS_COPY.ambient.label}
-        help={SECRETS_COPY.ambient.help}
-        checked={value.ambient}
-        disabled={file}
-        onChange={(ambient) => onChange({ ...value, ambient, askEachUse: ambient ? false : value.askEachUse })}
-      />
-      <OptIn
-        data="ask-each-use"
-        label={SECRETS_COPY.askEachUse.label}
-        help={SECRETS_COPY.askEachUse.help}
-        checked={value.askEachUse}
-        onChange={(askEachUse) => onChange({ ...value, askEachUse, ambient: askEachUse ? false : value.ambient })}
-      />
+      {!login && (
+        <OptIn
+          data="ambient"
+          label={SECRETS_COPY.ambient.label}
+          help={SECRETS_COPY.ambient.help}
+          checked={value.ambient}
+          disabled={file}
+          onChange={(ambient) => onChange({ ...value, ambient, askEachUse: ambient ? false : value.askEachUse })}
+        />
+      )}
+      {!login && (
+        <OptIn
+          data="ask-each-use"
+          label={SECRETS_COPY.askEachUse.label}
+          help={SECRETS_COPY.askEachUse.help}
+          checked={value.askEachUse}
+          onChange={(askEachUse) => onChange({ ...value, askEachUse, ambient: askEachUse ? false : value.ambient })}
+        />
+      )}
       <OptIn
         data="unattended"
         label={SECRETS_COPY.unattended.label}

@@ -208,6 +208,28 @@ export const SECRETS_COPY = Object.freeze({
     replaces: (name) => `Replaces the saved ${name}.`,
   },
   changedOn: (name) => `Changed on ${name}`,
+  logins: {
+    title: "Logins",
+    intro: "A saved login is typed into its own site in the Browser panel, and only there. Agents never see the username or the password.",
+    empty: "No logins yet. Add one, or import your browser's passwords on a computer.",
+    add: "Add login",
+    importPasswords: "Import passwords…",
+    import: "Import",
+    site: "Site address",
+    sitePlaceholder: "https://github.com",
+    username: "Username",
+    password: "Password",
+    replacePassword: "Replace password",
+    passwordPlaceholder: "Type the password",
+    badSite: "Use a full address that starts with https://, like https://github.com.",
+    exportHelp:
+      "Export from Chrome, Arc or Edge in Settings › Passwords › Export, Safari in File › Export › Passwords, Firefox in Passwords › Export. 1Password and Bitwarden export as CSV.",
+    deleteExport: "The file holds every password in plain text. Delete it once the import is done.",
+    phoneImport: "Import passwords from Milagre on your computer.",
+    imported: (count) => `Imported ${count} ${count === 1 ? "login" : "logins"}.`,
+    removeConfirm: (site, username) => `Delete the login for ${username ? `${username} on ` : ""}${site}? Agents can't sign in there from their next command.`,
+    nobody: "No username",
+  },
   sharing: {
     title: "Share with",
     intro: "Secrets you save here are sent to the computers you pick, over the encrypted link between your computers. They can't read values back.",
@@ -258,6 +280,26 @@ export function loginName(origin, username) {
     .replace(/^_+|_+$/g, "")
     .slice(0, 40);
   return `LOGIN_${host || "SITE"}_${hashText(`${origin}\n${username}`)}`;
+}
+
+/** The site of an origin without its scheme, as a row names it. */
+export function loginHost(origin) {
+  return String(origin).replace(/^[a-z]+:\/\//i, "");
+}
+
+/** The origin a typed site address means, or why it can't be one: https, or http on this computer. */
+export function loginSite(site) {
+  const text = String(site ?? "").trim();
+  if (!text) return { origin: null, error: null };
+  let url;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `https://${text}`);
+  } catch {
+    return { origin: null, error: SECRETS_COPY.logins.badSite };
+  }
+  const local = url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+  if (url.protocol !== "https:" && !local) return { origin: null, error: SECRETS_COPY.logins.badSite };
+  return { origin: url.origin, error: null };
 }
 
 function csvRows(text) {

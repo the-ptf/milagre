@@ -79,6 +79,27 @@ export declare const SECRETS_COPY: Readonly<{
   skipped: string;
   saveAs: { label: (name: string) => string; project: string; all: string; none: string; replaces: (name: string) => string };
   changedOn: (name: string) => string;
+  logins: {
+    title: string;
+    intro: string;
+    empty: string;
+    add: string;
+    importPasswords: string;
+    import: string;
+    site: string;
+    sitePlaceholder: string;
+    username: string;
+    password: string;
+    replacePassword: string;
+    passwordPlaceholder: string;
+    badSite: string;
+    exportHelp: string;
+    deleteExport: string;
+    phoneImport: string;
+    imported: (count: number) => string;
+    removeConfirm: (site: string, username: string) => string;
+    nobody: string;
+  };
   sharing: { title: string; intro: string; empty: string; online: string; offline: string; removing: (name: string) => string };
 }>;
 
@@ -126,3 +147,6 @@ export function carriesSecretValue(method: string, args: unknown[]): boolean;
 
 export function loginName(origin: string, username: string): string;
 export function parseLoginCsv(text: string): { origin: string; username: string; password: string; note: string | null }[];
+export function loginHost(origin: string): string;
+/** `origin` is set for a usable address, `error` for a typed one that isn't, both null while empty. */
+export function loginSite(site: string): { origin: string | null; error: string | null };
