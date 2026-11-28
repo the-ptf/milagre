@@ -49,7 +49,9 @@ function fakeSession() {
       session.emit("Runtime.executionContextDestroyed", { executionContextId: page.context });
       page.loader = `loader-${++loaders}`;
       page.context = loaders;
-      session.emit("Runtime.executionContextCreated", { context: { id: page.context, auxData: { isDefault: true, frameId: "top" } } });
+      session.emit("Runtime.executionContextCreated", {
+        context: { id: page.context, uniqueId: `unique-${page.context}`, auxData: { isDefault: true, frameId: "top" } },
+      });
     },
     closed: false,
     emit: (method, params) => listeners.forEach((listener) => listener(method, params)),
@@ -57,7 +59,9 @@ function fakeSession() {
     send: async (method, params = {}) => {
       sent.push([method, params]);
       if (method === "Runtime.enable")
-        session.emit("Runtime.executionContextCreated", { context: { id: page.context, auxData: { isDefault: true, frameId: "top" } } });
+        session.emit("Runtime.executionContextCreated", {
+          context: { id: page.context, uniqueId: `unique-${page.context}`, auxData: { isDefault: true, frameId: "top" } },
+        });
       return replies[method]?.(params) ?? {};
     },
     close() {},
@@ -503,7 +507,8 @@ test("a navigation while the agent's script is starting stops it, and it runs on
   await f.run("browser_snapshot");
   assert.equal((await f.run("browser_evaluate", { expression: "1 + 1" })).text, "2");
   const [, evaluated] = f.session.sent.findLast(([method]) => method === "Runtime.evaluate");
-  assert.equal(evaluated.contextId, f.session.page.context, "bound to the checked document's context");
+  assert.equal(evaluated.uniqueContextId, `unique-${f.session.page.context}`, "bound to the checked document's context by its unique id");
+  assert.equal(evaluated.contextId, undefined);
   moveOnce = true;
   assert.match((await f.run("browser_evaluate", { expression: "1 + 1" })).text, /page changed while the script was starting/);
   assert.match(

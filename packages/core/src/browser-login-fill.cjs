@@ -176,7 +176,8 @@ function createLoginGuard() {
     /**
      * Runs the agent's script bound to the main-world context of the document the guard checked: the context is
      * confirmed to hold the current document, the document is read again around that check, and the script runs only
-     * in that context, so a navigation makes the call fail instead of landing it in another document.
+     * in that context by its unique id (never reused across renderer processes, unlike the numeric one), so a navigation
+     * or a process swap makes the call fail instead of landing it in another document. No unique id, no script.
      */
     async script(session, target, contexts, run) {
       const busy = tab(target);
@@ -187,12 +188,12 @@ function createLoginGuard() {
         if (filled.has(before.key)) throw new Error(FILLED);
         scripted.add(before.key);
         const context = contexts?.get(before.frame);
-        const bound = context !== undefined && (await holdsDocument(session, context));
+        const bound = typeof context?.uniqueId === "string" && (await holdsDocument(session, context.id));
         const after = await documentOf(session, target);
         scripted.add(after.key);
         if (!bound || after.key !== before.key) throw new Error(MOVED);
         try {
-          return await run(context);
+          return await run(context.uniqueId);
         } finally {
           const ended = await documentOf(session, target).catch(() => null);
           if (ended) scripted.add(ended.key);
