@@ -281,3 +281,21 @@ test("a failed compare leaves behindBy at zero; a failed view throws gh's messag
   assert.equal(snap.behindBy, 0);
   await assert.rejects(readPullRequestSnapshot({ repo: "github.com/o/r", number: 1 }, { exec: missingGh }), /Install the GitHub CLI/);
 });
+
+test("a babysit read asks again after GitHub times out, and reports a timeout without GitHub's error page", async () => {
+  const noWait = { sleep: async () => {} };
+  const gatewayTimeout = () =>
+    Object.assign(new Error("exit 1"), {
+      code: 1,
+      stderr: 'non-200 OK status code: 504 Gateway Timeout body: "<!DOCTYPE html>\\r\\n<html>\\r\\n <head>\\r\\n <title>Unicorn! &middot; GitHub</title>"',
+    });
+  let failures = 1;
+  const { exec: steady } = fakeExec();
+  const flaky = async (command, args, options) => (args[0] === "pr" && failures-- > 0 ? Promise.reject(gatewayTimeout()) : steady(command, args, options));
+  const snap = await readPullRequestSnapshot({ repo: "github.com/o/r", number: 1 }, { exec: flaky, settings: settings(), retry: noWait });
+  assert.equal(snap.state, "OPEN");
+  const down = async () => Promise.reject(gatewayTimeout());
+  await assert.rejects(readPullRequestSnapshot({ repo: "github.com/o/r", number: 1 }, { exec: down, settings: settings(), retry: noWait }), {
+    message: "GitHub didn't answer in time (HTTP 504). Try again in a moment.",
+  });
+});

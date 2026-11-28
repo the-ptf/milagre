@@ -1,13 +1,15 @@
 const os = require("node:os");
 const { z } = require("zod");
 const { background, scheduled } = require("./process-lanes.cjs");
-const { CHECK_ORDER, defaultExec, ghMessage, ghOptions, toCheck } = require("./pull-request-review.cjs");
+const { CHECK_ORDER, defaultExec, ghMessage, ghOptions, ghTimeout, retryTransient, toCheck } = require("./pull-request-review.cjs");
 
 // GitHub rejects search queries over 256 characters, and a whole search when one repo in it is unknown, so repos are
 // resolved first (that also follows renames) and searched in chunks that fit.
 const QUERY_LIMIT = 256;
-const PAGE = 100;
+// GitHub answers 502 when a query runs past its time limit; 100 rows with check counts each did. A retry asks for half.
+const PAGE = 50;
 const LIST_TTL_MS = 60_000;
+const QUIET_STALE_MS = 5 * 60_000;
 const REPO_TTL_MS = 60 * 60_000;
 const CHECKS_TTL_MS = 30_000;
 const NAME = /^[A-Za-z0-9_.-]+$/;
@@ -18,9 +20,9 @@ author{login avatarUrl} repository{nameWithOwner} labels(first:10){nodes{name co
 reviewRequests(first:20){nodes{requestedReviewer{__typename ... on User{login}}}}
 commits(last:1){nodes{commit{statusCheckRollup{state contexts{checkRunCountsByState{state count} statusContextCountsByState{state count}}}}}}}`;
 const PAGE_FIELDS = `pageInfo{endCursor hasNextPage} nodes{${ROW}}`;
-const SEARCH_QUERY = `query($q:String!,$after:String){viewer{login} search(query:$q,type:ISSUE,first:${PAGE},after:$after){issueCount ${PAGE_FIELDS}}}`;
-const REPO_QUERY = `query($owner:String!,$name:String!,$states:[PullRequestState!],$after:String){repository(owner:$owner,name:$name){
-pullRequests(states:$states,first:${PAGE},after:$after,orderBy:{field:UPDATED_AT,direction:DESC}){${PAGE_FIELDS}}}}`;
+const SEARCH_QUERY = `query($q:String!,$first:Int!,$after:String){viewer{login} search(query:$q,type:ISSUE,first:$first,after:$after){issueCount ${PAGE_FIELDS}}}`;
+const REPO_QUERY = `query($owner:String!,$name:String!,$states:[PullRequestState!],$first:Int!,$after:String){repository(owner:$owner,name:$name){
+pullRequests(states:$states,first:$first,after:$after,orderBy:{field:UPDATED_AT,direction:DESC}){${PAGE_FIELDS}}}}`;
 const CHECKS_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){
 commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{kind:__typename
 ... on CheckRun{name status conclusion detailsUrl startedAt completedAt checkSuite{workflowRun{workflow{name}}}}
@@ -102,24 +104,39 @@ function searchQueries(repos, state) {
  * Reads the PRs of every Project's GitHub repository through `gh`, on this computer's account. `projects` gives
  * `{ path, name, origin }`; `chatsFor(url)` the Chats that opened or pushed to a PR.
  */
-function createPullRequestList({ exec = defaultExec, env = process.env, now = Date.now, cwd = os.homedir() } = {}) {
+function createPullRequestList({ exec = defaultExec, env = process.env, now = Date.now, cwd = os.homedir(), retry } = {}) {
   const run = scheduled(exec);
   const repoCache = new Map();
   const lists = new Map();
   const checks = new Map();
+  const lastRows = new Map();
 
+  /** One GraphQL read, asked again with half the page (`first`) each time GitHub fails it on its side. */
   async function graphql(query, variables) {
-    const args = ["api", "graphql", "-f", `query=${query}`];
-    for (const [key, value] of Object.entries(variables)) {
-      if (Array.isArray(value)) {
-        for (const entry of value) args.push("-f", `${key}[]=${entry}`);
-      } else args.push(typeof value === "number" ? "-F" : "-f", `${key}=${value}`);
-    }
     try {
-      const { stdout } = await run("gh", args, ghOptions(cwd, env));
-      return JSON.parse(stdout);
+      return await retryTransient(async (attempt) => {
+        const args = ["api", "graphql", "-f", `query=${query}`];
+        for (const [key, value] of Object.entries(variables)) {
+          if (Array.isArray(value)) {
+            for (const entry of value) args.push("-f", `${key}[]=${entry}`);
+          } else {
+            const sent = key === "first" ? Math.max(1, value >> attempt) : value;
+            args.push(typeof sent === "number" ? "-F" : "-f", `${key}=${sent}`);
+          }
+        }
+        const { stdout } = await run("gh", args, ghOptions(cwd, env));
+        return JSON.parse(stdout);
+      }, retry);
     } catch (error) {
       throw new Error(ghMessage(error), { cause: error });
+    }
+  }
+
+  function partialData(error) {
+    try {
+      return JSON.parse(String(error.cause?.stdout || "null"))?.data ?? null;
+    } catch {
+      return null;
     }
   }
 
@@ -132,11 +149,13 @@ function createPullRequestList({ exec = defaultExec, env = process.env, now = Da
     if (asked.length) {
       const fields = asked.map(({ repo }, index) => `r${index}:repository(owner:"${repo.owner}",name:"${repo.name}"){nameWithOwner}`);
       const result = await graphql(`query{${fields.join(" ")}}`, {}).catch((error) => {
-        const partial = JSON.parse(String(error.cause?.stdout || "null"))?.data;
+        const partial = partialData(error);
         if (partial) return { data: partial };
+        if (ghTimeout(error) && asked.every(({ origin }) => repoCache.has(origin))) return null;
         throw error;
       });
-      asked.forEach(({ origin }, index) => repoCache.set(origin, { repo: result?.data?.[`r${index}`]?.nameWithOwner ?? null, until: at + REPO_TTL_MS }));
+      if (result)
+        asked.forEach(({ origin }, index) => repoCache.set(origin, { repo: result?.data?.[`r${index}`]?.nameWithOwner ?? null, until: at + REPO_TTL_MS }));
     }
     return new Map(origins.map((origin) => [origin, repoCache.get(origin)?.repo ?? null]));
   }
@@ -156,10 +175,10 @@ function createPullRequestList({ exec = defaultExec, env = process.env, now = Da
     const errors = [];
     let viewer = null;
     const items = new Map();
-    async function collect(connection, next) {
+    async function collect(rows, connection, next) {
       const cursors = new Set();
       while (connection) {
-        for (const node of connection.nodes ?? []) if (node?.url) items.set(node.url, node);
+        for (const node of connection.nodes ?? []) if (node?.url) rows.set(node.url, node);
         if (!connection.pageInfo?.hasNextPage) break;
         const cursor = connection.pageInfo.endCursor;
         if (!cursor || cursors.has(cursor)) throw new Error("GitHub did not return the next page of pull requests.");
@@ -167,21 +186,37 @@ function createPullRequestList({ exec = defaultExec, env = process.env, now = Da
         connection = await next(cursor);
       }
     }
+    const queries = searchQueries(repos, state);
+    const keys = new Set(queries.map((q) => `${state} ${q}`));
+    for (const key of lastRows.keys()) if (key.startsWith(`${state} `) && !keys.has(key)) lastRows.delete(key);
     await Promise.all(
-      searchQueries(repos, state).map(async (q) => {
+      queries.map(async (q) => {
+        const key = `${state} ${q}`;
+        const rows = new Map();
         try {
-          const result = await graphql(SEARCH_QUERY, { q });
+          const result = await graphql(SEARCH_QUERY, { q, first: PAGE });
           viewer ??= result?.data?.viewer?.login ?? null;
           const search = result?.data?.search;
           if (search?.issueCount > 1000) {
             for (const match of q.matchAll(/(?:^| )repo:([^/ ]+)\/([^ ]+)/g)) {
-              const variables = { owner: match[1], name: match[2], ...(state === "all" ? {} : { states: [state.toUpperCase()] }) };
+              const variables = { owner: match[1], name: match[2], ...(state === "all" ? {} : { states: [state.toUpperCase()] }), first: PAGE };
               const page = async (after) => (await graphql(REPO_QUERY, { ...variables, ...(after ? { after } : {}) })).data.repository.pullRequests;
-              await collect(await page(), page);
+              await collect(rows, await page(), page);
             }
-          } else await collect(search, async (after) => (await graphql(SEARCH_QUERY, { q, after })).data.search);
+          } else await collect(rows, search, async (after) => (await graphql(SEARCH_QUERY, { q, first: PAGE, after })).data.search);
+          lastRows.set(key, { at: now(), viewer, rows });
         } catch (error) {
-          errors.push(error.message);
+          const timeout = ghTimeout(error);
+          const last = timeout ? lastRows.get(key) : undefined;
+          if (!last) {
+            errors.push(error.message);
+            return;
+          }
+          viewer ??= last.viewer;
+          for (const [url, node] of last.rows) if (!rows.has(url)) rows.set(url, node);
+          if (now() - last.at >= QUIET_STALE_MS) errors.push(`${timeout} Showing the last pull requests loaded.`);
+        } finally {
+          for (const [url, node] of rows) items.set(url, node);
         }
       }),
     );

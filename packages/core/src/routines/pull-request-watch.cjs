@@ -1,4 +1,4 @@
-const { defaultExec, ghMessage, ghOptions } = require("../pull-request-review.cjs");
+const { defaultExec, ghMessage, ghOptions, retryTransient } = require("../pull-request-review.cjs");
 
 // Babysit PRs: read a watched PR's state through gh and compare two readings to decide what is new and whether
 
@@ -56,12 +56,12 @@ function classifyChecks(rollup) {
   return { failingChecks: [...failing].filter(Boolean), pendingChecks: pending, totalChecks: names.size };
 }
 
-async function readPullRequestSnapshot({ repo, number }, { exec = defaultExec, env = process.env, settings } = {}) {
+async function readPullRequestSnapshot({ repo, number }, { exec = defaultExec, env = process.env, settings, retry } = {}) {
   const { host, owner, name } = splitRepo(repo);
   const options = ghOptions(undefined, env);
   async function gh(args) {
     try {
-      return (await exec("gh", args, options)).stdout;
+      return (await retryTransient(() => exec("gh", args, options), retry)).stdout;
     } catch (error) {
       throw new Error(ghMessage(error), { cause: error });
     }

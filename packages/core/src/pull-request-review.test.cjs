@@ -197,6 +197,33 @@ test("gh failures come back as the user's next step", async () => {
   assert.equal((await createPullRequestReview({ exec: fakeGh(() => ({})).exec }).detail({ cwd: "/w", number: -1 })).ok, false);
 });
 
+test("GitHub's 5xx: reads ask again, writes don't, and GitHub's error page reads as a timeout", async () => {
+  const noWait = { sleep: async () => {} };
+  const badGateway = Object.assign(new Error("exit 1"), { code: 1, stderr: "gh: HTTP 502\n", stdout: "<!DOCTYPE html><title>Unicorn!</title>" });
+  let failures = 1;
+  const flaky = fakeGh(() => (failures-- > 0 ? badGateway : { data: { repository: { pullRequest: prNode() } } }));
+  assert.equal((await createPullRequestReview({ exec: flaky.exec, retry: noWait }).detail({ cwd: "/w", number: 7 })).ok, true);
+  assert.equal(flaky.calls.length, 2);
+
+  const page = `non-200 OK status code: 504 Gateway Timeout body: "<!DOCTYPE html>\\r\\n<html>\\r\\n <head>\\r\\n <title>Unicorn! &middot; GitHub</title>"`;
+  const timedOut = Object.assign(new Error("exit 1"), { code: 1, stderr: page });
+  const down = fakeGh(() => timedOut);
+  const review = createPullRequestReview({ exec: down.exec, retry: noWait });
+  assert.deepEqual(await review.detail({ cwd: "/w", number: 7 }), { ok: false, message: "GitHub didn't answer in time (HTTP 504). Try again in a moment." });
+  assert.equal(down.calls.length, 3);
+  assert.deepEqual(await review.ready({ cwd: "/w", number: 7 }), { ok: false, message: "GitHub didn't answer in time (HTTP 504). Try again in a moment." });
+  assert.equal(down.calls.length, 4);
+
+  const slowQuery = {
+    errors: [{ message: "Something went wrong while executing your query. This may be the result of a timeout, or it could be a GitHub bug." }],
+  };
+  const slow = Object.assign(new Error("exit 1"), { code: 1, stderr: `gh: ${slowQuery.errors[0].message}`, stdout: JSON.stringify(slowQuery) });
+  assert.deepEqual(await createPullRequestReview({ exec: fakeGh(() => slow).exec, retry: noWait }).detail({ cwd: "/w", number: 7 }), {
+    ok: false,
+    message: "GitHub didn't answer in time. Try again in a moment.",
+  });
+});
+
 test("a line comment joins the pending review, creating it when there is none", async () => {
   const { exec, calls } = fakeGh((_args, query) => {
     if (query.includes("pending: reviews")) return { data: { repository: { pullRequest: { id: "PR_1", headRefOid: HEAD, pending: { nodes: [] } } } } };

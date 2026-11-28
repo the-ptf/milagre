@@ -71,12 +71,47 @@ function defaultExec(command, args, options) {
   });
 }
 
-/** What a failed gh call says to the user: sign in, install gh, or GitHub's own words. */
+// `gh api` says "HTTP 502"; gh's own commands (`gh pr view`, `gh pr merge`) say "non-200 OK status code: 504 Gateway
+// Timeout body: <GitHub's HTML error page>". A GraphQL query that runs past GitHub's limit can also come back as a 200
+// whose error says it timed out.
+const SERVER_STATUS = /(?:\bHTTP |non-200 OK status code: )(50[0234])\b/;
+const QUERY_TIMEOUT = /couldn't respond to your request in time|may be the result of a timeout/i;
+const RETRY_DELAYS_MS = [1000, 3000];
+
+/**
+ * What to say when GitHub failed a gh call on its side (a 5xx or a timed-out query), so the same read can work a moment
+ * later; null for any other failure.
+ */
+function ghTimeout(error) {
+  for (let cause = error, depth = 0; cause && depth < 3; cause = cause.cause, depth++) {
+    const said = `${cause.stderr ?? ""}\n${cause.message ?? ""}`;
+    const status = SERVER_STATUS.exec(said);
+    if (status) return `GitHub didn't answer in time (HTTP ${status[1]}).`;
+    if (QUERY_TIMEOUT.test(`${said}\n${cause.stdout ?? ""}`)) return "GitHub didn't answer in time.";
+  }
+  return null;
+}
+
+/** Runs a gh read again after GitHub fails it on its side. Reads only: a write that timed out may still have landed. */
+async function retryTransient(task, { delays = RETRY_DELAYS_MS, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await task(attempt);
+    } catch (error) {
+      if (attempt >= delays.length || !ghTimeout(error)) throw error;
+      await sleep(delays[attempt]);
+    }
+  }
+}
+
+/** What a failed gh call says to the user: sign in, install gh, GitHub timed out, or GitHub's own words. */
 function ghMessage(error) {
   if (error?.code === "ENOENT") return GH_MISSING;
   const stderr = String(error?.stderr ?? "");
   const stdout = String(error?.stdout ?? "");
   if (error?.code === 4 || /gh auth login|not logged in|authentication required/i.test(stderr)) return GH_LOGIN;
+  const timeout = ghTimeout(error);
+  if (timeout) return `${timeout} Try again in a moment.`;
   try {
     const parsed = JSON.parse(stdout);
     const message = parsed?.errors?.[0]?.message;
@@ -252,17 +287,15 @@ function createPullRequestReview({
   diff = createGitDiff({ env }),
   git = createGit({ env }),
   fetch = globalThis.fetch,
+  retry,
 } = {}) {
-  async function gh(cwd, args) {
-    const { stdout } = await exec("gh", args, ghOptions(cwd, env));
-    return stdout;
-  }
+  const gh = async (cwd, args) => (await exec("gh", args, ghOptions(cwd, env))).stdout;
 
   // gh fills {owner} and {repo} from the folder's repository (its default remote), as `gh pr view` does.
   async function graphql(cwd, query, fields = {}) {
     const args = ["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", `query=${query}`];
     for (const [key, value] of Object.entries(fields)) args.push(typeof value === "number" || typeof value === "boolean" ? "-F" : "-f", `${key}=${value}`);
-    const parsed = JSON.parse(await gh(cwd, args));
+    const parsed = JSON.parse(await retryTransient(() => gh(cwd, args), retry));
     if (parsed?.errors?.length) throw new ReviewError(text(parsed.errors[0]?.message) || "GitHub didn't answer.");
     return parsed.data;
   }
@@ -533,4 +566,4 @@ function createPullRequestReview({
   };
 }
 
-module.exports = { createPullRequestReview, ghMessage, ghOptions, defaultExec, toCheck, CHECK_ORDER, GH_LOGIN, GH_MISSING };
+module.exports = { createPullRequestReview, ghMessage, ghTimeout, retryTransient, ghOptions, defaultExec, toCheck, CHECK_ORDER, GH_LOGIN, GH_MISSING };
