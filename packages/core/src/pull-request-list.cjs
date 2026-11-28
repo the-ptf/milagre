@@ -180,11 +180,11 @@ function createPullRequestList({ exec = defaultExec, env = process.env, now = Da
     const items = new Map();
     async function collect(rows, connection, next) {
       const cursors = new Set();
-      let read = 0;
+      let seen = 0;
       while (connection) {
         for (const node of connection.nodes ?? []) if (node?.url) rows.set(node.url, node);
-        read += connection.nodes?.length ?? 0;
-        if (!connection.pageInfo?.hasNextPage || (state !== "open" && read >= MAX_ROWS)) break;
+        seen += connection.nodes?.length ?? 0;
+        if (!connection.pageInfo?.hasNextPage || (state !== "open" && seen >= MAX_ROWS)) break;
         const cursor = connection.pageInfo.endCursor;
         if (!cursor || cursors.has(cursor)) throw new Error("GitHub did not return the next page of pull requests.");
         cursors.add(cursor);
