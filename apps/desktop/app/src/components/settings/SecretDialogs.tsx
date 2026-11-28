@@ -25,7 +25,7 @@ import {
 
 export const NO_OPT_INS: SecretOptIns = { ambient: false, askEachUse: false, unattended: false };
 
-export function secretTitle(secret: SecretSummary): string {
+function secretTitle(secret: SecretSummary): string {
   return secret.login ? `${loginHost(secret.login.origin)}${secret.login.username ? ` · ${secret.login.username}` : ""}` : secret.name;
 }
 
