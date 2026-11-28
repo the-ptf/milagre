@@ -1,4 +1,5 @@
 const { extractJson } = require("../agents/antigravity-text.cjs");
+const { isSecretRequest } = require("../chat-secrets.cjs");
 const { autopilotDecision, isIrreversible, recordTrust, trustScore } = require("@milagre/shared/orchestrator");
 
 const ANSWERED_KEPT = 50;
@@ -96,7 +97,7 @@ function createAutopilot({ store, ports, now = () => Date.now(), schedule = setT
 
   async function questionAnswer(event, context) {
     const questions = event.questions ?? [];
-    if (!questions.length || questions.some((question) => question.secret || !(question.options ?? []).length)) return null;
+    if (isSecretRequest(event.requestId) || !questions.length || questions.some((question) => question.secret || !(question.options ?? []).length)) return null;
     const call = ports.questionCall(store.read().settings.router);
     if (!call) return null;
     const notes = store

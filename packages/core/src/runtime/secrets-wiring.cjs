@@ -72,22 +72,27 @@ function createSecretsWiring({
     return { origin: found ?? null, unattended: isUnattended(session, chats, chatId) };
   }
 
-  const access = createSecretsAccess({
-    vault,
-    dataDir,
-    secretsUrl: (token) => mcp().secretsUrl(token),
-    target,
-    redactText: (text) => (redactor ? redactor(text) : text),
-  });
-  const receive = chats.receive.bind(chats);
-  chats.receive = (chatId, event) => receive(chatId, redactor ? mapStrings(event, redactor) : event);
-  vault.onChange(() => void refresh());
-  void refresh();
   const chatSecrets = Object.assign(
     createChatSecrets({
       directory: path.join(dataDir, "chat-secrets"),
       send: (chatId, event) => chats.receive(chatId, event),
       active: (chatId) => Boolean(chats.runs[chatId]),
+      onValue: (value) => {
+        retired.set(`text:${value}`, { secret: { name: "SECRET", kind: "text", value }, at: now() });
+        void refresh();
+      },
+      saveAs: {
+        offer: async (chatId, name) => {
+          if (!(await vault.status()).unlocked) return null;
+          const { origin: found } = await target(chatId);
+          return { name, project: Boolean(found), replaces: (await vault.list()).some((secret) => secret.name === name) };
+        },
+        save: async (chatId, { name, value, scope }) => {
+          const where = await target(chatId);
+          if (scope === "project" && !where.origin) throw new Error("This Chat's Project has no Git origin.");
+          await vault.set({ name, value, projects: scope === "project" ? [where.origin] : "all" });
+        },
+      },
     }),
     {
       forget: (chatId) => {
@@ -96,10 +101,29 @@ function createSecretsWiring({
       },
     },
   );
+  const access = createSecretsAccess({
+    vault,
+    dataDir,
+    secretsUrl: (token) => mcp().secretsUrl(token),
+    target,
+    redactText: (text) => (redactor ? redactor(text) : text),
+    approve: (chatId, request) => chatSecrets.approveUse(chatId, request),
+  });
+  const receive = chats.receive.bind(chats);
+  chats.receive = (chatId, event) => receive(chatId, redactor ? mapStrings(event, redactor) : event);
+  vault.onChange(() => {
+    void refresh();
+    options.emit?.("secrets:changed", {});
+  });
+  void refresh();
 
   commands.handle("secrets:status", () => vault.status());
   commands.handle("secrets:list", () => vault.list());
   commands.handle("secrets:log", (_context, request = {}) => vault.log(request?.name ?? null));
+  commands.handle("secrets:update", (_context, request = {}) => {
+    const { name, ...patch } = request ?? {};
+    return vault.update(String(name ?? ""), patch);
+  });
   commands.handle("secrets:delete", (_context, request) => vault.remove(String(request?.name ?? "")));
   commands.handle("secrets:set", async (_context, request = {}) => {
     const { file, ...rest } = request ?? {};

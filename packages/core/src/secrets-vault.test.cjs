@@ -147,6 +147,18 @@ test("the use log keeps 30 days", async (t) => {
   assert.equal((await make().log("A_TOKEN")).length, 1);
 });
 
+test("update changes scope and opt-ins without the value, and bumps the version", async (t) => {
+  const { vault } = fixture(t);
+  await vault.set({ name: "A_TOKEN", value: "value-123456789", projects: "all" });
+  const changed = await vault.update("A_TOKEN", { projects: [ORIGIN], askEachUse: true, note: "Deploys" });
+  assert.deepEqual([changed.projects, changed.askEachUse, changed.note, changed.version, changed.hint], [[ORIGIN], true, "Deploys", 2, "6789"]);
+  assert.equal((await vault.values())[0].value, "value-123456789");
+  await assert.rejects(vault.update("MISSING", { note: "x" }), /No secret named MISSING/);
+  await assert.rejects(vault.update("A_TOKEN", { value: "sneaky" }), /Unrecognized key/);
+  await vault.set({ name: "KEY_FILE", value: "file-body-123456", kind: "file", fileName: "k.p8", projects: "all" });
+  await assert.rejects(vault.update("KEY_FILE", { delivery: "ambient" }), /given per command/);
+});
+
 test("one read gives ambient values and their fingerprint; an older ambient file secret loads as per command", async (t) => {
   const { vault, make, dataDir } = fixture(t);
   await vault.set({ name: "NPM_TOKEN", value: "npm-value-123456", projects: "all", delivery: "ambient" });

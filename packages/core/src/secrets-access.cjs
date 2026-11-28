@@ -16,7 +16,16 @@ function shimText(execPath, script, platform) {
  * per-Chat token, plus the ambient secrets it opted into. `target(chatId)` says which Project origin and whether the
  * run is unattended; the vault decides what reaches it.
  */
-function createSecretsAccess({ vault, dataDir, secretsUrl, target, redactText = (text) => text, execPath = process.execPath, platform = process.platform }) {
+function createSecretsAccess({
+  vault,
+  dataDir,
+  secretsUrl,
+  target,
+  redactText = (text) => text,
+  approve = async () => false,
+  execPath = process.execPath,
+  platform = process.platform,
+}) {
   const bin = path.join(dataDir, "secrets-bin");
   const script = path.join(__dirname, "secrets-run.cjs");
   const tokens = new Map();
@@ -84,6 +93,9 @@ function createSecretsAccess({ vault, dataDir, secretsUrl, target, redactText = 
     if (!names.length) throw Object.assign(new Error("Name at least one secret."), { status: 400 });
     if (names.length > MAX_NAMES) throw Object.assign(new Error(`At most ${MAX_NAMES} secrets per command.`), { status: 400 });
     const command = typeof body.command === "string" ? redactText(body.command) : null;
+    const asking = (await vault.reachable(where)).secrets.filter((secret) => secret.askEachUse && names.includes(secret.name)).map((secret) => secret.name);
+    if (asking.length && !(await approve(chatId, { names: asking, command })))
+      throw Object.assign(new Error(`The person didn't allow ${asking.join(", ")} for this command.`), { status: 403 });
     try {
       const executable = typeof body.executable === "string" ? body.executable : (command?.trim().split(/\s+/)[0] ?? null);
       return { secrets: await vault.deliver({ names, target: where, chatId, command: executable, delivery: "on-demand" }) };

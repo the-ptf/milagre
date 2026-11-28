@@ -50,6 +50,9 @@ export default function SettingsLayout() {
       <Stack.Screen name="skill" options={{ title: "Skill" }} />
       <Stack.Screen name="mcp" options={{ title: "MCP" }} />
       <Stack.Screen name="mcp-server" />
+      <Stack.Screen name="secrets" options={{ title: "Secrets" }} />
+      <Stack.Screen name="secret" options={{ title: "" }} />
+      <Stack.Screen name="secret-form" options={{ title: "Add secret" }} />
       <Stack.Screen name="connector" options={{ title: "" }} />
       <Stack.Screen name="connector-gallery" options={{ title: "Browse services" }} />
       <Stack.Screen name="experimental" options={{ title: "Church" }} />

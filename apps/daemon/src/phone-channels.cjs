@@ -16,7 +16,9 @@ const MAX_QUEUED_BYTES = 16 * 1024 * 1024;
 const MAX_QUEUE_WAIT = 20_000;
 const MAX_UPLOAD = 8 * 1024 * 1024;
 const REQUEST_TIMEOUT = 340_000;
-const BLOCKED_HEADERS = new Set(["host", "origin", "authorization", "connection", "content-length", "transfer-encoding", "upgrade", "cookie"]);
+const { SEALED_HEADER, SEALED_VALUE } = require("./sealed-channel.cjs");
+
+const BLOCKED_HEADERS = new Set(["host", "origin", "authorization", "connection", "content-length", "transfer-encoding", "upgrade", "cookie", SEALED_HEADER]);
 const FORWARDED_HEADERS = ["content-type", "etag"];
 const encoder = new TextEncoder();
 const BATCH_CAP = "batch";
@@ -246,7 +248,7 @@ function createPhoneChannels({
   async function forward(current, conn, record, { id, method, path, headers: phoneHeaders }, body) {
     record.inflight += 1;
     try {
-      const headers = {};
+      const headers = { [SEALED_HEADER]: SEALED_VALUE };
       for (const [name, value] of Object.entries(phoneHeaders ?? {})) {
         if (typeof value === "string" && !BLOCKED_HEADERS.has(name.toLowerCase())) headers[name] = value;
       }

@@ -15,6 +15,7 @@ const recordSchema = z.strictObject({
   fileName: z.string().max(SECRET_LIMITS.fileNameChars).nullable(),
   projects: z.union([z.literal("all"), z.array(origin).min(1).max(SECRET_LIMITS.projects)]),
   delivery: z.enum(["on-demand", "ambient"]),
+  askEachUse: z.boolean().default(false),
   unattended: z.boolean(),
   note: z.string().max(SECRET_LIMITS.noteChars).nullable(),
   version: z.number().int().positive(),
@@ -30,10 +31,18 @@ const inputSchema = z.strictObject({
   fileName: z.string().min(1).max(SECRET_LIMITS.fileNameChars).nullable().default(null),
   projects: z.union([z.literal("all"), z.array(origin).min(1).max(SECRET_LIMITS.projects)]),
   delivery: z.enum(["on-demand", "ambient"]).default("on-demand"),
+  askEachUse: z.boolean().default(false),
   unattended: z.boolean().default(false),
   note: z.string().max(SECRET_LIMITS.noteChars).nullable().default(null),
 });
 
+const patchSchema = z.strictObject({
+  projects: z.union([z.literal("all"), z.array(origin).min(1).max(SECRET_LIMITS.projects)]).optional(),
+  delivery: z.enum(["on-demand", "ambient"]).optional(),
+  askEachUse: z.boolean().optional(),
+  unattended: z.boolean().optional(),
+  note: z.string().max(SECRET_LIMITS.noteChars).nullable().optional(),
+});
 const executableOf = (executable) => {
   const name = typeof executable === "string" ? path.basename(executable.trim().replaceAll("\\", "/")) : "";
   return name ? name.slice(0, 80) : null;
@@ -185,6 +194,7 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
     hint: secretHint(secret.value),
     projects: secret.projects,
     delivery: secret.delivery,
+    askEachUse: secret.askEachUse,
     unattended: secret.unattended,
     note: secret.note,
     version: secret.version,
@@ -234,6 +244,19 @@ function createSecretsVault({ dataDir, masterKey, computerId = () => "local", no
         await persist({ secrets: { ...current.secrets, [name]: secret }, tombstones });
         await loadLastUsed();
         return summary(name, secret);
+      }),
+    update: (name, patch) =>
+      serial(async () => {
+        const parsed = patchSchema.safeParse(patch);
+        if (!parsed.success) throw inputError(parsed.error.issues[0]?.message ?? "Invalid change");
+        const current = await read();
+        const previous = current.secrets[name];
+        if (!previous) throw inputError(`No secret named ${name}.`);
+        const next = { ...previous, ...parsed.data, version: previous.version + 1, changedOn: computerId(), updatedAt: now() };
+        if (next.kind === "file" && next.delivery === "ambient") throw inputError("A file secret is given per command, not kept in the environment.");
+        await persist({ ...current, secrets: { ...current.secrets, [name]: next } });
+        await loadLastUsed();
+        return summary(name, next);
       }),
     remove: (name) =>
       serial(async () => {

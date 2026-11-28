@@ -1,3 +1,5 @@
+const { isSealed } = require("./sealed-channel.cjs");
+const { isSecretRequest } = require("@milagre/core/chat-secrets");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const { chatsNeedingAttention } = require("@milagre/shared/attention");
 const { METHODS } = require("./mobile-methods.cjs");
@@ -60,8 +62,11 @@ function withoutHiddenArgs(request) {
 }
 
 /** What the phone gets back from an RPC: the Mac's hidden flags left out, and opened Projects reduced to what it reads next. */
+const withoutHint = (secret) => (secret && typeof secret === "object" && "hint" in secret ? { ...secret, hint: null } : secret);
+
 function phoneReply(method, value) {
   let result = value;
+  if (method.startsWith("secrets:")) return Array.isArray(result) ? result.map(withoutHint) : withoutHint(result);
   if ((method === "project:recent" || method === "project:forget" || method === "link:list") && Array.isArray(result))
     result = result.map((item) => {
       if (!item || typeof item !== "object" || !("hidden" in item)) return item;
@@ -78,6 +83,10 @@ function phoneReply(method, value) {
   if (method === "worktree:create" && result?.project?.state) result = { ...result, project: forNewWorktree(result.project, result.worktreeId) };
   return result;
 }
+
+/** A secret value in a phone call. The daemon's bridge (the one with `phoneRoutes`) takes it only through the sealed channel. */
+const carriesSecret = (request) =>
+  request.method === "secrets:set" || (request.method === "agent:answer-question" && isSecretRequest(request.args[0]?.requestId));
 
 function createMobileRoutes({
   readScope,
@@ -220,6 +229,9 @@ function createMobileRoutes({
         result = await phoneRoutes(request.args[0]?.phoneKey);
       } else {
         if (!METHODS.has(request.method)) throw failure(403, "Command is not available from mobile");
+        if (request.method === "secrets:set" && request.args[0]?.file !== undefined) throw failure(403, "The phone can't read files on this computer");
+        if (phoneRoutes && carriesSecret(request) && !isSealed(req))
+          throw failure(403, "Secrets travel only over Milagre's encrypted connection (relay, local network or Tailscale), not through a tunnel or proxy.");
         const args = withoutHiddenArgs(request);
         if (confine) {
           const decided = await confine.checkCall(request.method, args);

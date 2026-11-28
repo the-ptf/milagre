@@ -3,8 +3,9 @@ import { Pressable, Text, TextInput, View } from "react-native";
 import { Clock01Icon, LockKeyIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
 import type { QuestionAnswers, QuestionRequest } from "@milagre/shared/model";
 import { formatCountdown } from "@milagre/shared/display-clock";
+import { SECRETS_COPY } from "@milagre/shared/secrets";
 import { Icon } from "./icons";
-import { PageScroll, PillButton } from "./ui";
+import { CheckRow, PageScroll, PillButton } from "./ui";
 import { useTheme } from "./theme";
 import { useDisplayNow, useScreenActive } from "./display-clock";
 import { lineHeight, radius, type } from "./design-tokens";
@@ -33,6 +34,8 @@ export function SecretQuestion({
   const expired = deadline !== undefined && now >= deadline;
   const urgent = deadline !== undefined && deadline - now <= URGENT_MS;
   const description = request.secretRequest?.description.trim();
+  const saveAs = request.secretRequest?.saveAs;
+  const [saveTo, setSaveTo] = useState<"project" | "all" | "none">(saveAs?.project ? "project" : "none");
   if ((!active || expired) && revealed) setRevealed(false);
   if (expired && value) setValue("");
   const answer = (given: QuestionAnswers | null) => {
@@ -41,7 +44,7 @@ export function SecretQuestion({
     submit(given, "");
   };
   const save = () => {
-    if (!busy && value.trim() && (deadline === undefined || Date.now() < deadline)) answer({ secret: [value] });
+    if (!busy && value.trim() && (deadline === undefined || Date.now() < deadline)) answer(saveAs ? { secret: [value], save: [saveTo] } : { secret: [value] });
   };
   return (
     <View
@@ -151,6 +154,28 @@ export function SecretQuestion({
           </View>
         )}
       </View>
+      {saveAs ? (
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: colors.ink3, fontSize: type.footnote, fontWeight: "600", paddingLeft: 4 }}>{SECRETS_COPY.saveAs.label(saveAs.name)}</Text>
+          <View accessibilityRole="radiogroup" accessibilityLabel={SECRETS_COPY.saveAs.label(saveAs.name)}>
+            {(saveAs.project ? (["project", "all", "none"] as const) : (["all", "none"] as const)).map((choice) => (
+              <CheckRow
+                key={choice}
+                compact
+                title={SECRETS_COPY.saveAs[choice]}
+                checked={saveTo === choice}
+                disabled={busy || expired}
+                onPress={() => setSaveTo(choice)}
+              />
+            ))}
+          </View>
+          {saveAs.replaces && saveTo !== "none" ? (
+            <Text style={{ color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, paddingLeft: 4 }}>
+              {SECRETS_COPY.saveAs.replaces(saveAs.name)}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
       <View style={{ gap: 8 }}>
         <PillButton
           title="Save securely"

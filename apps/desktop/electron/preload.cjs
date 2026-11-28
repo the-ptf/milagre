@@ -62,6 +62,7 @@ const LOCAL_ONLY_PREFIXES = [
   "linked:",
   "notification:",
   "phone:",
+  "secrets:",
   "settings:",
   "update:",
 ];
@@ -139,7 +140,7 @@ function backgroundAgentBridge(invoke) {
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
- * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "listAccounts" | "accountAction" | "submitAccountCode" | "onAccountsChanged" | "connectors">}
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "listAccounts" | "accountAction" | "submitAccountCode" | "onAccountsChanged" | "connectors" | "secrets">}
  */
 function accountsBridge(invoke, listen) {
   return {
@@ -148,6 +149,24 @@ function accountsBridge(invoke, listen) {
     submitAccountCode: (provider, accountId, code) => invoke("accounts:code", provider, accountId, code),
     onAccountsChanged: (callback) => listen("accounts:changed", () => callback()),
     connectors: connectorsBridge(invoke, listen),
+    secrets: secretsBridge(invoke, listen),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {import("../app/src/electron.d.ts").MilagreBridge["secrets"]}
+ */
+function secretsBridge(invoke, listen) {
+  return {
+    status: () => invoke("secrets:status"),
+    onChanged: (callback) => listen("secrets:changed", () => callback()),
+    list: () => invoke("secrets:list"),
+    set: (input) => invoke("secrets:set", input),
+    update: (request) => invoke("secrets:update", request),
+    remove: (request) => invoke("secrets:delete", request),
+    log: (request = {}) => invoke("secrets:log", request),
+    importEnv: (request) => invoke("secrets:import", request),
   };
 }
 

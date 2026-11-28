@@ -44,6 +44,7 @@ const SOURCES: Record<keyof typeof SETTINGS_PAGES, string[]> = {
     shared("linear.ts"),
     shared("email.mjs"),
   ],
+  secrets: ["app/(settings)/secrets.tsx", shared("secrets.mjs")],
   worktrees: ["app/(settings)/worktrees.tsx", "mac-settings-sections.tsx", shared("main-sync.ts"), shared("ade-import.ts")],
   "babysit-prs": ["app/(settings)/babysit-prs.tsx", "babysit-section.tsx"],
   "orchestrator-settings": [

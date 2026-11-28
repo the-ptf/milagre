@@ -2117,3 +2117,37 @@ test("/runs validates Chat selections, keeps legacy responses, and preserves sco
     assert.equal((await get(path.join(path.dirname(project), "outside"))).status, 403);
   }
 });
+
+test("the daemon's bridge takes a secret value only through the sealed channel, never through a tunnel or proxy", async (t) => {
+  const { SEALED_HEADER, SEALED_VALUE } = require("./sealed-channel.cjs");
+  const keys = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-sealed-key-"));
+  await fs.chmod(keys, 0o700);
+  const keyFile = path.join(keys, "computer.key");
+  await fs.writeFile(keyFile, randomBytes(32), { mode: 0o600 });
+  const before = process.env.MILAGRE_COMPUTER_KEY_FILE;
+  process.env.MILAGRE_COMPUTER_KEY_FILE = keyFile;
+  t.after(async () => {
+    if (before === undefined) delete process.env.MILAGRE_COMPUTER_KEY_FILE;
+    else process.env.MILAGRE_COMPUTER_KEY_FILE = before;
+    await fs.rm(keys, { recursive: true, force: true });
+  });
+  const { request } = await fixture(t, { bridgeOptions: { phoneRoutes: async () => ({}) } });
+  const call = (method, args, headers = {}) =>
+    request("/rpc", { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ v: 1, method, args }) });
+  const secret = { name: "DEPLOY_TOKEN", value: "tunnel-value-123456", projects: "all" };
+  const tunneled = await call("secrets:set", [secret]);
+  assert.equal(tunneled.status, 403);
+  assert.match(JSON.stringify(await tunneled.json()), /encrypted connection/);
+  const answer = await call("agent:answer-question", [{ chatId: "/p#1", requestId: "milagre-secret-x", answers: { secret: ["v"] } }]);
+  assert.equal(answer.status, 403);
+  assert.equal((await call("secrets:set", [secret], { [SEALED_HEADER]: "forged" })).status, 403);
+  const sealed = await call("secrets:set", [secret], { [SEALED_HEADER]: SEALED_VALUE });
+  assert.equal(sealed.status, 200);
+  const listed = await call("secrets:list", []);
+  assert.equal(listed.status, 200, "reading names needs no sealed channel");
+  assert.deepEqual(
+    (await listed.json()).result.map((item) => [item.name, item.hint]),
+    [["DEPLOY_TOKEN", null]],
+    "a phone never gets part of a value",
+  );
+});
