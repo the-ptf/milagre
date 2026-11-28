@@ -6,8 +6,7 @@
 
 - [ ] `npm run typecheck`
 - [ ] `npm run build`
-- [ ] `npm test -- --unit`
-- [ ] `npm test -- --only <check>` for the screen touched
+- [ ] `npm test -- --only <check>` for the test you changed (CI runs the unit suite and Electron checks; don't run them all locally)
 - [ ] Manual verification in Electron, if applicable
 
 ## Screenshots from

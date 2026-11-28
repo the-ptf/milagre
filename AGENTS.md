@@ -34,7 +34,9 @@ The most common defect is a change that works where you tried it and is missing 
 
 ## Checks
 
-Run `npm run typecheck`, `npm run lint` and `npm test -- --only <name>` for what you touched; CI runs the full suite. A change under `apps/desktop/electron` or to window, dock, menu or notification code also gets `npm test -- --only test-desktop` on your Mac: CI runs that macOS smoke on affected pushes to main, in the merge queue and nightly. To see a change in the real app, use the `verify-milagre` skill.
+CI is the gate: it runs typecheck, lint, every unit test and the Electron checks on each PR, and the macOS desktop smoke on main, in the merge queue and nightly. Nothing heavy runs on a push. Locally, run `npm run typecheck` and `npm run lint`, and `npm test -- --only <name>` for the one test you are writing or a check CI failed. Don't run the whole suite (`npm test`, `npm test -- --unit`) or `--only test-desktop` on your computer: several agents doing that at once is what freezes contributors' laptops.
+
+To see a change in the real app, use the `verify-milagre` skill, and `stop` the run as soon as you have the evidence.
 
 - Test what a caller can observe, at the lowest layer that fails on `main`. Extend an existing test before adding one.
 - Wait for a condition, never a fixed time. Inject the clock or seed when time or randomness decides the outcome.
@@ -66,6 +68,5 @@ Read the error instead of remembering these:
 - Tests run the same in an agent shell, a hook and CI: `npm test` strips the agent env. Use `npm test -- --only <name>`, not `node --test`.
 - Screenshots off the branch, desktop and mobile together, Lighthouse floors: the `PR policy` check (labels `single-platform`, `lighthouse-budget-approved`).
 - Mobile fingerprint changes: the `Mobile fingerprint` check (label `native-build-approved`).
-- Typecheck, lint and the electron smoke before a push: the lefthook `pre-push` hook.
 - File size: oxlint caps files at 800 code lines, functions at 250 and complexity at 40; files already over are capped at their size in the generated `.oxlintrc.size-baseline.json`. Split instead of raising a cap, then `npm run lint:baseline` (CI fails on a stale baseline). `npm run code-health` ranks files by size, churn and fixes.
 - "Your computer" copy, one slider, one dismiss hook, no native folders, background Electron checks: unit tests.

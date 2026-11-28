@@ -14,9 +14,11 @@ Useful checks:
 ```bash
 npm run typecheck
 npm run build
-npm test -- --unit
+npm test -- --only <name>
 npm run release:preview
 ```
+
+CI runs the whole unit suite and the Electron checks on every PR. Don't run them all before opening one: several agents doing that at once freezes a laptop.
 
 `npm test -- --changed origin/main` runs only the unit tests and Electron checks that import, directly or through other files, something your branch changed (committed, uncommitted or untracked); CI compares PRs with their merge base and pushes to main with the previous tip. Site-only and mobile-only changes also run that workspace's unit tests. The merge queue and a nightly run verify the whole suite. A nightly failure opens a GitHub issue. A change to a package manifest, the lockfile, a build or TypeScript config, the test runner or `ci.yml` runs everything. `node scripts/affected-tests.cjs --base origin/main` prints what a PR would run.
 
@@ -151,4 +153,4 @@ Each newline-delimited UTF-8 JSON request is `{ "v": 1, "id": 1, "method": "chat
 
 Frames are limited to 16 MiB, with 32 concurrent requests per client and a bounded outgoing buffer. Oversized state is rejected; it is never truncated. A slow client is disconnected and must refresh its snapshots. The client does not retry commands automatically. A timed-out mutation may still be running, so inspect state before retrying. Per-Project history pagination, remote reconnect/replay and remote authorization belong to the client protocol phase.
 
-Run `npm test -- --workspace core`, `npm test -- --workspace daemon` and `npm test -- --only test-desktop` to check runtime persistence, socket behavior and desktop compatibility. Tests use temporary Projects and fake provider sessions.
+CI runs `npm test -- --workspace core`, `npm test -- --workspace daemon` and the `test-desktop` smoke to check runtime persistence, socket behavior and desktop compatibility; locally, run only the test you are changing. Tests use temporary Projects and fake provider sessions.

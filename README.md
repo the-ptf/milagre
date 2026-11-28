@@ -41,7 +41,7 @@ Node.js 24+ on macOS or Windows.
 ```sh
 npm ci
 npm run dev                # Vite + Electron
-npm run typecheck && npm run lint && npm test -- --unit
+npm run typecheck && npm run lint   # CI runs the test suite
 npm run mobile:demo        # phone app with a demo agent, no provider account
 ```
 

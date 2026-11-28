@@ -357,8 +357,14 @@ function testEnv(env) {
   return next;
 }
 
+/** node:test file concurrency: CI keeps node's default (every core but one); a contributor's computer gets half its cores. */
+function unitConcurrency({ ci, cores }) {
+  return ci ? null : Math.max(1, Math.floor(cores / 2));
+}
+
 module.exports = {
   testEnv,
+  unitConcurrency,
   failureLine,
   failureReason,
   HOST_ENV,

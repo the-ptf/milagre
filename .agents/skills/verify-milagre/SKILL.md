@@ -127,7 +127,7 @@ node $V stop                 # or: node $V stop --run <id>
 node $V runs                 # runs still on disk, with live and dead PIDs
 ```
 
-`stop` reads the process tree under every recorded PID first, then SIGTERMs the phone host and Electron, sends `daemon:stop` to this run's daemon over its own socket (the daemon outlives the app by design and would otherwise keep the Project locked), SIGTERMs Metro and Vite, shuts down a simulator this run booted (`simslim shutdown`), waits, SIGKILLs only leftovers from that tree, reports ports still listening, copies logs to the evidence dir and removes the scratch dir. Evidence stays. `--keep-scratch` keeps the scratch dir for inspection. Run `stop` after every failed attempt too, so ports and processes don't pile up.
+`stop` reads the process tree under every recorded PID first, then SIGTERMs the phone host and Electron, sends `daemon:stop` to this run's daemon over its own socket (the daemon outlives the app by design and would otherwise keep the Project locked), SIGTERMs Metro and Vite, shuts down a simulator this run booted (`simslim shutdown`), waits, SIGKILLs only leftovers from that tree, reports ports still listening, copies logs to the evidence dir and removes the scratch dir. Evidence stays. `--keep-scratch` keeps the scratch dir for inspection. Run `stop` after every failed attempt too, so ports and processes don't pile up. `launch` also stops any run older than 4 hours or whose checkout is gone, checking that each recorded PID still runs from that run's checkout or scratch dir before it signals it.
 
 ## Gotchas
 

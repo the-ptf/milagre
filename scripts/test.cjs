@@ -10,6 +10,7 @@ const {
   failureReason,
   testEnv,
   needsShell,
+  unitConcurrency,
   shouldRetry,
   discoverUnitTests,
   discoverElectronChecks,
@@ -111,10 +112,11 @@ async function main() {
       "--test-reporter-destination=stdout",
       `--test-reporter=${pathToFileURL(path.join(__dirname, "failed-test-reporter.cjs")).href}`,
     ];
+    const concurrency = unitConcurrency({ ci: process.env.CI, cores: os.availableParallelism() });
     await run(
       `${selected.unit.length} unit test files`,
       process.execPath,
-      ["--test", ...reporters, `--test-reporter-destination=${report}`, ...selected.unit],
+      ["--test", ...(concurrency ? [`--test-concurrency=${concurrency}`] : []), ...reporters, `--test-reporter-destination=${report}`, ...selected.unit],
       {
         failed: () => (fs.existsSync(report) ? fs.readFileSync(report, "utf8").split("\n").filter(Boolean) : []),
       },
