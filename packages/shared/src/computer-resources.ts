@@ -3,6 +3,7 @@ export type ResourcePartKind =
   | "codex"
   | "antigravity"
   | "kiro"
+  | "grok"
   | "pi"
   | "terminals"
   | "app"
@@ -121,6 +122,7 @@ const PART_KINDS = new Set<string>([
   "codex",
   "antigravity",
   "kiro",
+  "grok",
   "pi",
   "terminals",
   "app",
@@ -146,6 +148,8 @@ function partLabel({ kind, count }: ResourcePart): string {
       return count ? `Antigravity · ${plural(count, "agent")}` : "Antigravity";
     case "kiro":
       return count ? `Kiro · ${plural(count, "agent")}` : "Kiro";
+    case "grok":
+      return count ? `Grok · ${plural(count, "agent")}` : "Grok";
     case "pi":
       return count ? `Pi · ${plural(count, "agent")}` : "Pi";
     case "terminals":

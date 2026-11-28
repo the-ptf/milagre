@@ -13,7 +13,7 @@ import { modelsFor } from "./turn-options";
 import { Field, Toggle, useStyles } from "./ui";
 
 type Save = (patch: Partial<OrchestratorSettings>) => void;
-const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro", "pi"];
+const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro", "grok", "pi"];
 
 function RoleRow({ role, models, onChange }: { role: OrchestratorRole; models: AgentModels | null; onChange: (role: OrchestratorRole) => void }) {
   const styles = useStyles();

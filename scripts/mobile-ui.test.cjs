@@ -10956,7 +10956,7 @@ function ongoingChatHost(options = {}) {
   return screen;
 }
 
-for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
+for (const provider of ["claude", "codex", "antigravity", "kiro", "grok"]) {
   for (const followUps of ["now", "queue"]) {
     test(`mobile ${provider} follows the ${followUps} follow-up setting`, async () => {
       const screen = ongoingChatHost({ contextSettings: { buttonThreshold: 70, autoThreshold: 85, autoCompact: false, followUps } });

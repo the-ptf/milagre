@@ -2,6 +2,7 @@ const { CodexRpc } = require("./codex-rpc.cjs");
 const { hasToken } = require("./antigravity-install.cjs");
 const { queryAntigravityModels } = require("./antigravity-model-list.cjs");
 const { listKiroModels } = require("./kiro-model-list.cjs");
+const { listGrokModels } = require("./grok-model-list.cjs");
 const { listPiModels } = require("./pi-profile.cjs");
 const { ANTIGRAVITY_AGENT_OPTIONS, ANTIGRAVITY_FAMILY_COPY, antigravityFamilies } = require("@milagre/shared/antigravity-models");
 const { agentEnvironment } = require("./command.cjs");
@@ -161,7 +162,14 @@ function createModelCache({
   cli,
   cwd,
   clientVersion,
-  list = { claude: listClaudeModels, codex: listCodexModels, antigravity: listAntigravityModels, kiro: listKiroModels, pi: listPiCliModels },
+  list = {
+    claude: listClaudeModels,
+    codex: listCodexModels,
+    antigravity: listAntigravityModels,
+    kiro: listKiroModels,
+    grok: listGrokModels,
+    pi: listPiCliModels,
+  },
 }) {
   const cache = new Map();
   function lookup(provider) {
@@ -197,14 +205,15 @@ function createModelCache({
     return models?.length ? models : null;
   };
   const read = async () => {
-    const [claude, codex, antigravityList, kiro, pi] = await Promise.all([
+    const [claude, codex, antigravityList, kiro, grok, pi] = await Promise.all([
       lookup("claude"),
       lookup("codex"),
       antigravity(),
       list.kiro ? lookup("kiro") : null,
+      list.grok ? lookup("grok") : null,
       list.pi ? piList() : null,
     ]);
-    return { claude, codex, antigravity: antigravityList, kiro, pi };
+    return { claude, codex, antigravity: antigravityList, kiro, grok, pi };
   };
   read.invalidate = (provider) => {
     cache.delete(provider);

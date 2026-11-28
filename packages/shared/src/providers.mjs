@@ -1,10 +1,11 @@
 /** Picker order and the names used by every client and CLI notice. */
-export const PROVIDERS = Object.freeze(["codex", "claude", "antigravity", "kiro", "pi"]);
+export const PROVIDERS = Object.freeze(["codex", "claude", "antigravity", "kiro", "grok", "pi"]);
 const names = {
   codex: { name: "Codex", cli: "Codex" },
   claude: { name: "Claude", cli: "Claude Code" },
   antigravity: { name: "Antigravity", cli: "Antigravity" },
   kiro: { name: "Kiro", cli: "Kiro CLI" },
+  grok: { name: "Grok", cli: "Grok Build" },
   pi: { name: "Pi", cli: "Pi" },
 };
 /** The provider id for one saved before a rename: Pi's Chats were Ollama's until Pi ran hosted models too. */

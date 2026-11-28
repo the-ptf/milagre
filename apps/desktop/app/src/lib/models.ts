@@ -31,7 +31,7 @@ export function capabilitiesFrom(reported: AgentModels | null): ModelCapabilitie
         { efforts, ...(defaultEffort ? { defaultEffort } : {}), ultracode, fastMode },
       ]),
     );
-  return { codex: byId("codex"), claude: byId("claude"), antigravity: byId("antigravity"), kiro: byId("kiro"), pi: byId("pi") };
+  return { codex: byId("codex"), claude: byId("claude"), antigravity: byId("antigravity"), kiro: byId("kiro"), grok: byId("grok"), pi: byId("pi") };
 }
 
 export function resolveModel(models: ModelOption[], wanted: string | undefined, provider: ModelProvider): ModelOption {
@@ -50,6 +50,7 @@ export function resolveModel(models: ModelOption[], wanted: string | undefined, 
 
 export function providerForId(id: string | undefined): ModelProvider {
   if (id?.startsWith("kiro:")) return "kiro";
+  if (id?.startsWith("grok:")) return "grok";
   if (id?.startsWith("pi:") || id?.startsWith("ollama:")) return "pi";
   if (id?.startsWith("gemini") || id?.startsWith("antigravity:")) return "antigravity";
   return id?.startsWith("claude") ? "claude" : "codex";

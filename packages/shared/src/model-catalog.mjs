@@ -1,4 +1,5 @@
 import { ANTIGRAVITY_AGENT_OPTIONS, ANTIGRAVITY_FAMILY_COPY, antigravityFamilies } from "./antigravity-models.mjs";
+import { GROK_AGENT_OPTIONS, grokModels } from "./grok-models.mjs";
 import { KIRO_AGENT_OPTIONS, kiroModels } from "./kiro-models.mjs";
 
 function antigravityCatalog() {
@@ -43,5 +44,12 @@ export const MODEL_CATALOG = [
     description,
     ...(recommended ? { recommended } : {}),
     ...(credits ? { credits } : {}),
+  })),
+  ...grokModels(GROK_AGENT_OPTIONS).map(({ id, name, description, recommended }) => ({
+    id,
+    name,
+    provider: "grok",
+    description,
+    ...(recommended ? { recommended } : {}),
   })),
 ];

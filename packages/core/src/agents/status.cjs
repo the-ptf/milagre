@@ -4,6 +4,7 @@ const { PROVIDERS } = require("@milagre/shared/providers");
 const { hasToken } = require("./antigravity-install.cjs");
 const { loginMessage } = require("./events.cjs");
 const { kiroLoggedOut } = require("../kiro-account.cjs");
+const { grokLoggedOut } = require("../grok-account.cjs");
 const { piReady } = require("./pi-profile.cjs");
 
 const piLoggedOut = async (_command, { env } = {}) => !(await piReady({ env: env ?? process.env }));
@@ -11,6 +12,7 @@ const piLoggedOut = async (_command, { env } = {}) => !(await piReady({ env: env
 //              Codex: account/read answers { account: null, requiresOpenaiAuth: true }
 //              Antigravity: the account's GEMINI_HOME has no antigravity-acp/acp_token.json (nothing is spawned)
 //              Kiro: `kiro-cli whoami` says "Not logged in"
+//              Grok: no `auth.json` under GROK_HOME (default ~/.grok) and no XAI_API_KEY (nothing is spawned)
 
 const READY_TTL_MS = 5 * 60_000;
 const AUTH_TIMEOUT_MS = 10_000;
@@ -85,7 +87,7 @@ function createCliStatus({
   clientVersion,
   now = Date.now,
   ttlMs = READY_TTL_MS,
-  loggedOut = { claude: claudeLoggedOut, codex: codexLoggedOut, antigravity: antigravityLoggedOut, kiro: kiroLoggedOut, pi: piLoggedOut },
+  loggedOut = { claude: claudeLoggedOut, codex: codexLoggedOut, antigravity: antigravityLoggedOut, kiro: kiroLoggedOut, grok: grokLoggedOut, pi: piLoggedOut },
 }) {
   const cache = new Map();
   function lookup(name) {

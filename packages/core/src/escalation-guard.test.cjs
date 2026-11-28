@@ -74,6 +74,6 @@ test("a babysit guard stays the session's own, and a wake's never reaches babysi
 });
 
 test("only a provider with a gate over every tool can be woken", () => {
-  for (const provider of ["claude", "codex", "antigravity", "kiro"]) assert.equal(canEscalate(provider), true, provider);
+  for (const provider of ["claude", "codex", "antigravity", "kiro", "grok"]) assert.equal(canEscalate(provider), true, provider);
   assert.equal(canEscalate("something-new"), false);
 });

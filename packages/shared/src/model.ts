@@ -23,7 +23,7 @@ export type { ChatEditRequest, MessageEditContext } from "./message-edit.mjs";
 export type { HandoffContext, CheckpointRestoreContext, GithubIssueContext, LinearIssueContext, ValidationContext };
 
 export type SessionStatus = "Created" | "Running" | "Stopped";
-export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro" | "pi";
+export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro" | "grok" | "pi";
 export type PermissionMode = "ask" | "auto" | "full";
 export type Isolation = "local" | "worktree";
 

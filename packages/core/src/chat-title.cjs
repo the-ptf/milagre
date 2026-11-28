@@ -1,4 +1,4 @@
-const { claudeModel, codexModel, antigravityModel, kiroModel } = require("./git-text.cjs");
+const { claudeModel, codexModel, antigravityModel, kiroModel, grokModel } = require("./git-text.cjs");
 const { extractJson } = require("./agents/antigravity-text.cjs");
 const { piTextModel } = require("./agents/pi-text.cjs");
 const { isLocalPiModel } = require("@milagre/shared/pi-models");
@@ -130,6 +130,7 @@ function createChatTitleModels({ cli, clientVersion }) {
     codex: codexModel({ getCommand: getCommand("codex"), clientVersion, outputSchema: TITLE_SCHEMA }),
     antigravity: antigravityModel({ getCommand: getCommand("antigravity"), clientVersion, outputSchema: TITLE_SCHEMA }),
     kiro: kiroModel({ getCommand: getCommand("kiro"), clientVersion, outputSchema: TITLE_SCHEMA }),
+    grok: grokModel({ getCommand: getCommand("grok"), clientVersion, outputSchema: TITLE_SCHEMA }),
     "pi-hosted": piTextModel({ getCommand: getCommand("pi"), outputSchema: TITLE_SCHEMA, hostedOnly: true }),
   };
 }

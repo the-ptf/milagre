@@ -2,7 +2,7 @@ const fsp = require("node:fs/promises");
 const path = require("node:path");
 const { PROVIDERS } = require("@milagre/shared/providers");
 const { chatTerms, codeNames, dictationTerms } = require("@milagre/shared/dictation");
-const { claudeModel, codexModel, antigravityModel, kiroModel, withTimeout } = require("./git-text.cjs");
+const { claudeModel, codexModel, antigravityModel, kiroModel, grokModel, withTimeout } = require("./git-text.cjs");
 const { extractJson } = require("./agents/antigravity-text.cjs");
 const { createGit } = require("./git/client.cjs");
 
@@ -130,6 +130,7 @@ function createDictationModels({ cli, clientVersion }) {
     codex: codexModel({ getCommand: getCommand("codex"), clientVersion, outputSchema: SCHEMA }),
     antigravity: antigravityModel({ getCommand: getCommand("antigravity"), clientVersion, outputSchema: SCHEMA }),
     kiro: kiroModel({ getCommand: getCommand("kiro"), clientVersion, outputSchema: SCHEMA }),
+    grok: grokModel({ getCommand: getCommand("grok"), clientVersion, outputSchema: SCHEMA }),
   };
 }
 

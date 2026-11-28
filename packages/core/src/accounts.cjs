@@ -10,6 +10,7 @@ const { inheritMcp } = require("./account-mcp.cjs");
 const { AMBIENT_ENV } = require("./agents/antigravity-install.cjs");
 const { SUBSCRIPTION_MESSAGE, inspectAntigravityAccount, prepareAntigravityProfile, signInAntigravity } = require("./antigravity-account.cjs");
 const { inspectKiroAccount } = require("./kiro-account.cjs");
+const { inspectGrokAccount } = require("./grok-account.cjs");
 const { piEnvironment, piReady } = require("./agents/pi-profile.cjs");
 const { PI_SIGNED_OUT_MESSAGE } = require("./agents/events.cjs");
 const { PROVIDERS, currentProvider, withCurrentProviders } = require("@milagre/shared/providers");
@@ -30,6 +31,7 @@ const OLLAMA_PI_PROFILE = "ollama-pi";
 const PI_ACCOUNT_MESSAGE =
   "Pi uses the providers it is connected to on this computer. Run `pi auth login <provider>` in a terminal to connect one, then refresh.";
 const KIRO_SIGN_IN_MESSAGE = "Kiro uses the account kiro-cli is signed in to. Run `kiro-cli login` in a terminal to sign in or switch, then refresh.";
+const GROK_SIGN_IN_MESSAGE = "Grok uses the account `grok login` is signed in to. Run `grok login` in a terminal to sign in or switch, then refresh.";
 const text = (value) => (typeof value === "string" ? value.slice(0, 200) : undefined);
 const BROWSER_SIGN_IN_MESSAGE = "Finish signing in in the browser on your computer.";
 const CODE_SIGN_IN_MESSAGE = "Finish signing in in the browser on your computer, or open the sign-in link on this device and paste the code it shows.";
@@ -40,7 +42,7 @@ const signingIn = (entry) =>
   entry.url ? { state: "signing-in", message: CODE_SIGN_IN_MESSAGE, signInUrl: entry.url } : { state: "signing-in", message: BROWSER_SIGN_IN_MESSAGE };
 const validCode = (value) => typeof value === "string" && /^[\x21-\x7e]{1,2000}$/.test(value.trim());
 
-const SIGN_IN_ELSEWHERE = { kiro: KIRO_SIGN_IN_MESSAGE, pi: PI_ACCOUNT_MESSAGE };
+const SIGN_IN_ELSEWHERE = { kiro: KIRO_SIGN_IN_MESSAGE, grok: GROK_SIGN_IN_MESSAGE, pi: PI_ACCOUNT_MESSAGE };
 const DEFAULT_LABELS = { antigravity: "Default account", pi: "This computer" };
 
 // Accounts saved under a provider's earlier id (Ollama's became Pi's) read under the current one.
@@ -67,6 +69,7 @@ function piProfile(root) {
 async function inspectAccount(provider, { command, env }) {
   if (provider === "antigravity") return inspectAntigravityAccount({ env });
   if (provider === "pi") return (await piReady({ env })) ? { state: "ready", email: "", plan: "" } : { state: "error", message: PI_SIGNED_OUT_MESSAGE };
+  if (provider === "grok") return inspectGrokAccount({ env });
   if (provider === "kiro") {
     const identity = await inspectKiroAccount({ command, env });
     return { state: identity.state, email: text(identity.email), plan: text(identity.plan), message: identity.message };
@@ -204,7 +207,7 @@ function createAccounts({
   }
   const directory = (provider, id) => {
     if (provider === "antigravity") return path.join(root, id === "default" ? ANTIGRAVITY_DEFAULT : id);
-    if (provider === "kiro") return path.join(home, ".kiro");
+    if (provider === "kiro" || provider === "grok") return path.join(home, provider === "kiro" ? ".kiro" : ".grok");
     return id === "default"
       ? path.resolve(env[provider === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"] || path.join(home, `.${provider}`))
       : path.join(root, id);

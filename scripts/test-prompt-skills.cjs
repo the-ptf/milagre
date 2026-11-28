@@ -291,7 +291,7 @@ async function browserChecks() {
     // No picker in the composer: Settings › Chat › Messages during a turn decides, and providers that can't steer queue.
     for (const followUps of ["now", "queue"]) {
       await evaluate(`window.emitContextSettings({ ...window.contextSettings, followUps: ${JSON.stringify(followUps)} })`);
-      for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
+      for (const provider of ["claude", "codex", "antigravity", "kiro", "grok"]) {
         await evaluate(`window.setSuggestOptions({ provider: ${JSON.stringify(provider)}, running: true })`);
         await type("follow up");
         const label = followUps === "now" && ["claude", "codex"].includes(provider) ? "Send now" : "Queue message";

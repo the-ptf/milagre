@@ -242,7 +242,7 @@ for (const provider of ["claude", "antigravity"]) {
   });
 }
 
-for (const provider of ["claude", "codex", "antigravity", "kiro"]) {
+for (const provider of ["claude", "codex", "antigravity", "kiro", "grok"]) {
   test(`${provider} side questions run separately and never write the main Chat`, async (t) => {
     const f = await fixture(t, provider);
     const before = await f.runtime.openProject(f.project);

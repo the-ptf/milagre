@@ -4,14 +4,14 @@ How Milagre runs agents other than Claude and Codex (over the Agent Client Proto
 
 ## ACP client
 
-Antigravity and Kiro run over the Agent Client Protocol: JSON-RPC over stdio. `acp-session.cjs` is a generic client; each agent supplies its command, environment, modes, model ids, sign-in and login errors (`antigravity-acp.cjs`, `kiro-acp.cjs`). Another ACP agent is configuration, not a new client.
+Antigravity, Kiro and Grok run over the Agent Client Protocol: JSON-RPC over stdio. `acp-session.cjs` is a generic client; each agent supplies its command, environment, modes, model ids, sign-in and login errors (`antigravity-acp.cjs`, `kiro-acp.cjs`, `grok-acp.cjs`). Another ACP agent is configuration, not a new client.
 
 - A Chat starts with `session/new` and resumes from its saved id without replaying history as new output. Milagre's instructions and the `milagre` MCP server attach when a session is created.
 - `session/request_permission` goes to the approval cards; requests that are really questions use the question card.
 - Stop sends `session/cancel`. A session that doesn't confirm within a few seconds is killed (with the process group below it) and replaced on the next turn.
 - ACP can't steer a running turn. A message sent while the agent works becomes the next turn; Stop drops it, as it drops a steered message on Claude and Codex.
 - Before the first Chat, a short-lived empty session discovers the model list, without prompting, authenticating or attaching tools. Concurrent lookups share one per Account; Account changes invalidate it; failures retry on the next read. A static catalog stands in for a missing or signed-out agent.
-- Model ids carry a provider prefix (`antigravity:`, `kiro:`), so a Claude or GPT model run through these agents never resolves to the same model on its own provider through a saved default.
+- Model ids carry a provider prefix (`antigravity:`, `kiro:`, `grok:`), so a Claude or GPT model run through these agents never resolves to the same model on its own provider through a saved default.
 
 ## Antigravity
 
@@ -37,6 +37,18 @@ AWS's Kiro agent runs on a Kiro license's credits.
 - **Helpers.** Titles, handover briefs, dictation cleanup and commit messages on a Kiro Chat use one small-model turn in a throwaway session.
 - **Cost.** Each turn's credits come from the `session_info_update` Kiro sends before the turn ends. The month's credits come from `kiro-cli chat --no-interactive /usage`, which is free but slow and leaves a session record, so it runs rarely, in a temp folder, and never holds up other providers' numbers. Calling the backend directly would need kiro-cli's token store.
 - Kiro's subagents stay plain steps.
+
+## Grok
+
+xAI's Grok Build agent (`grok`) runs on the Grok subscription (SuperGrok or X Premium+) or an `XAI_API_KEY`. Grok models also reach Milagre through Pi with an API key; this provider is the one that uses the subscription.
+
+- **Install.** Milagre doesn't install Grok; the user installs it (`curl -fsSL https://x.ai/cli/install.sh | bash`, `irm https://x.ai/cli/install.ps1 | iex` on Windows) and updates it with `grok update`. Milagre finds `grok` on the PATH or in `~/.grok/bin` and starts `grok agent stdio`, the ACP server. The 0.1.0 floor in `cli.cjs` is a guess at the first release, not a tested one.
+- **Approvals.** Grok's permission mode stays `ask`, its default: it runs read-only tools and read-only shell commands and sends `session/request_permission` for the rest. Milagre never sets a Grok mode (`modes` is empty, so `acp-session.cjs` treats the session as strict). Milagre's mode decides what reaches a card, as on Kiro: Ask shows every request, Auto runs edits inside the Chat's folders and sends commands through `command-risk.cjs`, Full asks nothing. Rejected: Grok's `yoloMode` and `autoMode` session options, which can only be set when the session is created, so a Chat couldn't change mode afterwards.
+- **Models.** Read from the `model` option of an empty `session/new`, like Kiro; until Grok is signed in, `grok-models.mjs` lists the models its documentation names. Effort is the `reasoning_effort` option (`low`, `medium`, `high`, `xhigh`); Grok drops it for a model that doesn't support it.
+- **Account.** One, whoever `grok login` is signed in to. Signed in means `auth.json` under `GROK_HOME` (default `~/.grok`) or `XAI_API_KEY` is set; checking reads no token and starts no process. Milagre adds no Grok Accounts and starts no sign-in; `addAccounts` is false.
+- **Helpers.** Titles, handover briefs, dictation cleanup and commit messages on a Grok Chat use one `grok-4.6` turn in a throwaway session. Grok keeps those sessions in its history.
+- **Usage.** Not read: the row is unavailable and hidden.
+- Grok's subagents stay plain steps.
 
 ## Pi
 

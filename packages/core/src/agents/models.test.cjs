@@ -278,13 +278,14 @@ test("each agent is asked once per run; a missing CLI or a failed lookup is aske
   const models = createModelCache({ cli, cwd: "/tmp", clientVersion: "1.0.0", list });
   const antigravity = [{ id: "gemini-3.8-flash-high" }];
   const kiro = [{ id: "kiro:auto", credits: 1 }];
-  assert.deepEqual(await models(), { claude: [{ id: "claude-opus-5-5" }], codex: null, antigravity, kiro, pi: [{ id: "pi:ollama/pulled-1" }] });
-  assert.deepEqual(await models(), { claude: [{ id: "claude-opus-5-5" }], codex: null, antigravity, kiro, pi: [{ id: "pi:ollama/pulled-2" }] });
+  assert.deepEqual(await models(), { claude: [{ id: "claude-opus-5-5" }], codex: null, antigravity, kiro, grok: null, pi: [{ id: "pi:ollama/pulled-1" }] });
+  assert.deepEqual(await models(), { claude: [{ id: "claude-opus-5-5" }], codex: null, antigravity, kiro, grok: null, pi: [{ id: "pi:ollama/pulled-2" }] });
   assert.deepEqual(await models(), {
     claude: [{ id: "claude-opus-5-5" }],
     codex: [{ id: "gpt-6-astra" }],
     antigravity,
     kiro,
+    grok: null,
     pi: [{ id: "pi:ollama/pulled-3" }],
   });
   // Pi's list is read every time, so a model pulled a moment ago shows at once.

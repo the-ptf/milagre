@@ -47,7 +47,7 @@ export function selectedModel(provider: ModelProvider, wanted: string, reported?
   const unlisted = provider === "pi" ? unlistedPiModel(id) : undefined;
   if (unlisted) return unlisted;
   const available = models.find((model) => model.recommended) ?? models[0];
-  if ((provider === "antigravity" || provider === "kiro") && available) return available;
+  if ((provider === "antigravity" || provider === "kiro" || provider === "grok") && available) return available;
   const saved = { provider, id: wanted, name: wanted, description: "Previously used in this Chat" };
   return { ...saved, ...capabilityFor(saved, null) };
 }

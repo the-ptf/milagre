@@ -131,16 +131,24 @@ const AUTH_RETRY_MESSAGE = "Claude Code couldn't authenticate this turn, but it 
 const RESUME_FAILED_MESSAGE =
   "Couldn't resume this chat's earlier agent session; it may have been deleted. Send your message again to continue in a fresh session.";
 
-// Claude, Codex and Kiro are fixed in a terminal. Antigravity is installed and signed in by Milagre itself, so its
+// Claude, Codex, Kiro and Grok are fixed in a terminal. Antigravity is installed and signed in by Milagre itself, so its
 // instructions point at Settings, not at a shell command. Kiro's installer outside macOS is on kiro.dev.
 const INSTALL_COMMANDS =
   process.platform === "win32"
-    ? { claude: "irm https://claude.ai/install.ps1 | iex", codex: "irm https://chatgpt.com/codex/install.ps1 | iex" }
-    : { claude: "curl -fsSL https://claude.ai/install.sh | bash", codex: "curl -fsSL https://chatgpt.com/codex/install.sh | sh" };
+    ? {
+        claude: "irm https://claude.ai/install.ps1 | iex",
+        codex: "irm https://chatgpt.com/codex/install.ps1 | iex",
+        grok: "irm https://x.ai/cli/install.ps1 | iex",
+      }
+    : {
+        claude: "curl -fsSL https://claude.ai/install.sh | bash",
+        codex: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+        grok: "curl -fsSL https://x.ai/cli/install.sh | bash",
+      };
 if (process.platform === "darwin") INSTALL_COMMANDS.kiro = "brew install --cask kiro-cli";
 INSTALL_COMMANDS.pi = "npm install -g @earendil-works/pi-coding-agent";
-const UPDATE_COMMANDS = { claude: "claude update", codex: "codex update", kiro: "kiro-cli update", pi: "pi update self" };
-const LOGIN_COMMANDS = { claude: "claude auth login", codex: "codex login", kiro: "kiro-cli login" };
+const UPDATE_COMMANDS = { claude: "claude update", codex: "codex update", kiro: "kiro-cli update", grok: "grok update", pi: "pi update self" };
+const LOGIN_COMMANDS = { claude: "claude auth login", codex: "codex login", kiro: "kiro-cli login", grok: "grok login" };
 const SETTINGS_ACCOUNTS = "Milagre Settings \u2192 Accounts";
 const OLLAMA_DOWN_MESSAGE = "Ollama isn't running on this computer. Open the Ollama app or run `ollama serve`, then send your message again.";
 const PI_SIGNED_OUT_MESSAGE =

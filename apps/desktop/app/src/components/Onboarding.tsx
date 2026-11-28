@@ -31,7 +31,7 @@ import { useOpenFolder } from "./ImportFolderDialog";
 import { OnboardingImport } from "./OnboardingImport";
 import { bridgeFor } from "../lib/computer-bridge";
 
-const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro", "pi"];
+const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro", "grok", "pi"];
 
 const QUIET_EDGE = "-ml-3";
 
@@ -125,10 +125,15 @@ function agentRows(status: AgentCliStatus | null, accounts: AccountsSnapshot | n
 }
 
 /** Agents whose CLI people install and update themselves (cli-update.cjs refuses them): their row says how instead of
- * offering an Install that can only fail. Kiro's macOS installer is Homebrew; elsewhere it is on kiro.dev. Pi comes from
+ * offering an Install that can only fail. Kiro's macOS installer is Homebrew; elsewhere it is on kiro.dev. Grok Build's installer is a script on x.ai. Pi comes from
  * npm, and runs Ollama's local models and any provider connected with `pi auth login`. */
 const SELF_INSTALLED: Partial<Record<ModelProvider, { install?: string; update: string; site: string }>> = {
   kiro: { install: isMac ? "brew install --cask kiro-cli" : undefined, update: "kiro-cli update", site: "https://kiro.dev" },
+  grok: {
+    install: isWindows ? "irm https://x.ai/cli/install.ps1 | iex" : "curl -fsSL https://x.ai/cli/install.sh | bash",
+    update: "grok update",
+    site: "https://x.ai/build",
+  },
   pi: { install: "npm install -g @earendil-works/pi-coding-agent", update: "pi update self", site: "https://pi.dev" },
 };
 

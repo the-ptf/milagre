@@ -316,6 +316,10 @@
       "types": "./src/kiro-models.d.mts",
       "default": "./src/kiro-models.mjs"
     },
+    "./grok-models": {
+      "types": "./src/grok-models.d.mts",
+      "default": "./src/grok-models.mjs"
+    },
     "./pi-models": {
       "types": "./src/pi-models.d.mts",
       "default": "./src/pi-models.mjs"

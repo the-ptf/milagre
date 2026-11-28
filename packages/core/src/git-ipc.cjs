@@ -3,7 +3,7 @@ const path = require("node:path");
 const { PROVIDERS } = require("@milagre/shared/providers");
 const { createGitActions } = require("./git-actions.cjs");
 const { createGitDiff } = require("./git-diff.cjs");
-const { GENERATION_FAILED, claudeModel, codexModel, generateGitText, antigravityModel, kiroModel, piModel } = require("./git-text.cjs");
+const { GENERATION_FAILED, claudeModel, codexModel, generateGitText, antigravityModel, kiroModel, grokModel, piModel } = require("./git-text.cjs");
 const { createPullRequestReview } = require("./pull-request-review.cjs");
 
 const NOT_A_CHAT_FOLDER = "This folder isn't one of the open project's chats.";
@@ -54,6 +54,7 @@ function registerGitHandlers(
       codex: codexModel({ getCommand: command("codex", cwd), clientVersion }),
       antigravity: antigravityModel({ getCommand: command("antigravity", cwd), clientVersion }),
       kiro: kiroModel({ getCommand: command("kiro", cwd), clientVersion }),
+      grok: grokModel({ getCommand: command("grok", cwd), clientVersion }),
       pi: piModel({ getCommand: command("pi", cwd) }),
     };
 
